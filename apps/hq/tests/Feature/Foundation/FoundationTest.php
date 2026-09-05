@@ -40,8 +40,8 @@ it('feature flags default off, honour environment precedence and business rollou
 
 it('records events once per dedupe key and processes them with retries and dead-lettering', function () {
     $recorder = app(EventRecorder::class);
-    $a = $recorder->record('order.created', ['ref' => 'LLD-1'], 'laladia', 'inbound', 'order', 'LLD-1', dedupeKey: 'laladia:order.created:LLD-1');
-    $b = $recorder->record('order.created', ['ref' => 'LLD-1'], 'laladia', 'inbound', 'order', 'LLD-1', dedupeKey: 'laladia:order.created:LLD-1');
+    $a = $recorder->record('test.noop', ['ref' => 'LLD-1'], 'laladia', 'inbound', 'order', 'LLD-1', dedupeKey: 'laladia:test.noop:LLD-1');
+    $b = $recorder->record('test.noop', ['ref' => 'LLD-1'], 'laladia', 'inbound', 'order', 'LLD-1', dedupeKey: 'laladia:test.noop:LLD-1');
     expect($a->id)->toBe($b->id)->and(DomainEvent::count())->toBe(1)->and($a->status)->toBe('pending');
 
     // No handler registered: processed (nothing to do is not a failure).

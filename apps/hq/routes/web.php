@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
@@ -52,6 +53,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::post('credentials/{credential}/revoke', [AdminController::class, 'revokeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.revoke');
 
     Route::get('businesses', [AdminController::class, 'businesses'])->middleware('permission:hq.businesses.view')->name('businesses.index');
+
+    Route::get('customers', [CustomerController::class, 'index'])->middleware('permission:hq.customers.view')->name('customers.index');
+    Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
+    Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
+    Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');
 });
 
 require __DIR__.'/settings.php';

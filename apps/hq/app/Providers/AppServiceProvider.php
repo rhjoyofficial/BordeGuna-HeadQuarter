@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Commerce\Support\CommerceRegistry;
 use App\Listeners\RecordAuthenticationEvents;
 use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Credentials\OAuthManager;
@@ -23,6 +24,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
         $this->app->singleton(Features::class);
         $this->app->singleton(OAuthManager::class);
+        $this->app->singleton(CommerceRegistry::class);
     }
 
     public function boot(): void

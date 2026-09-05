@@ -2,6 +2,8 @@
 
 use App\Scheduling\Tools\FailingTool;
 use App\Scheduling\Tools\NoopTool;
+use App\Support\Events\Handlers\CustomerRegisteredHandler;
+use App\Support\Events\Handlers\ShopOrderEventHandler;
 
 /*
  | BordeGuna-HeadQuarter application configuration.
@@ -25,7 +27,13 @@ return [
 
     'events' => [
         // type => [handler classes]. Empty in Phase 0; handlers arrive with the subsystems that need them.
-        'handlers' => [],
+        'handlers' => [
+            'order.created' => [ShopOrderEventHandler::class],
+            'order.status_changed' => [ShopOrderEventHandler::class],
+            'payment.completed' => [ShopOrderEventHandler::class],
+            'shipment.delivered' => [ShopOrderEventHandler::class],
+            'customer.registered' => [CustomerRegisteredHandler::class],
+        ],
         'default_max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800, 3600],
     ],

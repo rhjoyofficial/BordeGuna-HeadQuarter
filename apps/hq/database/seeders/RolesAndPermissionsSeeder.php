@@ -24,6 +24,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'hq.flags.view', 'hq.flags.manage',
         'hq.credentials.view', 'hq.credentials.manage',
         'hq.businesses.view', 'hq.businesses.manage',
+        'hq.customers.view', 'hq.customers.manage',
         'hq.users.manage',
         'hq.horizon.view',
     ];
@@ -31,8 +32,8 @@ class RolesAndPermissionsSeeder extends Seeder
     public const ROLES = [
         'owner' => '*',
         'operator' => '*',
-        'brand_manager' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.jobs.manage', 'hq.businesses.view', 'hq.credentials.view', 'hq.flags.view'],
-        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view'],
+        'brand_manager' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.jobs.manage', 'hq.businesses.view', 'hq.credentials.view', 'hq.flags.view', 'hq.customers.view'],
+        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view'],
     ];
 
