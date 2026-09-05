@@ -5,7 +5,7 @@
 | Layer | Tool | Rule |
 |---|---|---|
 | Unit | Pest (PHP), Vitest (TS) | policies table-driven at boundary values; DTO validation; NL-to-schedule parser against a fixture set |
-| Integration | Pest with Postgres 17 + Redis in CI | connectors against recorded HTTP fixtures (no live calls in CI); event inbox/outbox; scheduler tick exactly-once; workflow resume after crash |
+| Integration | Pest with Postgres 17 + Redis in CI | connectors against recorded HTTP fixtures (no live calls in CI); event inbox/outbox; scheduler tick creates one run per logical slot; reconciliation on uncertain provider state (ADR-011); workflow resume after crash |
 | Contract | recorded upstream responses per connector version | a changed upstream shape fails CI, not production |
 | Browser | Playwright | Command Center, Approval Center, Inbox takeover/resume, scheduler UI; run against the built app, never the dev server |
 | Route registration | test that records every route `add()` | prevents the route-shadowing defect seen in LaLaDia |

@@ -41,4 +41,4 @@ Schema changes are additive (new column nullable, new table); destructive change
 
 ## Not production-ready until
 
-Offsite for ERP running and drilled; HQ offsite running from the first deploy; one full "lost VPS" drill performed on a scratch VPS and timed.
+**Prerequisite for any HQ production workload:** the ERP `offsite` restic service is activated, a snapshot is verified with `restic check`, and **one restore is actually performed** into a scratch MySQL container and the ERP boots against it; the procedure is written into `deploy/README.md` of the ERP. Configuration alone does not count. Then: HQ offsite running from the first deploy with the same restore proof; one full "lost VPS" drill on a scratch VPS, timed.

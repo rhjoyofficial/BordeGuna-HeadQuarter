@@ -1,5 +1,7 @@
 # 33 - Nikolahost to Hostinger Migration Plan
 
+> **Status (5 Sep 2026): planned, not scheduled.** Joy decided HQ deploys on the current VPS first (ADR-012). This plan stays as the runbook for the shop migration and for the second commerce VPS when monitoring shows the current box is near capacity. Nothing here is a prerequisite for Phase 0.
+
 ## What moves
 
 | Site | Today | Target | Effort |

@@ -1,4 +1,4 @@
-# 21 - Scheduling System (first-class, mandatory)
+# 21 - Scheduling System (a core product feature)
 
 ## Requirements met
 
@@ -12,7 +12,7 @@ cron-style recurring, one-time, daily/weekly/monthly, interval, event-triggered,
       |
  schedule:work tick (every minute, one process, Redis lock)
       -> SELECT due jobs (next_run_at <= now, state=active, approval_state=approved) FOR UPDATE SKIP LOCKED
-      -> insert job_runs(scheduled_for) [unique on (job_id, scheduled_for) => exactly-once per slot]
+      -> insert job_runs(scheduled_for) [unique on (job_id, scheduled_for) => one logical slot, never scheduled twice]
       -> dispatch RunScheduledJob to Horizon (queue by priority)
       -> compute next_run_at in the job's timezone (cron expression via a tested library) or mark done for one-time
  RunScheduledJob -> ToolGateway.execute(job.tool_key, payload) under the job's owner + agent identity -> policy engine applies
@@ -32,6 +32,8 @@ A scheduled content task's payload carries exactly: brand, platform, asset ids, 
 
 ## Natural language to job
 
+Default timezone is **Asia/Dhaka** unless the user names another. The parser must produce a persisted `scheduled_jobs` row or a clarifying question, never a silent guess.
+
 ```
 "Post this image to LaLaDia Facebook tomorrow at 5 PM."
  -> low-tier model with a strict JSON schema: {kind: once, run_at: 2026-09-06T17:00 Asia/Dhaka, tool: publish_content,
@@ -46,6 +48,6 @@ Recurring: "Every morning at 9 AM send me the business briefing" -> `cron 0 9 * 
 
 Jobs list (filters: business, kind, state, next run), run history with output and error, pause/resume/cancel/edit, "run now", calendar view for content. Every change is audited.
 
-## Reliability
+## Reliability model (ADR-011)
 
-Exactly-once per slot by the unique run row; at-least-once execution with idempotent tools; dead-letter after max attempts with a notification; a watchdog job every 10 minutes checks that the tick ran in the last 3 minutes and alerts if not (the ERP verifies its scheduler the same way, by looking for rows it should have produced).
+HQ does **not** claim exactly-once external side effects; no system can for arbitrary providers. The model is: one logical job slot; a unique run record per slot (no duplicate logical scheduling); **at-least-once execution**; idempotent tool execution; provider idempotency keys where the provider supports them; and **reconciliation when provider state is uncertain**. Example: a scheduled Facebook publish carries a unique `publications.logical_key`. If the worker crashes after Facebook accepted the post but before HQ stored the post id, the retry first asks the adapter to `reconcile(logical_key)` (look up recent posts on that Page for the marker HQ embeds or the request id), and only if nothing is found does it publish again. Dead-letter after max attempts with a notification; a watchdog job every 10 minutes checks that the tick ran in the last 3 minutes and alerts if not (the ERP verifies its scheduler the same way, by looking for rows it should have produced).

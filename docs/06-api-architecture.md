@@ -6,9 +6,9 @@ Three API surfaces matter: what HQ **consumes**, what HQ **exposes**, and what m
 
 | Connector | Base | Auth | Exists today | Notes |
 |---|---|---|---|---|
-| `ShopConnector` (LaLaDia, Bionic) | `https://<shop>/api/v1` | assistant key header (`chatbot.key`), Sanctum token for admin routes | yes | products, search, combos, shipping zones, geo, checkout, landing checkout; admin: orders, shipments, customers, coupons |
+| `LaLaDiaCommerceAdapter`, `BionicCommerceAdapter` (Commerce Platform Interface, doc 15) | `https://<shop>/api/v1` | assistant key header (`chatbot.key`), Sanctum token for admin routes | yes | products, search, combos, shipping zones, geo, checkout, landing checkout; admin: orders, shipments, customers, coupons |
 | `ErpConnector` | `https://erp.../api/hq/v1` | bearer token (Sanctum) with per-business ability | **no, must be built** | see section 3 |
-| `WooConnector` (Econic) | `https://econic.store/wp-json/wc/v3` | consumer key/secret (Woo REST) | API exists in Woo; **keys UNKNOWN** | products, orders, customers, webhooks |
+| `WooCommerceAdapter` (Econic, **legacy/temporary**) | `https://econic.store/wp-json/wc/v3` | consumer key/secret | API exists in Woo; **keys UNKNOWN** | products, orders, customers, webhooks; replaced by `FutureEconicCommerceAdapter` when the rebuilt platform exists |
 | `MetaAdapter` | Graph API v25 | Page tokens, system-user token, app secret | partial (CAPI token, Page token in n8n) | Pages, Messenger, Instagram, comments, Ads Manager, CAPI |
 | `GoogleAdapter` | GA4 Data API, Google Ads API, Merchant API | OAuth service account | no | reporting first, Ads later |
 | `TikTokAdapter` | Marketing API | OAuth | no | later |
@@ -16,13 +16,14 @@ Three API surfaces matter: what HQ **consumes**, what HQ **exposes**, and what m
 | `TelegramAdapter` | Bot API | bot token | yes (n8n, Hermes) | alerts and command channel |
 | `SmsAdapter` | MimSMS HTTP | token | yes (shops, ERP) | reuse ERP `HttpSmsDriver` contract |
 
-Connector contract (every connector):
+Every commerce adapter implements the `CommercePlatform` interface (doc 15); the ERP connector and platform adapters have their own typed interfaces. Connector contract (every connector):
 - typed request/response DTOs (PHP 8.3 readonly classes) validated with JSON schema on the boundary;
 - idempotency key parameter on every write;
 - retries with backoff only on idempotent operations; circuit breaker per host (open after N failures, half-open probe);
 - timeouts: 5 s reads, 15 s writes, 60 s media uploads;
 - every call logged to `tool_calls` or `connector_calls` with duration and outcome;
-- credentials resolved from `integration_credentials`, never from config or prompts.
+- credentials resolved from `integration_credentials` at call time (AI -> Tool Gateway -> Policy -> Permission -> Credential Resolution -> Connector -> Provider), never from config or prompts;
+- writes that create something with a provider identity return `{state: confirmed|uncertain, provider_ref}` and support a `reconcile(logical_key)` lookup (ADR-011).
 
 ## 2. APIs HQ exposes
 

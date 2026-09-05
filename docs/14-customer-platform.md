@@ -30,6 +30,8 @@ HUMAN_ACTIVE -> HUMAN_RESOLVED (human marks done)          -> AI_RESUMED (human 
 any -> CLOSED (inactivity 72 h or explicit)                CLOSED -> AI_ACTIVE (customer writes again)
 ```
 
+Human actions in the inbox: **take over** (claim), **edit an AI draft before it is sent**, **resolve**, **resume AI**, **permanently disable AI for this conversation** (`conversations.ai_disabled`, the AI then only drafts for the human and never sends, in any later state), and **mark outcome** (resolved, order placed, lost, spam). Every edit, resolution and outcome becomes a `decision_record` for the Behavior Alignment Layer (doc 08).
+
 Escalation triggers: customer asks for a human; anger/complaint classifier; refund/cancellation intent; order above the auto threshold; policy `deny`; the model's own confidence flag; three unanswered turns. On escalation HQ pauses AI replies, writes the reason, notifies the assigned human (Telegram + inbox) with the transcript, the customer profile and the relevant order/product facts. While HUMAN_ACTIVE, AI still drafts suggested replies (never sends). Resume hands the AI the full transcript including the human's messages.
 
 The n8n bot already implements a simpler version of this (`human_takeover`, escalate/resume tools). HQ replaces it channel by channel; the escalation semantics stay the same so operators are not retrained.
@@ -48,4 +50,4 @@ The n8n bot already implements a simpler version of this (`human_takeover`, esca
 
 ## Customer AI rules
 
-Live commerce tools only for any product, price, stock, combo, promotion or order fact. No invented product information. Bangla and English, mirroring the customer. Never quotes delivery dates the courier has not confirmed. Order taking follows `take_order` (doc 10) and `create_order` policy (doc 12). Collects the minimum: name, phone, district/thana, address, items, payment method.
+Live commerce tools only (`search_products`, `get_product`, `get_variant`, `get_combo`, `get_price`, `get_availability`, `get_order`) for any product, price, availability, combo, promotion or order fact; nothing of that kind is answered from model memory. Availability follows the status-based business policy in doc 15: an active product is offered as orderable unless the store says otherwise, and stock quantity alone never makes the AI refuse. No invented product information. Bangla and English, mirroring the customer. Never quotes delivery dates the courier has not confirmed. Order taking follows `take_order` (doc 10) and `create_order` policy (doc 12). Collects the minimum: name, phone, district/thana, address, items, payment method.

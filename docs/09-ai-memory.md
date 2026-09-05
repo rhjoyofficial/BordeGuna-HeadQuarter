@@ -11,11 +11,12 @@ Memory is what lets the AI behave consistently with how the business and its own
 | Semantic | knowledge: SOPs, product knowledge, brand voice examples, policies in prose, past campaign learnings | `knowledge_documents` + `pgvector` embeddings | humans (approved docs), weekly learning job | retrieval by similarity |
 | Working | the current run's facts and tool results | in-process only | runtime | discarded after the run |
 
-## Owner alignment model
+## Behavior Alignment Layer (ADR-013)
 
 ```
 Model + Memory + Knowledge + Skills + Tools + Policies + Feedback + Evaluation
 ```
+This is alignment through data the system already produces, **not training**. Inputs: structured user preferences, decision memory, SOPs, policies, approved examples, approved/rejected actions, edits, feedback, outcome evaluation, agent memory. A fine-tuning step is deliberately absent and can be attached later without changing any of these stores.
 
 - **Memory** = the tables above.
 - **Knowledge** = approved documents (SOPs, brand books, product facts) with embeddings.

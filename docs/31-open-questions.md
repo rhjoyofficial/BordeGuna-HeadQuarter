@@ -2,6 +2,16 @@
 
 Decisions only Joy or the boss (C M Moin) can take. Nothing below has been assumed in the design; where a default is stated, it is the recommendation, not a decision.
 
+## Answered (5 Sep 2026, Joy)
+
+| # | Decision |
+|---|---|
+| Q1 | answered above | |
+| Q3 | answered above | |
+| Q6 | answered above; remaining sub-question: is the rebuilt Econic platform a new fork of the LaLaDia product or a new codebase, and when? Does HQ integrate legacy Woo in the meantime (needs REST keys and the cPanel account)? | fork the LaLaDia product if its model fits multi-seller; integrate Woo only if Econic has real order volume today |
+| AI training | **No fine-tuning or training in Phase 0**; the Behavior Alignment Layer carries "learns how I work" (ADR-013). |
+
+
 ## Before Phase 0
 
 | # | Question | Recommendation |

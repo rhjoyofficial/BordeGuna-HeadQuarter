@@ -46,7 +46,7 @@ observe (ai_runs, tool_calls)  -> detect repeated tool sequences with stable sha
   -> active
 ```
 
-Rules: a proposed skill can never self-activate; it inherits the strictest policy of its tools; activation is an audited action; a skill whose success rate drops below its floor is auto-suspended (a safe direction) and the owner is told.
+Rules: a proposed skill can never self-activate; it inherits the strictest policy of its tools and the same scoping as tools (role, scope, permission, business, brand, policy, environment); activation is an audited action; a skill whose success rate drops below its floor is auto-suspended (a safe direction) and the owner is told.
 
 ## Reuse
 

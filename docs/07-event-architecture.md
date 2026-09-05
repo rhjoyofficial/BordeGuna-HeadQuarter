@@ -21,6 +21,7 @@ Events are how HQ learns that something happened in a system of record or a plat
 | `scheduled_job.due` | scheduler tick | job id, scheduled_for | job runner |
 | `approval.requested` / `approval.decided` | approval engine | approval id, decision | notifications, continuation of the paused tool call |
 | `ai.run_completed` / `tool.call_failed` | AI runtime | run id, cost, error | observability, alerting |
+| `side_effect.uncertain` | tool gateway (ADR-011) | logical key, provider, last known state | reconciliation job |
 
 Naming: `noun.past_tense_verb`, lower snake case; `schema_version` lives in the payload, not the name.
 
@@ -38,7 +39,7 @@ Naming: `noun.past_tense_verb`, lower snake case; `schema_version` lives in the 
 - **Postgres inbox/outbox first, Redis second.** The `events` row is written in the same transaction as any state change, so nothing is lost if Redis is down; Horizon fans the row out. Redis Streams only if throughput ever demands it.
 - **Dedupe**: `dedupe_key` = provider event id, or a hash of type + source + business + external ref + occurred_at. Duplicates are acknowledged and ignored.
 - **Ordering** is not guaranteed across types; handlers must tolerate `shipment.delivered` arriving before `order.created` (park and retry).
-- **Replay**: any event can be re-dispatched from the admin UI; handlers are idempotent by contract.
+- **Delivery is at-least-once**; handlers are idempotent by contract and any event can be re-dispatched from the admin UI.
 - **Retention**: raw payloads 180 days, then compacted to type and refs.
 
 ## Producers that need work
@@ -46,7 +47,7 @@ Naming: `noun.past_tense_verb`, lower snake case; `schema_version` lives in the 
 | Producer | Today | Change |
 |---|---|---|
 | Shops | 3 outbound events, zero subscribers | add 4 events (doc 06 section 4), subscribe HQ |
-| Woo | webhooks supported natively | create subscriptions (needs admin access) |
+| Woo (legacy Econic) | webhooks supported natively | create subscriptions (needs admin access); the rebuilt Econic platform will emit the canonical events natively |
 | Meta | Messenger webhook goes to n8n | HQ becomes the receiver; n8n gets a forwarded copy during transition |
 | ERP | no events | `inventory.low` and finance facts come from HQ polling the new ERP API; true ERP events are a later additive change |
 | Pathao | callback URL owned by bizmation | decision pending (doc 31); the shop's 15-minute sync is the fallback |

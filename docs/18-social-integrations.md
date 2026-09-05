@@ -2,7 +2,7 @@
 
 ## Capability metadata (the point of this document)
 
-Every platform account is a row in `platform_accounts(brand_id, platform, account_ref, capabilities jsonb, scopes[], approval_status, quotas jsonb, restrictions jsonb, credential_id)`. Adapters consult it before promising anything. No adapter assumes an operation is supported.
+Every platform account is a row in `platform_accounts(brand_id, platform, account_ref, capabilities jsonb, scopes[], approval_status, quotas jsonb, restrictions jsonb, credential_id)`. Adapters consult it before promising anything. No adapter assumes an operation is supported, and **the UI and the AI are shown only the operations that account currently supports** (capability row, not platform in general). Publishing follows ADR-011: each publication has a `logical_key`; a retry after an uncertain provider response reconciles by looking the post up before ever creating a second one.
 
 | Platform | Publish text | Image | Video/Reel | Story | Schedule natively | Read comments | Reply | DMs | Insights | Prerequisites (verified state) |
 |---|---|---|---|---|---|---|---|---|---|---|

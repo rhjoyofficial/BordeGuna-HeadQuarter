@@ -1,6 +1,6 @@
 # ADR-008: Shops move to a second VPS (commerce tier)
 
-**Status:** proposed
+**Status:** deferred (5 Sep 2026). Joy decided to use the current VPS first; see ADR-012. This ADR is kept as the scaling plan to execute when monitoring shows the need.
 
 ## Context
 Nikolahost shared hosting is being exited. The current KVM 2 (8 GB, no swap) already carries the ERP, n8n, two Postgres, content-render, Zeno and will carry HQ.

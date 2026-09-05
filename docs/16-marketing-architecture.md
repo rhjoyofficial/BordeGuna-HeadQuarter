@@ -2,6 +2,8 @@
 
 ## Platform-neutral core
 
+Core concepts: marketing objective, audience, offer, creative, budget, experiment, KPI, campaign, ad set/ad group, ad, metric, attribution, profit. Platform objects are mirrors of an experiment, never the model.
+
 ```
 MarketingExperiment
   id, brand, objective (purchase|lead|traffic|awareness), audience (spec), offer, creatives[] (asset ids),
@@ -39,7 +41,7 @@ Rules that came from real spend: never touch a campaign in its first 48 h except
 
 ## Reporting
 
-Per experiment and per brand: spend, impressions, clicks, CTR, CPC, landing views (the click-to-view leak found on 1 Sep is a first-class metric), add-to-cart, checkout, purchases, delivered purchases, CPA, delivered CPA, gross profit (needs ERP cost), contribution after shipping and payment fees. Doc 23 defines the joins.
+Per experiment and per brand: spend, impressions, clicks, CTR, CPC, landing views (the click-to-view leak found on 1 Sep is a first-class metric), add-to-cart, checkout, purchases, delivered purchases, CPA, delivered CPA, gross profit (needs ERP cost), and **contribution profit** = delivered revenue - product cost - shipping cost - payment fees - refunds and cancellation effects - allocated ad spend. ROAS is shown, never optimised for on its own; the objective is profitable growth. Doc 23 defines the joins.
 
 ## Guardrail example (as configured)
 

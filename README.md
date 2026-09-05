@@ -2,7 +2,7 @@
 
 The central operating and intelligence layer for every Bor De Guna business: LaLaDia, Bionic Garden, Azmion, Econic, and whatever comes next.
 
-**Status: AUDIT + DESIGN. No application code exists yet.** Everything in this repository is documentation produced from a read-only inspection of the live systems on 5 September 2026. Nothing in production was changed.
+**Status: AUDIT + DESIGN, corrected and approved for Phase 0 (5 Sep 2026). No application code exists yet.** Everything here is documentation produced from a read-only inspection of the live systems. Nothing in production was changed. The architecture-correction review is `docs/34-architecture-review-2026-09-05.md`.
 
 ## Read in this order
 
@@ -11,7 +11,8 @@ The central operating and intelligence layer for every Bor De Guna business: LaL
 3. `docs/02-target-architecture.md` - the recommended shape and why
 4. `docs/30-development-roadmap.md` - phases, dependency graph, the first step
 5. `docs/31-open-questions.md` - decisions only Joy or the boss can make
-6. `docs/33-nikolahost-to-hostinger-migration.md` - the hosting move
+6. `docs/34-architecture-review-2026-09-05.md` - locked decisions, models, Phase 0 checklist
+7. `docs/33-nikolahost-to-hostinger-migration.md` - the future hosting move (not a Phase 0 prerequisite)
 
 Everything else in `docs/` is a subsystem design and can be read when that subsystem is being built.
 

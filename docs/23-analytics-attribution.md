@@ -20,7 +20,7 @@ Ad -> click -> website -> landing page -> (conversation) -> order -> payment -> 
 | COGS | ERP `products` cost via `/api/hq/v1/products/{sku}/cost` (blank today for most rows: **the catalogue has no cost prices**, an ERP data task) | sku |
 | Shipping cost, payment fees | shop shipment (courier charge) + SSLCommerz fee schedule | order ref |
 
-Contribution per order = delivered revenue - COGS - shipping cost - payment fee - allocated ad spend (last-touch by default, with first-touch and conversation-assisted views available).
+Contribution per order = delivered revenue - product cost (COGS) - shipping cost - payment fees - refund and cancellation effects (a COD cancellation still costs the outbound and return shipping) - allocated ad spend (last-touch by default, first-touch and conversation-assisted views available). Profit-first: this figure, not ROAS, is the optimisation target.
 
 ## Read models
 

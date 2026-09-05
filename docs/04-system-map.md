@@ -39,9 +39,11 @@ Flows that exist today:
       |  Horizon workers, scheduler, event bus (Redis), Postgres 17 + pgvector, object storage
       |
       +--> ERP connector  --> erp.*  /api/hq/v1  (new, read-first)
-      +--> Shop connector --> laladia.com, bionic.garden  /api/v1 + /api/v1/assistant + admin API (token)
-      |                   <-- webhooks: order.created, order.status_changed, shipment.delivered, payment.completed
-      +--> Woo connector  --> econic.store /wp-json/wc/v3   <-- Woo webhooks
+      |      -> laladia.com, bionic.garden  /api/v1 + /api/v1/assistant + admin API (token)
+      |      <- webhooks: order.created, order.status_changed, shipment.delivered, payment.completed
+      +--> Commerce Platform Interface
+      |      LaLaDiaCommerceAdapter, BionicCommerceAdapter, WooCommerceAdapter (legacy, econic.store),
+      |      FutureEconicCommerceAdapter (rebuilt Econic platform), FutureMultiVendorCommerceAdapter
       +--> Meta adapter   --> Pages, Messenger, Instagram, Ads, CAPI    <-- Messenger/IG/comment webhooks
       +--> Google adapter --> GA4 Data API, Ads (later), Merchant feed (later)
       +--> TikTok adapter (later), LinkedIn/YouTube publishing (later)
@@ -49,7 +51,7 @@ Flows that exist today:
       +--> Voice gateway (Node, Phase 7) --> telephony provider
 ```
 
-Hosting after the Nikolahost exit (doc 33): shops and WordPress move into Docker on a **second** Hostinger VPS (commerce tier) or the current box is upgraded; ERP + HQ + automation stay together. The current 8 GB box is not sized for all of it.
+Hosting: HQ deploys to the **current** VPS (ADR-012) after swap, limits and monitoring are in place. The Nikolahost exit (doc 33) and a second commerce VPS remain documented options, triggered by measured capacity, not assumed.
 
 ## Boundaries that must hold
 

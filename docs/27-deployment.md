@@ -1,8 +1,23 @@
 # 27 - Deployment
 
-## Target host, and the capacity question first
+## Target host: the current VPS first (ADR-012)
 
-The only production host today is Hostinger KVM 2 `srv1808022`: 2 vCPU, 7.8 GB RAM, no swap, 2.7 GB in use by ERP (5 containers + MySQL), n8n, two Postgres instances, content-render, Zeno, Hermes. HQ Phase 0-3 adds roughly: app 512 MB, Horizon workers 512 MB, scheduler 128 MB, Postgres 17 512 MB-1 GB, Redis 128 MB, nginx 64 MB. That fits **only** with swap added and Zeno/Safor moved or capped. It does **not** fit together with the Nikolahost shops (doc 33). Decision in doc 31: upgrade to KVM 4 (4 vCPU / 16 GB) for one box, or add a second KVM 2 as the commerce tier. Recommendation: **second VPS for commerce**, so a payroll run, an ad-spend loop and a Black-Friday shop load are never on one kernel.
+HQ deploys to the existing Hostinger KVM 2 `srv1808022` (2 vCPU, 7.8 GB RAM, Ubuntu 24.04, 2.7 GB in use today by ERP, n8n, two Postgres instances, content-render, Zeno, Hermes). HQ Phase 0-3 adds roughly 1.6-2.1 GB: app 512 MB, Horizon 512 MB, scheduler 128 MB, Postgres 17 512 MB-1 GB, Redis 128 MB, nginx 64 MB. That fits with headroom once swap exists. A second VPS or an upgrade is a **documented scaling option triggered by monitoring**, not a prerequisite; doc 33 keeps the commerce-tier plan for that day.
+
+### Pre-deploy checklist (run and record before the first `docker compose up`)
+
+1. Add a 4 GB swap file (`/swapfile`, `vm.swappiness=10`) and confirm with `swapon --show`.
+2. Record current usage: `free -h`, `docker stats --no-stream`, `df -h`.
+3. Verify Docker health: every container `Up`, none restarting, `docker system df`.
+4. Verify firewall: ufw 22/80/443 only, fail2ban active.
+5. Verify backups: ERP nightly dump fresh, automation backup fresh, Zeno backup fresh.
+6. Verify the offsite path: ERP `offsite` running, restic snapshot listed, **one restore test performed** (doc 28).
+7. Verify reverse proxy: Traefik healthy, certificate resolver working on an existing host.
+8. Disk: at least 40 GB free after image builds.
+9. RAM headroom: at least 1.5 GB available after HQ containers start, else raise limits or move Zeno.
+10. Monitoring live before HQ takes traffic: capacity alerts (RAM < 1 GB available, swap > 50 %, disk > 80 %), OOM-kill detection (`dmesg`/journal watch to Telegram), container restart alerts, health endpoint probes.
+
+OOM awareness: every HQ service has a memory limit (below) so the kernel kills a bounded container, never MySQL or Postgres; Horizon `memory` option restarts workers at 256 MB.
 
 ## HQ stack (compose in this repo, `deploy/docker-compose.yml`)
 
@@ -19,6 +34,10 @@ The only production host today is Hostinger KVM 2 `srv1808022`: 2 vCPU, 7.8 GB R
 | `uptime-kuma` (optional) | louislam/uptime-kuma | probes | 0.25 / 128 MB |
 
 Copy the ERP's proven decisions: private `internal` network, only `web` carries Traefik labels, `env_file: .env` with `600`, resource limits on everything, entrypoint runs `migrate --force` only when a flag is set, `config:cache` + `route:cache` + `event:cache` in the image, health check on `/up`.
+
+## Local development
+
+`docs/../apps/hq/README.md` (Phase 0) will carry the exact steps: PHP 8.3, Composer, Node 22, Postgres 17 with pgvector and Redis (WSL2 + Docker Desktop recommended, or Laragon services), `.env.example`, `composer setup`, `npm run dev`, `php artisan horizon`, test command, and how to run the connectors in `dry_run` mode so no real store or platform is touched from a laptop.
 
 ## Environments
 

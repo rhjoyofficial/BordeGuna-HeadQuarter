@@ -23,6 +23,10 @@ Exact model ids are read from the `claude-api` reference and the OpenAI model li
 - Media generation only on demand with a daily cap per brand; product photos from the library, never regenerated.
 - Skills convert repeated LLM work into deterministic steps or LOW-tier calls.
 
+## Tracked on every run
+
+Input tokens, output tokens, cached tokens, latency, provider, model, estimated cost; rolled up to workflow cost, conversation cost, customer cost, order cost, content item cost, campaign cost and brand cost.
+
 ## Unit economics tracked
 
 AI cost per conversation, per AI-created order, per customer (monthly), per content item, per campaign (diagnosis + changes), per brand, plus platform costs (VPS, storage, telephony minutes). Shown next to the business value where it exists (delivered order value, engagement), so the owner sees whether a BDT 1,100 order cost BDT 3 or BDT 300 of AI.

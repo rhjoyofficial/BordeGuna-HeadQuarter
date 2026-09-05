@@ -28,7 +28,9 @@ One idea -> variants per platform with the platform's constraints from `18-socia
 
 ## Scheduling and publishing
 
-`schedule_content` creates a `scheduled_jobs` row (doc 21) tied to the item and platform account; the job runs `publish_content`, which is refused unless the item is `approved`. Results (post id, permalink) are stored on `publications`; metrics are collected by a recurring job at +1 h, +24 h, +7 d.
+Lifecycle: draft -> generate -> QA -> approve -> schedule -> publish -> measure -> learn.
+
+"Tomorrow at 5 PM post this image on LaLaDia Facebook" runs these twelve steps: (1) resolve the brand (LaLaDia), (2) resolve the platform account (the La La Dia Page row and its credential), (3) resolve the asset (the attached image becomes an `assets` row), (4) preserve caption and hashtags exactly as given, (5) determine the timezone (Asia/Dhaka unless stated), (6) validate the account's capability row allows image posts, (7) create the `scheduled_jobs` row and the `publications` row with its `logical_key`, (8) request approval if the tool's action class or `content.auto_publish` requires it, (9) execute at the scheduled time through `publish_content`, (10) verify publication (fetch the post back by id; reconcile by logical key if the provider response was uncertain), (11) record the result on `publications` and the run, (12) notify the owner with the permalink or the failure reason. Metrics are collected at +1 h, +24 h, +7 d.
 
 ## Calendar
 

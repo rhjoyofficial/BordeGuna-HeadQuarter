@@ -4,8 +4,8 @@ Phases are adjusted to what actually exists. Sizes are for one senior engineer w
 
 | Phase | Name | Delivers | Size | Hard external dependency |
 |---|---|---|---|---|
-| **0** | Foundation | HQ repo skeleton, Docker stack (app/web/horizon/scheduler/postgres+pgvector/redis/backup) on the VPS with swap added, CI on Postgres, auth + 2FA + RBAC mirroring ERP roles, `businesses`/`brands` mirror, `integration_credentials`, audit log, Telegram alerts, backups + offsite from day one, ERP `offsite` finally switched on | 2 wk | none |
-| **1** | Identity, data, API | ERP `/api/hq/v1` (read-first) in the ERP repo; shop assistant API additions + webhook events (upstream, merged to Bionic); Woo discovery and keys (or replatform decision); connectors with fixtures; event inbox/outbox; unified customer identity + rebuild; `facts_orders`; Meta App Review **started** | 3 wk | Woo access; Meta App Review clock starts |
+| **0** | Foundation | Laravel 12 HQ app (Inertia/React/TS) with health endpoint, auth, 2FA, RBAC; business/brand/store/platform-account model (ADR-010); `integration_credentials`; feature flags; audit log foundation; structured JSON logging; cost/event/tracing foundation (`ai_runs`, `tool_calls`, `events` tables and correlation ids, no agents yet); scheduler skeleton (`scheduled_jobs`, tick, run history, no NL yet); Docker stack (app/web/horizon/scheduler/postgres+pgvector/redis/backup) on the **current** VPS after the pre-deploy checklist (doc 27); backup + offsite with a proven restore; monitoring and capacity alerts; deployment scripts; CI on Postgres 17; local development instructions. ERP `offsite` activated and restore-tested first. **No agents, no social integrations, no marketing APIs, no customer AI.** | 2-3 wk | none |
+| **1** | Identity, data, API | ERP `/api/hq/v1` (read-first) in the ERP repo; shop assistant API additions + webhook events (upstream, merged to Bionic); Commerce Platform Interface with `LaLaDiaCommerceAdapter`, `BionicCommerceAdapter`, legacy `WooCommerceAdapter` (if Econic access is obtained); connectors with fixtures; event inbox/outbox; unified customer identity + rebuild; `facts_orders`; Meta App Review **started** | 3 wk | Woo access; Meta App Review clock starts |
 | **2** | Command Center | tool gateway + policy engine + approval center; agent runtime with `executive` and `analytics`; model router with cost accounting; "Ask HQ" UI; **scheduler with NL entry** (doc 21); daily briefing skill replacing the ERP-only briefing; observability dashboards | 3 wk | none |
 | **3** | Customer AI | conversation engine + handoff state machine + inbox UI; Messenger channel adapter in shadow mode beside the n8n bot, then cutover; Instagram DMs and Facebook comments; customer memory; `support` agent | 3 wk | Meta App Review approved for messaging scopes (else stays Dev Mode: Joy-only) |
 | **4** | AI orders + commerce automation | `take_order` skill through the shop checkout API with value-gated approval; order lifecycle workflow (follow-ups, review request); stock protection; ERP tickets from conversations; `operations` and `inventory` agents | 2 wk | none (Woo orders only if Phase 1 chose integration) |
@@ -27,8 +27,8 @@ P0 Foundation
  │        │                  │                       └── P6 Content + Publishing ─────────┼── P9 Skills/Autonomy ── P10
  │        └── Meta App Review (starts P1, gates P3 channels, P6 publishing scopes)        │
  │                                                                                        │
- └── Hosting migration (doc 33) ── independent track; must finish before P4 order volume  │
-            grows, and before any shop needs a real queue worker                          │
+ └── Hosting migration / second VPS (doc 33, ADR-012) ── optional track, triggered by     │
+            capacity monitoring, not a prerequisite for any phase                          │
  P7 Voice (after P3, needs telephony)  ── P8 Avatar (after P6) ─────────────────────────┘
 ```
 
@@ -38,6 +38,6 @@ Every phase ends with: tests green in CI on Postgres; the feature exercised agai
 
 ## Immediate next implementation step
 
-**Phase 0, step 1: capacity and safety before code.** On the VPS: add a 4 GB swap file, verify the Hostinger snapshot setting in hPanel, deploy the ERP `offsite` restic service (after the restic password is in the owner's password manager). Then scaffold `apps/hq` (Laravel 12, Inertia/React/TS, Pest, Horizon, Postgres 17 + pgvector, Redis) with the `deploy/` stack copied from the ERP's proven compose, get `/up` answering at `hq.bordeguna.com` behind Traefik, and CI green on an empty app. Only then does Phase 1 begin with the ERP API.
+**Phase 0, step 1: capacity and safety before code.** Run the pre-deploy checklist in doc 27 on the current VPS: swap, usage, Docker health, firewall, backups, offsite path with a real restore test of the ERP dump, reverse proxy, disk, RAM headroom, monitoring. Then scaffold `apps/hq` (Laravel 12, Inertia/React/TS, Pest, Horizon, Postgres 17 + pgvector, Redis) with the `deploy/` stack copied from the ERP's proven compose, get `/up` answering at `hq.bordeguna.com` behind Traefik, and CI green on an empty app. Only then does Phase 1 begin with the ERP API.
 
-Decisions needed before Phase 0 can start are listed in doc 31 (repository account, domain name, second VPS or upgrade).
+Decisions already taken for Phase 0: personal GitHub account (done), current VPS first (ADR-012), Econic rebuilt later behind the Commerce Platform Interface (ADR-009). Still open before code: the HQ domain name (Q2) and which provider org holds HQ's AI keys (Q4); see doc 31.

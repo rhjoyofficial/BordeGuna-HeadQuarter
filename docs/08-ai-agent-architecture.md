@@ -40,7 +40,7 @@ Agents are **configuration, not code**. One runtime; agents differ by row in `ag
 | `hr` | attendance/leave summaries only, **no decisions** | ERP HR read tools | low | none autonomous |
 | `voice` | phone conversations (Phase 7) | support tool set via the voice gateway | realtime | call completion, handoff rate |
 
-An agent's tool list is the *maximum*; the effective set at runtime is the intersection with the permissions of the human who enabled that agent for that business.
+An agent's tool list is the *maximum*. The effective set at runtime is computed per call from seven filters: **role** (the agent), **scope** (the task or conversation), **permission** (the enabling human's), **business**, **brand**, **policy** (current guardrails and kill switches) and **environment** (staging exposes no production write tools). No agent ever holds unrestricted tools.
 
 ## Prompts and personas
 
@@ -53,12 +53,16 @@ System prompts are versioned files in `resources/prompts/<agent>/<version>.md`; 
 3. The policy summary for the agent's tools is included so the model does not propose what will be refused.
 4. Never include credentials, rows outside the permission map, or another customer's data.
 
-## Learning the owner's style without retraining
+## Behavior Alignment Layer (ADR-013)
+
+How the AI learns the owner's way of working. **No fine-tuning and no model training** in Phase 0 through Phase 9; the layer is designed so fine-tuning could be added later as one more input if it ever proves worthwhile.
 
 - **Preferences**: `owner_preferences` rows (tone, report length, thresholds, working hours, escalation rules).
 - **Decisions**: every approval, edit of an AI draft and override is stored as proposal plus final version; retrieval surfaces the closest past decisions as examples.
 - **Evaluation**: a weekly job scores agents against stored decisions (agreement rate, edit distance) and reports drift.
-- **SOPs**: approved procedures as embedded documents; agents cite them.
+- **SOPs and policies**: approved procedures and policy prose as embedded documents; agents cite them.
+- **Examples**: approved outputs per brand and task type, retrieved as few-shot examples.
+- **Human handoff feedback**: edited AI replies, human resolutions and marked outcomes from conversations (doc 14) flow into `decision_records`.
 
 ## Coordination
 

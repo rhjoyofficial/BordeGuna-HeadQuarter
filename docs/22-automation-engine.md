@@ -22,9 +22,9 @@ Definitions are PHP classes (typed, tested) using a small step API: `step('name'
 | `daily_briefing` | 09:00 Asia/Dhaka | collect from ERP/shops/ads/conversations -> executive agent -> Telegram + in-app |
 | `skill_proposal` | weekly | mine ai_runs -> propose skills -> owner review |
 
-## n8n during the transition
+## Replacing old automations (n8n, Hermes, shop schedulers)
 
-n8n stays for the Bionic Messenger bot and content stages until the corresponding HQ workflow is live and has run in shadow mode for a week (HQ receives the same events, produces actions into a "would have done" log, and is compared against n8n's real actions). Then the Meta webhook is repointed to HQ and the n8n workflow deactivated (not deleted) for a further month. Hermes's health-check cron is replaced by HQ's own monitoring before Hermes is retired; Hermes as Joy's personal Telegram brain is his call.
+Nothing is migrated automatically. Each replacement follows: old workflow -> **shadow mode** (HQ receives the same events and writes what it would do to `shadow_actions`) -> **compare** results for at least a week -> **cut over** (repoint the trigger) -> **deactivate** the old workflow (never delete) -> **observe** for a month -> **delete only after explicit approval** from Joy. n8n stays for the Bionic Messenger bot and content stages until then. Hermes's health-check cron is replaced by HQ's own monitoring before Hermes is retired; Hermes as Joy's personal Telegram brain is his call.
 
 ## Failure handling
 
