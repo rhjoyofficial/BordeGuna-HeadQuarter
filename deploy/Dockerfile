@@ -39,10 +39,13 @@ COPY apps/hq/ ./
 COPY --from=vendor /build/vendor ./vendor
 COPY --from=assets /build/public/build ./public/build
 
+# public-volume is the mountpoint of the shared `public` named volume (served by the nginx sidecar). It must
+# exist in the image and be owned by www-data so Docker initialises the volume with that ownership; otherwise
+# the first start fails with "Permission denied" while republishing assets (seen on the first deploy, 5 Sep 2026).
 RUN php artisan package:discover --ansi \
- && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
- && chown -R www-data:www-data storage bootstrap/cache \
- && chmod -R ug+rwX storage bootstrap/cache
+ && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache public-volume \
+ && chown -R www-data:www-data storage bootstrap/cache public-volume \
+ && chmod -R ug+rwX storage bootstrap/cache public-volume
 
 COPY deploy/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

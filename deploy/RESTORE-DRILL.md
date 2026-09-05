@@ -36,7 +36,8 @@ Result: **PASS** (11:25 UTC).
 
 Limitation, stated plainly: the production copy of this pipeline writes to `/root/backups/bordeguna-hq` on the same VPS. It is not an offsite backup and does not survive loss of the VPS (ADR-014).
 
-## HQ (PostgreSQL 17) - production
+## HQ (PostgreSQL 17) - production, 5 September 2026 11:40 UTC (first deploy)
 
-_To be recorded after the first production deploy: `docker compose ... exec backup /backup.sh once`, then
-`exec backup /restore.sh` into `hq_restore_drill`, table and row counts, drop._
+- `exec backup /backup.sh once`: `dump ok: /backups/daily/hq-20260905-114058.dump (190929 bytes, 32 tables)`.
+- `exec backup /restore.sh` into `hq_restore_drill`: restored, verification printed `tables=32 users=1 scheduled_jobs=0 job_runs=0 audit_logs=1 last_migration=2026_09_05_100400_add_two_factor_and_pgvector` (matches production at that moment). Scratch database dropped.
+- Result: **PASS.** Backups live in `/root/backups/bordeguna-hq` on the VPS only (ADR-014).

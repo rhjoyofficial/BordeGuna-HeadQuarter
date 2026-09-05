@@ -199,7 +199,9 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['default'],
+            // Every HQ queue. RunScheduledJob uses `scheduler`; a queue missing here is a job that never runs
+            // (found on the first production deploy: the acceptance run sat in `queued`).
+            'queue' => ['critical', 'scheduler', 'default', 'ai', 'publishing', 'sync'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,

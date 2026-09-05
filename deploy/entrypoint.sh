@@ -27,7 +27,12 @@ log "postgres reachable"
 # The `web` container mounts the same `public` volume; republish so a new image's
 # built assets are what nginx serves, not the previous release's.
 if [ -d /var/www/html/public-volume ]; then
-    rsync -a --delete /var/www/html/public/ /var/www/html/public-volume/ 2>/dev/null || cp -a /var/www/html/public/. /var/www/html/public-volume/
+    if [ -w /var/www/html/public-volume ]; then
+        rm -rf /var/www/html/public-volume/build
+        cp -R /var/www/html/public/. /var/www/html/public-volume/
+    else
+        log "WARNING: public-volume is not writable by $(id -un); nginx may serve stale assets"
+    fi
 fi
 
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then

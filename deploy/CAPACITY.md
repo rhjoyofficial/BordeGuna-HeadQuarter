@@ -62,4 +62,21 @@ Move to a second VPS (commerce tier, ADR-008 / doc 33) or upgrade the plan when 
 
 ## Post-deploy baseline
 
-_To be appended by the deploy run (free -h, docker stats, df -h) after the first `docker compose up`._
+5 Sep 2026 11:42 UTC, ~6 minutes after the first `docker compose up` (7 HQ containers running):
+
+```
+free -h:   Mem total 7.8Gi  used 2.9Gi  available 4.8Gi   Swap 4.0Gi used 512K
+df -h /:   96G total, 26G used, 70G available (28%)
+```
+
+| HQ container | Memory | Limit |
+|---|---|---|
+| horizon | 91 MiB | 768 MiB |
+| db (pgvector pg17) | 49 MiB | 1 GiB |
+| app | 39 MiB | 768 MiB |
+| scheduler | 32 MiB | 192 MiB |
+| redis | 4 MiB | 320 MiB |
+| web | 3 MiB | 128 MiB |
+| backup | 2 MiB | 256 MiB |
+
+HQ added ~220 MiB at idle. Available RAM moved from 5.0 to 4.8 GiB; swap untouched. Well inside every alert threshold.
