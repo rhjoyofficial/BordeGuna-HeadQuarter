@@ -1,5 +1,7 @@
 <?php
 
+use App\Scheduling\Tools\Erp\PollErpLowStockTool;
+use App\Scheduling\Tools\Erp\PollErpOverviewTool;
 use App\Scheduling\Tools\FailingTool;
 use App\Scheduling\Tools\NoopTool;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
@@ -17,6 +19,16 @@ return [
     'tools' => [
         NoopTool::class,
         FailingTool::class,
+        // Phase 1: read-only ERP polls that fill facts_erp_snapshots (ADR-007 read models).
+        PollErpOverviewTool::class,
+        PollErpLowStockTool::class,
+    ],
+
+    // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an
+    // integration_credentials row (provider erp_api_token, account_ref = business slug).
+    'erp' => [
+        'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.srv1808022.hstgr.cloud'),
+        'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
     ],
 
     'scheduler' => [
