@@ -45,7 +45,7 @@ LOAD=$(cut -d' ' -f1 /proc/loadavg)
 check load $(awk -v l="$LOAD" -v m="$LOAD_MAX" 'BEGIN{print (l>m)?1:0}') "load ${LOAD} (max ${LOAD_MAX})"
 
 # OOM kills since last run (kernel log)
-OOM_F="$STATE_DIR/oom.count"; OOM_PREV=$(cat "$OOM_F" 2>/dev/null || echo 0)
+OOM_F="$STATE_DIR/oom.count"; OOM_PREV=$(head -1 "$OOM_F" 2>/dev/null | tr -dc 0-9); OOM_PREV=${OOM_PREV:-0}
 OOM_NOW=$(journalctl -k --since "7 days ago" 2>/dev/null | grep -ci "out of memory\|oom-kill"); OOM_NOW=${OOM_NOW:-0}
 echo "$OOM_NOW" > "$OOM_F"
 if [ "$OOM_NOW" -gt "$OOM_PREV" ]; then
