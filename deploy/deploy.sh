@@ -39,6 +39,9 @@ log "starting stack"
 $COMPOSE up -d --remove-orphans
 sleep 5
 $COMPOSE exec -T horizon php artisan horizon:terminate || true
+# nginx resolves the `app` upstream once at start-up; after `app` is recreated it keeps the old IP and
+# answers 502 until restarted (seen on the first deploy). Recreate `web` so it resolves the new container.
+$COMPOSE up -d --force-recreate --no-deps web
 
 # 4. Smoke.
 log "smoke checks"
