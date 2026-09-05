@@ -7,6 +7,9 @@
 # ---------- 1. Front-end assets ----------
 FROM node:22-alpine AS assets
 WORKDIR /build
+# Baked into the bundle at build time (Inertia's page-title template reads VITE_APP_NAME).
+ARG VITE_APP_NAME="BordeGuna HQ"
+ENV VITE_APP_NAME=${VITE_APP_NAME}
 COPY apps/hq/package.json apps/hq/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY apps/hq/ ./
