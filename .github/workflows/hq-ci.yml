@@ -1,0 +1,112 @@
+name: hq-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/hq/**', 'deploy/**', '.github/workflows/hq-ci.yml']
+  pull_request:
+    paths: ['apps/hq/**', 'deploy/**', '.github/workflows/hq-ci.yml']
+
+concurrency:
+  group: hq-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Pest + Pint + TypeScript + Vite (PostgreSQL 17, Redis 7)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/hq
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: hq_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, pgsql, redis, intl, zip, gd, bcmath, pcntl, posix
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/hq/package-lock.json
+
+      - name: Composer install
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+          sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=pgsql/' .env
+          echo "DB_HOST=127.0.0.1" >> .env
+          echo "DB_PORT=5432" >> .env
+          echo "DB_DATABASE=hq_test" >> .env
+          echo "DB_USERNAME=postgres" >> .env
+          echo "DB_PASSWORD=postgres" >> .env
+
+      - name: Pint (code style)
+        run: vendor/bin/pint --test
+
+      - name: Migrations run clean on PostgreSQL 17 (fresh + rollback + fresh + seed)
+        env: { DB_PASSWORD: postgres }
+        run: |
+          php artisan migrate:fresh --force
+          php artisan migrate:rollback --force
+          php artisan migrate:fresh --seed --force
+
+      - name: Pest
+        env: { DB_PASSWORD: postgres }
+        run: php artisan test --compact
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript strict
+        run: npx tsc --noEmit
+
+      - name: Vite build
+        run: npm run build
+
+      - name: Route registration listing
+        env: { DB_PASSWORD: postgres }
+        run: php artisan route:list --except-vendor
+
+  docker-build:
+    name: Production image builds
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build app image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          tags: bordeguna-hq:ci
+      - name: Build backup image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy
+          file: deploy/backup.Dockerfile
+          push: false
+          tags: bordeguna-hq-backup:ci
