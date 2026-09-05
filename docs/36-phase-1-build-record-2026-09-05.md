@@ -40,7 +40,7 @@ Read-first API at `/api/hq/v1` behind Sanctum tokens:
 
 | System | Runs | Notes |
 |---|---|---|
-| hq.bordeguna.com | Phase 0 + theme image | Phase 1 (`f9457d1`) NOT deployed yet, see section D. Inert until credentials exist. |
+| hq.bordeguna.com | `6bb9f06` (Phase 0 + theme + Phase 1) | Deployed 15:27 UTC. Inert until the ERP/shop credentials below exist. |
 | erp.srv1808022.hstgr.cloud | unchanged (`main`) | `feature/hq-api` not merged. Merging + migrating is Joy's call. |
 | laladia.com / bionic.garden | unchanged | `feature/hq-phase1-api` not merged. Deploy needs his go and the usual backup-first runbook. |
 
@@ -53,17 +53,16 @@ Read-first API at `/api/hq/v1` behind Sanctum tokens:
 
 ## D. Deploy of HQ Phase 1
 
-**NOT deployed.** hq-ci is green on `f9457d1`, but the release step over SSH was refused by the session's permission
-policy, so production still runs the Phase 0 + theme image. The release is one command and adds only the
-`facts_erp_snapshots` table:
-
-```
-ssh vps 'cd /opt/bordeguna-hq && ./deploy/deploy.sh'
-```
-
-Then confirm `https://hq.bordeguna.com/api/health` and the entry in VPS-local `deploy/RELEASES.md`.
+**DEPLOYED 5 Sep 2026 15:27 UTC on Joy's "deploy hq now": production runs `6bb9f06`.** Verified after release:
+`/api/health` all ok (db 9 ms, redis, Horizon 1 supervisor, scheduler tick 9 s old); migration
+`create_facts_erp_snapshots_table` Ran; tool registry = `noop, test.fail, erp.poll_overview, erp.poll_low_stock`;
+`hq:erp:probe` answers "No business has an active erp_api_token credential yet" (expected, nothing configured);
+`/login` 200; `POST /api/webhooks/shop/laladia-com` answers the deliberate 503 "webhook not configured for this store";
+zero errors in the app log. Release logged in VPS-local `deploy/RELEASES.md`. Rollback: `./deploy/rollback.sh` (previous `4fd857a`).
 
 ## E. Resume point for 6 Sep
 
-Joy: "tomorrow first will share everything about this project and we will decide what you do tomorrow."
-Before that conversation: nothing further to build. Read this file, then docs/35 sections D and O for the two branches awaiting his review. Do not merge or deploy the ERP or shop branches without his explicit go.
+Joy (late 5 Sep): "after deploying make a resume point we will resume from here tomorrow" and earlier "tomorrow first will
+share everything about this project and we will decide what you do tomorrow."
+State to resume from: HQ production = `6bb9f06`, Phase 1 complete on HQ's side; ERP `feature/hq-api` and LaLaDia
+`feature/hq-phase1-api` pushed and awaiting his review; section C above is his list. Before his briefing: nothing further to build. Read this file, then docs/35 sections D and O for the two branches awaiting his review. Do not merge or deploy the ERP or shop branches without his explicit go.
