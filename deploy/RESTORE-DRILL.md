@@ -3,6 +3,8 @@
 A backup counts only once it has been restored and the application has run against the restored data.
 Record every drill here with the exact output that decided it.
 
+⚠ All backups described here are **local to the VPS** and are **not disaster-proof** (docs/28).
+
 ## ERP (Bor De Guna ERP, MySQL 8) - 5 September 2026 08:47-08:49 UTC
 
 Scripts: `/opt/bordeguna-erp/deploy/restore-drill.sh` then `restore-appcheck.sh` (copied to `/root/`).
@@ -17,8 +19,24 @@ Result: **PASS.**
 - App check (throwaway container, `config:clear`, proved `DATABASE() = bordeguna_restore_drill`): 2 migrations pending (the same two), ledger integrity engine consistent (14 journals, 4 businesses), stock ledger consistent, 28 reconciliations agree, application read businesses/employees/punches/accounts/users from the restored data.
 - Scratch database dropped afterwards.
 
-Open: **offsite replication of these dumps is still not running.** The compose `offsite` service needs `B2_ACCOUNT_ID` and `B2_ACCOUNT_KEY` in `/opt/bordeguna-erp/.env` (both currently empty). Until then every ERP backup lives on the same disk as the database.
+State of the ERP's own backups: nightly local dumps healthy; the ERP compose file also defines an inactive `offsite` (restic) service whose destination credentials are empty. It has never run. Backblaze B2 is not available, so it stays inactive; it is not an HQ dependency and is not changed by HQ work.
 
-## HQ (PostgreSQL 17)
+## HQ (PostgreSQL 17) - local pipeline drill, 5 September 2026 (developer machine, Postgres 17.2)
 
-_First drill to be recorded after the first production deploy: `docker compose ... exec backup /restore.sh` into `hq_restore_drill`, then table and row counts, then drop._
+Purpose: prove `deploy/backup.sh` and `deploy/restore.sh` do what they claim before they run in production.
+Source: the local `hq` database (migrated + seeded). Target: scratch database `hq_restore_drill`.
+
+Result: **PASS** (11:25 UTC).
+
+- `backup.sh once` (BACKUP_DIR redirected to a scratch directory): `dump ok: hq-20260905-112556.dump (96944 bytes, 32 tables)`, `LAST_STATUS=0`, `LAST_OK` written.
+- `restore.sh <dump> hq_restore_drill`: archive listed 32 tables; database recreated; `pg_restore --exit-on-error` completed; verification printed `tables=32 users=1 scheduled_jobs=4 job_runs=2 audit_logs=8 last_migration=2026_09_05_100400_add_two_factor_and_pgvector`.
+- Live vs restored: both `5 businesses, 4 stores, 12 permissions, 32 tables`.
+- Safety: `restore.sh <dump> hq` (the live database) was **REFUSED** without `CONFIRM_PRODUCTION_RESTORE=yes`, as designed.
+- Scratch database dropped.
+
+Limitation, stated plainly: the production copy of this pipeline writes to `/root/backups/bordeguna-hq` on the same VPS. It is not an offsite backup and does not survive loss of the VPS (ADR-014).
+
+## HQ (PostgreSQL 17) - production
+
+_To be recorded after the first production deploy: `docker compose ... exec backup /backup.sh once`, then
+`exec backup /restore.sh` into `hq_restore_drill`, table and row counts, drop._

@@ -20,7 +20,7 @@ Every platform account is a row in `platform_accounts(brand_id, platform, accoun
 
 ## Credentials and tokens
 
-Long-lived Page tokens derived from a system user in the **Bor De Guna** business portfolio (not Joy's personal End Brackets portfolio; see the portfolio question in doc 31). Stored in `integration_credentials`, refreshed by a scheduled job, alerted 14 days before expiry. Tokens never appear in prompts or logs.
+Long-lived Page tokens derived from a system user under the **boss's new official Meta profile/portfolio** (Joy, Q12/Q13, 5 Sep 2026: all LaLaDia and Bionic Meta access moves to, or is created under, that account, not Joy's personal End Brackets portfolio). Stored in `integration_credentials`, refreshed by a scheduled job, alerted 14 days before expiry. Tokens never appear in prompts or logs.
 
 ## Meta App Review scope list (one app for all Bor De Guna Pages)
 

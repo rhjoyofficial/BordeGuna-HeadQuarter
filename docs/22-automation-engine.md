@@ -24,6 +24,8 @@ Definitions are PHP classes (typed, tested) using a small step API: `step('name'
 
 ## Replacing old automations (n8n, Hermes, shop schedulers)
 
+Joy (Q23/Q24, 5 Sep 2026): start fresh; do not carry the existing Hermes setup or the old bot state forward; rebuild what is needed in HQ and keep the know-how as skills. So the plan below is a **replacement**, not a migration, and deletion of anything old still happens only after explicit approval.
+
 Nothing is migrated automatically. Each replacement follows: old workflow -> **shadow mode** (HQ receives the same events and writes what it would do to `shadow_actions`) -> **compare** results for at least a week -> **cut over** (repoint the trigger) -> **deactivate** the old workflow (never delete) -> **observe** for a month -> **delete only after explicit approval** from Joy. n8n stays for the Bionic Messenger bot and content stages until then. Hermes's health-check cron is replaced by HQ's own monitoring before Hermes is retired; Hermes as Joy's personal Telegram brain is his call.
 
 ## Failure handling

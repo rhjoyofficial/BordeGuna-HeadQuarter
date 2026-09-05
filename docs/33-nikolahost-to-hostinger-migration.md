@@ -15,7 +15,7 @@
 
 ## Target topology (ADR-008)
 
-Second Hostinger VPS ("commerce"): Ubuntu 24.04, Docker, its own Traefik, ufw, fail2ban, swap. Stacks: `laladia`, `bionic`, `econic`, `static-sites`, shared nothing (each with its own MySQL container), nightly dumps + restic to B2, weekly snapshot. Sizing: KVM 2 is enough for current traffic (dozens of orders a month); KVM 4 if Econic's WordPress is heavy or ad campaigns scale.
+Second Hostinger VPS ("commerce"): Ubuntu 24.04, Docker, its own Traefik, ufw, fail2ban, swap. Stacks: `laladia`, `bionic`, `econic`, `static-sites`, shared nothing (each with its own MySQL container), nightly local dumps, weekly platform snapshot (offsite copies are a future enhancement). Sizing: KVM 2 is enough for current traffic (dozens of orders a month); KVM 4 if Econic's WordPress is heavy or ad campaigns scale.
 
 Fallback if one box: upgrade `srv1808022` to KVM 4/8 and add these stacks beside the ERP and HQ, accepting one failure domain.
 
@@ -31,7 +31,7 @@ A real `queue:work` process (today jobs run only when the scheduler drains them)
 4. **Mail first** (Q25): create mailboxes at the new provider, verify SPF/DKIM/DMARC, forward from cPanel during overlap. Mail is the part that silently breaks when hosting DNS moves.
 5. **Cutover**: maintenance mode on cPanel, final dump + storage sync, import, switch A record, watch logs, place a real small order, confirm the confirmation email and SMS arrive, confirm admin login, confirm `_fbp`/`_fbc` and CAPI events. Keep cPanel untouched for 14 days as rollback (DNS back = rollback).
 6. **Repeat for Bionic** (commit or copy the server-only ad images first), then the static sites, then Econic once Q6 is decided.
-7. **Decommission**: export everything from cPanel (files, DBs, mail) to B2, then cancel.
+7. **Decommission**: export everything from cPanel (files, DBs, mail) to a kept archive off the cPanel account, then cancel.
 
 ## Risks
 

@@ -27,12 +27,13 @@ Final review of the correction pass before Phase 0 code. Every item below is con
 | n8n, Hermes and shop schedulers replaced deliberately: shadow -> compare -> cut over -> deactivate -> observe -> delete only after explicit approval | ADR-006, doc 22 |
 | Production safety: no destruction, migration, DNS, Meta, payment or credential changes without explicit approval | doc 24, brief section 23 |
 | Repository on the personal GitHub account | Q1 |
+| HQ domain `hq.bordeguna.com` (DNS live) | Q2 |
+| Local on-VPS PostgreSQL backup; Backblaze B2 removed; no offsite provider; limitation documented | ADR-014, doc 28 |
 
 ## B. Decisions still open
 
 | # | Question | Blocks |
 |---|---|---|
-| Q2 | HQ domain (`hq.bordeguna.com` recommended) | first deploy (Traefik host rule) |
 | Q4 | Which org holds HQ's OpenAI and Anthropic keys and card | Phase 2 (no agents in Phase 0) |
 | Q5 | Budget caps and guardrail defaults (doc 12) | Phase 2 |
 | Q6b | Rebuilt Econic: fork of the LaLaDia product or new codebase; integrate legacy Woo meanwhile? | Phase 1 adapter list |
@@ -79,7 +80,7 @@ Agents are rows (role, prompt version, allowed tools, memory scope, model tier, 
 
 ## H. Updated deployment topology
 
-Current VPS `srv1808022` (KVM 2). New compose project `bordeguna-hq`: `app` (PHP-FPM, 768 MB), `web` (nginx, Traefik labels for the HQ host), `horizon` (768 MB, worker memory restart at 256 MB), `scheduler` (128 MB), `db` (pgvector/pgvector:pg17, 1 GB), `redis` (320 MB, AOF), `backup` (pg_dump + restic to B2), optional `uptime-kuma`; private `internal` bridge; only `web` visible to Traefik; `.env` 600 outside git. Host prerequisites: 4 GB swap, monitoring and capacity alerts, ERP `offsite` running with a proven restore. Staging as a second compose project with `dry_run` connectors. Second VPS (doc 33, ADR-008) only when monitoring says so.
+Current VPS `srv1808022` (KVM 2). New compose project `bordeguna-hq`: `app` (PHP-FPM, 768 MB), `web` (nginx, Traefik labels for the HQ host), `horizon` (768 MB, worker memory restart at 256 MB), `scheduler` (128 MB), `db` (pgvector/pgvector:pg17, 1 GB), `redis` (320 MB, AOF), `backup` (local pg_dump -Fc into /root/backups/bordeguna-hq, not disaster-proof, ADR-014), optional `uptime-kuma`; private `internal` bridge; only `web` visible to Traefik; `.env` 600 outside git. Host prerequisites: 4 GB swap, monitoring and capacity alerts, a proven ERP restore drill. Staging as a second compose project with `dry_run` connectors. Second VPS (doc 33, ADR-008) only when monitoring says so.
 
 ## I. Phase 0 implementation checklist
 
@@ -88,7 +89,7 @@ Host safety (before any HQ container):
 - [ ] Record `free -h`, `docker stats`, `df -h` baseline in `deploy/CAPACITY.md`
 - [ ] Verify Docker health, ufw (22/80/443), fail2ban, Traefik certificate resolver
 - [ ] Verify ERP, automation and Zeno backups are fresh
-- [ ] Activate ERP `offsite` (restic password stored in the owner's password manager first), `restic check`, **perform one restore into a scratch MySQL and boot the ERP against it**, document in the ERP `deploy/README.md`
+- [x] ERP restore drill: **restored the nightly dump into a scratch MySQL and booted the ERP against it** (5 Sep, deploy/RESTORE-DRILL.md). The ERP's inactive offsite definition stays untouched; B2 is not part of the plan (ADR-014)
 - [ ] Monitoring and Telegram alerts: RAM available, swap %, disk %, OOM kills, container restarts, health probes
 
 Application scaffold (`apps/hq`):
@@ -105,7 +106,7 @@ Application scaffold (`apps/hq`):
 - [ ] Cost/event/tracing foundation: `ai_runs`, `tool_calls`, `connector_calls`, `events` (inbox/outbox with dedupe), `owner_preferences`, `decision_records` tables and their repositories, no agents wired
 - [ ] Scheduler skeleton: `scheduled_jobs`, `job_runs` (unique slot), tick, run history UI, pause/resume/cancel/run-now; NL entry deferred to Phase 2
 - [ ] Docker stack `deploy/` per section H, image build, entrypoint, health checks, limits
-- [ ] Backup container (nightly `pg_dump -Fc` + restic to B2) and a restore drill script, run once
+- [ ] Backup container (nightly `pg_dump -Fc`, local, verified, 14 daily / 8 weekly) and a restore drill into a scratch database, run once and recorded; limitation documented: not disaster-proof, no offsite provider (ADR-014)
 - [ ] Deployment scripts and `deploy/README.md` runbook (pre-deploy checklist, release, rollback)
 - [ ] CI: Pest on Postgres 17 + Redis services, Pint, tsc, Vite build, route-registration test
 - [ ] `apps/hq/README.md` local development instructions (WSL2/Docker or Laragon services, `dry_run` connectors)
@@ -116,7 +117,7 @@ Application scaffold (`apps/hq`):
 | Risk | Mitigation |
 |---|---|
 | Host memory pressure with HQ added to an 8 GB box without swap | swap + per-container limits + alerts before deploy (ADR-012); scale on evidence |
-| ERP payroll data has no working offsite backup | prerequisite in Phase 0 with a proven restore |
+| No backup on this VPS survives loss of the VPS (all local; B2 not available) | documented limitation (ADR-014, doc 28); Hostinger snapshot setting to be confirmed; `OFFSITE_HOOK` extension point for a future provider |
 | Meta App Review latency gates customer AI and publishing | start in Phase 1; Dev Mode keeps Joy-only testing possible |
 | Econic unknowns (account, keys, volume) | Woo adapter optional; interface protects HQ either way |
 | Shared SSLCommerz merchant and Pathao account across brands | `business_id` from order prefix, documented in finance |
@@ -127,7 +128,7 @@ Application scaffold (`apps/hq`):
 
 ## K. External dependencies
 
-Hostinger VPS (current), Backblaze B2 (bucket exists, restic password custody), GitHub (personal account), Traefik (existing), Meta App Review and tokens (Phases 3, 5, 6), OpenAI and Anthropic accounts in an agreed org (Phase 2), WooCommerce REST keys if Econic legacy integration is chosen (Phase 1), Google Cloud / Ads / Merchant (Phase 5+), TikTok (later), telephony provider (Phase 7), HeyGen and voice providers (Phase 8), a mail provider when cPanel mail moves (doc 33).
+Hostinger VPS (current), GitHub (personal account), Traefik (existing), Meta App Review and tokens (Phases 3, 5, 6), OpenAI and Anthropic accounts in an agreed org (Phase 2), WooCommerce REST keys if Econic legacy integration is chosen (Phase 1), Google Cloud / Ads / Merchant (Phase 5+), TikTok (later), telephony provider (Phase 7), HeyGen and voice providers (Phase 8), a mail provider when cPanel mail moves (doc 33).
 
 ## L. What will NOT be built yet
 
@@ -135,4 +136,4 @@ No AI agents, skills or model calls in Phase 0. No Messenger, Instagram, WhatsAp
 
 ---
 
-**Stop point.** Phase 0 implementation begins only on explicit go-ahead, with Q2 (HQ domain) answered so the Traefik host rule is right the first time.
+**Stop point.** Phase 0 implementation was authorised on 5 Sep 2026 with `hq.bordeguna.com` as the production hostname.

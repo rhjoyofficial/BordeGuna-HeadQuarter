@@ -8,7 +8,7 @@ n8n, Zeno and Safor stacks on the same host are never touched by any step here.
 ```
 /opt/bordeguna-hq/            git clone of this repository (deploy key github-hq)
 /opt/bordeguna-hq/deploy/.env production environment, mode 600, never in git (template: deploy/.env.example)
-/root/backups/bordeguna-hq/   nightly pg_dump archives (+ LAST_RUN, LAST_STATUS, LAST_OK)
+/root/backups/bordeguna-hq/   nightly pg_dump archives (+ LAST_RUN, LAST_STATUS, LAST_OK). LOCAL ONLY, not disaster-proof (docs/28)
 /var/lib/hq-monitor/          monitor state (alert edges)
 /root/.hq-monitor.env         TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID for the host monitor, mode 600
 ```
@@ -23,8 +23,8 @@ Traefik, as `https://hq.bordeguna.com`. Traefik labels live on `web`; Traefik it
 3. `docker ps` all Up, none restarting; `ufw status` = 22/80/443 only; `systemctl is-active fail2ban` = active.
 4. Traefik healthy and issuing certificates (`docker logs traefik-rsf3-traefik-1 --tail 50`).
 5. ERP, automation and Zeno backups fresh (`ls -t /root/backups/*/daily | head`).
-6. ERP offsite: `docker compose -f /opt/bordeguna-erp/deploy/docker-compose.yml --profile offsite ps` running and a restore drill done (see RESTORE-DRILL.md). **Blocked until B2 credentials exist in the ERP .env.**
-7. DNS: `hq.bordeguna.com` A record -> 200.97.162.40 (Nikolahost cPanel zone editor for bordeguna.com).
+6. ERP restore drill done and recorded (RESTORE-DRILL.md); the ERP's own nightly local dumps are fresh.
+7. DNS: `hq.bordeguna.com` resolves to 200.97.162.40 (`nslookup hq.bordeguna.com 8.8.8.8`).
 8. Disk >= 40 GB free; RAM available >= 2 GB before starting HQ.
 9. Monitor cron installed: `*/5 * * * * /opt/bordeguna-hq/deploy/hq-monitor.sh >> /var/log/hq-monitor.log 2>&1`.
 
@@ -36,8 +36,7 @@ git clone github-hq:rhjoyofficial/BordeGuna-HeadQuarter.git /opt/bordeguna-hq
 cd /opt/bordeguna-hq
 cp deploy/.env.example deploy/.env && chmod 600 deploy/.env
 # fill deploy/.env: APP_KEY (docker run --rm php:8.3-cli php -r "echo 'base64:'.base64_encode(random_bytes(32));"),
-#   DB_PASSWORD, REDIS_PASSWORD, RESTIC_PASSWORD (all: openssl rand -base64 32), B2 keys, Telegram alert values.
-#   Store APP_KEY and RESTIC_PASSWORD in the password manager BEFORE continuing.
+#   DB_PASSWORD, REDIS_PASSWORD (openssl rand -base64 32), Telegram alert values. Secrets live in this file only.
 mkdir -p /root/backups/bordeguna-hq
 ./deploy/deploy.sh --no-pull
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app php artisan db:seed --force
@@ -73,8 +72,8 @@ $C start app horizon scheduler
 ## Backup and restore
 
 - Nightly at 01:00 UTC the `backup` container runs `pg_dump -Fc`, verifies with `pg_restore --list`, keeps
-  14 daily + 8 weekly locally, then `restic backup` to `RESTIC_REPOSITORY` (B2) and `restic check`
-  (read-data subset on Sundays). Missing B2 credentials produce a Telegram WARNING every night, never a silent skip.
+  14 daily + 8 weekly in `/root/backups/bordeguna-hq` on the host. **Local only: not an offsite backup, does not
+  survive loss of the VPS** (docs/28). `OFFSITE_HOOK` is the extension point for a future provider.
 - Manual: `$C exec backup /backup.sh once`.
 - Restore drill (monthly, and after every schema change): `$C exec backup /restore.sh` restores the newest
   dump into `hq_restore_drill` and prints table and row counts; record the output in RESTORE-DRILL.md.
@@ -84,7 +83,7 @@ $C start app horizon scheduler
 - `/up`: liveness (Traefik/docker health). `/api/health`: application, database, redis, queue (Horizon
   master supervisors), scheduler (tick heartbeat < 180 s). 503 when any component fails.
 - `deploy/hq-monitor.sh` (cron, 5 min): RAM, swap, disk, load, OOM kills, container restarts, unhealthy
-  containers, HQ components, ERP reachability, backup freshness. Alerts on state change only, daily heartbeat 08:00 UTC.
+  containers, HQ components, ERP reachability, local backup freshness. Alerts on state change only, daily heartbeat 08:00 UTC.
 - Horizon dashboard: `https://hq.bordeguna.com/horizon` (owner/operator only; permission `hq.horizon.view`).
 
 ## Change control

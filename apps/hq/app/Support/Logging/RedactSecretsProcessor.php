@@ -11,7 +11,7 @@ use Monolog\Processor\ProcessorInterface;
  */
 final class RedactSecretsProcessor implements ProcessorInterface
 {
-    private const KEYS = ['password', 'password_confirmation', 'secret', 'client_secret', 'token', 'access_token', 'refresh_token', 'api_key', 'apikey', 'authorization', 'cookie', 'set-cookie', 'payload', 'two_factor_secret', 'two_factor_recovery_codes', 'app_key', 'db_password', 'redis_password', 'restic_password', 'b2_account_key'];
+    private const KEYS = ['password', 'password_confirmation', 'secret', 'client_secret', 'token', 'access_token', 'refresh_token', 'api_key', 'apikey', 'authorization', 'cookie', 'set-cookie', 'payload', 'two_factor_secret', 'two_factor_recovery_codes', 'app_key', 'db_password', 'redis_password'];
 
     private const PATTERNS = [
         '/(sk-[A-Za-z0-9_-]{8,})/' => 'sk-[redacted]',

@@ -11,7 +11,7 @@ HQ deploys to the existing Hostinger KVM 2 `srv1808022` (2 vCPU, 7.8 GB RAM, Ubu
 3. Verify Docker health: every container `Up`, none restarting, `docker system df`.
 4. Verify firewall: ufw 22/80/443 only, fail2ban active.
 5. Verify backups: ERP nightly dump fresh, automation backup fresh, Zeno backup fresh.
-6. Verify the offsite path: ERP `offsite` running, restic snapshot listed, **one restore test performed** (doc 28).
+6. Verify backups: ERP nightly dump fresh and **one restore test performed** (doc 28); `/root/backups/bordeguna-hq` exists.
 7. Verify reverse proxy: Traefik healthy, certificate resolver working on an existing host.
 8. Disk: at least 40 GB free after image builds.
 9. RAM headroom: at least 1.5 GB available after HQ containers start, else raise limits or move Zeno.
@@ -29,7 +29,7 @@ OOM awareness: every HQ service has a memory limit (below) so the kernel kills a
 | `scheduler` | same image, `php artisan schedule:work` | the tick (doc 21); separate from workers on purpose | 0.25 / 128 MB |
 | `db` | postgres:17 + pgvector (`pgvector/pgvector:pg17`) | HQ database, private bridge, no published port | 1 / 1 GB |
 | `redis` | redis:7-alpine, AOF everysec, maxmemory 256 MB allkeys-lru for cache DB, no eviction for queue DB | queues, cache, locks | 0.25 / 320 MB |
-| `backup` | postgres:17 client + restic | nightly `pg_dump` to volume + restic to B2 | 0.25 / 128 MB |
+| `backup` | postgres:17-alpine | nightly `pg_dump -Fc` to `/root/backups/bordeguna-hq` on the host (local only, not disaster-proof, doc 28) | 0.25 / 256 MB |
 | `voice-gateway` (Phase 7) | node:22-alpine | telephony bridge | later |
 | `uptime-kuma` (optional) | louislam/uptime-kuma | probes | 0.25 / 128 MB |
 
@@ -67,7 +67,7 @@ Rollback: `git checkout <previous-sha> && docker compose build app && docker com
 
 ```
 apps/hq/            Laravel app
-deploy/             Dockerfile, docker-compose.yml, nginx.conf, php.ini, backup.sh, offsite.sh, restore-drill.sh, README.md
+deploy/             Dockerfile, backup.Dockerfile, docker-compose.yml, nginx.conf, php.ini, entrypoint.sh, backup.sh, restore.sh, deploy.sh, rollback.sh, hq-monitor.sh, README.md, CAPACITY.md, RESTORE-DRILL.md
 docs/               this set + adr/
 .github/workflows/  tests.yml (Postgres 17 + Redis services), lint.yml, build.yml
 ```

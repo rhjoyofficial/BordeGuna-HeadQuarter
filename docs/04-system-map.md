@@ -21,7 +21,7 @@
    |    (native) Hermes Agent gateway -> Telegram
    |
    External: Meta Graph (Pages, Messenger, CAPI, Ads), Pathao/Steadfast/RedX/CarryBee, SSLCommerz,
-             MimSMS, GTM/GA4, Anthropic, OpenAI, HeyGen, Telegram, Backblaze B2 (idle), GitHub
+             MimSMS, GTM/GA4, Anthropic, OpenAI, HeyGen, Telegram, GitHub
 ```
 
 Flows that exist today:

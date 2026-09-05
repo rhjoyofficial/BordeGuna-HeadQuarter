@@ -37,6 +37,8 @@ tool call -> policy says require_approval
 | Purchase recommendations | Procurement (ERP workflow takes over) | 24 h |
 | Skills, policies, agents | Operator (Joy) + Owner | 48 h |
 
+Joy (Q22, 5 Sep 2026): he holds every approval right in addition to the domain approvers above, so no queue can sit empty of an approver. Implemented as the `operator` role carrying all permissions.
+
 ## Reuse of the ERP pattern
 
 The ERP already has a config-driven, multi-stage approval workflow with a shared inbox. HQ copies the *shape* (workflow, stages, role/permission per stage, decisions table, inbox badge) rather than sharing tables, and adds the AI-specific fields (agent, tool, payload, evidence). Where an action belongs to the ERP (a purchase order, a journal), HQ creates the *proposal* and the ERP's own workflow approves it; HQ never bypasses an ERP gate.

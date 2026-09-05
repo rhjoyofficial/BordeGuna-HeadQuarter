@@ -33,6 +33,8 @@ Every tool call passes `PolicyEngine::evaluate(agent, tool, args, context)` and 
 
 Rules are versioned; a rule change is audited and takes effect for new evaluations only.
 
+⚠ **Joy's answer (Q5, 5 Sep 2026): no budget barrier for now.** The table above is the recommended shape; the shipped defaults for spend and budget rules will be *unlimited* until he sets values in the UI. The policy engine, audit and cost tracking still run on every action, so caps can be introduced at any time without a deploy.
+
 ## Representation
 
 ```php

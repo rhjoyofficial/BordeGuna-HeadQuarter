@@ -8,9 +8,9 @@ Secrets never in prompts, logs, code or chat. Least privilege per human, per age
 
 `integration_credentials(provider, account_ref, encrypted_payload, scopes, expires_at, refreshed_at, status, rotated_by)` encrypted with Laravel's `APP_KEY` (AES-256-GCM) in Postgres, following the pattern already used by the shops' `courier_settings`/`sms_settings`/`integration_settings` and the ERP's `ai_credentials`. Only the connector layer decrypts; the UI shows "present/absent" and expiry, never values. OAuth flows (Meta, Google, TikTok, LinkedIn, YouTube) are implemented once in `OAuthManager` with refresh jobs and 14-day expiry alerts. Revocation from the UI deletes the row and calls the provider's revoke endpoint where one exists.
 
-Providers to hold: Meta (system user + Page tokens + app secret), Google (service account / OAuth), TikTok, YouTube, LinkedIn, X, OpenAI, Anthropic, HeyGen/voice providers, telephony, SSLCommerz (read), ERP token, shop assistant keys and admin tokens, Woo keys, Telegram bot tokens, Backblaze/S3 keys, SMTP.
+Providers to hold: Meta (system user + Page tokens + app secret), Google (service account / OAuth), TikTok, YouTube, LinkedIn, X, OpenAI, Anthropic, HeyGen/voice providers, telephony, SSLCommerz (read), ERP token, shop assistant keys and admin tokens, Woo keys, Telegram bot tokens, SMTP.
 
-Environment: the compose `.env` on the VPS holds only bootstrap secrets (`APP_KEY`, database and Redis passwords, S3 keys); it is `600`, owned by root, never committed. A secrets manager (Infisical or Vault) is optional later; the encrypted-table pattern is sufficient for one operator today.
+Environment: the compose `.env` on the VPS holds only bootstrap secrets (`APP_KEY`, database and Redis passwords, alert token); it is `600`, owned by root, never committed, never printed, never pasted into chat or documentation. The application fails safely without them: Laravel refuses to boot without `APP_KEY`, the backup container stops with `DB_PASSWORD is not set`. A secrets manager (Infisical or Vault) is optional later; the encrypted-table pattern is sufficient for one operator today.
 
 ## Authentication and authorisation
 
@@ -33,7 +33,7 @@ Doc 28. Additionally: admin actions on credentials, policies, agents and skills 
 1. Plaintext CarryBee credentials in OneDrive: move into shop admin settings, delete the file, ask for reissue.
 2. Anthropic key named `temp`, no expiry, on the boss's org: create HQ's own keys per workspace with spend limits; document ownership.
 3. No swap on the VPS: add 2-4 GB swap file before adding HQ services.
-4. ERP offsite backup defined, not running: deploy the `offsite` service (needs `RESTIC_PASSWORD` stored off-server first).
+4. Every backup on the VPS is local (docs/28). The ERP's inactive `offsite` restic definition has no destination (Backblaze B2 is not available) and is left as it is; an offsite provider is a future enhancement, not a prerequisite.
 5. Meta portfolio ownership split (Bor De Guna ad account inside Joy's personal portfolio): consolidate before scaling spend.
 6. Messenger app in Dev Mode: App Review with privacy policy pages per brand.
 7. Shared SSLCommerz merchant and Pathao account across two brands: attribution by prefix is the only safeguard; document it in finance.

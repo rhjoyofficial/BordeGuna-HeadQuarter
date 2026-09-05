@@ -5,8 +5,9 @@
  | brand, store or platform account is an edit here (or later, a screen), never a hardcode.
  | Only what exists TODAY (verified 5 Sep 2026) is listed. No future businesses are invented.
  |
- | ERP business ids mirror the Bor De Guna ERP `businesses` table. Econic has no ERP row yet
- | (open question Q7), so its erp_business_id is null.
+ | ERP business ids mirror the Bor De Guna ERP `businesses` table. Econic is deliberately NOT an ERP business
+ | (Joy, Q7, 5 Sep 2026): it exists here as an HQ-only business and store, erp_business_id null, and its brand
+ | code ECN is HQ-only marketing identity with no ERP counterpart. Azmion stays IT-services only.
  */
 return [
     'businesses' => [

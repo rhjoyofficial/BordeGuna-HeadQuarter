@@ -62,7 +62,7 @@ HQ is a **new, separate Laravel 12 application** (Inertia + React + TypeScript, 
 | Queue runtime | Laravel Horizon | Supervised workers, retries, tags, dashboard; the `database` driver used elsewhere cannot carry this |
 | Scheduler | `schedule:work` tick driving an HQ `scheduled_jobs` table | Durable, timezone-aware, per-run history; cron is only the tick |
 | Workflows | HQ `workflow_runs` state machine over queued steps (saga pattern) | Long multi-step automations with checkpoints; n8n kept for tactical flows during transition |
-| Object storage | S3-compatible (Backblaze B2 already provisioned, or Hostinger Object Storage) | Media, generated content, backups off the VPS disk |
+| Object storage | none in Phase 0 (local disk); an S3-compatible store (Hostinger Object Storage or similar) is a later phase when media volume needs it. Backblaze B2 is not available and not part of the plan | Media and generated content, later |
 | AI providers | OpenAI Responses API + Anthropic Messages API behind `ModelRouter`; drivers modelled on the ERP's `AssistantDriver` | Provider-agnostic business layer; per-task tier routing |
 | Realtime voice (Phase 7) | Small Node "voice gateway" between telephony and a realtime model, calling HQ tools over HTTP | PHP is the wrong runtime for bidirectional audio; isolate it |
 | Reverse proxy / TLS | Existing Traefik | Labels only |

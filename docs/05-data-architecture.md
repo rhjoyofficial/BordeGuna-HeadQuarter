@@ -7,7 +7,7 @@
 | HQ primary | PostgreSQL 17 (own container, `hq_db`) | everything HQ owns: businesses/brands mirror, agents, skills, tools, policies, approvals, scheduled jobs, workflow runs, events, conversations, customer identities, memory, assets metadata, ai_runs, audit | JSONB + pgvector in one engine; the ERP's MySQL stays separate so a runaway HQ query cannot touch payroll |
 | Vector search | `pgvector` extension in `hq_db` | embeddings for SOPs, brand knowledge, product descriptions, conversation summaries | one engine to back up; volume is small for years |
 | Cache / queue / streams | Redis 7 (own container, AOF on) | Horizon queues, locks, rate limits, event fan-out | standard Laravel infrastructure |
-| Object storage | S3-compatible bucket (B2 or Hostinger Object Storage) | media, generated images/video, exports, encrypted backups | off the VPS disk by construction |
+| Object storage | none in Phase 0 (local disk); an S3-compatible store is a later phase when media volume needs it | media, generated images/video, exports | Backblaze B2 is not available and not part of the plan |
 | Systems of record | ERP MySQL 8, shop MariaDB/MySQL, Woo MySQL | unchanged | HQ reads through APIs only |
 | Analytics warehouse | none for now | | volume (dozens of orders per month) does not justify one; HQ `facts_*` tables cover reporting until it does |
 

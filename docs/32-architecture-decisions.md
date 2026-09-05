@@ -17,5 +17,6 @@ Index of ADRs in `docs/adr/`. Each ADR: context, decision, alternatives, consequ
 | [ADR-011](adr/011-external-side-effect-idempotency.md) | At-least-once execution with idempotent tools and reconciliation; no exactly-once claim | accepted |
 | [ADR-012](adr/012-current-vps-first-capacity-strategy.md) | Deploy on the current VPS with swap, limits and monitoring; scale on evidence | accepted (Joy, 5 Sep) |
 | [ADR-013](adr/013-behavior-alignment-without-fine-tuning.md) | Behavior Alignment Layer instead of training | accepted (Joy, 5 Sep) |
+| [ADR-014](adr/014-local-backup-no-offsite-provider.md) | Local on-VPS PostgreSQL backup; Backblaze B2 removed; no offsite provider in the current deployment | accepted (Joy, 5 Sep) |
 
 Decisions inherited from the existing estate and treated as settled unless Joy reopens them: LaLaDia is the product and Bionic its fork (fixes flow upstream then down); brands are a product dimension in the ERP, not tenants; per-account identifiers are settings rows, never code literals; every schema change ships with its migration in the same commit; deploy only after CI is green.

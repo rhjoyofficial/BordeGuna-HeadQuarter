@@ -17,7 +17,7 @@ Adapters implement `MarketingPlatform`: `createCampaign(Experiment)`, `updateBud
 
 | Adapter | API | Status | Notes |
 |---|---|---|---|
-| `MetaAdapter` | Marketing API v25 (campaign, adset, ad, insights) | build in Phase 5 | ad account `28164410319885213` (BDT), system-user token with `ads_management` needed (the current CAPI token has events scope only; **new token required**) |
+| `MetaAdapter` | Marketing API v25 (campaign, adset, ad, insights) | build in Phase 5 | ad account `28164410319885213` (BDT) today; per Joy (Q12, 5 Sep 2026) ad and Page access moves under the boss's new official Meta account, so the adapter reads account ids and tokens from `platform_accounts`/`integration_credentials`, never from code; a system-user token with `ads_management` is required (the current CAPI token has events scope only) |
 | `GoogleAdsAdapter` | Google Ads API | later | no Google Ads account exists; needs Merchant Center + product feed first for Shopping/PMax |
 | `TikTokAdsAdapter` | Marketing API | later | no account; needs pixel + catalog |
 

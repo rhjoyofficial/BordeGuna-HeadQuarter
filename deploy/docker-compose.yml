@@ -173,8 +173,8 @@ services:
     restart: unless-stopped
     env_file: [.env]
     volumes:
+      # Host directory, separate from the dbdata volume (same disk: local only, not disaster-proof, docs/28).
       - /root/backups/bordeguna-hq:/backups
-      - resticcache:/root/.cache/restic
     networks: [internal]
     depends_on:
       db:
@@ -206,5 +206,4 @@ volumes:
   redisdata:
   storage:
   public:
-  resticcache:
   kumadata:

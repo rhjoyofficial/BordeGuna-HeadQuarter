@@ -69,7 +69,7 @@ Windows 11, PHP 8.3.30, Node 22.20, Composer 2.8, MySQL 8.4 (Laragon), Python 3.
 | AI assistant ("Hudhud") | Built in Foundation: `ErpAssistant`, `AssistantTools` (`how_to`, `read_data`, `run_report`, todos, notes), permission-derived table map, structured read requests compiled to SQL by the app (never model-authored SQL), read-only DB user. Providers: Anthropic (active, `claude-sonnet-4-5-20250929`), OpenAI driver present, Gemini/OpenRouter planned. Credentials in `ai_credentials` (1 row). 16 assistant messages so far. |
 | Production data | 9 employees, 10 users, 153 products, 4 customers, 0 leads, **0 sales orders**. Payroll and attendance are live monthly; commerce has not moved into the ERP. |
 | Deployment | `git pull` + `docker compose build` in `/opt/bordeguna-erp`, runbook `deploy/README.md`, ~100 pre-deploy dumps in `/root`. Local `main` = production `52da1c9`. |
-| Backups | Nightly dump in container (14 daily / 8 weekly, on-box). Offsite restic to B2 designed, **not deployed**. Restore drill scripts exist. |
+| Backups | Nightly dump in container (14 daily / 8 weekly, on-box). An `offsite` restic service is defined but has never run (no destination; B2 is not available). Restore drill scripts exist and **passed on 5 Sep**. |
 | CI | GitHub Actions: tests, lint, mirror |
 
 **Reusable for HQ:** multi-business model, RBAC and approval engine patterns, the permission-derived AI tool design, the Anthropic/OpenAI driver abstraction, messaging driver registry, the scheduler/worker container pattern, the deploy runbook discipline.
@@ -149,7 +149,7 @@ ERP (briefing, sweeps, attendance) and both shops (courier sync, cart recovery, 
 | HeyGen | Key in n8n | 5 Sep |
 | Payments | SSLCommerz (one live merchant, both shops), COD, MimSMS balance ~Tk 2,300 (Aug) | Aug |
 | Couriers | Pathao merchant (single callback URL points at bizmation), Steadfast/RedX/CarryBee credentials partially held | Aug/Sep |
-| Backblaze B2 | Bucket `bordeguna-erp-backup` configured for restic, **replication never ran** | 5 Sep |
+| Backblaze B2 | Referenced by the ERP's inactive `offsite` restic service; credentials empty, never ran. **Decision 5 Sep 2026: B2 is not available and not part of the plan.** | 5 Sep |
 
 ---
 
@@ -173,7 +173,7 @@ No unified customer identity exists across these. The ERP's `PhoneIdentity` norm
 2. The single Anthropic key powering Hermes is named `temp`, never rotates, and belongs to the boss's org; the ERP holds a second key. No secrets manager anywhere; secrets live in `.env` files, n8n's encrypted store, and Laravel encrypted settings rows.
 3. `PermitRootLogin yes` on the VPS (key-only, so acceptable, but a dedicated deploy user would be better).
 4. No swap on a 7.8 GB host running MySQL, Postgres x2, PHP, Node, n8n and Hermes. An OOM kill is the realistic failure mode when load grows.
-5. ERP offsite backup is designed but not running; every backup on the VPS is on the same disk as the data. Nikolahost backups are on the same account as the sites.
+5. Every backup on the VPS is local to the VPS (same disk as the data); the ERP's `offsite` restic service has never run and has no destination. Nikolahost backups are on the same account as the sites. Offsite copies are a future enhancement, not a current dependency.
 6. The Meta Messenger app is in Dev Mode; going live requires App Review and a privacy policy URL per brand.
 7. Two Meta portfolios split ownership oddly: the Bor De Guna ad account lives in Joy's personal End Brackets portfolio. A portfolio consolidation is owed before scaling ad spend (documented 2 Sep in the marketing migration guide).
 8. LaLaDia and Bionic share one SSLCommerz merchant and one Pathao account; the order prefix is the only thing that says whose money it is.
