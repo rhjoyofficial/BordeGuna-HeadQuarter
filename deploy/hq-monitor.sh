@@ -46,7 +46,7 @@ check load $(awk -v l="$LOAD" -v m="$LOAD_MAX" 'BEGIN{print (l>m)?1:0}') "load $
 
 # OOM kills since last run (kernel log)
 OOM_F="$STATE_DIR/oom.count"; OOM_PREV=$(cat "$OOM_F" 2>/dev/null || echo 0)
-OOM_NOW=$(journalctl -k --since "7 days ago" 2>/dev/null | grep -ci "out of memory\|oom-kill" || echo 0)
+OOM_NOW=$(journalctl -k --since "7 days ago" 2>/dev/null | grep -ci "out of memory\|oom-kill"); OOM_NOW=${OOM_NOW:-0}
 echo "$OOM_NOW" > "$OOM_F"
 if [ "$OOM_NOW" -gt "$OOM_PREV" ]; then
     WHO=$(journalctl -k --since "1 hour ago" 2>/dev/null | grep -i "killed process" | tail -1)
@@ -68,8 +68,12 @@ check unhealthy $([ -n "$UNHEALTHY" ] && echo 1 || echo 0) "unhealthy containers
 
 # HQ application health (through Traefik by Host header; falls back to the web container)
 HQ_JSON=$(curl -s -m 10 -H 'Host: hq.bordeguna.com' http://127.0.0.1/api/health 2>/dev/null)
-[ -z "$HQ_JSON" ] && HQ_JSON=$(docker exec bordeguna-hq-web-1 wget -qO- http://127.0.0.1/api/health 2>/dev/null)
-if [ -n "$HQ_JSON" ]; then
+echo "$HQ_JSON" | grep -q '"checks"' || HQ_JSON=$(docker exec bordeguna-hq-web-1 wget -qO- http://127.0.0.1/api/health 2>/dev/null)
+echo "$HQ_JSON" | grep -q '"checks"' || HQ_JSON=""
+if ! docker ps --format '{{.Names}}' | grep -q '^bordeguna-hq-web-1$'; then
+    log "HQ stack not deployed yet; skipping HQ checks"
+    HQ_JSON=""; overall="not-deployed"
+elif [ -n "$HQ_JSON" ]; then
     for comp in database redis queue scheduler; do
         st=$(echo "$HQ_JSON" | grep -o "\"$comp\":{\"status\":\"[a-z]*\"" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)
         check "hq_$comp" $([ "$st" = "ok" ] && echo 0 || echo 1) "HQ ${comp} status=${st:-unknown}. Look: docker compose -f /opt/bordeguna-hq/deploy/docker-compose.yml logs --tail 100 ${comp/queue/horizon}"
@@ -80,6 +84,7 @@ else
     check hq_reachable 1 "HQ /api/health unreachable. Look: docker ps; docker logs bordeguna-hq-web-1"
 fi
 [ -n "$HQ_JSON" ] && check hq_reachable 0 "reachable"
+overall=${overall:-unknown}
 
 # ERP still answering (it shares the host)
 ERP=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H 'Host: erp.srv1808022.hstgr.cloud' http://127.0.0.1/up 2>/dev/null)
