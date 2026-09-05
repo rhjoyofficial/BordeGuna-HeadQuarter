@@ -22,7 +22,7 @@ final class ShopOrderEventHandler implements EventHandler
 
         match ($event->type) {
             'order.created' => $this->facts->upsertFromShopPayload($store, is_array($payload['order'] ?? null) ? $payload['order'] : $payload, $event->event_id),
-            'order.status_changed', 'payment.completed', 'shipment.delivered' => $this->facts->applyStatusEvent($store, $event->type, $payload, $event->event_id),
+            'order.status_changed', 'order.payment_updated', 'shipment.status_updated', 'payment.completed', 'shipment.delivered' => $this->facts->applyStatusEvent($store, $event->type, $payload, $event->event_id),
             default => null,
         };
     }

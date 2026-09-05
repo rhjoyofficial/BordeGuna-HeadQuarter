@@ -166,7 +166,7 @@ final class LaravelShopAdapter implements CommercePlatform
         return $this->logger->call($this->connector(), 'createOrder', function () use ($draft, $key) {
             $path = $draft->landingSlug ? '/api/v1/landing/'.rawurlencode($draft->landingSlug).'/checkout' : '/api/v1/checkout';
             try {
-                $json = $this->write($path, $draft->toShopPayload(), $key->value, self::WRITE_TIMEOUT);
+                $json = $this->write($path, $draft->toShopPayload(checkoutToken: $key->value), $key->value, self::WRITE_TIMEOUT);
             } catch (Uncertain $e) {
                 return new OrderResult(OrderResult::UNCERTAIN, error: $e->getMessage());
             } catch (ValidationFailed|Refused $e) {

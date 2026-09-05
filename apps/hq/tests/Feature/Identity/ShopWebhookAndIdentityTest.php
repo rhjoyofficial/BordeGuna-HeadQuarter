@@ -115,6 +115,13 @@ it('parks a status event for an unknown order and applies it once the order exis
     DomainEvent::query()->update(['next_attempt_at' => now()->subMinute()]);
     $this->artisan('hq:events:process')->assertSuccessful();
     expect(FactsOrder::where('order_ref', 'LLD-9')->sole()->status)->toBe('confirmed')->and(DomainEvent::where('status', 'processed')->count())->toBe(2);
+
+    // The shop's real names and fields (old_status/new_status/changed_at), as its listeners emit them today.
+    signedPost($this, $env('order.payment_updated', ['order_number' => 'LLD-9', 'old_status' => 'unpaid', 'new_status' => 'paid', 'payment_method' => 'sslcommerz', 'order_status' => 'confirmed', 'changed_at' => '2026-09-05T11:05:00+00:00'], 'p-1'), headers: ['HTTP_X_SHOP_DELIVERY' => 'p-1'])->assertStatus(202);
+    signedPost($this, $env('shipment.status_updated', ['order_number' => 'LLD-9', 'courier' => 'pathao', 'old_status' => 'in_transit', 'new_status' => 'delivered', 'synced_at' => '2026-09-06T09:00:00+00:00'], 'sh-1'), headers: ['HTTP_X_SHOP_DELIVERY' => 'sh-1'])->assertStatus(202);
+    $this->artisan('hq:events:process')->assertSuccessful();
+    $f = FactsOrder::where('order_ref', 'LLD-9')->sole();
+    expect($f->payment_status)->toBe('paid')->and($f->payment_method)->toBe('sslcommerz')->and($f->status)->toBe('delivered')->and($f->delivered_at)->not->toBeNull();
 });
 
 it('merges two customers reversibly, moving identities and facts, and rebuild recomputes counts', function () {

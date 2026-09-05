@@ -17,7 +17,7 @@ final readonly class OrderDraft
     ) {}
 
     /** The checkout payload the Laravel shop validates (docs/35 section E). */
-    public function toShopPayload(): array
+    public function toShopPayload(?string $checkoutToken = null): array
     {
         $notes = trim(($this->notes ?? '').($this->conversationRef ? " [hq:{$this->conversationRef}]" : ''));
 
@@ -36,6 +36,9 @@ final readonly class OrderDraft
             'coupon_code' => $this->couponCode,
             'notes' => $notes !== '' ? $notes : null,
             'agree_terms' => true,
+            // The shop's own idempotency: orders.checkout_token is unique and CheckoutIdempotency returns the
+            // same order for a repeated token with the same basket (>= 32 chars required for guests).
+            'checkout_token' => $checkoutToken,
         ], fn ($v) => $v !== null && $v !== '');
     }
 }

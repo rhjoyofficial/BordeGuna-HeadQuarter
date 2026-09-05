@@ -17,6 +17,6 @@ final readonly class IdempotencyKey
 
     public static function for(string ...$parts): self
     {
-        return new self(hash('sha256', implode('|', $parts)));
+        return new self(hash('sha256', implode('|', $parts))); // 64 chars: satisfies the shop's min:32 checkout_token rule
     }
 }

@@ -30,6 +30,8 @@ return [
         'handlers' => [
             'order.created' => [ShopOrderEventHandler::class],
             'order.status_changed' => [ShopOrderEventHandler::class],
+            'order.payment_updated' => [ShopOrderEventHandler::class],
+            'shipment.status_updated' => [ShopOrderEventHandler::class],
             'payment.completed' => [ShopOrderEventHandler::class],
             'shipment.delivered' => [ShopOrderEventHandler::class],
             'customer.registered' => [CustomerRegisteredHandler::class],

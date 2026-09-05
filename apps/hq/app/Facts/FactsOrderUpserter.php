@@ -90,7 +90,10 @@ final class FactsOrderUpserter
         if (! $fact) {
             throw new UnknownOrderException("order {$ref} not yet known for store {$store->slug}; will retry");
         }
-        $at = isset($data['at']) ? CarbonImmutable::parse($data['at']) : now();
+        // The shop's listeners send old_status/new_status/changed_at; the docs/35 envelope uses from/to/at. Accept both.
+        $to = $data['to'] ?? $data['new_status'] ?? null;
+        $data['to'] = $to;
+        $at = isset($data['at']) ? CarbonImmutable::parse($data['at']) : (isset($data['changed_at']) ? CarbonImmutable::parse($data['changed_at']) : now());
         match ($type) {
             'order.status_changed' => $fact->forceFill(array_filter([
                 'status' => (self::STATUS_RANK[$data['to'] ?? ''] ?? 0) >= (self::STATUS_RANK[$fact->status] ?? 0) ? ($data['to'] ?? $fact->status) : $fact->status,
@@ -98,7 +101,9 @@ final class FactsOrderUpserter
                 'delivered_at' => ($data['to'] ?? null) === 'delivered' ? $at : null,
                 'cancelled_at' => ($data['to'] ?? null) === 'cancelled' ? $at : null,
             ], fn ($v) => $v !== null)),
+            'order.payment_updated' => $fact->forceFill(array_filter(['payment_status' => $to, 'payment_method' => $data['payment_method'] ?? $fact->payment_method, 'status' => isset($data['order_status']) && (self::STATUS_RANK[$data['order_status']] ?? 0) >= (self::STATUS_RANK[$fact->status] ?? 0) ? $data['order_status'] : null], fn ($v) => $v !== null)),
             'payment.completed' => $fact->forceFill(['payment_status' => 'paid', 'payment_method' => $data['method'] ?? $fact->payment_method]),
+            'shipment.status_updated' => $to === 'delivered' ? $fact->forceFill(['status' => 'delivered', 'delivered_at' => $at]) : $fact,
             'shipment.delivered' => $fact->forceFill(['status' => 'delivered', 'delivered_at' => isset($data['delivered_at']) ? CarbonImmutable::parse($data['delivered_at']) : $at]),
             default => $fact,
         };

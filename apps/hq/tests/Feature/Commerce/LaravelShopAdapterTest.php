@@ -95,7 +95,7 @@ it('creates an order with an Idempotency-Key and classifies confirmed, refused a
     $a = adapter();
     $r1 = $a->createOrder(draft(), $key);
     expect($r1->confirmed())->toBeTrue()->and($r1->order->ref)->toBe('LLD-20260905-ABC123')->and($r1->order->lines[0]->quantity)->toBe(2);
-    Http::assertSent(fn (Request $r) => $r->hasHeader('Idempotency-Key', $key->value) && $r['items'][0]['variant_id'] === 39);
+    Http::assertSent(fn (Request $r) => $r->hasHeader('Idempotency-Key', $key->value) && $r['checkout_token'] === $key->value && $r['items'][0]['variant_id'] === 39);
 
     expect($a->createOrder(draft(), $key)->state)->toBe(OrderResult::REFUSED);
     expect($a->createOrder(draft(), $key)->state)->toBe(OrderResult::REFUSED);
