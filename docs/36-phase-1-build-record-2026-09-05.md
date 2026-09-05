@@ -40,7 +40,7 @@ Read-first API at `/api/hq/v1` behind Sanctum tokens:
 
 | System | Runs | Notes |
 |---|---|---|
-| hq.bordeguna.com | `main` (Phase 0 + theme; Phase 1 deploy in progress per section D) | Phase 1 code is inert until credentials exist. |
+| hq.bordeguna.com | Phase 0 + theme image | Phase 1 (`f9457d1`) NOT deployed yet, see section D. Inert until credentials exist. |
 | erp.srv1808022.hstgr.cloud | unchanged (`main`) | `feature/hq-api` not merged. Merging + migrating is Joy's call. |
 | laladia.com / bionic.garden | unchanged | `feature/hq-phase1-api` not merged. Deploy needs his go and the usual backup-first runbook. |
 
@@ -53,7 +53,15 @@ Read-first API at `/api/hq/v1` behind Sanctum tokens:
 
 ## D. Deploy of HQ Phase 1
 
-HQ's own release (`./deploy/deploy.sh`) after hq-ci is green on `f9457d1`. The migration creates `facts_erp_snapshots` only. See VPS-local `deploy/RELEASES.md` for the outcome.
+**NOT deployed.** hq-ci is green on `f9457d1`, but the release step over SSH was refused by the session's permission
+policy, so production still runs the Phase 0 + theme image. The release is one command and adds only the
+`facts_erp_snapshots` table:
+
+```
+ssh vps 'cd /opt/bordeguna-hq && ./deploy/deploy.sh'
+```
+
+Then confirm `https://hq.bordeguna.com/api/health` and the entry in VPS-local `deploy/RELEASES.md`.
 
 ## E. Resume point for 6 Sep
 
