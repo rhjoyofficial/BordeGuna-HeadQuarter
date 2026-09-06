@@ -16,8 +16,9 @@ The central operating and intelligence layer for every Bor De Guna business: LaL
 8. `docs/37-resume-briefing-2026-09-06.md` - read-first briefing for anyone joining cold: what exists, what is deployed, what waits
 9. `docs/38-phase-1-production-readiness-2026-09-06.md` - accepted 6 Sep: exact production change lists, migration impact, token/webhook plans, backup and rollback per repository, P-1 recommendation, order of operations
 10. `docs/39-phase-1-step-0-production-state-2026-09-06.md` - verified production HEADs for the ERP and both shops, the LaLaDia blast-radius answer, webhook subscriber state, the corrected VPS swap reading
-11. `docs/40-erp-phase-1-integration-complete-2026-09-06.md` - **where we are now**: the ERP API released to production (`17d595c`), the scoped `hq` credential, HQ's first live ERP read, every verification result, anomalies, and the next milestone (LaLaDia, not started)
-12. `docs/33-nikolahost-to-hostinger-migration.md` - the future hosting move (not a Phase 0 prerequisite)
+11. `docs/40-erp-phase-1-integration-complete-2026-09-06.md` - the ERP API released to production (`17d595c`), the scoped `hq` credential, HQ's first live ERP read
+12. `docs/41-laladia-phase-1-integration-complete-2026-09-06.md` - **where we are now**: laladia.com released from the isolated ref (`5e955a2c + 4865c109`), HQ credentialed, six webhook subscribers live and proven on real orders, facts/identity/reconciliation verified, the next milestone (Bionic, not started)
+13. `docs/33-nikolahost-to-hostinger-migration.md` - the future hosting move (not a Phase 0 prerequisite)
 
 Everything else in `docs/` is a subsystem design and can be read when that subsystem is being built.
 
