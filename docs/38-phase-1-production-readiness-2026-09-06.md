@@ -55,7 +55,7 @@ One commit, `3fd4be0`. **13 files, +791 / -5.** Status: **READY**, awaiting **RE
 
 ### A.2 Read-first and least-privilege: confirmed, with three caveats you should see
 
-**Confirmed read-first.** Twelve routes: eleven `GET`, one `POST` (`tickets`). The single write inserts a `crm_tickets` row with the CRM screen's own numbering and SLA clock, and replays safely on a repeated `idempotency_key` (unique per business). No Action, no journal, no stock movement, no approval decision is reachable.
+**Confirmed read-first.** Thirteen routes: eleven `GET`, two `POST` — `tickets` (the one write) and `reports/{key}/run` (a POST that only reads). *(Corrected 6 Sep after deploy: this section originally said "twelve routes, one POST"; `route:list` shows 13 — docs/40 P-2.)* The single write inserts a `crm_tickets` row with the CRM screen's own numbering and SLA clock, and replays safely on a repeated `idempotency_key` (unique per business). No Action, no journal, no stock movement, no approval decision is reachable.
 
 **Confirmed least-privilege in three independent layers:**
 
