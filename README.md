@@ -13,7 +13,9 @@ The central operating and intelligence layer for every Bor De Guna business: LaL
 5. `docs/31-open-questions.md` - decisions only Joy or the boss can make
 6. `docs/34-architecture-review-2026-09-05.md` - locked decisions, models, Phase 0 checklist (Phase 0 accepted, deployed 5 Sep 2026)
 7. `docs/35-phase-1-readiness-review-2026-09-05.md` - Phase 1 readiness review: contracts, flows, order, risks, open decisions
-8. `docs/33-nikolahost-to-hostinger-migration.md` - the future hosting move (not a Phase 0 prerequisite)
+8. `docs/37-resume-briefing-2026-09-06.md` - read-first briefing for anyone joining cold: what exists, what is deployed, what waits
+9. `docs/38-phase-1-production-readiness-2026-09-06.md` - **the current step**: exact production change lists, migration impact, token/webhook plans, backup and rollback per repository, P-1 recommendation, order of operations
+10. `docs/33-nikolahost-to-hostinger-migration.md` - the future hosting move (not a Phase 0 prerequisite)
 
 Everything else in `docs/` is a subsystem design and can be read when that subsystem is being built.
 
