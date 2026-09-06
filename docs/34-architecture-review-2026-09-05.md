@@ -85,7 +85,7 @@ Current VPS `srv1808022` (KVM 2). New compose project `bordeguna-hq`: `app` (PHP
 ## I. Phase 0 implementation checklist
 
 Host safety (before any HQ container):
-- [ ] 4 GB swap file, `vm.swappiness=10`, verified with `swapon --show`
+- [x] 4 GB swap file, `vm.swappiness=10`, verified with `swapon --show` (**re-verified live 6 Sep 2026**: `/swapfile file 4G`, 768 KB used, swappiness 10 — `docs/39` section G)
 - [ ] Record `free -h`, `docker stats`, `df -h` baseline in `deploy/CAPACITY.md`
 - [ ] Verify Docker health, ufw (22/80/443), fail2ban, Traefik certificate resolver
 - [ ] Verify ERP, automation and Zeno backups are fresh

@@ -12,11 +12,11 @@
 |---|---|
 | Plan | Hostinger KVM 2 |
 | OS / kernel | Ubuntu 24.04.4 LTS, 6.8.0-134 |
-| CPU / RAM | 2 vCPU, 7.8 GB, **no swap** |
-| Disk | 96 GB, 20 GB used (77 GB free) |
+| CPU / RAM | 2 vCPU, 7.8 GB, **4 GB swapfile active** (corrected 6 Sep 2026 — the "no swap" reading here was taken before the Phase 0 host-safety step ran; `swapon --show` now reports `/swapfile file 4G`, `vm.swappiness = 10`, 768 KB in use. See `docs/39`) |
+| Disk | 96 GB, **27 GB used (70 GB free)** as of 6 Sep 2026 (was 20 GB on 5 Sep; the HQ stack, its Postgres and the pre-deploy dumps account for the growth) |
 | Uptime / load | 59 days, load ~0.5 |
 | Docker | Engine 29.6.1, Compose v5.3.1 |
-| RAM in use | 2.7 GB used, 5.1 GB available |
+| RAM in use | **3.1 GB used, 4.6 GB available** as of 6 Sep 2026, with HQ running (was 2.7 GB / 5.1 GB before HQ) |
 | Firewall | ufw active: 22, 80, 443 only |
 | SSH | key-only (`passwordauthentication no` effective), `PermitRootLogin yes` (key), fail2ban active |
 | Reverse proxy | Traefik (latest) on the **host network**, Let's Encrypt, routes by container labels |
@@ -172,7 +172,7 @@ No unified customer identity exists across these. The ERP's `PhoneIdentity` norm
 1. CarryBee live credentials sit in a plaintext file inside cloud-synced OneDrive (flagged 2 Sep, still open).
 2. The single Anthropic key powering Hermes is named `temp`, never rotates, and belongs to the boss's org; the ERP holds a second key. No secrets manager anywhere; secrets live in `.env` files, n8n's encrypted store, and Laravel encrypted settings rows.
 3. `PermitRootLogin yes` on the VPS (key-only, so acceptable, but a dedicated deploy user would be better).
-4. No swap on a 7.8 GB host running MySQL, Postgres x2, PHP, Node, n8n and Hermes. An OOM kill is the realistic failure mode when load grows.
+4. ~~No swap on a 7.8 GB host~~ **RESOLVED, verified 6 Sep 2026:** a 4 GB swapfile is active with `vm.swappiness = 10` and is barely touched (768 KB), on a host now at 3.1 GB used / 4.6 GB available with HQ running. The OOM risk this item described is materially reduced; memory headroom still deserves the capacity monitoring in doc 27 before any further stack lands here.
 5. Every backup on the VPS is local to the VPS (same disk as the data); the ERP's `offsite` restic service has never run and has no destination. Nikolahost backups are on the same account as the sites. Offsite copies are a future enhancement, not a current dependency.
 6. The Meta Messenger app is in Dev Mode; going live requires App Review and a privacy policy URL per brand.
 7. Two Meta portfolios split ownership oddly: the Bor De Guna ad account lives in Joy's personal End Brackets portfolio. A portfolio consolidation is owed before scaling ad spend (documented 2 Sep in the marketing migration guide).

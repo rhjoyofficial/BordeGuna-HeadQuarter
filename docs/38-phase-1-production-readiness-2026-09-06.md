@@ -1,5 +1,10 @@
 # 38 - Phase 1 Production Readiness (6 September 2026)
 
+> **ACCEPTED by Joy, 6 Sep 2026, with two decisions that supersede the open questions below.**
+> **P-1 = CONFIRMED, Option B**: the checkout stock refusal stays, `CheckoutPricingService` is not modified, and no separate checkout release is created. The four wording rules he set are recorded verbatim in `docs/39` section J.
+> **B.6 = resolved by Step 0**: the SEO/canonical/404 and hilsa QA work is **already live**, so the LaLaDia release would carry the HQ commit alone. Section B.6's option (b) no longer applies. Verified production state, evidence and blast radius: **`docs/39-phase-1-step-0-production-state-2026-09-06.md`**.
+> Section G's swap and disk figures in `docs/01` were also stale and are corrected there; the host has a 4 GB swapfile.
+
 **This is a review document. Nothing in it has been executed.** No branch was merged, nothing was deployed, no production token was issued, no webhook subscriber was created, no checkout behaviour was changed, nothing Meta, payment or DNS was touched, and Phase 2 has not been started.
 
 Everything below was read out of the actual branches today, not recalled from docs/35 or docs/36. Where an earlier document disagrees with the code, the code is written here and the disagreement is named. Two things earlier documents said are already out of date and are corrected in place (LaLaDia's `main` has moved; the ERP report-permission picture is narrower than "23 reports" implied).
