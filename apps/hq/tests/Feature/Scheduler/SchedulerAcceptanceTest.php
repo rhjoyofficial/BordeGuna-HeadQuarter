@@ -31,7 +31,11 @@ function owner(): User
 
 it('1-7: creates a no-op job, tick claims one run, horizon job executes it, result stored, visible in history', function () {
     $service = makeService();
-    $runAt = CarbonImmutable::parse('2026-09-06 17:00:00', 'Asia/Dhaka');
+    // Relative, not a date. A `once` job whose run_at has already passed gets no next_run_at at
+    // all (NextRunCalculator returns null unless run_at is strictly in the future), so a hardcoded
+    // slot turns this test into a bomb that goes off on the first day after it was written - which
+    // is exactly what happened to '2026-09-06 17:00:00' on 7 September 2026.
+    $runAt = CarbonImmutable::now('Asia/Dhaka')->addDay()->startOfHour();
     $job = $service->create(['name' => 'noop once', 'kind' => 'once', 'tool_key' => 'noop', 'run_at' => $runAt->utc(), 'payload' => ['message' => 'hello']], owner());
 
     expect($job->exists)->toBeTrue()
