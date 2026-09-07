@@ -410,3 +410,66 @@ hq:events:replay --type=order.status_changed --hours=24 --apply --reason="dead e
 ```
 
 Not run here - it writes production data outside this milestone's scope.
+
+---
+
+## M. The LaLaDia dead events, repaired - and what the repair uncovered
+
+Run with Joy's go-ahead, on LaLaDia, using the tooling built earlier today.
+
+**1. `hq:facts:reconcile --store=laladia-com --hours=200`** → `checked 15 orders, inserted 9 missing`.
+
+**Nine, not the two the dead events named.** HQ had 6 facts and should have had 15. The nightly job's
+48-hour window had been hiding every order that missed its webhook and was more than two days old,
+and nothing surfaced them because a fact that was never created raises nothing. The two orders the
+dead events referenced were simply the ones that happened to announce themselves by failing.
+
+**2. `hq:events:replay --type=order.status_changed --hours=30 --apply`** → `replayed 16, failed 0`.
+The six previously-dead deliveries applied cleanly once their facts existed.
+
+⚠ The six event rows still read `status = dead`. Replay deliberately does not rewrite event status
+(the delivery genuinely did fail at the time), and `hq:events:process` ignores `dead`, so they are
+inert rather than pending. Their effect is applied and audited. Worth a small follow-up so a reader
+is not misled into thinking they are outstanding.
+
+### M.1 ⚠⚠ The integrity checker earned itself on its first live run
+
+Deployed this morning, it immediately found a discrepancy nothing else would have:
+
+```
+LLD-20260906-JRQXXJLN  line_total_sum_ne_subtotal: line totals sum to 999.00, but subtotal is 1239.00
+```
+
+That order was **edited on the shop after its webhook arrived**:
+
+| | at webhook time | now |
+| --- | --- | --- |
+| subtotal | 999.00 | **1239.00** |
+| discount | 0.00 | **90.00** |
+| status | pending | **processing** |
+| lines | 1 × PIC-HIL-V1 @ 999 | **still 1 × PIC-HIL-V1 @ 999** |
+
+Order-level money is correct and internally consistent (`1239 + 90 - 90 = 1239`); reconciliation
+pulled it from the shop faithfully. **The line detail is stale**, because the admin list endpoint
+carries no items and reconciliation therefore never touches lines (docs/44 §G).
+
+This is a **new** finding, wider than the one docs/44 recorded. That said reconciliation-inserted
+orders have *no* lines. This says something sharper: **an order edited on the shop leaves HQ holding
+lines that are positively wrong**, not merely absent, and only the arithmetic check reveals it.
+
+Not repaired, and deliberately so: HQ cannot obtain current line detail without the admin *show*
+endpoint, which stamps `admin_viewed_at` on the shop's order. The durable fix is shop-side - emit an
+order-updated event carrying items, or include items in an existing one - and belongs in the next
+ordinary LaLaDia release alongside `source` and `district`.
+
+### M.2 State after the repair
+
+| | |
+| --- | --- |
+| facts_orders | 6 → **15** |
+| customers | 5 → **14** |
+| events | 15 processed, 6 dead (inert, effect applied) |
+| integrity check | 15 checked, 14 ok, 11 without line detail, **1 discrepancy** (M.1) |
+
+The 11 without line detail are the reconciliation-inserted orders, counted apart rather than called
+broken, exactly as designed.
