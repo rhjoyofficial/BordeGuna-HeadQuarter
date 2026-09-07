@@ -1,9 +1,10 @@
 # 46 - Bionic Phase 1 HQ integration (7 September 2026)
 
-> **STATUS: IN PROGRESS.** Sections A-E are verified and final. Sections F onward are the live
-> integration itself, and every one of them is blocked on three credential values that exist only
-> on Bionic's cPanel host, which this session has no shell on. Nothing in them is guessed or
-> pre-written; they are filled in when the steps actually run.
+> **STATUS: IN PROGRESS.** Sections A-F are verified and final: the code was already live, and
+> **all three credentials now exist and are proven against the live site** (section F). Section G,
+> the live integration itself, waits on Joy pasting those three values into HQ (section F.4) -
+> a step no session may do for him, because it means handling the secrets. Nothing in G is guessed
+> or pre-written; it is filled in when the steps actually run.
 
 **No code was deployed in this milestone, and no Bionic repository write of any kind was made.**
 That is not a limitation, it is the finding: the code was already live before the milestone opened.
@@ -147,17 +148,88 @@ call it.
 
 ---
 
-## F. Credentials
+## F. Credentials - all three now exist
 
-_(blocked - see section H)_
+Created on Bionic's cPanel host on 7 September through a single throwaway script that was deleted
+immediately after it ran (`rm -f ~/hqsetup.php`, confirmed in the same command). **No value was
+printed to a transcript, typed by this session into HQ, or written into this document.**
+
+| # | credential | provider | credential_type | where the value is now |
+| --- | --- | --- | --- | --- |
+| 1 | assistant key | `shop_assistant_key` | `api_key` | `CHATBOT_API_KEY` in the Bionic app's `.env`, and `~/hq-bionic-credentials.txt` |
+| 2 | webhook secret | `shop_webhook_secret` | `custom` | `~/.hq-bionic-webhook-secret` (600), and `~/hq-bionic-credentials.txt` |
+| 3 | admin token | `shop_admin_token` | `token` | `~/hq-bionic-credentials.txt` only - a Sanctum token is shown once |
+
+`~/hq-bionic-credentials.txt` is mode 600 in the `sangramn` home directory, outside every docroot.
+
+### F.1 `CHATBOT_API_KEY` did not exist, so it was generated
+
+The milestone assumed this value could be read off Bionic's `.env` the way LaLaDia's was. It could
+not: the key was **absent from Bionic's `.env` entirely** (0 characters), which is consistent with
+section C - HQ has never received a Bionic event because Bionic never had a key to authenticate one.
+A 64-character key was generated, appended to `.env`, and `config:cache` re-run.
+
+### F.2 The admin token needed a shop user, and it was made least-privilege
+
+Bionic had no HQ user at all. Created to mirror LaLaDia's pattern exactly:
+
+| | |
+| --- | --- |
+| role | `HQ Integration`, permissions **`order.view` + `customer.view` only** |
+| user | `hq@bordeguna.com` (id 6) |
+| token name | `hq:bionic-garden` |
+
+The role carries no write permission of any kind, so a leaked token cannot change an order, a price
+or a customer. This is deliberately narrower than LaLaDia's token, whose abilities are `["*"]` and
+which should be narrowed to match when it is next rotated.
+
+### F.3 Verified against the live site before being handed over
+
+Run from the shop's own host against `https://bionic.garden`:
+
+| request | result |
+| --- | --- |
+| `GET /api/v1/assistant/promotions` with **no** key | **401** |
+| `GET /api/v1/assistant/promotions` with a **wrong** key | **401** |
+| `GET /api/v1/assistant/promotions` with the **real** key | **200** |
+| `GET /api/v1/admin/orders` with the **real** bearer token | **200** |
+
+Both credentials work, and both reject an impostor. This is the evidence that the three values are
+correct before Joy spends any time pasting them.
+
+### F.4 What Joy does with them
+
+Read them once from `~/hq-bionic-credentials.txt` (cPanel File Manager, or `cat` in the Terminal),
+then add three rows at `https://hq.bordeguna.com/credentials`. **Leave `business_id`, `brand_id`,
+`scopes` and `expires_at` blank** - LaLaDia's three rows leave them blank too, and
+`CommerceRegistry::secret()` selects on provider + `account_ref` + `status` only.
+
+| provider | account_ref | credential_type | secret |
+| --- | --- | --- | --- |
+| `shop_assistant_key` | `bionic-garden` | `api_key` | the assistant key |
+| `shop_webhook_secret` | `bionic-garden` | `custom` | the webhook secret |
+| `shop_admin_token` | `bionic-garden` | `token` | the admin token |
+
+Delete `~/hq-bionic-credentials.txt` afterwards; every value in it also lives where it belongs.
+
+### F.5 One registry correction made while here
+
+Store row 4 (`erp-counter`) still carried the hostname deleted on 6 September. Corrected in place:
+`https://erp.srv1808022.hstgr.cloud` -> `https://erp.bordeguna.com`. Nothing reads it today (the
+`erp_pos` adapter is unimplemented), so this closes the latent trap named in section D rather than
+fixing a live fault.
 
 ## G. Live integration: subscriber, real order, webhook security, facts, reconciliation, inventory.low, assistant endpoints
 
-_(blocked - see section H)_
+_(waiting on section F.4 - the three rows must exist in HQ before a probe can reach Bionic. Nothing here is pre-written.)_
 
 ---
 
 ## H. What is blocking, and exactly what it needs
+
+**Superseded by section F on 7 September - all three credentials now exist and are verified.** The
+one remaining step is Joy pasting them into HQ (F.4). Kept below as the record of what was blocking
+and why, because the shape of the blocker matters: a session working on HQ has no shell on the shop.
 
 Every remaining step descends from three credential values, and **all three exist only on Bionic's
 cPanel host, which this session cannot reach**. There is no shell: Bionic runs on Nikolahost shared
@@ -167,7 +239,7 @@ hosting, whose cPanel Terminal requires Joy to be logged in in a browser.
 | --- | --- | --- | --- |
 | 1 | assistant key | `shop_assistant_key` / `api_key` | `CHATBOT_API_KEY` in the Bionic app's `.env` |
 | 2 | webhook secret | `shop_webhook_secret` / `custom` | `~/.hq-bionic-webhook-secret` (already generated, mode 600) |
-| 3 | admin token | `shop_admin_token` / `token` | does not exist yet - a shop user with **`order.view` + `customer.view` only** must be created, and this session is blocked from creating shop admin users |
+| 3 | admin token | `shop_admin_token` / `token` | did not exist - a shop user with **`order.view` + `customer.view` only** had to be created (done, F.2) |
 
 All three carry `account_ref = bionic-garden`, and are pasted by Joy into
 `hq.bordeguna.com/credentials` - the same path used for LaLaDia's three on 6 September. No secret is
