@@ -616,8 +616,10 @@ ProductVariant::whereNotNull('low_stock_alerted_at')->count()  →  0
 happen here**, because Bionic had no variant at or below the threshold during the unsubscribed
 window (29 active variants, threshold 5, per docs/43's baseline). **There is nothing to re-arm.**
 
-Remaining: run `php artisan webhooks:inventory-low` once on the shop and record the output. With
-zero stamped and nothing at or below threshold, the expected result is `emitted 0, re-armed 0`.
+Run once on the shop: **`inventory.low: emitted 0, re-armed 0 (threshold 5)`** - exactly the
+predicted result. Nothing is at or below the threshold, nothing had been stamped, so there was no
+crossing to recover and no alert was lost. The subscriber is live and will fire on the first genuine
+crossing.
 
 ### O.3 The reconciliation windows are wrong at 48 hours, and are now 168
 
@@ -653,8 +655,31 @@ integrity check reads their output at 03:30. Job 6's run-now succeeded:
 | webhook security | ⚠ bad/missing signature 401 live; dedupe + staleness inferred (N.5) |
 | reconciliation idempotent | ✅ zero inserts on the second run |
 | remaining subscribers | ✅ all five active, unexercised and honestly labelled |
-| `inventory.low` handled | ✅ zero stamped, nothing to re-arm; one emitter run outstanding |
+| `inventory.low` handled | ✅ zero stamped, nothing to re-arm, emitter run `emitted 0, re-armed 0` |
 | documentation | ✅ this file |
 
-**Not done, and named rather than buried:** the emitter run (O.2), and the two security properties
-that need a validly signed request built on the shop host (N.5).
+**Not done, and named rather than buried:** the two webhook security properties that need a validly
+signed request built on the shop host - duplicate-delivery and stale-timestamp (N.5). Everything
+else in this milestone is complete and verified.
+
+---
+
+## Q. Final production state
+
+| | LaLaDia | Bionic |
+| --- | --- | --- |
+| facts_orders | 15 | **1** |
+| events | 15 processed, 6 dead (inert, section M) | **1 processed** |
+| subscribers | 6 active | **6 active** |
+| nightly reconciliation | job 2, `0 2 * * *`, 168h | **job 6, `15 2 * * *`, 168h** |
+| credentials in HQ | 3 active | **3 active** |
+
+`hq:facts:check` across both stores: **16 checked, 15 ok, 11 without line detail, 1 discrepancy** -
+that one being `LLD-20260906-JRQXXJLN` from section M.1, the order edited on the shop after its
+webhook, whose lines HQ cannot refresh without the endpoint that writes to the shop. Bionic's single
+fact is clean.
+
+HQ production `c8485a3`, health green, no failed jobs, no errors in the logs.
+
+**The Bionic repository was never touched.** No checkout, merge, rebase, reset, clean, commit, push
+or deploy; `public/assets/ads` untouched; the other session remains its owner.
