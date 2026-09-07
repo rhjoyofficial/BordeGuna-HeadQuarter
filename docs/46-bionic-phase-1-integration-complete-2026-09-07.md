@@ -581,3 +581,80 @@ Events **16 processed, 0 pending, 0 failed** (plus the 6 inert LaLaDia `dead` ro
 Connector calls: `shop:bionic-garden` 4 succeeded, `shop:laladia-com` 1 succeeded, none failed.
 No failed queue jobs. Zero errors, exceptions or fatals in the app and Horizon logs. `/api/health`
 green on all five checks.
+
+---
+
+## O. All six subscribers active, and the safety net widened
+
+### O.1 Subscribers
+
+Joy created the remaining five through the application (`Webhook::firstOrCreate` on `(event, url)`,
+so a repeat cannot duplicate). All six now point at
+`https://hq.bordeguna.com/api/webhooks/shop/bionic-garden`:
+
+| id | event | active | exercised |
+| --- | --- | --- | --- |
+| 1 | `order.created` | yes | ✅ **live, on a real order** (section N) |
+| 2 | `order.status_changed` | yes | not yet |
+| 3 | `order.payment_updated` | yes | not yet |
+| 4 | `shipment.status_updated` | yes | not yet |
+| 5 | `customer.registered` | yes | not yet |
+| 6 | `inventory.low` | yes | not yet - see O.2 |
+
+The five unexercised ones are **subscribed and waiting for natural traffic**. No event was
+fabricated to claim coverage; the next real status change, payment, shipment or registration on
+Bionic will exercise them, and that is the right way to find out.
+
+### O.2 `inventory.low`: nothing was consumed before subscription
+
+```
+ProductVariant::whereNotNull('low_stock_alerted_at')->count()  →  0
+```
+
+**Zero stamped.** The trap that caught LaLaDia - the hourly emitter stamping
+`low_stock_alerted_at` while no subscriber existed, silently consuming the crossing - **did not
+happen here**, because Bionic had no variant at or below the threshold during the unsubscribed
+window (29 active variants, threshold 5, per docs/43's baseline). **There is nothing to re-arm.**
+
+Remaining: run `php artisan webhooks:inventory-low` once on the shop and record the output. With
+zero stamped and nothing at or below threshold, the expected result is `emitted 0, re-armed 0`.
+
+### O.3 The reconciliation windows are wrong at 48 hours, and are now 168
+
+Section M proved it: a 48-hour window had been hiding nine LaLaDia orders that missed their webhook
+and were more than two days old. Nothing was red, because a fact that was never created raises
+nothing. Widened, and Bionic given its own job - it had subscribers but no safety net at all:
+
+| id | job | cron (Asia/Dhaka) | window |
+| --- | --- | --- | --- |
+| 2 | LaLaDia order reconciliation | `0 2 * * *` | 48h → **168h** |
+| 6 | **Bionic order reconciliation** (new) | `15 2 * * *` | **168h** |
+| 3 | Order fact integrity check | `30 3 * * *` | 168h |
+| 4 / 5 | ERP overview / low stock snapshots | `0 4` / `5 4` | - |
+
+Staggered fifteen minutes apart so the two shops do not contend, and both finish before the
+integrity check reads their output at 03:30. Job 6's run-now succeeded:
+`{"store":"bionic-garden","hours":168,"checked":1,"inserted":0}`. Six jobs, no duplicates.
+
+---
+
+## P. Milestone status
+
+| requirement | state |
+| --- | --- |
+| production carries `4865c109` | ✅ already live before the milestone; no deploy made |
+| three credentials configured and resolving | ✅ ids 7, 8, 9, probe green on all three endpoints |
+| existing subscribers inspected before creating | ✅ table was empty; no duplicate, no placeholder |
+| commerce probe | ✅ public 200, assistant 200, admin 200 |
+| cross-business isolation | ✅ proven live, both credential classes, and again with real data |
+| `order.created` subscriber | ✅ created through the app |
+| one real storefront order | ✅ `BNC-20260907-ETYVMYBVTX` |
+| full live path verified against source | ✅ including line pricing - the day's defect, proven fixed |
+| webhook security | ⚠ bad/missing signature 401 live; dedupe + staleness inferred (N.5) |
+| reconciliation idempotent | ✅ zero inserts on the second run |
+| remaining subscribers | ✅ all five active, unexercised and honestly labelled |
+| `inventory.low` handled | ✅ zero stamped, nothing to re-arm; one emitter run outstanding |
+| documentation | ✅ this file |
+
+**Not done, and named rather than buried:** the emitter run (O.2), and the two security properties
+that need a validly signed request built on the shop host (N.5).
