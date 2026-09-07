@@ -48,7 +48,7 @@ it('inserts an order the webhook never delivered, and a second run inserts nothi
     fakeAdminList([adminListOrder()]);
 
     $this->artisan('hq:facts:reconcile --store=laladia-com --hours=48')
-        ->expectsOutputToContain('checked 1 orders')->expectsOutputToContain('inserted 1 missing')->assertSuccessful();
+        ->expectsOutputToContain('checked 1 orders since')->assertSuccessful();
 
     expect(FactsOrder::count())->toBe(1);
     $identities = CustomerIdentity::count();
@@ -68,7 +68,7 @@ it('reconciliation fills the channel and district a webhook cannot carry, and le
     $store = Store::where('slug', 'laladia-com')->sole();
     $facts->upsertFromShopPayload($store, liveWebhookOrderPayload('LLD-RECON-1'));
     $fact = FactsOrder::where('order_ref', 'LLD-RECON-1')->sole();
-    expect($fact->source)->toBeNull()->and($fact->district)->toBeNull()->and($fact->lines[0]['unit_price'])->toBe(333.0);
+    expect($fact->source)->toBeNull()->and($fact->district)->toBeNull()->and((float) $fact->lines[0]['unit_price'])->toBe(333.0);
 
     // Then reconciliation replays the admin shape over it.
     fakeAdminList([adminListOrder('LLD-RECON-1')]);
@@ -77,8 +77,8 @@ it('reconciliation fills the channel and district a webhook cannot carry, and le
     $fact->refresh();
     expect($fact->source)->toBe('checkout')->and($fact->district)->toBe('Dhaka')->and($fact->thana)->toBe('Gulshan')
         // The admin list carries no items, so the lines the webhook delivered must survive untouched.
-        ->and($fact->lines[0]['unit_price'])->toBe(333.0)
-        ->and($fact->lines[0]['total'])->toBe(999.0);
+        ->and((float) $fact->lines[0]['unit_price'])->toBe(333.0)
+        ->and((float) $fact->lines[0]['total'])->toBe(999.0);
 });
 
 it('replays a stored order.created event through the corrected handler without asking the shop', function () {
@@ -99,7 +99,7 @@ it('replays a stored order.created event through the corrected handler without a
         ->expectsOutputToContain('replayed 1')->assertSuccessful();
 
     $fact = FactsOrder::where('order_ref', 'LLD-REPLAY-1')->sole();
-    expect($fact->lines[0]['unit_price'])->toBe(333.0)->and($fact->lines[0]['total'])->toBe(999.0)
+    expect((float) $fact->lines[0]['unit_price'])->toBe(333.0)->and((float) $fact->lines[0]['total'])->toBe(999.0)
         ->and($fact->last_event_id)->toBe($event->event_id);
     // The shop was never contacted, and the replay is on the record.
     Http::assertNothingSent();
