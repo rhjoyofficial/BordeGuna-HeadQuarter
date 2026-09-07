@@ -20,7 +20,17 @@ final class FactsOrderUpserter
 
     public function __construct(private readonly IdentityResolver $identity) {}
 
-    public function upsertFromShopPayload(Store $store, array $o, ?string $eventId = null): FactsOrder
+    /**
+     * Writes an order fact from a FULL-STATE shop payload (`order.created`, `order.updated`, or a
+     * reconciliation replay of the admin API).
+     *
+     * `$occurredAt` is when the shop says this snapshot was true. Delivery order is not event order
+     * - a retried or delayed `order.updated` can arrive after a newer one - so a full-state payload
+     * older than the newest already applied is refused rather than allowed to overwrite good data.
+     * Passing null keeps the old behaviour of always applying, which is what reconciliation wants:
+     * it reads the shop's current truth, so it is never stale by definition.
+     */
+    public function upsertFromShopPayload(Store $store, array $o, ?string $eventId = null, ?CarbonImmutable $occurredAt = null): FactsOrder
     {
         $ref = (string) ($o['order_number'] ?? $o['ref'] ?? '');
         if ($ref === '') {
@@ -42,30 +52,38 @@ final class FactsOrderUpserter
             ]);
 
             $existing = FactsOrder::where('store_id', $store->id)->where('order_ref', $ref)->first();
+
+            // An older snapshot must never beat a newer one. Only a full-state event carries a
+            // timestamp; without one the caller is reconciliation, reading the shop's current truth.
+            if ($existing && $occurredAt && $existing->last_event_at && $occurredAt->lt($existing->last_event_at)) {
+                return $existing;
+            }
+
             $incomingStatus = (string) ($o['order_status'] ?? $o['status'] ?? 'pending');
             $status = $existing && (self::STATUS_RANK[$incomingStatus] ?? 0) < (self::STATUS_RANK[$existing->status] ?? 0) ? $existing->status : $incomingStatus;
 
             $fact = FactsOrder::updateOrCreate(['store_id' => $store->id, 'order_ref' => $ref], [
                 'business_id' => $store->business_id,
-                'source' => $o['source'] ?? $existing?->source,
+                'source' => self::pick($o, 'source', $existing?->source),
                 'status' => $status,
-                'payment_status' => $o['payment_status'] ?? $existing?->payment_status,
-                'payment_method' => $o['payment_method'] ?? $existing?->payment_method,
+                'payment_status' => self::pick($o, 'payment_status', $existing?->payment_status),
+                'payment_method' => self::pick($o, 'payment_method', $existing?->payment_method),
                 'subtotal' => $o['subtotal'] ?? $existing?->subtotal ?? 0,
                 'discount_total' => $o['discount_total'] ?? $existing?->discount_total ?? 0,
                 'shipping_cost' => $o['shipping_cost'] ?? $existing?->shipping_cost ?? 0,
                 'gross' => $o['grand_total'] ?? $existing?->gross ?? 0,
                 'customer_id' => $customer->id,
                 'customer_phone_canonical' => PhoneCanonical::normalize($phone) ?? $existing?->customer_phone_canonical,
-                'district' => $address['district'] ?? $address['city'] ?? $existing?->district,
-                'thana' => $address['thana'] ?? $address['area'] ?? $existing?->thana,
+                'district' => self::pick($address, 'district', self::pick($address, 'city', $existing?->district)),
+                'thana' => self::pick($address, 'thana', self::pick($address, 'area', $existing?->thana)),
                 'placed_at' => $placedAt ? CarbonImmutable::parse($placedAt) : $existing?->placed_at,
                 'confirmed_at' => isset($o['confirmed_at']) ? CarbonImmutable::parse($o['confirmed_at']) : $existing?->confirmed_at,
                 'delivered_at' => isset($o['delivered_at']) ? CarbonImmutable::parse($o['delivered_at']) : $existing?->delivered_at,
                 'cancelled_at' => isset($o['cancelled_at']) ? CarbonImmutable::parse($o['cancelled_at']) : $existing?->cancelled_at,
-                'campaign_ref' => $o['fbc'] ?? $o['campaign_ref'] ?? $existing?->campaign_ref,
+                'campaign_ref' => self::pick($o, 'fbc', self::pick($o, 'campaign_ref', $existing?->campaign_ref)),
                 'lines' => isset($o['items']) ? array_map(self::line(...), $o['items']) : $existing?->lines,
                 'last_event_id' => $eventId ?? $existing?->last_event_id,
+                'last_event_at' => $occurredAt ?? $existing?->last_event_at,
                 'synced_at' => now(),
             ]);
 
@@ -76,6 +94,23 @@ final class FactsOrderUpserter
 
             return $fact;
         });
+    }
+
+    /**
+     * Reads one key with the three-way distinction a full-state payload needs.
+     *
+     * `??` cannot make it: it treats an ABSENT key and an EXPLICIT null identically, so a shop that
+     * says "this order genuinely has no district now" is indistinguishable from a shop that simply
+     * did not mention district. In a full-state event those mean opposite things, and getting them
+     * backwards either strands stale data or erases good data.
+     *
+     *  - key absent        -> keep what HQ already holds (the shop is not talking about this field)
+     *  - key present, null -> the shop is asserting emptiness; store null
+     *  - key present, 0    -> zero is a value, not a missing one; store 0
+     */
+    private static function pick(array $payload, string $key, mixed $existing): mixed
+    {
+        return array_key_exists($key, $payload) ? $payload[$key] : $existing;
     }
 
     /**

@@ -55,6 +55,8 @@ return [
         // type => [handler classes]. Empty in Phase 0; handlers arrive with the subsystems that need them.
         'handlers' => [
             'order.created' => [ShopOrderEventHandler::class],
+            // Full-state, and the only way HQ can hold current lines for an order edited on the shop.
+            'order.updated' => [ShopOrderEventHandler::class],
             'order.status_changed' => [ShopOrderEventHandler::class],
             'order.payment_updated' => [ShopOrderEventHandler::class],
             'shipment.status_updated' => [ShopOrderEventHandler::class],

@@ -27,7 +27,7 @@ final class ShopWebhookController extends Controller
     public const TIMESTAMP_TOLERANCE_SECONDS = 300;
 
     /** The six events the LaLaDia platform emits today (verified in its listeners, 5 Sep 2026) plus the two Phase 1 additions. */
-    public const ACCEPTED_EVENTS = ['order.created', 'order.status_changed', 'order.payment_updated', 'shipment.status_updated', 'customer.registered', 'coupon.expired', 'inventory.low', 'payment.completed', 'shipment.delivered'];
+    public const ACCEPTED_EVENTS = ['order.created', 'order.updated', 'order.status_changed', 'order.payment_updated', 'shipment.status_updated', 'customer.registered', 'coupon.expired', 'inventory.low', 'payment.completed', 'shipment.delivered'];
 
     public function __construct(private readonly EventRecorder $events) {}
 
