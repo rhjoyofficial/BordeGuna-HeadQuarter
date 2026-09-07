@@ -1,6 +1,6 @@
 # ADR-010: Business, Brand, Store, Product owner, Seller, Channel and Platform account are separate entities
 
-**Status:** accepted
+**Status:** accepted. NARROWED by ADR-015 on 6 Sep 2026: the seller concept is dormant (Econic is a multi-brand store, not a marketplace) and one legal company means no intercompany logic.
 
 ## Context
 The first draft mirrored the ERP's `businesses` and `brands` and treated "the shop" implicitly. A future store selling products of several businesses, or several sellers, would have forced a redesign.
