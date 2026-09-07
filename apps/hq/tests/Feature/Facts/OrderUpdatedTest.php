@@ -51,7 +51,7 @@ function updatedPayload(array $overrides = []): array
         'placed_at' => '2026-09-06T14:49:14.000000Z',
         'items' => [
             ['sku' => 'PIC-HIL-V1', 'name' => 'Hilsa Pickle', 'quantity' => 1, 'price' => 999.0],
-            ['sku' => 'GHE-ROY-V1', 'name' => 'Ghee', 'quantity' => 1, 'price' => 330.0],
+            ['sku' => 'GHE-ROY-V1', 'name' => 'Ghee', 'quantity' => 1, 'price' => 240.0],
         ],
     ], $overrides);
 }
@@ -81,8 +81,8 @@ it('reproduces the production discrepancy, then clears it with order.updated', f
     $fact->refresh();
     expect($fact->lines)->toHaveCount(2)
         ->and((float) $fact->lines[0]['unit_price'])->toBe(999.0)
-        ->and((float) $fact->lines[1]['unit_price'])->toBe(330.0)
-        ->and((float) $fact->lines[1]['total'])->toBe(330.0)
+        ->and((float) $fact->lines[1]['unit_price'])->toBe(240.0)
+        ->and((float) $fact->lines[1]['total'])->toBe(240.0)
         ->and((float) $fact->subtotal)->toBe(1239.0)
         ->and((float) $fact->discount_total)->toBe(90.0)
         ->and((float) $fact->gross)->toBe(1239.0);
@@ -158,7 +158,7 @@ it('distinguishes an omitted key from an explicit null and from a zero', functio
 
     // EXPLICIT ZERO: a real value, never treated as absent.
     app(FactsOrderUpserter::class)->upsertFromShopPayload(laladia(), updatedPayload([
-        'discount_total' => 0.0, 'subtotal' => 1329.0, 'grand_total' => 1419.0,
+        'discount_total' => 0.0, 'subtotal' => 1239.0, 'grand_total' => 1329.0,
     ]), 'e5', CarbonImmutable::parse('2026-09-07T13:00:00Z'));
     expect((float) FactsOrder::sole()->discount_total)->toBe(0.0);
 });
