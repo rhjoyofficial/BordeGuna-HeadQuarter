@@ -132,6 +132,54 @@ it('replaying twice changes nothing, and never regresses a status that has moved
         ->and(CustomerIdentity::count())->toBe($identities);
 });
 
+it('resolves a dead event once its replay lands, and keeps why it died', function () {
+    $store = Store::where('slug', 'laladia-com')->sole();
+    $dead = DomainEvent::create([
+        'event_id' => (string) Str::uuid(), 'type' => 'order.created', 'direction' => 'inbound',
+        'source' => 'shop:laladia-com', 'aggregate_type' => 'order', 'aggregate_id' => 'LLD-DEAD-1',
+        'business_id' => $store->business_id, 'payload' => liveWebhookOrderPayload('LLD-DEAD-1') + ['_store' => 'laladia-com'],
+        'dedupe_key' => 'shop:laladia-com:dead-1', 'occurred_at' => now()->subHours(2),
+        'status' => DomainEvent::STATUS_DEAD, 'attempts' => 5, 'max_attempts' => 5,
+        'next_attempt_at' => now()->subHour(), 'last_error' => 'no fact for order LLD-DEAD-1',
+    ]);
+
+    // A dry run must not resolve anything: reporting is not repairing.
+    $this->artisan('hq:events:replay --type=order.created --store=laladia-com')->assertSuccessful();
+    expect($dead->fresh()->status)->toBe(DomainEvent::STATUS_DEAD);
+
+    $this->artisan('hq:events:replay --type=order.created --store=laladia-com --apply --reason="dead event recovery"')
+        ->expectsOutputToContain('resolved 1')->assertSuccessful();
+
+    $dead->refresh();
+    expect($dead->status)->toBe(DomainEvent::STATUS_PROCESSED)
+        ->and($dead->processed_at)->not->toBeNull()
+        ->and($dead->next_attempt_at)->toBeNull()
+        // The history of the failure survives the resolution.
+        ->and($dead->last_error)->toBe('no fact for order LLD-DEAD-1')
+        ->and($dead->attempts)->toBe(5);
+
+    expect(AuditLog::where('action', 'event.replayed')->sole()->context['resolved_from'] ?? null)->toBe('dead');
+    expect(FactsOrder::where('order_ref', 'LLD-DEAD-1')->exists())->toBeTrue();
+});
+
+it('leaves an already-processed event at processed, so a repair is never relabelled a resolution', function () {
+    $store = Store::where('slug', 'laladia-com')->sole();
+    $processedAt = now()->subHours(2);
+    $event = DomainEvent::create([
+        'event_id' => (string) Str::uuid(), 'type' => 'order.created', 'direction' => 'inbound',
+        'source' => 'shop:laladia-com', 'aggregate_type' => 'order', 'aggregate_id' => 'LLD-OK-1',
+        'business_id' => $store->business_id, 'payload' => liveWebhookOrderPayload('LLD-OK-1') + ['_store' => 'laladia-com'],
+        'dedupe_key' => 'shop:laladia-com:ok-1', 'occurred_at' => now()->subHours(2),
+        'status' => DomainEvent::STATUS_PROCESSED, 'processed_at' => $processedAt,
+    ]);
+
+    $this->artisan('hq:events:replay --type=order.created --apply')
+        ->expectsOutputToContain('resolved 0')->assertSuccessful();
+
+    expect($event->fresh()->processed_at->toDateTimeString())->toBe($processedAt->toDateTimeString());
+    expect(AuditLog::where('action', 'event.replayed')->sole()->context)->not->toHaveKey('resolved_from');
+});
+
 it('refuses to replay every event when no filter is given', function () {
     $this->artisan('hq:events:replay --apply')->assertFailed();
 });

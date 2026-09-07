@@ -29,6 +29,14 @@ use Throwable;
  *
  * `attempts` is deliberately left alone: it counts how many times delivery has been *tried*, and a
  * replay is not evidence that the original delivery was flaky.
+ *
+ * One status IS rewritten. An event that exhausted its retries sits at `dead`, meaning "this effect
+ * never landed". When a replay of such an event succeeds, that sentence stops being true: the effect
+ * has landed, and leaving the row at `dead` tells a future reader the opposite of what happened. So a
+ * successful replay promotes `dead` and `failed` rows to `processed` and stamps `processed_at`, while
+ * `last_error` is kept verbatim - the row still records that delivery failed and why, it simply no
+ * longer claims the failure is outstanding. Nothing else is touched: an already-`processed` event is
+ * left exactly as it was, and a replay that throws changes no status at all.
  */
 final class EventsReplay extends Command
 {
@@ -74,6 +82,7 @@ final class EventsReplay extends Command
         $handlers = config('hq.events.handlers', []);
         $replayed = 0;
         $failed = 0;
+        $resolvedCount = 0;
 
         foreach ($events as $event) {
             Context::add(['correlation_id' => $event->payload['_correlation_id'] ?? $event->event_id, 'event_id' => $event->event_id]);
@@ -81,12 +90,22 @@ final class EventsReplay extends Command
                 foreach ((array) ($handlers[$event->type] ?? []) as $class) {
                     app($class)->handle($event);
                 }
+                $resolved = $this->resolveIfUndelivered($event);
                 $auditor->recordSystem(
                     action: 'event.replayed',
                     target: $event,
                     reason: $this->option('reason') ?: 'manual replay',
-                    context: ['event_id' => $event->event_id, 'type' => $event->type, 'aggregate_id' => $event->aggregate_id],
+                    context: array_filter([
+                        'event_id' => $event->event_id,
+                        'type' => $event->type,
+                        'aggregate_id' => $event->aggregate_id,
+                        'resolved_from' => $resolved,
+                    ]),
                 );
+                if ($resolved !== null) {
+                    $this->line("  {$event->event_id}: {$resolved} -> processed");
+                    $resolvedCount++;
+                }
                 $replayed++;
             } catch (Throwable $e) {
                 // A replay failure leaves the event exactly as it was: this command never marks an
@@ -96,9 +115,31 @@ final class EventsReplay extends Command
             }
         }
 
-        $this->info("replayed {$replayed}, failed {$failed}");
+        $this->info("replayed {$replayed}, failed {$failed}, resolved {$resolvedCount}");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Promote an event whose delivery never landed to `processed`, now that a replay has landed it.
+     *
+     * Returns the status it was promoted from, or null when there was nothing to promote - a
+     * `processed` event replayed again is a repair, not a resolution, and must not be relabelled.
+     */
+    private function resolveIfUndelivered(DomainEvent $event): ?string
+    {
+        if (! in_array($event->status, [DomainEvent::STATUS_DEAD, DomainEvent::STATUS_FAILED], true)) {
+            return null;
+        }
+
+        $from = $event->status;
+        $event->forceFill([
+            'status' => DomainEvent::STATUS_PROCESSED,
+            'processed_at' => now(),
+            'next_attempt_at' => null,
+        ])->save();
+
+        return $from;
     }
 
     /**
