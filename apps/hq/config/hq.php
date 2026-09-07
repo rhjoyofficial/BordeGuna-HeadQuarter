@@ -1,5 +1,6 @@
 <?php
 
+use App\Scheduling\Tools\Commerce\CheckFactIntegrityTool;
 use App\Scheduling\Tools\Commerce\ReconcileShopFactsTool;
 use App\Scheduling\Tools\Erp\PollErpLowStockTool;
 use App\Scheduling\Tools\Erp\PollErpOverviewTool;
@@ -26,12 +27,21 @@ return [
         // The order reconciliation safety net, so a lost webhook is caught by a nightly job
         // rather than by somebody remembering to run the command.
         ReconcileShopFactsTool::class,
+        // The arithmetic check that would have caught the 0.00 line prices on day one.
+        CheckFactIntegrityTool::class,
     ],
 
     // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an
     // integration_credentials row (provider erp_api_token, account_ref = business slug).
+    //
+    // ⚠ The default used to be the hosting provider's hostname, `erp.srv1808022.hstgr.cloud`. The
+    // ERP moved to its own domain on 7 September 2026 and removed the provider hostname from its
+    // routing, and because nothing set HQ_ERP_BASE_URL in production the default was the operative
+    // value - so HQ went on calling a host that answered 404 to every ERP read, with no error
+    // anywhere until somebody probed it. A default that names a hostname the business no longer
+    // uses is not a fallback, it is a trap; this one names the real domain.
     'erp' => [
-        'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.srv1808022.hstgr.cloud'),
+        'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.bordeguna.com'),
         'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
     ],
 
