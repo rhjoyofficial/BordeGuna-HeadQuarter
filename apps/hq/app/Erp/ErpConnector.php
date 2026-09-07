@@ -152,6 +152,30 @@ final class ErpConnector
         }, null, $key);
     }
 
+    /**
+     * The unmapped response for one read endpoint, for auditing what the ERP actually sends.
+     *
+     * Every other method on this connector hands back a DTO, which is the right thing for callers
+     * and the wrong thing for an audit: a DTO can only show the fields somebody already thought to
+     * map. This returns the envelope as it arrived, so a key HQ ignores, a key that changed name,
+     * and a key that is absent rather than null are all visible. Read-only, and restricted to a
+     * fixed list so it cannot become an arbitrary HTTP client pointed at the ERP.
+     *
+     * @return array{data?: mixed, meta?: array}
+     */
+    public function rawRead(string $endpoint): array
+    {
+        $path = match ($endpoint) {
+            'overview' => $this->path('overview'),
+            'low_stock' => $this->path('stock/low'),
+            'businesses' => 'businesses',
+            'reports' => $this->path('reports'),
+            default => throw new \InvalidArgumentException("rawRead does not know the endpoint [{$endpoint}]."),
+        };
+
+        return $this->get($path, $endpoint.':raw');
+    }
+
     /** Cheap liveness check: can this token see its own business? */
     public function probe(): array
     {
