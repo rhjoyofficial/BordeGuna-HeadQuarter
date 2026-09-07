@@ -135,10 +135,12 @@ it('poll tools write the snapshot read model, replace it on the next poll, and f
 
     IntegrationCredential::create(['provider' => 'erp_api_token', 'account_ref' => 'bor-de-guna', 'credential_type' => 'api_token', 'payload' => ['value' => 'secret'], 'status' => 'active']);
     Http::fake([
+        // All five sections, because the real endpoint always sends all five - the ones this token
+        // cannot see arrive as null rather than going missing.
         ERP.'/api/hq/v1/4/overview' => Http::sequence()
-            ->push(['data' => ['inventory' => ['low_stock_count' => 1]], 'meta' => ['as_of' => '2026-09-05T10:00:00+00:00']])
-            ->push(['data' => ['inventory' => ['low_stock_count' => 4]], 'meta' => ['as_of' => '2026-09-05T11:00:00+00:00']]),
-        ERP.'/api/hq/v1/4/stock/low' => Http::response(['data' => [['product_id' => 9, 'sku' => 'GHEE-500', 'name' => 'Ghee', 'on_hand' => 3, 'threshold' => 10]]]),
+            ->push(['data' => ['sales' => null, 'inventory' => ['low_stock_count' => 1], 'purchasing' => null, 'approvals' => null, 'tickets' => null], 'meta' => ['as_of' => '2026-09-05T10:00:00+00:00']])
+            ->push(['data' => ['sales' => null, 'inventory' => ['low_stock_count' => 4], 'purchasing' => null, 'approvals' => null, 'tickets' => null], 'meta' => ['as_of' => '2026-09-05T11:00:00+00:00']]),
+        ERP.'/api/hq/v1/4/stock/low' => Http::response(['data' => [['product_id' => 9, 'sku' => 'GHEE-500', 'name' => 'Ghee', 'on_hand' => 3, 'threshold' => 10]], 'meta' => ['count' => 1, 'as_of' => '2026-09-05T11:05:00+00:00']]),
     ]);
 
     $r1 = $tools->get('erp.poll_overview')->execute([], $ctx());

@@ -8,6 +8,7 @@ use App\Commerce\Exceptions\Uncertain;
 use App\Commerce\Exceptions\Unsupported;
 use App\Commerce\Exceptions\ValidationFailed;
 use App\Commerce\Support\ConnectorCallLogger;
+use App\Erp\Dto\ErpLowStock;
 use App\Erp\Dto\ErpLowStockLine;
 use App\Erp\Dto\ErpOverview;
 use App\Erp\Dto\ErpTicketResult;
