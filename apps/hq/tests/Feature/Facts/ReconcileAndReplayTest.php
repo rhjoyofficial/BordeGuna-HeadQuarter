@@ -169,7 +169,8 @@ it('declares the nightly reconciliation job by name, twice, without ever making 
         ->and($job->cron_expression)->toBe('0 2 * * *')
         ->and($job->timezone)->toBe('Asia/Dhaka')
         ->and($job->state)->toBe(JobState::Active)
-        ->and($job->payload)->toBe(['store_slug' => 'laladia-com', 'hours' => 48])
+        // jsonb does not preserve key order, so compare the payload as a set.
+        ->and($job->payload)->toEqualCanonicalizing(['store_slug' => 'laladia-com', 'hours' => 48])
         ->and($job->next_run_at)->not->toBeNull();
 
     // 02:00 Dhaka is 20:00 UTC the day before; the slot must be stored in UTC.
