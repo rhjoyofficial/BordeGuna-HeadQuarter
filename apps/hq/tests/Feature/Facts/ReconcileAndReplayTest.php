@@ -7,7 +7,9 @@ use App\Models\CustomerIdentity;
 use App\Models\DomainEvent;
 use App\Models\FactsOrder;
 use App\Models\IntegrationCredential;
+use App\Models\ScheduledJob;
 use App\Models\Store;
+use App\Scheduling\Enums\JobState;
 use App\Scheduling\Tools\ToolContext;
 use App\Scheduling\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
@@ -152,4 +154,34 @@ it('runs reconciliation as a registered tool, scoped to one store, and repeats s
     // Naming a store HQ does not have is a configuration mistake, so it fails rather than retrying.
     expect($tool->execute(['store_slug' => 'no-such-shop'], $context)->status)->toBe('failed');
     expect($tool->reconcile($context))->toBeNull();
+});
+
+it('declares the nightly reconciliation job by name, twice, without ever making a second job', function () {
+    $args = '--tool=commerce.reconcile_facts --cron="0 2 * * *" --timezone=Asia/Dhaka --payload=\'{"store_slug":"laladia-com","hours":48}\'';
+
+    // A dry run says what it would do and writes nothing.
+    $this->artisan("hq:scheduler:ensure \"LaLaDia order reconciliation\" {$args}")->assertSuccessful();
+    expect(ScheduledJob::count())->toBe(0);
+
+    $this->artisan("hq:scheduler:ensure \"LaLaDia order reconciliation\" {$args} --apply")->assertSuccessful();
+    $job = ScheduledJob::sole();
+    expect($job->tool_key)->toBe('commerce.reconcile_facts')
+        ->and($job->cron_expression)->toBe('0 2 * * *')
+        ->and($job->timezone)->toBe('Asia/Dhaka')
+        ->and($job->state)->toBe(JobState::Active)
+        ->and($job->payload)->toBe(['store_slug' => 'laladia-com', 'hours' => 48])
+        ->and($job->next_run_at)->not->toBeNull();
+
+    // 02:00 Dhaka is 20:00 UTC the day before; the slot must be stored in UTC.
+    expect($job->next_run_at->utc()->format('H:i'))->toBe('20:00');
+
+    // Running it again moves the one job rather than adding a second.
+    $this->artisan("hq:scheduler:ensure \"LaLaDia order reconciliation\" {$args} --apply")->assertSuccessful();
+    expect(ScheduledJob::count())->toBe(1)->and(ScheduledJob::sole()->id)->toBe($job->id);
+});
+
+it('refuses an unregistered tool and a payload that is not an object', function () {
+    $this->artisan('hq:scheduler:ensure "Bad tool" --tool=does.not.exist --cron="0 2 * * *" --apply')->assertFailed();
+    $this->artisan('hq:scheduler:ensure "Bad payload" --tool=commerce.reconcile_facts --cron="0 2 * * *" --payload=nonsense --apply')->assertFailed();
+    expect(ScheduledJob::count())->toBe(0);
 });
