@@ -32,6 +32,10 @@ function erpAt(string $base = 'https://erp.test'): ErpConnector
     return new ErpConnector('bor-de-guna', 4, $base, 'tok', app(ConnectorCallLogger::class));
 }
 
+/**
+ * ⚠ One call per test. Http::fake() merges stubs rather than replacing them, so calling this twice
+ * in one test leaves the first stub in place and the override silently does nothing.
+ */
 function fakeErp(array $overrides = []): void
 {
     Http::fake($overrides + [
@@ -78,20 +82,24 @@ it('stock_value is a zero the ERP itself sent, not one HQ invented', function ()
     expect(erpAt()->overview()->inventory['stock_value'])->toBe(0);
 });
 
-it('an empty low-stock list is only accepted when the ERP says it meant to send none', function () {
+it('accepts the captured empty low-stock list, with the ERP saying it meant to send none', function () {
     fakeErp();
     $low = erpAt()->lowStock();
     expect($low->lines)->toBe([])->and($low->count())->toBe(0)->and($low->asOf)->toBe('2026-09-07T11:41:21+06:00');
+});
 
+it('refuses an empty low-stock list the ERP says should have had rows in it', function () {
     // The same empty list, with the ERP claiming rows, is data loss rather than good news.
     fakeErp(['erp.test/api/hq/v1/4/stock/low' => Http::response(['data' => [], 'meta' => ['count' => 3]])]);
     expect(fn () => erpAt()->lowStock())->toThrow(Unsupported::class, 'meta.count says 3 row(s)');
 });
 
-it('refuses a response with no data key instead of persisting a confident blank', function () {
+it('refuses an overview with no data key instead of persisting a confident blank', function () {
     fakeErp(['erp.test/api/hq/v1/4/overview' => Http::response(['meta' => ['as_of' => 'now']])]);
     expect(fn () => erpAt()->overview())->toThrow(Unsupported::class, 'has no `data` key');
+});
 
+it('refuses a low-stock response with no data key', function () {
     fakeErp(['erp.test/api/hq/v1/4/stock/low' => Http::response(['meta' => []])]);
     expect(fn () => erpAt()->lowStock())->toThrow(Unsupported::class, 'has no `data` key');
 });
