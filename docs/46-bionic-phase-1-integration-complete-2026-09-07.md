@@ -1,10 +1,10 @@
 # 46 - Bionic Phase 1 HQ integration (7 September 2026)
 
-> **STATUS: IN PROGRESS.** Sections A-F are verified and final: the code was already live, and
-> **all three credentials now exist and are proven against the live site** (section F). Section G,
-> the live integration itself, waits on Joy pasting those three values into HQ (section F.4) -
-> a step no session may do for him, because it means handling the secrets. Nothing in G is guessed
-> or pre-written; it is filled in when the steps actually run.
+> **STATUS: IN PROGRESS.** Sections A-F and **J** are verified and final: the code was already live,
+> all three credentials are stored in HQ and proven, the probe is green on all three endpoints,
+> cross-business isolation is proven by live test, and Bionic's `webhooks` table is confirmed empty.
+> What remains (section K) is the subscriber - which **must be created through the application, not
+> by SQL** (J.5) - and one real storefront order. Nothing unverified is claimed here.
 
 **No code was deployed in this milestone, and no Bionic repository write of any kind was made.**
 That is not a limitation, it is the finding: the code was already live before the milestone opened.
@@ -265,3 +265,148 @@ twice → `inventory.low` → widen the remaining subscribers → observation.
    access belongs to Joy.
 4. **The other session owns this repository** and was committing every few minutes while this
    milestone ran. Any future Bionic work must re-check ownership first.
+
+---
+
+## J. Live verification with the credentials in place (7 September, after Joy stored all three)
+
+### J.1 Credentials, metadata only
+
+| id | provider | account_ref | type | status | secret | business/brand/expiry |
+| --- | --- | --- | --- | --- | --- | --- |
+| 7 | `shop_assistant_key` | `bionic-garden` | `api_key` | active | present | blank |
+| 8 | `shop_webhook_secret` | `bionic-garden` | `custom` | active | present | blank |
+| 9 | `shop_admin_token` | `bionic-garden` | `token` | active | present | blank |
+
+Blank business/brand/expiry matches LaLaDia's three rows, which is what
+`CommerceRegistry::secret()` expects. No value was read back or displayed.
+
+### J.2 Commerce probe - all three green
+
+```
+{"store":"bionic-garden","public_products":200,"assistant_products":200,"admin_orders":200}
+capabilities: search, product, variant, combos, geo, preview, create_order, idempotent_create,
+              order_lookup_by_phone, order_status, list_orders
+```
+
+`order_lookup_by_phone`, `order_status` and `list_orders` appear only now, because they are the
+capabilities the admin token unlocks - the probe is reporting a real change of state, not a constant.
+
+⛔ `create_order` is reported and was **not exercised**. AI order creation is Phase 4.
+
+### J.3 Cross-business isolation - proven directly, not deduced
+
+Run from the shop's own host, with the secret substituted by the shell so no value was displayed:
+
+| credential used | → bionic.garden | → laladia.com |
+| --- | --- | --- |
+| Bionic `shop_assistant_key` (`X-API-Key`) | **200** | **401** |
+| Bionic `shop_admin_token` (`Authorization: Bearer`) | **200** | **401** |
+
+Both classes of Bionic credential are rejected by LaLaDia. Combined with the structural proof in
+section E - `CommerceRegistry::secret()` matches on `account_ref` with no fallback - isolation now
+holds by construction *and* by live test.
+
+HQ-side: all 19 events are `shop:laladia-com`, all 6 facts are `store_id 1`. No Bionic data has
+been written anywhere yet, so there is nothing to cross-contaminate.
+
+### J.4 The `webhooks` table is EMPTY
+
+Read directly from Bionic's database (`sangramn_bgarden`), excluding the secret column:
+
+```
+select id, event, url, is_active, (secret is not null), created_at from webhooks order by id
+→ 0 rows
+```
+
+**No existing Bionic subscriber, and no dormant placeholder** - unlike LaLaDia, which carried two
+inactive `example.com` rows. So there is nothing to duplicate and nothing to reconcile against.
+This also explains section C: HQ has never received a Bionic event because Bionic has never had a
+subscriber to send one.
+
+Schema, for the record: `id, event varchar(255), url varchar(255), secret text NULL,
+is_active tinyint(1) default 1, created_at, updated_at` - one row per (event, url) pair.
+
+### J.5 ⚠⚠ The subscriber CANNOT be created by SQL - the secret column is encrypted
+
+`app/Domains/Webhook/Models/Webhook.php` declares:
+
+```php
+protected $casts = ['secret' => 'encrypted'];
+```
+
+A direct `INSERT` of the plaintext secret would store plaintext, and `$hook->secret` decrypts on
+read - so `WebhookService` would either throw on decryption or sign with garbage. **Every delivery
+would fail its HMAC, silently**, which is precisely the class of defect this whole day has been
+about. `AdminWebhookController@store` passes the plaintext through the model, so the cast encrypts
+it correctly.
+
+**Therefore the subscriber must be created through the application**, by one of:
+
+- `POST /api/v1/admin/webhooks` with a token holding `system.webhooks` - HQ's token deliberately
+  does **not** have it, and widening a least-privilege integration role for a one-off setup step is
+  the wrong trade;
+- the shop's own admin webhooks screen, signed in as a shop admin;
+- `Webhook::create([...])` in tinker on the shop.
+
+### J.6 Assistant endpoints
+
+| endpoint | no key | wrong key | real key |
+| --- | --- | --- | --- |
+| `GET /assistant/promotions` | 401 | 401 | **200** |
+| `GET /assistant/orders?phone=…` | 401 | 401 | **200** (empty result for an unknown phone) |
+| `GET /assistant/products/{slug}/availability` | 401 | 401 | not exercised - see below |
+
+All three sit behind `throttle:30,1` + `chatbot.key` (`VerifyChatbotApiKey`, `hash_equals` on the
+`X-API-Key` header), so authentication is shared and proven by the two that were exercised.
+
+⚠ Availability takes a **product slug** (`/products/{slug}/availability`), not a `variant_id` query
+parameter. Two attempts using `?variant_id=` correctly returned 404 - `products/{slug}` matched with
+slug `availability` - and the corrected call was lost to repeated cPanel Terminal renderer freezes.
+**Recorded as not exercised rather than claimed.**
+
+### J.7 Reconciliation runs, and correctly finds nothing
+
+`hq:facts:reconcile --store=bionic-garden --hours=48` →
+`[bionic-garden] checked 0 orders since 2026-09-05 11:46:36, inserted 0 missing`
+
+The admin token authenticates through HQ's own connector and the store has no orders in the window.
+The idempotency proof proper belongs with the first real order.
+
+---
+
+## K. What is still blocked, and why
+
+| step | blocked on |
+| --- | --- |
+| create the `order.created` subscriber | must go through the application (J.5); this session cannot run shop application code |
+| one real storefront order | a genuine customer - not something to fabricate |
+| webhook path, replay/dedupe, facts, identity, reconcile-twice, widen, `inventory.low` | all descend from the two above |
+
+---
+
+## L. Found while verifying: six DEAD events on LaLaDia
+
+Not Bionic, and outside this milestone's scope, but a live production gap and recorded rather than
+passed over.
+
+`events` holds **6 rows with status `dead`** - retries exhausted, they will never be processed:
+
+| order | event | attempts | error |
+| --- | --- | --- | --- |
+| `LLD-20260902-HBCJ2E5DI8` ×3 | `order.status_changed` | 5 | `UnknownOrderException` |
+| `LLD-20260902-U2RYHL1K92` ×3 | `order.status_changed` | 5 | `UnknownOrderException` |
+
+Both orders were placed on **2 September**, before HQ had any webhook subscription, so HQ holds no
+fact for them; `applyStatusEvent` parks an unknown order, retries five times, then gives up. Their
+status changed on 7 September at 09:11 UTC, and those changes are now lost.
+
+**The nightly reconciliation cannot repair this**: its window is 48 hours, and these orders are five
+days old. The remedy is a one-off wider pass followed by a replay, in that order:
+
+```
+hq:facts:reconcile --store=laladia-com --hours=200      # creates the two missing facts
+hq:events:replay --type=order.status_changed --hours=24 --apply --reason="dead events, docs/46 L"
+```
+
+Not run here - it writes production data outside this milestone's scope.
