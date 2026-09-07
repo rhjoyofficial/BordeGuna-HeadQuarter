@@ -20,8 +20,10 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
 /*
- | Response shapes mirror bordeguna-erp's HqReadController (branch feature/hq-api), whose own
- | Pest suite pins them; if that controller changes shape, change these fixtures with it.
+ | Behaviour tests: auth, path scoping, failure classification, the one write. The response shapes
+ | here are hand-built to exercise a specific branch, and several are deliberately unrealistic
+ | (a 503 body, a 422). For the question "is this the shape the ERP really sends", see
+ | ErpContractFidelityTest, which uses payloads captured from production rather than written here.
  */
 
 const ERP = 'https://erp.test';
@@ -33,8 +35,11 @@ function erp(int $businessId = 4): ErpConnector
 
 it('sends the bearer token, scopes every path to the business, and maps the overview', function () {
     Http::fake([
+        // `invoices_past_due_date` is here because the real endpoint always sends it; the earlier
+        // fixture omitted it, which is the drift ErpContractFidelityTest now guards against.
         ERP.'/api/hq/v1/4/overview' => Http::response(['data' => [
-            'sales' => ['invoiced_this_month' => 1200.5, 'customers' => 3], 'inventory' => ['stock_value' => 500, 'low_stock_count' => 1, 'active_products' => 2],
+            'sales' => ['invoiced_this_month' => 1200.5, 'invoices_past_due_date' => 2, 'customers' => 3],
+            'inventory' => ['stock_value' => 500, 'low_stock_count' => 1, 'active_products' => 2],
             'purchasing' => null, 'approvals' => ['pending' => 0], 'tickets' => null,
         ], 'meta' => ['as_of' => '2026-09-05T10:00:00+00:00']]),
     ]);
@@ -51,8 +56,9 @@ it('maps low stock lines and paginated reads', function () {
         ERP.'/api/hq/v1/4/stock/low' => Http::response(['data' => [['product_id' => 9, 'sku' => 'GHEE-500', 'name' => 'Ghee 500g', 'on_hand' => 3, 'threshold' => 10]], 'meta' => ['count' => 1]]),
         ERP.'/api/hq/v1/4/stock*' => Http::response(['data' => [['sku' => 'GHEE-500', 'on_hand' => 3]], 'meta' => ['page' => 1, 'total' => 1]]),
     ]);
-    $lines = erp()->lowStock();
-    expect($lines)->toHaveCount(1)->and($lines[0]->sku)->toBe('GHEE-500')->and($lines[0]->onHand)->toBe(3.0)->and($lines[0]->threshold)->toBe(10.0);
+    $low = erp()->lowStock();
+    expect($low->lines)->toHaveCount(1)->and($low->count())->toBe(1)
+        ->and($low->lines[0]->sku)->toBe('GHEE-500')->and($low->lines[0]->onHand)->toBe(3.0)->and($low->lines[0]->threshold)->toBe(10.0);
 
     $stock = erp()->stock(['warehouse' => 'MAIN']);
     expect($stock['meta']['total'])->toBe(1);

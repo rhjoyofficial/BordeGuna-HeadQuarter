@@ -18,8 +18,10 @@ final class PollErpLowStockTool extends PollErpTool
 
     protected function poll(ErpConnector $erp): array
     {
-        $lines = $erp->lowStock();
+        $low = $erp->lowStock();
 
-        return ['payload' => array_map(fn ($l) => $l->toArray(), $lines), 'as_of' => now()->toIso8601String()];
+        // The ERP's own timestamp, not HQ's clock: `as_of` has to mean the same thing here as it
+        // does on the overview snapshot, or the column is two different facts under one name.
+        return ['payload' => $low->toArray(), 'as_of' => $low->asOf];
     }
 }

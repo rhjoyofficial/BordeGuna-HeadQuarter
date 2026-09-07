@@ -8,6 +8,13 @@ namespace App\Erp\Dto;
  */
 final readonly class ErpOverview
 {
+    /**
+     * The sections the ERP's overview endpoint always sends, each either an object or null.
+     * ErpContract checks they are all present: a null section is a permission boundary, and a
+     * section that stopped being sent would look exactly like one if nobody checked.
+     */
+    public const SECTIONS = ['sales', 'inventory', 'purchasing', 'approvals', 'tickets'];
+
     public function __construct(
         public int $erpBusinessId,
         public ?array $sales,

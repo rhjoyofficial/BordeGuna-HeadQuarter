@@ -11,6 +11,7 @@ use App\Models\FactsErpSnapshot;
 use App\Scheduling\Tools\Tool;
 use App\Scheduling\Tools\ToolContext;
 use App\Scheduling\Tools\ToolResult;
+use Carbon\CarbonImmutable;
 
 /**
  * Shared shape for the ERP poll tools: resolve the business, call the connector, replace the
@@ -59,7 +60,7 @@ abstract class PollErpTool implements Tool
 
         FactsErpSnapshot::updateOrCreate(
             ['business_id' => $business->id, 'kind' => $this->kind()],
-            ['payload' => $result['payload'], 'as_of' => $result['as_of'], 'polled_at' => now(), 'job_run_ref' => $context->jobRunId ? (string) $context->jobRunId : null],
+            ['payload' => $result['payload'], 'as_of' => self::asOf($result['as_of']), 'polled_at' => now(), 'job_run_ref' => $context->jobRunId ? (string) $context->jobRunId : null],
         );
 
         return ToolResult::succeeded([
@@ -68,6 +69,30 @@ abstract class PollErpTool implements Tool
             'as_of' => $result['as_of'],
             'items' => is_array($result['payload']) && array_is_list($result['payload']) ? count($result['payload']) : null,
         ]);
+    }
+
+    /**
+     * The ERP timestamps its responses in its own timezone: `2026-09-07T11:41:09+06:00`.
+     *
+     * Handing that string straight to a datetime cast stored the wall-clock reading and dropped the
+     * offset, so every snapshot claimed to be six hours newer than the moment it described - the
+     * 6 September overview was written at 07:39 UTC and recorded `as_of` 13:39 UTC, a timestamp in
+     * its own future. Nothing complained, because a timestamp is valid whatever it says.
+     *
+     * Parsing to an instant and storing UTC makes the column mean one thing regardless of which
+     * timezone the source happens to run in.
+     */
+    private static function asOf(?string $raw): ?CarbonImmutable
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($raw)->utc();
+        } catch (\Throwable) {
+            return null; // an unparseable timestamp is better recorded as unknown than as a wrong instant
+        }
     }
 
     public function reconcile(ToolContext $context): ?ToolResult

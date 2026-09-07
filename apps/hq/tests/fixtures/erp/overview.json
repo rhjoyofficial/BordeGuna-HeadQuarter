@@ -1,0 +1,25 @@
+{
+  "data": {
+    "sales": {
+      "invoiced_this_month": 0,
+      "invoices_past_due_date": 0,
+      "customers": 1
+    },
+    "inventory": {
+      "stock_value": 0,
+      "low_stock_count": 0,
+      "active_products": 118
+    },
+    "purchasing": null,
+    "approvals": {
+      "pending": 1
+    },
+    "tickets": {
+      "open": 1,
+      "overdue": 0
+    }
+  },
+  "meta": {
+    "as_of": "2026-09-07T11:41:09+06:00"
+  }
+}

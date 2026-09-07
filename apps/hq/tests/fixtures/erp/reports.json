@@ -1,0 +1,25 @@
+{
+  "data": [
+    {
+      "key": "sales_by_brand",
+      "name": "Sales by brand",
+      "group": "Sales",
+      "permission": "sales.reports.view",
+      "parameters": [
+        {
+          "key": "invoiced",
+          "label": "Invoiced between",
+          "type": "date_range",
+          "required": false,
+          "options": [],
+          "help": null,
+          "default": null
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "business_id": 4,
+    "as_of": "2026-09-07T11:41:21+06:00"
+  }
+}

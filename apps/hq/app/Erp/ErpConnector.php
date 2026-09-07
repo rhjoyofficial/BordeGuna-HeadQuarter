@@ -54,16 +54,27 @@ final class ErpConnector
     public function overview(): ErpOverview
     {
         $r = $this->get($this->path('overview'), 'overview');
+        $data = ErpContract::requireDataArray($r, 'overview');
+        ErpContract::requireSections($data, ErpOverview::SECTIONS, 'overview');
 
-        return ErpOverview::fromApi($this->erpBusinessId, $r['data'] ?? [], $r['meta']['as_of'] ?? null);
+        return ErpOverview::fromApi($this->erpBusinessId, $data, $r['meta']['as_of'] ?? null);
     }
 
-    /** @return ErpLowStockLine[] */
-    public function lowStock(): array
+    /**
+     * Low stock, with the ERP's own count and timestamp rather than HQ's clock and HQ's guess at
+     * how many rows there should have been.
+     */
+    public function lowStock(): ErpLowStock
     {
         $r = $this->get($this->path('stock/low'), 'lowStock');
+        $rows = ErpContract::requireDataArray($r, 'lowStock');
+        $meta = is_array($r['meta'] ?? null) ? $r['meta'] : [];
+        ErpContract::requireRowCount($rows, $meta, 'count', 'lowStock');
 
-        return array_map(fn (array $row) => ErpLowStockLine::fromApi($row), $r['data'] ?? []);
+        return new ErpLowStock(
+            array_map(fn (array $row) => ErpLowStockLine::fromApi($row), $rows),
+            $meta['as_of'] ?? null,
+        );
     }
 
     /** @return array{data: array, meta: array, links?: array} */
