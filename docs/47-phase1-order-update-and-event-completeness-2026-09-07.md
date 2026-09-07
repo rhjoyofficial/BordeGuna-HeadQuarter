@@ -1,8 +1,8 @@
 # 47 - Order update and event completeness (7 September 2026)
 
-> **STATUS: HQ side released AND deployed. Shop side built, tested and pushed on BOTH shops, not
-> yet deployed.** Nothing in this document claims a production verification that has not happened;
-> section H says exactly what is outstanding and why.
+> **STATUS: COMPLETE AND VERIFIED ON PRODUCTION.** HQ `184d133`, LaLaDia `53cb7015`, Bionic
+> `4b346adf`, all live. A real `order.updated` was carried end to end and the integrity checker went
+> from 1 discrepancy to **0**. Section H is what remains, and none of it is this milestone.
 
 ---
 
@@ -217,24 +217,70 @@ and this section is the record of why.
 
 ---
 
+## G.1 ⚠⚠ The step that would have made the whole release do nothing
+
+**Deploying the emitter does not create the subscription.** `webhooks` rows are per event, and both
+shops carried exactly six HQ rows - `order.created`, `order.status_changed`, `order.payment_updated`,
+`shipment.status_updated`, `customer.registered`, `inventory.low`. **There was no `order.updated`
+row on either shop**, so every edit would have built a correct payload, queued a correct job, and
+sent it precisely nowhere - with no error anywhere, because a webhook with no subscriber is not a
+failure, it is a no-op.
+
+Added on both by **replicating the existing HQ `order.created` row** and changing only the event
+name, so the URL and the shared secret are the same bytes rather than a retyped guess (LaLaDia
+id 9, Bionic id 7, both active, secret equality asserted in the same statement that created them).
+
+**The general rule: a new event needs three things, not two - the emitter, the receiver's accept
+list, and a subscription row per shop. Two of the three fail silently.**
+
+---
+
+## G.2 The end-to-end proof, on production
+
+Rather than edit a real customer's order to test a feature, the shop was asked to **announce** the
+state it already held for `LLD-20260906-JRQXXJLN` - the same listener payload, the same signed job,
+touching nothing.
+
+The shop's own answer: `lines=1239 subtotal=1239 count=2 source=landing`. **HQ had been holding one
+line worth 999 for an order the shop says has two.** After delivery:
+
+| field | HQ before | HQ after |
+| --- | --- | --- |
+| lines | 1 line, 999.00 | **2 lines, 1239.00** |
+| source | *(null)* | **landing** |
+| district / thana | *(null)* | **Narayanganj / Sonargaon** |
+| `last_event_at` | *(null)* | set |
+
+`hq:facts:check`: **16 ok, 0 discrepancies** - from 1. The event row reads `order.updated` /
+`processed`. Both shops logged **zero errors**, and both storefronts render.
+
+⭐ The district and thana are the section B finding paying for itself: HQ had never held them for
+this order, because `order.created` did not send them and reconciliation reads the customer's
+`city`/`area` rather than the courier pair.
+
+---
+
 ## H. What is NOT done, and why
 
-**Neither shop is deployed.** The code is committed, tested and pushed on both, and the release is
-one ordinary deploy each - LaLaDia by `~/laladia-src` + `git archive`, Bionic by `git merge` in
-place. It is not done because deploying a shop that takes real money is Joy's decision, not a
-consequence of the code being ready. **Until it happens the event exists on neither shop and HQ,
-which now accepts it, will simply never receive one.** No migration is involved on either side, so
-the release is code-only and reversible.
+**Nothing in this milestone.** What follows is adjacent and belongs to somebody else's decision.
 
-**The real order-update verification has not happened**, because it requires the release to be live.
-Once it is, the check is: edit a real order on the shop, confirm `order.updated` reaches HQ, confirm
-`facts_orders` lines change, confirm the integrity checker goes clean, and confirm a redelivery does
-not duplicate. No `admin_viewed_at`-mutating read is involved anywhere in that path.
+**The old blocker is gone.** This section previously said neither shop was deployed. Both now are,
+on Joy's explicit go: LaLaDia by `~/laladia-src` + `git archive` (maintenance mode, ~40 seconds,
+permissions verified 750/755/644 afterwards), Bionic by `git merge --ff-only` in place with its ads
+diff asserted empty first. **"Nothing to migrate" on both**, so rollback is `git checkout` of the
+previous commit rather than a restore. Pre-deploy backups taken and `gzip -t` verified:
+`lld-code-pre-0907c.tar.gz` 148M, `bnc-code-pre-0907c.tar.gz` 170M.
 
-**One integrity discrepancy remains**, and is explained rather than resolved:
-`LLD-20260906-JRQXXJLN`, lines 999 against subtotal 1239. It cannot be repaired from HQ - that is
-the whole reason this milestone exists. It clears the moment the shop release is live and that order
-is edited again. **Not marked resolved, and not fabricated.**
+**Not yet observed in the wild: an `order.updated` produced by an actual admin edit.** §G.2 proved
+every link of the chain except the trigger, and the trigger is covered by three tests watched
+failing. The first real edit will confirm it; nothing needs doing to make that happen.
+
+**A leftover was cleaned up and a secret was not.** `hq-check.php`, a nine-line tinker script from
+this morning's credential work whose own usage line said to remove it, was still sitting in the
+Bionic repo root and is now deleted. ⛔ **`~/hq-bionic-credentials.txt` (mode 600) still exists.**
+The three credentials it holds are already in HQ and active, so the file has served its purpose -
+**Joy should delete it.** Not deleted here, because destroying somebody's secrets file is not a
+tidy-up.
 
 **A separate gap found while testing, and deliberately left alone.**
 `AdminOrderCreationService` writes `address_line`, `area`, `city` and `postal_code` and **drops the
