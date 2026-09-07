@@ -143,3 +143,45 @@ it('merges two customers reversibly, moving identities and facts, and rebuild re
     $this->artisan('hq:customers:rebuild')->assertSuccessful();
     expect($a->fresh()->orders_count)->toBe(2)->and((float) $a->fresh()->lifetime_value)->toBe(1080.0);
 });
+
+/**
+ * The payload the shop's DispatchOrderCreatedWebhook listener actually sends, key for key, as
+ * verified against laladia.com order LLD-20260906-JRQXXJLN on 6 September 2026. It is thinner
+ * than orderPayload() above: `price` instead of `unit_price`, no line total, no `source`, and a
+ * flat `address` string instead of a `shipping_address` object. The invented fixture agreed with
+ * itself and the suite stayed green while every live line was stored at 0.00.
+ */
+function liveWebhookOrderPayload(string $ref = 'LLD-20260906-JRQXXJLN'): array
+{
+    return ['order_number' => $ref, 'customer_name' => 'Karim Ahmed', 'customer_phone' => '01711000000',
+        'customer_email' => null, 'grand_total' => 1089.0, 'subtotal' => 999.0, 'discount_total' => 0.0,
+        'shipping_cost' => 90.0, 'coupon_code' => null, 'payment_method' => 'cod', 'payment_status' => 'unpaid',
+        'order_status' => 'pending', 'shipping_zone' => 'Outside Dhaka', 'address' => 'House 1, Road 2',
+        'items_count' => 1, 'placed_at' => '2026-09-06T14:49:14.000000Z',
+        'items' => [['sku' => 'PIC-HIL-V1', 'name' => 'Hilsa Fish Pickle', 'quantity' => 3, 'price' => 333.0]],
+    ];
+}
+
+it('keeps the line price the live webhook sends, and derives the line total it omits', function () {
+    $facts = app(FactsOrderUpserter::class);
+    $store = Store::where('slug', 'laladia-com')->sole();
+
+    $fact = $facts->upsertFromShopPayload($store, liveWebhookOrderPayload());
+
+    expect($fact->lines[0])->toMatchArray(['sku' => 'PIC-HIL-V1', 'qty' => 3, 'unit_price' => 333.0, 'total' => 999.0]);
+    // What this payload genuinely cannot carry, recorded so the gap stays visible: the shop
+    // listener sends neither of these, and only hq:facts:reconcile can fill them in later.
+    expect($fact->source)->toBeNull()->and($fact->district)->toBeNull();
+});
+
+it('lets a later reconcile fill in the source and district the webhook could not carry', function () {
+    $facts = app(FactsOrderUpserter::class);
+    $store = Store::where('slug', 'laladia-com')->sole();
+    $facts->upsertFromShopPayload($store, liveWebhookOrderPayload('LLD-RECON'));
+
+    // The admin API shape hq:facts:reconcile replays, which does carry both.
+    $facts->upsertFromShopPayload($store, array_merge(orderPayload('LLD-RECON'), ['source' => 'checkout']));
+
+    $fact = FactsOrder::where('order_ref', 'LLD-RECON')->sole();
+    expect($fact->source)->toBe('checkout')->and($fact->district)->toBe('Dhaka');
+});

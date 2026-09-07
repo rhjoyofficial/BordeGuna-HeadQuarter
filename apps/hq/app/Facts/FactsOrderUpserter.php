@@ -64,11 +64,7 @@ final class FactsOrderUpserter
                 'delivered_at' => isset($o['delivered_at']) ? CarbonImmutable::parse($o['delivered_at']) : $existing?->delivered_at,
                 'cancelled_at' => isset($o['cancelled_at']) ? CarbonImmutable::parse($o['cancelled_at']) : $existing?->cancelled_at,
                 'campaign_ref' => $o['fbc'] ?? $o['campaign_ref'] ?? $existing?->campaign_ref,
-                'lines' => isset($o['items']) ? array_map(fn ($i) => [
-                    'sku' => $i['sku'] ?? null, 'name' => $i['product_name'] ?? $i['name'] ?? null, 'qty' => (int) ($i['qty'] ?? $i['quantity'] ?? 1),
-                    'unit_price' => (float) ($i['unit_price'] ?? 0), 'total' => (float) ($i['total'] ?? 0),
-                    'variant_id' => $i['variant_id'] ?? null, 'combo_id' => $i['combo_id'] ?? null,
-                ], $o['items']) : $existing?->lines,
+                'lines' => isset($o['items']) ? array_map(self::line(...), $o['items']) : $existing?->lines,
                 'last_event_id' => $eventId ?? $existing?->last_event_id,
                 'synced_at' => now(),
             ]);
@@ -80,6 +76,34 @@ final class FactsOrderUpserter
 
             return $fact;
         });
+    }
+
+    /**
+     * One order line, from whichever shape the shop used.
+     *
+     * The two live paths do not agree on key names: the admin API's OrderResource sends
+     * `unit_price`/`total`, while the `order.created` webhook listener sends `price` and no line
+     * total at all. Reading only the first pair stored every webhook-delivered line at 0.00 and
+     * nothing failed, because a zero is a perfectly valid price. Accept both, and derive the
+     * total from qty x unit price when the shop did not send one.
+     */
+    private static function line(array $i): array
+    {
+        $qty = (int) ($i['qty'] ?? $i['quantity'] ?? 1);
+        $unitPrice = (float) ($i['unit_price'] ?? $i['price'] ?? 0);
+        $total = isset($i['total']) || isset($i['line_total'])
+            ? (float) ($i['total'] ?? $i['line_total'])
+            : round($qty * $unitPrice, 2);
+
+        return [
+            'sku' => $i['sku'] ?? null,
+            'name' => $i['product_name'] ?? $i['name'] ?? null,
+            'qty' => $qty,
+            'unit_price' => $unitPrice,
+            'total' => $total,
+            'variant_id' => $i['variant_id'] ?? null,
+            'combo_id' => $i['combo_id'] ?? null,
+        ];
     }
 
     /** Applies a status-only event (order.status_changed, payment.completed, shipment.delivered). Parks if the order is unknown. */

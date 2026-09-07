@@ -85,7 +85,55 @@ Inspected, not recreated: `webhooks` rows 3–8 (`order.created`, `order.status_
 
 ## I. Real LaLaDia order through the restored path
 
-_(filled in when placed)_
+**Done, and it was a genuine customer order, not a test.** `LLD-20260906-JRQXXJLN`, grand total
+1,089.00, placed 2026-09-06 **14:49:14 UTC** - a little over two hours after the restore was verified
+at ~12:35 UTC. HQ received `order.created` at **14:50:05 UTC** and had written the fact by
+**14:51:02 UTC**: `events` 8 (4 `order.created`, 3 `order.status_changed`, 1 `inventory.low`, all
+`processed`, 0 pending, 0 failed), `facts_orders` 6, `customers` 5, `customer_identities` 20,
+`connector_calls` 14 with none failed. The restored webhook path therefore works end to end
+under real traffic, with no operator involvement. That closes the first of the two items the
+milestone was waiting on.
+
+### I.1 What the live order exposed - a defect the suite could never have caught
+
+The fact HQ stored from that order is **thinner than the one `hq:facts:reconcile` builds for the
+same shop**, and every missing field is silent:
+
+| field | fact 6 (live webhook) | fact 5 (reconcile) | why |
+| --- | --- | --- | --- |
+| `source` | NULL | `landing` | the shop's `DispatchOrderCreatedWebhook` listener does not send `source` |
+| `district` | NULL | `Dhaka` | the listener sends a flat `address` string, not a `shipping_address` object |
+| line `unit_price` | 0.00 | 0.00 | the listener sends `price`; `FactsOrderUpserter` read only `unit_price` |
+| line `total` | 0.00 | 0.00 | the listener sends no line total at all |
+
+The root cause of the miss is in HQ's own test fixture. `orderPayload()` in
+`ShopWebhookAndIdentityTest` was written from the *design* of the webhook contract, not from the
+shop's listener, so it supplies `source`, `shipping_address`, `unit_price` and `total` - the fixture
+agreed with the mapping, the mapping agreed with the fixture, and the suite went green while every
+live line was being stored at 0.00. A zero is a perfectly valid price, so nothing threw. This is
+[[reference_green_suite_lies]] again, in the exact shape the project method warns about: the
+feature had been exercised against a real system, but only for *arrival*, never for *fidelity*.
+
+**Fixed in HQ (this repo, no shop release needed):** `FactsOrderUpserter` now maps one order line
+through a named `line()` helper that accepts `unit_price` **or** `price`, accepts `total` or
+`line_total`, and derives `qty x unit_price` when the shop sends neither. Two new tests encode the
+**real** listener payload key for key (`liveWebhookOrderPayload()`), assert the price and the
+derived total survive, and pin the two fields that payload genuinely cannot carry so the gap stays
+visible rather than being quietly forgotten.
+
+**Not fixed, needs Joy's decision:**
+- `source` and `district` can only come from the shop. Either the listener grows those two fields
+  (a LaLaDia release, and then Bionic by merge), or HQ accepts that live orders carry channel and
+  geography only after a reconcile pass. Recommendation: add them to the listener in the next
+  ordinary shop release rather than cutting one for this alone - the loss is analytical, not
+  operational, and Phase 5 (marketing attribution) is the first phase that actually needs `source`.
+- Fact 6's own `source`/`district` can be backfilled today by re-running
+  `hq:facts:reconcile --store=laladia-com`, which replays the admin API shape over existing facts.
+  Not run: it writes to production data, so it waits for an explicit go.
+- **`hq:facts:reconcile` is not scheduled.** `routes/console.php` schedules the tick, the event
+  processor, a Horizon snapshot and two prunes - nothing calls the reconciler. The command whose
+  stated job is "catches lost webhooks" only runs when a human remembers, so a dropped delivery
+  stays dropped indefinitely. Recommendation: schedule it hourly per store once Bionic is live.
 
 ## J. Bionic credentials, subscriber and real order
 
