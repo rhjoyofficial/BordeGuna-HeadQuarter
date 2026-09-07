@@ -144,27 +144,14 @@ it('merges two customers reversibly, moving identities and facts, and rebuild re
     expect($a->fresh()->orders_count)->toBe(2)->and((float) $a->fresh()->lifetime_value)->toBe(1080.0);
 });
 
-/**
- * The payload the shop's DispatchOrderCreatedWebhook listener actually sends, key for key, as
- * verified against laladia.com order LLD-20260906-JRQXXJLN on 6 September 2026. It is thinner
- * than orderPayload() above: `price` instead of `unit_price`, no line total, no `source`, and a
- * flat `address` string instead of a `shipping_address` object. The invented fixture agreed with
- * itself and the suite stayed green while every live line was stored at 0.00.
- */
-function liveWebhookOrderPayload(string $ref = 'LLD-20260906-JRQXXJLN'): array
-{
-    return ['order_number' => $ref, 'customer_name' => 'Karim Ahmed', 'customer_phone' => '01711000000',
-        'customer_email' => null, 'grand_total' => 1089.0, 'subtotal' => 999.0, 'discount_total' => 0.0,
-        'shipping_cost' => 90.0, 'coupon_code' => null, 'payment_method' => 'cod', 'payment_status' => 'unpaid',
-        'order_status' => 'pending', 'shipping_zone' => 'Outside Dhaka', 'address' => 'House 1, Road 2',
-        'items_count' => 1, 'placed_at' => '2026-09-06T14:49:14.000000Z',
-        'items' => [['sku' => 'PIC-HIL-V1', 'name' => 'Hilsa Fish Pickle', 'quantity' => 3, 'price' => 333.0]],
-    ];
-}
-
 it('keeps the line price the live webhook sends, and derives the line total it omits', function () {
     $facts = app(FactsOrderUpserter::class);
     $store = Store::where('slug', 'laladia-com')->sole();
+
+    // The listener's contract is the thing under test, so pin it first. Without this, the obvious
+    // way to "fix" a future failure here is to add `unit_price` to the fixture, which would make
+    // the test agree with HQ and disagree with production all over again.
+    assertLiveWebhookContractUnchanged(liveWebhookOrderPayload());
 
     $fact = $facts->upsertFromShopPayload($store, liveWebhookOrderPayload());
 

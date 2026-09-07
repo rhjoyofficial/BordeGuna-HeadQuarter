@@ -44,7 +44,36 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * The payload the shop's DispatchOrderCreatedWebhook listener actually sends, key for key, as
+ * verified against laladia.com order LLD-20260906-JRQXXJLN on 6 September 2026. It is thinner
+ * than orderPayload() above: `price` instead of `unit_price`, no line total, no `source`, and a
+ * flat `address` string instead of a `shipping_address` object. The invented fixture agreed with
+ * itself and the suite stayed green while every live line was stored at 0.00.
+ */
+function liveWebhookOrderPayload(string $ref = 'LLD-20260906-JRQXXJLN'): array
 {
-    // ..
+    return ['order_number' => $ref, 'customer_name' => 'Karim Ahmed', 'customer_phone' => '01711000000',
+        'customer_email' => null, 'grand_total' => 1089.0, 'subtotal' => 999.0, 'discount_total' => 0.0,
+        'shipping_cost' => 90.0, 'coupon_code' => null, 'payment_method' => 'cod', 'payment_status' => 'unpaid',
+        'order_status' => 'pending', 'shipping_zone' => 'Outside Dhaka', 'address' => 'House 1, Road 2',
+        'items_count' => 1, 'placed_at' => '2026-09-06T14:49:14.000000Z',
+        'items' => [['sku' => 'PIC-HIL-V1', 'name' => 'Hilsa Fish Pickle', 'quantity' => 3, 'price' => 333.0]],
+    ];
+}
+
+/**
+ * Guards the fixture above against being "fixed" toward whatever HQ currently reads. If HQ ever
+ * starts recording 0.00 again, the failing test must be repaired by correcting the mapper or by
+ * re-capturing the listener's real payload - never by adding keys the shop does not send.
+ */
+function assertLiveWebhookContractUnchanged(array $payload): void
+{
+    $line = $payload['items'][0];
+    expect($line)->toHaveKey('price')
+        ->and($line)->not->toHaveKey('unit_price')
+        ->and($line)->not->toHaveKey('total')
+        ->and($payload)->not->toHaveKey('source')
+        ->and($payload)->not->toHaveKey('shipping_address')
+        ->and($payload)->toHaveKey('address');
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Scheduling\Tools\Commerce\ReconcileShopFactsTool;
 use App\Scheduling\Tools\Erp\PollErpLowStockTool;
 use App\Scheduling\Tools\Erp\PollErpOverviewTool;
 use App\Scheduling\Tools\FailingTool;
@@ -22,6 +23,9 @@ return [
         // Phase 1: read-only ERP polls that fill facts_erp_snapshots (ADR-007 read models).
         PollErpOverviewTool::class,
         PollErpLowStockTool::class,
+        // The order reconciliation safety net, so a lost webhook is caught by a nightly job
+        // rather than by somebody remembering to run the command.
+        ReconcileShopFactsTool::class,
     ],
 
     // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an
