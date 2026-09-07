@@ -473,3 +473,111 @@ ordinary LaLaDia release alongside `source` and `district`.
 
 The 11 without line detail are the reconciliation-inserted orders, counted apart rather than called
 broken, exactly as designed.
+
+---
+
+## N. The real Bionic order, verified end to end
+
+Joy created the `order.created` subscriber through the application and placed one genuine storefront
+order. Order **`BNC-20260907-ETYVMYBVTX`**, placed 2026-09-07 12:09:02 UTC.
+
+### N.1 The live path
+
+| stage | evidence |
+| --- | --- |
+| Bionic storefront order | placed 12:09:02 UTC |
+| `order.created` → HQ | event `0f15ef06-…`, delivery `a4d1f923-…`, received **12:09:03** |
+| HMAC + timestamp accepted | event recorded rather than rejected |
+| event processed | status `processed`, first attempt |
+| `facts_orders` written | **12:10:03**, `store_id 2`, `business_id 3` |
+| customer identity | resolved to customer 1 |
+
+Under a minute and a half from checkout to fact, unattended.
+
+### N.2 Field-by-field, fact against source
+
+| field | HQ fact | source |
+| --- | --- | --- |
+| order number | `BNC-20260907-ETYVMYBVTX` | same |
+| business / store | 3 / 2 (Bionic) | correct - not LaLaDia's 2 / 1 |
+| source | `checkout` (after reconcile) | a normal storefront order, as required |
+| district / thana | `Gopalganj` / `Bandhabari` (after reconcile) | from the admin API |
+| status / payment | `pending` / `unpaid` / `cod` | same |
+| subtotal | 870.00 | same |
+| shipping | 120.00 | same |
+| discount | 0.00 | same |
+| grand total | 990.00 | same |
+| line | 1 × `COC-360ML` | same |
+| **unit price** | **870.00** | **870.00** |
+| **line total** | **870.00** | **870.00** |
+
+⭐ **The line is priced correctly on the first live order since the fix.** This is the defect that
+opened the day - `price` vs `unit_price` - proven repaired against a real production payload rather
+than a fixture. Arithmetic holds both ways: lines sum to subtotal (870), and
+`870 + 120 - 0 = 990` = grand total.
+
+`source`, `district` and `thana` arrived NULL from the webhook and were filled by reconciliation,
+exactly as on LaLaDia - the listener still does not send them (section R of docs/45's sibling item;
+queued for the next ordinary shop release).
+
+### N.3 Reconciliation is idempotent
+
+```
+run 1: checked 1 orders since 2026-09-05 12:10:39, inserted 0 missing
+run 2: checked 1 orders since 2026-09-05 12:10:40, inserted 0 missing
+integrity: 1 checked, 1 ok, 0 without line detail, 0 discrepancies
+```
+
+Zero inserts on both runs - the webhook had already created the fact - and no duplicate fact,
+customer or identity.
+
+### N.4 Cross-business isolation, now with real Bionic data
+
+Customer 1 holds three orders and spans both shops, which is the design working rather than a leak:
+
+| order | store | business | status |
+| --- | --- | --- | --- |
+| `LLD-20260906-QFGKLCD9GC` | 1 | 2 | cancelled |
+| `LLD-20260906-B9C17FQL` | 1 | 2 | cancelled |
+| `BNC-20260907-ETYVMYBVTX` | **2** | **3** | pending |
+
+Identities show exactly the intended split:
+
+| channel | source_store_id | count |
+| --- | --- | --- |
+| `email` | (null) | 3 |
+| `phone` | (null) | 1 |
+| `shop_order` | 1 | 2 |
+| `shop_order` | **2** | **1** |
+| `shop_user` | 1 | 1 |
+| `shop_user` | **2** | **1** |
+
+**Store-scoped identifiers carry their store**, so Bionic user id 5 can never be confused with
+LaLaDia user id 5. **Person-level identifiers are deliberately store-agnostic**, which is the whole
+point of HQ: one customer across the group. The *facts* never mix - each carries its own store and
+business - while the *person* is correctly recognised as one human. `lifetime_value` 990 counts only
+the non-cancelled order.
+
+### N.5 Webhook security
+
+| test | result |
+| --- | --- |
+| bad signature | **401** |
+| missing signature | **401** |
+| neither created an event | confirmed - event count unchanged at 16 |
+| unknown store | **404** (section E.1) |
+| store known, no secret configured | **503** (section E.1, before credentials) |
+
+⚠ **Duplicate-delivery and stale-timestamp were not exercised against Bionic directly.** Both need a
+validly signed request, so they must be built on the shop host where the secret lives, and the cPanel
+Terminal froze repeatedly. They are proven at code level in CI (`ShopWebhookAndIdentityTest` covers
+dedupe on the delivery id and a stale `X-Shop-Timestamp`, in the 105-test suite) and were proven live
+against the **same store-agnostic controller** on LaLaDia (docs/41: 202 `duplicate:true` / 401 / 401
+stale). Recorded as inferred for Bionic, not demonstrated.
+
+### N.6 Observation
+
+Events **16 processed, 0 pending, 0 failed** (plus the 6 inert LaLaDia `dead` rows of section M).
+Connector calls: `shop:bionic-garden` 4 succeeded, `shop:laladia-com` 1 succeeded, none failed.
+No failed queue jobs. Zero errors, exceptions or fatals in the app and Horizon logs. `/api/health`
+green on all five checks.
