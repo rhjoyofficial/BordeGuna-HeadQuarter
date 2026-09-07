@@ -40,7 +40,7 @@ final class FactsOrderUpserter
         $address = $o['shipping_address'] ?? [];
         $placedAt = $o['placed_at'] ?? $o['created_at'] ?? null;
 
-        return DB::transaction(function () use ($store, $o, $ref, $phone, $address, $placedAt, $eventId) {
+        return DB::transaction(function () use ($store, $o, $ref, $phone, $address, $placedAt, $eventId, $occurredAt) {
             $customer = $this->identity->resolve($store, [
                 'name' => $o['customer_name'] ?? null,
                 'phone' => $phone,
