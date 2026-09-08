@@ -86,6 +86,32 @@ it('bills a cached input token at the cache price, not the input price', functio
         ->and((float) $withCache)->toBeLessThan((float) $withoutCache);
 });
 
+it('bills a cache WRITE at its premium, which is the error that under-reports', function () {
+    // ⚠⚠ The read side was guarded from the start; the write side was not, and it is the
+    // dangerous half. A cache write costs MORE than base input (1.25x at the five-minute TTL), so
+    // pricing it as ordinary input makes every bill look smaller than the invoice. `aiModel()` seeds
+    // read at $0.10/M and write at $1.25/M against a $1/M base.
+    $model = aiModel('fixture', 'a', ModelTier::Medium, in: '1.0000', out: '1.0000');
+    $costs = app(CostCalculator::class);
+
+    // 1000 input: 600 fresh at $1/M, 400 written to cache at $1.25/M.
+    $written = $costs->estimate($model, 1000, 0, 0, 400);
+
+    expect($written)->toBe('0.001100')
+        // Strictly dearer than the same tokens sent uncached. If these ever come out equal, the
+        // write premium has stopped being applied.
+        ->and((float) $written)->toBeGreaterThan((float) $costs->estimate($model, 1000, 0, 0, 0));
+});
+
+it('never bills more tokens than were sent, however the portions are reported', function () {
+    $model = aiModel('fixture', 'a', ModelTier::Medium, in: '1.0000', out: '1.0000');
+
+    // Reads and writes that together overstate the input total are clamped rather than trusted:
+    // billing tokens that were never sent is the one arithmetic error that looks conservative.
+    expect(app(CostCalculator::class)->estimate($model, 100, 0, 90, 90))
+        ->toBe(app(CostCalculator::class)->estimate($model, 100, 0, 90, 10));
+});
+
 it('falls back to a different provider on an outage and records both attempts', function () {
     aiModel('fixture', 'first', ModelTier::Medium, priority: 1);
     aiModel('fixture2', 'second', ModelTier::Medium, priority: 50);
@@ -157,7 +183,11 @@ it('repairs a malformed structured reply once, charges for both calls, then succ
 
     // The repair turn hands the model the actual validation error rather than just asking again.
     $repairPrompt = FixtureProvider::requestsTo('fixture')[1];
-    expect(end($repairPrompt->messages)['content'])->toContain('did not match the required schema');
+
+    // ⚠ `end()` takes its array BY REFERENCE, and PHP will not hand out a reference to a readonly
+    // property. Read the last turn by key instead of moving an internal pointer through it.
+    $turns = $repairPrompt->messages;
+    expect($turns[array_key_last($turns)]['content'])->toContain('did not match the required schema');
 });
 
 it('fails rather than inventing an object when the repair also fails', function () {
