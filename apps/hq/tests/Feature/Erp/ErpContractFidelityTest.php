@@ -7,8 +7,8 @@ use App\Erp\ErpConnector;
 use App\Models\Business;
 use App\Models\FactsErpSnapshot;
 use App\Models\IntegrationCredential;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Support\Facades\Http;
 
@@ -122,8 +122,10 @@ it('stores as_of as the instant the ERP meant, not its wall-clock reading', func
     fakeErp();
 
     $context = new ToolContext(idempotencyKey: 'i', correlationId: 'c', businessId: $business->id);
-    app(ToolRegistry::class)->get('erp.poll_overview')->execute([], $context);
-    app(ToolRegistry::class)->get('erp.poll_low_stock')->execute([], $context);
+    withCredentials([['erp_api_token', 'bor-de-guna']], function () use ($context) {
+        app(ToolRegistry::class)->get('erp.poll_overview')->execute([], $context);
+        app(ToolRegistry::class)->get('erp.poll_low_stock')->execute([], $context);
+    });
 
     // 11:41:09+06:00 is 05:41:09 UTC. Storing "11:41:09" would put the snapshot in its own future.
     $overview = FactsErpSnapshot::where('kind', 'overview')->sole();
@@ -145,7 +147,9 @@ it('leaves as_of unknown rather than wrong when the ERP sends something unparsea
     $payload['meta']['as_of'] = 'not a timestamp';
     fakeErp(['erp.test/api/hq/v1/4/overview' => Http::response($payload)]);
 
-    app(ToolRegistry::class)->get('erp.poll_overview')->execute([], new ToolContext(idempotencyKey: 'i', correlationId: 'c', businessId: $business->id));
+    withCredentials([['erp_api_token', 'bor-de-guna']], fn () => app(ToolRegistry::class)
+        ->get('erp.poll_overview')
+        ->execute([], new ToolContext(idempotencyKey: 'i', correlationId: 'c', businessId: $business->id)));
 
     expect(FactsErpSnapshot::where('kind', 'overview')->sole()->as_of)->toBeNull();
 });

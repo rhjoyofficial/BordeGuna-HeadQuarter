@@ -6,7 +6,7 @@ use App\Gateway\FailureClass;
 use App\Gateway\Identity\ActingIdentity;
 use App\Gateway\Identity\IdentityKind;
 use App\Gateway\OutcomeStatus;
-use App\Gateway\Policy\PolicyGate;
+use App\Gateway\Policy\PolicyEngine;
 use App\Gateway\Policy\PolicyOutcome;
 use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\Registry\ToolRegistrySync;
@@ -21,10 +21,10 @@ use App\Models\FeatureFlag;
 use App\Models\ToolCall;
 use App\Models\User;
 use App\Models\UserBusinessScope;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -303,7 +303,7 @@ it('refuses a business-scoped tool that names no business', function () {
     $outcome = gateway()->execute(ToolRequest::forOperator(operator(), 'erp.poll_overview'));
 
     expect($outcome->status)->toBe(OutcomeStatus::Denied)
-        ->and($outcome->error)->toContain('named neither a business nor a store');
+        ->and($outcome->error)->toContain('neither the call nor its arguments named one');
 });
 
 // ---------------------------------------------------------------- policy
@@ -328,7 +328,7 @@ it('refuses every R4 and R5 call, because approval is required and the Approval 
 
 it('stops every tool at once when the AI freeze flag is on', function () {
     registerTestTool(CountingTool::class);
-    FeatureFlag::create(['key' => PolicyGate::FREEZE_FLAG, 'environment' => '*', 'enabled' => true]);
+    FeatureFlag::create(['key' => PolicyEngine::FREEZE_FLAG, 'environment' => '*', 'enabled' => true]);
     app(Features::class)->forget();
 
     $outcome = gateway()->execute(ToolRequest::forOperator(operator(), 'test.counting'));
@@ -348,7 +348,7 @@ it('classifies every registered production tool, so nothing falls through to the
             ->and($descriptor->auditAction)->toStartWith('tool.')
             ->and($descriptor->riskTier)->toBeInstanceOf(RiskTier::class);
 
-        $decision = app(PolicyGate::class)->decide(
+        $decision = app(PolicyEngine::class)->decide(
             $descriptor,
             ToolRequest::forConsole($key),
             ActingIdentity::system(),

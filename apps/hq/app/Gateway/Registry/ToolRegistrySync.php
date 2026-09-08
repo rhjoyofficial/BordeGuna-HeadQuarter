@@ -3,8 +3,8 @@
 namespace App\Gateway\Registry;
 
 use App\Models\ToolRegistration;
-use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Audit\Auditor;
+use App\Tools\ToolRegistry;
 
 /**
  * Reconciles the configured tool classes with the runtime `tools` rows.

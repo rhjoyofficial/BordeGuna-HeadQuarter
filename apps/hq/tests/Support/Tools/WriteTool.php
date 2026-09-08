@@ -6,9 +6,9 @@ use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
-use App\Scheduling\Tools\Tool;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolResult;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolResult;
 
 /**
  * An R4 tool: an external side effect that could be corrected, but not one HQ may take on its own.

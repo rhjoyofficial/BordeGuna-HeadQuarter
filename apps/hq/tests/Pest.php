@@ -1,5 +1,6 @@
 <?php
 
+use App\Gateway\Credentials\CredentialVault;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -76,4 +77,26 @@ function assertLiveWebhookContractUnchanged(array $payload): void
         ->and($payload)->not->toHaveKey('source')
         ->and($payload)->not->toHaveKey('shipping_address')
         ->and($payload)->toHaveKey('address');
+}
+
+/**
+ * Runs $fn with the named provider/account credentials open in the vault.
+ *
+ * From M2 a connector cannot resolve its own credential: the gateway opens what the tool declared
+ * and the connector asks the vault (docs/50). A test that drives a connector directly, without a
+ * gateway call, therefore has to open the scope itself, exactly as the diagnostic console commands
+ * do. That is the point rather than an inconvenience: it makes the boundary visible in every test
+ * that crosses it.
+ *
+ * @param  list<array{0: string, 1: string}>  $pairs  [provider, account_ref]
+ */
+function withCredentials(array $pairs, Closure $fn): mixed
+{
+    return app(CredentialVault::class)->openForAccounts($pairs, $fn);
+}
+
+/** The two credentials a Laravel shop adapter can use. */
+function shopCredentials(string $store): array
+{
+    return [['shop_assistant_key', $store], ['shop_admin_token', $store]];
 }

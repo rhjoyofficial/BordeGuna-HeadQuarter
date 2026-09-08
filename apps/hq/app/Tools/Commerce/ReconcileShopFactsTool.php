@@ -1,9 +1,10 @@
 <?php
 
-namespace App\Scheduling\Tools\Commerce;
+namespace App\Tools\Commerce;
 
 use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
+use App\Commerce\Support\CommerceRegistry;
 use App\Facts\FactsReconciler;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ReadWrite;
@@ -11,9 +12,9 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Store;
-use App\Scheduling\Tools\Tool;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolResult;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolResult;
 use Carbon\CarbonImmutable;
 
 /**
@@ -61,8 +62,12 @@ final class ReconcileShopFactsTool implements Tool
             scope: ToolScope::Store,
             readWrite: ReadWrite::Write,
             agentExecutable: false,
+            scopeFrom: 'store:args.store_slug',
             credentials: [
-                new CredentialRequirement('shop_admin_token', 'args.store_slug|store.slug'),
+                // Only the admin token: reconciliation lists orders and touches no assistant
+                // endpoint. Declaring a credential the tool does not use would open a secret for
+                // no reason, and the point of the vault is that nothing is open without a reason.
+                new CredentialRequirement(CommerceRegistry::ADMIN_PROVIDER, 'args.store_slug|store.slug'),
             ],
             idempotent: true,
             idempotencyKeyFrom: ['store_slug', 'hours'],

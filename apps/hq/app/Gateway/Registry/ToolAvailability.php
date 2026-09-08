@@ -3,7 +3,7 @@
 namespace App\Gateway\Registry;
 
 use App\Models\ToolRegistration;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Cache;
 
 /**

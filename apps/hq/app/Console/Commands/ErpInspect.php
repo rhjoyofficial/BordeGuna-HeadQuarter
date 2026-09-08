@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Erp\ErpRegistry;
+use App\Gateway\Credentials\CredentialVault;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -30,7 +31,7 @@ final class ErpInspect extends Command
 
     private const ENDPOINTS = ['overview', 'low_stock', 'businesses', 'reports'];
 
-    public function handle(ErpRegistry $registry): int
+    public function handle(ErpRegistry $registry, CredentialVault $vault): int
     {
         $slugs = $this->argument('business') ? [$this->argument('business')] : $registry->businessesWithConnectors();
         if ($slugs === []) {
@@ -47,7 +48,11 @@ final class ErpInspect extends Command
                 $this->newLine();
                 $this->line("=== {$slug} :: {$endpoint} ===");
                 try {
-                    $raw = $registry->for($slug)->rawRead($endpoint);
+                    // Diagnostic path: this opens the credential itself and says so.
+                    $raw = $vault->openForAccounts(
+                        [[ErpRegistry::PROVIDER, $slug]],
+                        fn () => $registry->for($slug)->rawRead($endpoint),
+                    );
                 } catch (Throwable $e) {
                     $failed++;
                     $this->error('  '.class_basename($e).': '.$e->getMessage());

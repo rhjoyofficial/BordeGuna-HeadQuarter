@@ -12,8 +12,8 @@ use App\Models\Business;
 use App\Models\ConnectorCall;
 use App\Models\FactsErpSnapshot;
 use App\Models\IntegrationCredential;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -111,16 +111,20 @@ it('resolves businesses to connectors from integration_credentials and refuses t
     $registry = app(ErpRegistry::class);
 
     expect(fn () => $registry->for('econic'))->toThrow(Unsupported::class, 'no ERP counterpart');
-    expect(fn () => $registry->for('bor-de-guna'))->toThrow(Unsupported::class, 'No active erp_api_token');
+    // M2: a connector no longer resolves its own credential, so the refusal now comes from the
+    // vault and names the gateway rather than the credentials table.
+    expect(fn () => $registry->for('bor-de-guna'))->toThrow(Unsupported::class, 'credential is open');
     expect($registry->businessesWithConnectors())->toBe([]);
 
     IntegrationCredential::create(['provider' => 'erp_api_token', 'account_ref' => 'bor-de-guna', 'credential_type' => 'api_token', 'payload' => ['value' => 'secret'], 'status' => 'active']);
-    $erp = $registry->for('bor-de-guna');
-    expect($erp->erpBusinessId)->toBe(4)->and($registry->businessesWithConnectors())->toBe(['bor-de-guna']);
+    withCredentials([['erp_api_token', 'bor-de-guna']], function () use ($registry) {
+        $erp = $registry->for('bor-de-guna');
+        expect($erp->erpBusinessId)->toBe(4)->and($registry->businessesWithConnectors())->toBe(['bor-de-guna']);
 
-    Http::fake([ERP.'/api/hq/v1/businesses' => Http::response(['data' => []])]);
-    $erp->businesses();
-    Http::assertSent(fn (Request $r) => $r->hasHeader('Authorization', 'Bearer secret'));
+        Http::fake([ERP.'/api/hq/v1/businesses' => Http::response(['data' => []])]);
+        $erp->businesses();
+        Http::assertSent(fn (Request $r) => $r->hasHeader('Authorization', 'Bearer secret'));
+    });
 });
 
 it('poll tools write the snapshot read model, replace it on the next poll, and fail cleanly without a token', function () {
@@ -130,8 +134,10 @@ it('poll tools write the snapshot read model, replace it on the next poll, and f
     $business = Business::where('slug', 'bor-de-guna')->firstOrFail();
     $ctx = fn (int $attempt = 1) => new ToolContext(idempotencyKey: 'k-'.$attempt, correlationId: 'c', businessId: $business->id, jobRunId: 77, attempt: $attempt);
 
+    // Executed directly rather than through the gateway, so no credential is open: the tool
+    // fails cleanly with the vault's reason instead of reaching for one itself.
     $noToken = $tools->get('erp.poll_overview')->execute([], $ctx());
-    expect($noToken->ok())->toBeFalse()->and($noToken->error)->toContain('No active erp_api_token');
+    expect($noToken->ok())->toBeFalse()->and($noToken->error)->toContain('credential is open');
 
     IntegrationCredential::create(['provider' => 'erp_api_token', 'account_ref' => 'bor-de-guna', 'credential_type' => 'api_token', 'payload' => ['value' => 'secret'], 'status' => 'active']);
     Http::fake([
@@ -143,15 +149,17 @@ it('poll tools write the snapshot read model, replace it on the next poll, and f
         ERP.'/api/hq/v1/4/stock/low' => Http::response(['data' => [['product_id' => 9, 'sku' => 'GHEE-500', 'name' => 'Ghee', 'on_hand' => 3, 'threshold' => 10]], 'meta' => ['count' => 1, 'as_of' => '2026-09-05T11:05:00+00:00']]),
     ]);
 
-    $r1 = $tools->get('erp.poll_overview')->execute([], $ctx());
-    expect($r1->ok())->toBeTrue()->and($r1->output['kind'])->toBe('overview');
-    $tools->get('erp.poll_overview')->execute(['business_slug' => 'bor-de-guna'], $ctx(2));
-    $snap = FactsErpSnapshot::where('business_id', $business->id)->where('kind', 'overview')->firstOrFail();
-    expect(FactsErpSnapshot::count())->toBe(1)->and($snap->payload['inventory']['low_stock_count'])->toBe(4)->and($snap->as_of->toIso8601String())->toBe('2026-09-05T11:00:00+00:00')->and($snap->job_run_ref)->toBe('77');
+    withCredentials([['erp_api_token', 'bor-de-guna']], function () use ($tools, $ctx, $business) {
+        $r1 = $tools->get('erp.poll_overview')->execute([], $ctx());
+        expect($r1->ok())->toBeTrue()->and($r1->output['kind'])->toBe('overview');
+        $tools->get('erp.poll_overview')->execute(['business_slug' => 'bor-de-guna'], $ctx(2));
+        $snap = FactsErpSnapshot::where('business_id', $business->id)->where('kind', 'overview')->firstOrFail();
+        expect(FactsErpSnapshot::count())->toBe(1)->and($snap->payload['inventory']['low_stock_count'])->toBe(4)->and($snap->as_of->toIso8601String())->toBe('2026-09-05T11:00:00+00:00')->and($snap->job_run_ref)->toBe('77');
 
-    $low = $tools->get('erp.poll_low_stock')->execute([], $ctx());
-    expect($low->ok())->toBeTrue()->and($low->output['items'])->toBe(1)
-        ->and(FactsErpSnapshot::where('kind', 'low_stock')->first()->payload[0]['sku'])->toBe('GHEE-500');
+        $low = $tools->get('erp.poll_low_stock')->execute([], $ctx());
+        expect($low->ok())->toBeTrue()->and($low->output['items'])->toBe(1)
+            ->and(FactsErpSnapshot::where('kind', 'low_stock')->first()->payload[0]['sku'])->toBe('GHEE-500');
+    });
 
     expect($tools->get('erp.poll_overview')->execute([], new ToolContext('k', 'c'))->error)->toContain('No business given');
 });

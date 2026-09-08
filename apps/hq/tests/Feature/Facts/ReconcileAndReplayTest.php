@@ -10,8 +10,8 @@ use App\Models\IntegrationCredential;
 use App\Models\ScheduledJob;
 use App\Models\Store;
 use App\Scheduling\Enums\JobState;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -189,15 +189,20 @@ it('runs reconciliation as a registered tool, scoped to one store, and repeats s
     $tool = app(ToolRegistry::class)->get('commerce.reconcile_facts');
     $context = new ToolContext(idempotencyKey: 'idem-1', correlationId: 'corr-1');
 
-    $first = $tool->execute(['store_slug' => 'laladia-com', 'hours' => 48], $context);
-    expect($first->ok())->toBeTrue()
-        ->and($first->output['store'])->toBe('laladia-com')
-        ->and($first->output['checked'])->toBe(1)
-        ->and($first->output['inserted'])->toBe(1)
-        ->and($first->output['hours'])->toBe(48);
+    // Executed directly rather than through the gateway, so the scope is opened here. From M2 a
+    // connector cannot resolve its own credential (docs/50), and that boundary is visible in every
+    // test that crosses it rather than hidden behind a fallback.
+    withCredentials(shopCredentials('laladia-com'), function () use ($tool, $context) {
+        $first = $tool->execute(['store_slug' => 'laladia-com', 'hours' => 48], $context);
+        expect($first->ok())->toBeTrue()
+            ->and($first->output['store'])->toBe('laladia-com')
+            ->and($first->output['checked'])->toBe(1)
+            ->and($first->output['inserted'])->toBe(1)
+            ->and($first->output['hours'])->toBe(48);
 
-    $second = $tool->execute(['store_slug' => 'laladia-com', 'hours' => 48], $context);
-    expect($second->output['inserted'])->toBe(0)->and(FactsOrder::count())->toBe(1);
+        $second = $tool->execute(['store_slug' => 'laladia-com', 'hours' => 48], $context);
+        expect($second->output['inserted'])->toBe(0)->and(FactsOrder::count())->toBe(1);
+    });
 
     // Naming a store HQ does not have is a configuration mistake, so it fails rather than retrying.
     expect($tool->execute(['store_slug' => 'no-such-shop'], $context)->status)->toBe('failed');

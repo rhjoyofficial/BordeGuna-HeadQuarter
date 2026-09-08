@@ -1,23 +1,28 @@
 <?php
 
-use App\Scheduling\Tools\Commerce\CheckFactIntegrityTool;
-use App\Scheduling\Tools\Commerce\ReconcileShopFactsTool;
-use App\Scheduling\Tools\Erp\PollErpLowStockTool;
-use App\Scheduling\Tools\Erp\PollErpOverviewTool;
-use App\Scheduling\Tools\FailingTool;
-use App\Scheduling\Tools\NoopTool;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
+use App\Tools\Commerce\CheckFactIntegrityTool;
+use App\Tools\Commerce\ReconcileShopFactsTool;
+use App\Tools\Diagnostics\FailingTool;
+use App\Tools\Diagnostics\NoopTool;
+use App\Tools\Erp\PollErpLowStockTool;
+use App\Tools\Erp\PollErpOverviewTool;
 
 /*
  | BordeGuna-HeadQuarter application configuration.
- | Everything here is Phase 0 foundation: tool registry, scheduler defaults, alerting.
+ | Tool registry, gateway, scheduler defaults, event handlers, alerting.
  */
 return [
     'timezone' => env('HQ_DEFAULT_TIMEZONE', 'Asia/Dhaka'),
 
-    // Tools a scheduled job may execute. A tool absent from this list cannot be scheduled or run.
-    // Phase 0 ships only the no-op and a test failure tool; real tools arrive with the tool gateway (Phase 2).
+    // The capability list. A tool absent from here cannot be scheduled, called or run by anything:
+    // this is the OUTER kill switch, and changing it takes a deploy, which is the right weight for
+    // "does this capability exist at all". The `tools` table is the inner switch and can only ever
+    // narrow what is here (docs/48 D.2).
+    //
+    // ⚠ Class names, not keys. The keys these classes declare are referenced by scheduled_jobs rows
+    // and must not be renamed; the classes moved namespace in M2 and the keys did not.
     'tools' => [
         NoopTool::class,
         FailingTool::class,
@@ -66,7 +71,21 @@ return [
         // key. A redelivery arrives in seconds; a day is generous and stops a key from resurrecting
         // an answer nobody remembers asking for.
         'replay_ceiling_seconds' => 86400,
+
+        // Joy's decision V.8, 8 September 2026: a SOFT ADVISORY cap. Notify at 80 per cent,
+        // downgrade the model tier at 100 per cent, and never refuse work because of it. A briefing
+        // that did not run because of an advisory cap would be the cap lying about its own name.
+        // Reads zero today: no model has ever been called (M4 connects the first provider).
+        'ai_monthly_soft_cap_usd' => (float) env('HQ_AI_MONTHLY_SOFT_CAP_USD', 50.0),
     ],
+
+    // M2: the scheduler runs its tools THROUGH the gateway when this feature flag is on.
+    //
+    // The flag is the rollback switch for the migration, not a permanent fork in the road. Direct
+    // mode is the known-good Phase 1 path and stays available until a separately approved step
+    // removes it; gateway mode is the intended path once the equivalence suite has passed against
+    // production (ADR-016).
+    'scheduler_gateway_flag' => 'scheduler.gateway',
 
     'scheduler' => [
         'heartbeat_stale_after_seconds' => 180,

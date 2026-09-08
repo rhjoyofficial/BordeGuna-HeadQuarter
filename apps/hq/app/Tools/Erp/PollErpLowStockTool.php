@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Scheduling\Tools\Erp;
+namespace App\Tools\Erp;
 
 use App\Erp\ErpConnector;
 use App\Gateway\Descriptor\ToolDescriptor;

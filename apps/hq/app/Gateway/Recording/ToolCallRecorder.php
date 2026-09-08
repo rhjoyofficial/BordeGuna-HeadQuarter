@@ -7,6 +7,7 @@ use App\Gateway\FailureClass;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\Policy\PolicyDecision;
 use App\Gateway\Redaction\Redactor;
+use App\Gateway\Scope\ResolvedScope;
 use App\Gateway\ToolRequest;
 use App\Models\ToolCall;
 use Carbon\CarbonImmutable;
@@ -61,10 +62,35 @@ final class ToolCallRecorder
         $call->save();
     }
 
+    /**
+     * The decision, the rule that reached it, and the exact policy VERSION that governed it.
+     *
+     * The version is what makes a past decision reproducible: a policy change closes one row and
+     * opens the next, so this row still resolves to rules that read as they did when they decided.
+     */
     public function recordPolicy(ToolCall $call, PolicyDecision $decision): void
     {
         $call->policy_result = $decision->outcome->value;
         $call->policy_reason = "{$decision->rule}: {$decision->reason}";
+        $call->policy_id = $decision->policyId;
+        $call->policy_version = $decision->policyVersion;
+        $call->action_class = $decision->actionClass()->value;
+        $call->save();
+    }
+
+    /**
+     * The business and store the call actually targeted, once resolved.
+     *
+     * Recorded separately from `open()` because the target may live in the tool's arguments, which
+     * have not been validated yet when the row is opened.
+     */
+    public function recordScope(ToolCall $call, ResolvedScope $scope): void
+    {
+        if ($scope->businessId === null && $scope->storeId === null) {
+            return;
+        }
+        $call->business_id = $scope->businessId;
+        $call->store_id = $scope->storeId;
         $call->save();
     }
 

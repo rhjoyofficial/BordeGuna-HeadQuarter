@@ -3,7 +3,7 @@
 namespace App\Gateway;
 
 use App\Gateway\Policy\PolicyOutcome;
-use App\Scheduling\Tools\ToolResult;
+use App\Tools\ToolResult;
 
 /**
  * What the gateway gives back.

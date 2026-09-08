@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Commerce\Support\CommerceRegistry;
 use App\Facts\FactsReconciler;
+use App\Gateway\Credentials\CredentialVault;
 use App\Models\Store;
 use Illuminate\Console\Command;
 use Throwable;
@@ -20,7 +21,7 @@ final class FactsReconcile extends Command
 
     protected $description = 'Reconcile facts_orders against the stores (catches lost webhooks).';
 
-    public function handle(CommerceRegistry $registry, FactsReconciler $reconciler): int
+    public function handle(CommerceRegistry $registry, FactsReconciler $reconciler, CredentialVault $vault): int
     {
         $slugs = $this->option('store') ? [$this->option('store')] : $registry->storesWithAdapters();
         $since = now()->subHours((int) $this->option('hours'));
@@ -28,7 +29,12 @@ final class FactsReconcile extends Command
         foreach ($slugs as $slug) {
             $store = Store::where('slug', $slug)->firstOrFail();
             try {
-                $result = $reconciler->reconcileStore($store, $since->toImmutable());
+                // Diagnostic path: the scheduled job goes through the gateway, which opens
+                // the credential for it. A hand-run command opens it explicitly.
+                $result = $vault->openForAccounts(
+                    $registry->credentialPairsFor($slug),
+                    fn () => $reconciler->reconcileStore($store, $since->toImmutable()),
+                );
                 if ($result['skipped']) {
                     $this->warn("[{$slug}] {$result['reason']}, skipped");
 

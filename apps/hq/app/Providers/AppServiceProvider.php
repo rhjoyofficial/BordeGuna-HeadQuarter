@@ -3,10 +3,11 @@
 namespace App\Providers;
 
 use App\Commerce\Support\CommerceRegistry;
+use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
-use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
+use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -22,6 +23,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
+        // The vault holds the credentials open for the CURRENT call. Every consumer must share
+        // one instance or the scope the gateway opens is invisible to the connector that needs it.
+        $this->app->singleton(CredentialVault::class);
         $this->app->singleton(Features::class);
         $this->app->singleton(OAuthManager::class);
         $this->app->singleton(CommerceRegistry::class);

@@ -39,6 +39,17 @@ final readonly class ToolDescriptor
         public array $supportedBusinesses = ['*'],
         public array $supportedStores = ['*'],
         public ?string $policyClass = null,
+        /**
+         * Where the tool's TARGET comes from when the caller did not put it in the request context.
+         *
+         * Form: `store:args.store_slug` or `business:args.business_slug`, or both separated by `|`.
+         *
+         * This exists because the Phase 1 scheduled jobs name their target in the PAYLOAD and leave
+         * the request's business and store null, which is how they were written long before a
+         * gateway existed. A business-scoped tool must still name a business; this is the
+         * recognition that naming it in `business_slug` IS naming it. See ScopeResolver.
+         */
+        public ?string $scopeFrom = null,
         public array $credentials = [],
         public bool $idempotent = true,
         public array $idempotencyKeyFrom = [],
@@ -93,6 +104,8 @@ final readonly class ToolDescriptor
             'agent_executable' => $this->agentExecutable,
             'supported_businesses' => $this->supportedBusinesses,
             'supported_stores' => $this->supportedStores,
+            'scope_from' => $this->scopeFrom,
+            'policy_class' => $this->policyClass,
             'idempotent' => $this->idempotent,
             'timeout_seconds' => $this->timeoutSeconds,
             'replay_within_seconds' => $this->replayWithinSeconds,
