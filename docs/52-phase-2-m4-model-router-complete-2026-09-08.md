@@ -1,7 +1,12 @@
 # 52 - Phase 2 M4: the Model Router and AI cost accounting (8 September 2026)
 
-**Status: built and green in CI. NOT deployed, NOT merged, and the safety gate has NOT been run,
-because it needs a provider API key Joy has still to supply (Q4).**
+**Status: built, merged and DEPLOYED to production on 8 September 2026. The live safety gate has not
+yet been run, because it needs a provider API key Joy has still to supply (Q4).**
+
+**This document is the BUILD record: what M4 is, and the defects found while building it. Its
+findings below are preserved as written and are not revised by later events.** The production
+deployment evidence is a separate document, `docs/54`, so that what was built and what was released
+stay distinguishable.
 
 M4 of the Phase 2 Command Center (`docs/48`), following M1 (`docs/49`), M2 (`docs/50`) and M3
 (`docs/51`). M1 gave HQ one door for tools, M2 gave that door a real policy engine, M3 gave it a
@@ -11,8 +16,8 @@ cost written down. It gives it no ability to act on the answer.
 | | |
 | --- | --- |
 | Starting release | **`ff34d7d`** (M3 + the M3 UI findings, PR #5) |
-| Ending release | **not merged** - branch `phase2/m4-model-router`, PR #6 |
-| Production | **still `ff34d7d`.** M4 has not been deployed |
+| Ending release | **`ae41291`** (PR #6, merged 8 Sep 11:55 UTC) |
+| Production | **`ae41291`, released 8 Sep 12:08 UTC** (previous `ff34d7d`). See `docs/54` |
 | CI | **286 passed / 1385 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
 | Migrations | 1, additive, reversible, **never run anywhere yet** |
 | Shop or ERP code changed | **none** |
@@ -259,6 +264,10 @@ model provider has ever been connected (`docs/51`), and until one is, `Anthropic
 is false and the router refuses. That was the documented dependency on Joy (Q4) from the start, not a
 slip.
 
+> **STATUS UPDATE, 8 September 2026, 12:08 UTC.** The first reason is gone: M4 is deployed and
+> `hq:ai:probe` ran dry on production, correctly reporting `credential: NOT CONFIGURED` and refusing
+> to route. The second stands. The gate is still pending the API key. Evidence in `docs/54`.
+
 What is ready for it: `hq:ai:probe` defaults to `--dry` and needs `--live` typed deliberately, so
 running the command can never spend money by accident. Dry mode reports the providers, their
 credential and breaker state, the registered models with prices, the budget position, and the routing
@@ -301,6 +310,11 @@ flag · `hq:ai:probe` dry first, then `--live` · check the `ai_runs` row · `hq
 M4 is behind a flag and nothing depends on it. Turning `ai.runtime` off stops every model call
 without a deploy. The migration is additive and reversible; it has never run anywhere, so the
 rollback target is simply `ff34d7d`, which is also what production is running today.
+
+> **STATUS UPDATE, 8 September 2026.** The migration has now run on production, once, as batch 7.
+> It remains additive and reversible and the rollback target is unchanged at `ff34d7d`
+> (`./deploy/rollback.sh ff34d7d`). The faster remedy is still the flag: `ai.runtime` off stops
+> every model call without a deploy, and it is off.
 
 ---
 
