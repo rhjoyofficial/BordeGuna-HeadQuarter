@@ -187,11 +187,64 @@ passed in CI on `main` at this commit: the model runtime cannot reference a tool
 gateway, an ERP or commerce connector, `DB::`, `Artisan::`, `shell_exec` or `proc_open`; and
 `CredentialVault` remains the only decryption point, enforced by a filesystem-scanning test.
 
+## I-bis. Safety gate attempt 1: REFUSED on an invalid API key
+
+The credential was installed through the HQ UI as `anthropic_api_key` / `hq`, status active. The gate
+was then run as documented and **it did not pass**. Recorded here because an attempt that failed is
+evidence, and a gate whose first run is quietly omitted is not a gate.
+
+**Sequence and outcome.** The dry probe detected the credential (`credential: configured`, breaker
+closed) and routed `diagnostic` to Claude Haiku 4.5 at the low tier. `ai.runtime` was confirmed OFF,
+then enabled deliberately with an audit record naming the reason. `hq:ai:probe --live` returned:
+
+```
+App\Ai\Exceptions\ProviderRefused
+anthropic 401: API key is invalid.
+```
+
+`ai.runtime` was switched OFF again immediately, with a second audit record.
+
+⭐ **The refusal is the system working.** Four behaviours were proven by this failure that a
+success would not have shown as clearly:
+
+- A 401 was classified as `ProviderRefused`, not `ProviderUnavailable`. **The circuit breaker stayed
+  `closed`.** Counting a bad key as a provider outage would have taken a healthy provider out of
+  rotation over a fault on this side, which is precisely what the classification exists to prevent.
+- **No second provider was tried.** A refusal is not retried elsewhere, because a second provider
+  would only produce a second refusal while spending another call.
+- **The failed attempt was still recorded.** `ai_runs` row 1: task `diagnostic`, provider
+  `anthropic`, model `claude-haiku-4-5-20251001`, tier `low`, attempt 1, status `failed`,
+  `routing_reason` "task diagnostic routes to the low tier", tokens 0/0/0/0, estimated cost
+  0.000000, `actual_cost_usd` null. A fallback that leaves no trace is indistinguishable from a
+  first-choice success, and this one left a trace.
+- **No secret reached any log or any output.** The error text carries the provider's own message and
+  nothing else. `grep -c "sk-ant"` returns 0 across `storage/logs` and the last 500 lines of the
+  `app` and `horizon` container logs.
+
+`hq:ai:cost` reports the run correctly: 1 run, $0.000000, 0 degraded, broken down by model, tier and
+task with all four token columns at zero.
+
+⚠ **Diagnosis, without disclosing the value.** The stored credential was inspected for shape
+only, never printed. It is 108 characters, has no surrounding whitespace, contains no newline, and is
+entirely printable ASCII, so the UI stored it cleanly and it was not truncated or mangled in transit.
+It **starts with `sk-ant-` but not with `sk-ant-api`**, and it is not an `sk-ant-admin` key either.
+A first-party Anthropic API key for the Messages API is of the `sk-ant-api...` family, so the most
+likely cause is that a credential of a different type was pasted, with a revoked key the alternative.
+The remedy is Joy's: replace the value at `/credentials` with an API key from the Anthropic Console,
+and the gate can be re-run unchanged.
+
+**Nothing else was altered.** No agent was called, no R4 or R5 tool was enabled, no customer-facing
+capability was touched, and no code was changed.
+
 ## I. What remains, and what it is waiting on
 
-**The live safety gate has not been run.** It needs an `anthropic_api_key` credential for account
-`hq`, added through the HQ UI at `/credentials`. It is not an env value and never will be
-(`config/hq.php` says so, and the credential boundary depends on it).
+**The live safety gate has been attempted once and refused** (section I-bis). It needs a valid
+`anthropic_api_key` credential for account `hq`, added through the HQ UI at `/credentials`. It is not
+an env value and never will be (`config/hq.php` says so, and the credential boundary depends on it).
+
+⚠ **`ai.runtime` is OFF, and is now off by an explicit disabled row rather than by absence.**
+Both are off; the row is the more explicit of the two and carries the audit trail of having been
+enabled for the gate and disabled after it.
 
 The remaining sequence, once the key exists, is unchanged: dry probe again to confirm the credential
 is seen, enable `ai.runtime` deliberately for the gate, `hq:ai:probe --live`, then verify the
