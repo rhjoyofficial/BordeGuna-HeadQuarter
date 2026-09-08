@@ -72,10 +72,15 @@ final class PolicyEngine
 
         // 2. Not agent-executable. Checked before anything that could be relaxed, because no
         //    approval and no configuration may ever lift it (ADR-017).
-        if ($identity->isAgent() && ! $descriptor->agentExecutable) {
+        //
+        //    The refusal names WHICH of the two reasons applies (ADR-025). Both refuse identically;
+        //    they differ in what a reader should do next. "Not yet" is answered by evaluation
+        //    evidence. "Permanently" is answered by nothing, and a request to lift it is a request
+        //    to change what the tool is.
+        if ($identity->isAgent() && ($refusal = $descriptor->agentRefusalReason()) !== null) {
             return PolicyDecision::deny(
-                'action_class.human_only',
-                "[{$descriptor->key}] is not agent-executable. An agent may propose it; a human must perform it.",
+                $descriptor->permanentlyHumanOnly ? 'action_class.human_only_permanent' : 'action_class.human_only',
+                $refusal,
             );
         }
 

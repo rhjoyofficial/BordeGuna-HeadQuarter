@@ -9,9 +9,15 @@ namespace App\Gateway\Descriptor;
  * These are the three names docs/11 and docs/13 already use, kept so those documents stay readable.
  * The difference is that they are now an outcome rather than a static label on a tool.
  *
- * HumanOnly is not produced by policy. It is the reading of a tool that declares
- * `agentExecutable: false`: a human may run it, an agent may only propose it, and no approval can
- * lift that. It is checked before everything else for exactly that reason.
+ * HumanOnly is not produced by policy. It is the reading of a tool an agent may not execute: a human
+ * may run it, an agent may only propose it, and no approval can lift that. It is checked before
+ * everything else for exactly that reason.
+ *
+ * ⛔ HumanOnly has TWO causes and they must stay distinguishable (ADR-025). A tool declaring
+ * `agentExecutable: false` is not yet cleared, which evaluation evidence can one day end. A tool
+ * declaring `permanentlyHumanOnly: true` may never be run by an agent at all. They refuse
+ * identically and they are not the same statement, and the day somebody widens autonomy across
+ * fifty tools is the day that difference has to already be written down.
  */
 enum ActionClass: string
 {
