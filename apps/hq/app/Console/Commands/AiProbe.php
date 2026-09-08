@@ -122,6 +122,20 @@ class AiProbe extends Command
             return self::FAILURE;
         }
 
+        // ⚠⚠ A gate that passes on an empty reply proves nothing. This is reachable: on the
+        // tiers served by a model that reasons before answering, a small `max_output_tokens` can be
+        // spent entirely before the first visible token, and the call then returns successfully with
+        // no text at all. Reporting SUCCESS there would certify a path that never delivered a word.
+        if (trim($outcome->text) === '') {
+            $this->error('The call succeeded but returned an EMPTY reply, so the path is NOT proven.');
+            $this->line('  '.$outcome->provenance());
+            $this->line("  ai_run #{$outcome->run->id} holds the token counts. If output_tokens is nonzero, the");
+            $this->line('  budget was spent before any visible text: raise --task tier headroom via');
+            $this->line('  hq.ai.probe.max_output_tokens and run it again.');
+
+            return self::FAILURE;
+        }
+
         $this->info('  reply: '.trim($outcome->text));
         $this->line('  '.$outcome->provenance());
         $this->line("  ai_run #{$outcome->run->id}, status {$outcome->run->status}, correlation {$outcome->run->correlation_id}");

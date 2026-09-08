@@ -167,14 +167,18 @@ it('separates a retryable outage from a refusal the provider was right to make',
         fn () => $provider->complete(new ModelRequest($model, 'sys', [['role' => 'user', 'content' => 'hi']])),
     );
 
-    Http::fake(['api.anthropic.com/*' => Http::response(['error' => ['message' => 'overloaded']], 529)]);
-    expect($call)->toThrow(ProviderUnavailable::class);
+    // ⚠ ONE sequence, not three successive `Http::fake()` calls. `Factory::fake()` MERGES its
+    // stubs onto the ones already registered and the FIRST matching stub answers, so a second
+    // `Http::fake()` for the same URL never takes effect: all three assertions would have been
+    // served the 529, and the ProviderRefused case silently tested nothing.
+    Http::fakeSequence('api.anthropic.com/*')
+        ->push(['error' => ['message' => 'overloaded']], 529)
+        ->push(['error' => ['message' => 'rate limited']], 429)
+        // A 400 is HQ's fault. Retrying it elsewhere buys nothing and blames a healthy provider.
+        ->push(['error' => ['message' => 'bad request']], 400);
 
-    Http::fake(['api.anthropic.com/*' => Http::response(['error' => ['message' => 'rate limited']], 429)]);
     expect($call)->toThrow(ProviderUnavailable::class);
-
-    // A 400 is HQ's fault. Retrying it elsewhere buys nothing and blames a healthy provider.
-    Http::fake(['api.anthropic.com/*' => Http::response(['error' => ['message' => 'bad request']], 400)]);
+    expect($call)->toThrow(ProviderUnavailable::class);
     expect($call)->toThrow(ProviderRefused::class);
 });
 
@@ -192,4 +196,74 @@ it('reports the anthropic driver as unavailable when no credential row exists', 
 it('registers the anthropic driver from config', function () {
     expect(app(ProviderRegistry::class)->has('anthropic'))->toBeTrue()
         ->and(app(ProviderRegistry::class)->get('anthropic'))->toBeInstanceOf(ModelProvider::class);
+});
+
+it('sends the structured-output schema in the shape the Messages API actually reads', function () {
+    // ⚠⚠ This pins the WIRE CONTRACT, not our own idea of it. The top-level `output_format`
+    // key this driver first used is deprecated API-wide; the canonical parameter is
+    // `output_config.format`. An unrecognised top-level key is NOT rejected - the call succeeds with
+    // the constraint silently dropped, so the only symptom is a model that "sometimes" replies in
+    // the wrong shape. That is precisely the failure a fixture written from our own design cannot
+    // catch, so the assertion is written against the provider's documented request body.
+    $model = AiModel::create([
+        'tier' => 'low', 'provider' => 'anthropic', 'model_id' => 'test-model-id', 'display_name' => 'Test',
+        'context_window' => 1000, 'max_output_tokens' => 100, 'capabilities' => [],
+        'input_price_per_mtok' => '1.0000', 'output_price_per_mtok' => '1.0000',
+    ]);
+
+    IntegrationCredential::create([
+        'provider' => AnthropicProvider::CREDENTIAL_PROVIDER, 'account_ref' => AnthropicProvider::ACCOUNT_REF,
+        'credential_type' => 'api_key', 'payload' => ['value' => 'sk-test'], 'status' => 'active',
+    ]);
+
+    Http::fake(['api.anthropic.com/*' => Http::response([
+        'content' => [['type' => 'text', 'text' => '{}']],
+        'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        'stop_reason' => 'end_turn',
+    ])]);
+
+    $schema = ['type' => 'object', 'additionalProperties' => false, 'properties' => ['a' => ['type' => 'string']]];
+    $provider = app(AnthropicProvider::class);
+
+    app(CredentialVault::class)->openForAccounts(
+        [$provider->credentialPair()],
+        fn () => $provider->complete(new ModelRequest($model, 'sys', [['role' => 'user', 'content' => 'hi']], jsonSchema: $schema)),
+    );
+
+    Http::assertSent(function ($request) use ($schema) {
+        $body = $request->data();
+
+        expect($body)->not->toHaveKey('output_format');
+
+        return data_get($body, 'output_config.format.type') === 'json_schema'
+            && data_get($body, 'output_config.format.schema') === $schema;
+    });
+});
+
+it('marks the system prompt as cacheable, which is where most of the input cost goes', function () {
+    $model = AiModel::create([
+        'tier' => 'low', 'provider' => 'anthropic', 'model_id' => 'test-model-id', 'display_name' => 'Test',
+        'context_window' => 1000, 'max_output_tokens' => 100, 'capabilities' => [],
+        'input_price_per_mtok' => '1.0000', 'output_price_per_mtok' => '1.0000',
+    ]);
+
+    IntegrationCredential::create([
+        'provider' => AnthropicProvider::CREDENTIAL_PROVIDER, 'account_ref' => AnthropicProvider::ACCOUNT_REF,
+        'credential_type' => 'api_key', 'payload' => ['value' => 'sk-test'], 'status' => 'active',
+    ]);
+
+    Http::fake(['api.anthropic.com/*' => Http::response([
+        'content' => [['type' => 'text', 'text' => 'ok']],
+        'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        'stop_reason' => 'end_turn',
+    ])]);
+
+    $provider = app(AnthropicProvider::class);
+
+    app(CredentialVault::class)->openForAccounts(
+        [$provider->credentialPair()],
+        fn () => $provider->complete(new ModelRequest($model, 'a stable HQ system prompt', [['role' => 'user', 'content' => 'hi']])),
+    );
+
+    Http::assertSent(fn ($request) => data_get($request->data(), 'system.0.cache_control.type') === 'ephemeral');
 });

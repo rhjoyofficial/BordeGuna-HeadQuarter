@@ -75,7 +75,12 @@ final class AnthropicProvider implements ModelProvider
         ], fn ($value) => $value !== null);
 
         if ($request->jsonSchema !== null) {
-            $body['output_format'] = ['type' => 'json_schema', 'schema' => $request->jsonSchema];
+            // The canonical wire parameter is `output_config.format`. The older top-level
+            // `output_format` is deprecated API-wide, and an unknown top-level key does not fail
+            // loudly - the call succeeds UNCONSTRAINED, the reply is merely likely-shaped JSON, and
+            // the only symptom is an occasional repair or a StructuredOutputFailed that looks like
+            // the model's fault. Verified against the Claude API reference on 8 September 2026.
+            $body['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $request->jsonSchema]];
         }
 
         try {
