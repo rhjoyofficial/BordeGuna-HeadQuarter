@@ -32,7 +32,11 @@ type Approval = {
     decided_by: string | null;
     delegated_to: string | null;
     decidable: boolean;
+    execution_status: string | null;
+    execution_error: string | null;
 };
+
+type Outcome = { status?: string; error?: string | null; tool_call_id?: number | null };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Approvals', href: '/approvals' }];
 
@@ -58,7 +62,11 @@ export default function ApprovalsIndex({
     channels: Record<string, boolean>;
     approvers: { id: number; email: string }[];
 }) {
-    const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
+    const { auth, flash, errors } = usePage<{
+        auth: { permissions: string[] };
+        flash: { status?: string | null; outcome?: Outcome | null };
+        errors: Record<string, string>;
+    }>().props;
     const canDecide = auth.permissions.includes('hq.approvals.decide');
     const canDelegate = auth.permissions.includes('hq.approvals.delegate');
     const [busy, setBusy] = useState<number | null>(null);
@@ -90,6 +98,22 @@ export default function ApprovalsIndex({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Approvals" />
             <div className="flex flex-col gap-4 p-4">
+                {errors?.approval && (
+                    <div className="rounded-xl border border-red-400 bg-red-50 p-4 text-sm text-red-900">
+                        <strong>The decision could not be applied.</strong> {errors.approval}
+                    </div>
+                )}
+                {flash?.status === 'approval-executed' && flash.outcome?.status === 'succeeded' && (
+                    <div className="rounded-xl border border-green-500 bg-green-50 p-4 text-sm text-green-900">
+                        <strong>Approved and executed.</strong> The action ran once
+                        {flash.outcome.tool_call_id ? ` and was recorded as tool call #${flash.outcome.tool_call_id}` : ''}.
+                    </div>
+                )}
+                {flash?.status && flash.outcome && flash.outcome.status !== 'succeeded' && (
+                    <div className="rounded-xl border border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
+                        <strong>Nothing ran.</strong> {flash.outcome.error ?? 'The gateway refused the call.'}
+                    </div>
+                )}
                 <div className="text-muted-foreground text-sm">
                     Actions waiting for a human. <span className="font-medium">{counts.pending} pending</span>
                     {counts.overdue > 0 && <span className="text-orange-700">, {counts.overdue} past their deadline</span>}. Ignoring an approval
@@ -134,6 +158,7 @@ export default function ApprovalsIndex({
                                         {a.agent_key && <span className="text-amber-700"> · proposed by agent {a.agent_key}</span>}
                                         {a.delegated_to && <span className="text-sky-700"> · delegated to {a.delegated_to}</span>}
                                         {a.escalated_at && <span className="text-orange-700"> · escalated</span>}
+                                        {a.decided_by && <span className="text-muted-foreground"> · decided by {a.decided_by}</span>}
                                     </div>
                                     {a.payload && (
                                         <pre className="bg-muted/40 mt-2 max-h-32 max-w-xl overflow-auto rounded p-2 text-[11px]">
@@ -144,8 +169,16 @@ export default function ApprovalsIndex({
                                         <div className="text-muted-foreground mt-1 text-xs">No preview: {a.preview.reason}</div>
                                     )}
                                     {a.preview?.available && (
-                                        <div className="mt-1 text-xs text-sky-800">Would do: {JSON.stringify(a.preview.result)}</div>
+                                        <div className="mt-1 text-xs text-sky-800">
+                                            <div className="font-medium">Would do</div>
+                                            {Object.entries(a.preview.result ?? {}).map(([k, v]) => (
+                                                <div key={k} className="ml-2">
+                                                    <span className="text-muted-foreground">{k}:</span> {typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}
+                                                </div>
+                                            ))}
+                                        </div>
                                     )}
+                                    {a.decision_note && <div className="text-muted-foreground mt-1 text-xs italic">Reason given: {a.decision_note}</div>}
                                     <div className="text-muted-foreground mt-1 text-[11px]">
                                         {a.sla_due_at && <>decide by {new Date(a.sla_due_at).toLocaleString()} · </>}
                                         {a.expires_at && <>expires {new Date(a.expires_at).toLocaleString()}</>}

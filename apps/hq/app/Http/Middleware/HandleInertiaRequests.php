@@ -44,7 +44,13 @@ class HandleInertiaRequests extends Middleware
                 'roles' => $request->user()?->getRoleNames()->values() ?? [],
                 'twoFactorEnabled' => $request->user()?->hasTwoFactorEnabled() ?? false,
             ],
-            'flash' => ['status' => $request->session()->get('status')],
+            // `outcome` carries what a tool call actually did. Without it a refused approval reached
+            // the browser as silence: the controller flashed the refusal, this middleware dropped it,
+            // and the screen looked identical to one where nothing had been clicked.
+            'flash' => [
+                'status' => $request->session()->get('status'),
+                'outcome' => $request->session()->get('outcome'),
+            ],
         ]);
     }
 }

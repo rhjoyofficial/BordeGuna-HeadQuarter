@@ -41,7 +41,12 @@ final class ApprovalController extends Controller
     public function index(Request $request): Response
     {
         $status = (string) $request->query('status', 'pending');
-        $query = Approval::query()->with(['requestedBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email']);
+        // `resultingToolCall` is loaded because the card's label depends on whether the action
+        // actually ran, not merely on whether the approval was spent.
+        $query = Approval::query()->with([
+            'requestedBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email',
+            'resultingToolCall:id,status,error',
+        ]);
 
         if ($status !== 'all') {
             $query->where('status', $status);
