@@ -13,12 +13,21 @@ namespace App\Gateway\Approval;
  * The rules:
  *   - object keys sorted, recursively, so key order cannot change the hash
  *   - lists keep their order, because order is meaning in a list
- *   - integers stay integers; floats are formatted with a fixed precision, so 1.0 and 1 do not
- *     collide and 0.1 + 0.2 cannot drift between two runs
  *   - no insignificant whitespace, slashes unescaped, unicode unescaped
- *   - null, true and false encode as themselves rather than as strings
+ *   - every scalar is TAGGED with its kind, so a number and a string that look alike do not collide
+ *   - a number is written in one normalised decimal form, so 250, 250.0 and 250.00 are one value
  *
- * What this protects against is not a clever attacker so much as an ordinary accident: a
+ * ⚠ That last rule is not a nicety, and getting it wrong was a real defect caught in CI. A payload
+ * is hashed when it is stored and re-hashed when it is executed, with a PostgreSQL jsonb round trip
+ * in between. jsonb does not promise to hand `250.0` back as a float rather than an int, so a
+ * naive encoder produced two different hashes for one unchanged payload and the tamper check
+ * accused an untouched approval of being tampered with. A check that cries wolf gets disabled, so
+ * this is the failure mode that matters most.
+ *
+ * Tagging keeps the distinction that actually matters: the number 1 and the string "1" still hash
+ * differently, while 1 and 1.0 do not, because they are the same amount of money.
+ *
+ * What this protects against is not usually a clever attacker but an ordinary accident: a
  * re-serialisation, a retry that rebuilds arguments, a framework that reorders a JSON object. Any
  * of those would silently change what executes under a human's approval.
  */
@@ -63,12 +72,32 @@ final class CanonicalPayload
             return $normalised;
         }
 
-        if (is_float($value)) {
-            // Fixed precision so that a value which arrives as 999.0 from one path and 999.00000001
-            // from another does not produce two different hashes for the same approved action.
-            return round($value, self::FLOAT_PRECISION);
+        // Scalars are tagged so that a number and a string that print the same do not collide.
+        return match (true) {
+            is_int($value), is_float($value) => 'n:'.self::number($value),
+            is_bool($value) => 'b:'.($value ? '1' : '0'),
+            is_string($value) => 's:'.$value,
+            $value === null => 'z',
+            default => 'o:'.gettype($value),
+        };
+    }
+
+    /**
+     * One normalised decimal form for any number.
+     *
+     * Rounded first, so 0.1 + 0.2 cannot drift between two runs, then trailing zeros and a trailing
+     * point are trimmed, so 250, 250.0 and 250.00 all become "250" and survive a jsonb round trip
+     * as the same value.
+     */
+    private static function number(int|float $value): string
+    {
+        if (is_int($value)) {
+            return (string) $value;
         }
 
-        return $value;
+        $formatted = number_format(round($value, self::FLOAT_PRECISION), self::FLOAT_PRECISION, '.', '');
+        $trimmed = rtrim(rtrim($formatted, '0'), '.');
+
+        return $trimmed === '' || $trimmed === '-' ? '0' : $trimmed;
     }
 }

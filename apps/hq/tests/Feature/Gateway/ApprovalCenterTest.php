@@ -148,8 +148,11 @@ it('refuses a second use of the same approval', function () {
 
     $second = app(ApprovalExecutor::class)->approveAndExecute($approval->fresh(), $user);
 
+    // The guard refuses it as already decided; either way it cannot run twice, and the count is
+    // the assertion that actually matters.
     expect($second->status)->toBe(OutcomeStatus::Denied)
-        ->and($second->error)->toContain('single use')
+        ->and($second->error)->toContain('cannot be decided again')
+        ->and($approval->fresh()->status)->toBe(ApprovalStatus::Consumed)
         ->and(demoExecutions())->toBe(1);
 });
 
@@ -191,12 +194,30 @@ it('refuses to execute when the stored payload no longer matches its hash', func
         ->and(Approval::find($approval->id)->payload)->toBe(['note' => 'tampered']);
 });
 
-it('hashes canonically, so key order and float noise cannot change the identity of an action', function () {
-    expect(CanonicalPayload::hash(['b' => 1, 'a' => 2]))->toBe(CanonicalPayload::hash(['a' => 2, 'b' => 1]))
-        ->and(CanonicalPayload::hash(['n' => 1.0]))->toBe(CanonicalPayload::hash(['n' => 1.0]))
-        // A list's order IS its meaning, so it must change the hash.
-        ->and(CanonicalPayload::hash(['xs' => [1, 2]]))->not->toBe(CanonicalPayload::hash(['xs' => [2, 1]]))
-        ->and(CanonicalPayload::hash(['a' => 1]))->not->toBe(CanonicalPayload::hash(['a' => '1']));
+it('hashes canonically, so a payload survives storage without looking tampered with', function () {
+    $h = fn (array $p) => CanonicalPayload::hash($p);
+
+    // Things that MUST hash the same, or the tamper check accuses an untouched approval.
+    expect($h(['b' => 1, 'a' => 2]))->toBe($h(['a' => 2, 'b' => 1]))
+        // ⚠ The one that was a real defect: jsonb does not promise to return 250.0 as a float.
+        ->and($h(['a' => 250]))->toBe($h(['a' => 250.0]))
+        ->and($h(['a' => 250.0]))->toBe($h(['a' => 250.00]))
+        ->and($h(['a' => 0.1 + 0.2]))->toBe($h(['a' => 0.3]));
+
+    // And things that MUST differ, or the hash stops meaning anything.
+    expect($h(['xs' => [1, 2]]))->not->toBe($h(['xs' => [2, 1]]))
+        ->and($h(['a' => 1]))->not->toBe($h(['a' => '1']))
+        ->and($h(['a' => true]))->not->toBe($h(['a' => '1']))
+        ->and($h(['a' => null]))->not->toBe($h(['a' => 'z']))
+        ->and($h(['a' => 1]))->not->toBe($h(['a' => 2]));
+});
+
+it('keeps a stored payload verifiable after a database round trip', function () {
+    // The regression this protects: hash on the way in, re-hash on the way out, with jsonb in
+    // between. A numeric payload is the case that broke.
+    $approval = park(approver(), ['note' => 'round trip', 'amount' => 250]);
+
+    expect($approval->fresh()->payloadIntact())->toBeTrue();
 });
 
 it('refuses an approval whose tool has had a breaking version change', function () {
