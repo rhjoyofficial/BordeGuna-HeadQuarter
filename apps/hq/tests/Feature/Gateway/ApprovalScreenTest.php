@@ -138,3 +138,67 @@ it('keeps the parked call visible as awaiting approval rather than finished', fu
     expect(ToolCall::find($approval->requesting_tool_call_id)->status)
         ->toBe(OutcomeStatus::AwaitingApproval->value);
 });
+
+it('never claims an action executed when the approval was spent on a refused call', function () {
+    // Found by the M3 production UI check: `consumed` means the approval was SPENT, and a policy
+    // denial at execution time spends it without the action running. Reading the raw status label
+    // there told a person the action had executed when it had not, on the one screen whose entire
+    // job is to report what happened.
+    $owner = $this->hqUser('owner');
+    $approval = screenApproval($owner);
+
+    $denied = ToolCall::create([
+        'tool_key' => $approval->tool_key,
+        'status' => 'denied',
+        'error' => 'The global AI freeze flag is on.',
+        'caller_kind' => 'human',
+        'attempt' => 1,
+    ]);
+
+    $approval->forceFill([
+        'status' => ApprovalStatus::Consumed,
+        'consumed_at' => now(),
+        'resulting_tool_call_id' => $denied->id,
+    ])->save();
+
+    $card = $approval->fresh()->toCard();
+
+    expect($card['status'])->toBe('consumed')
+        ->and($card['status_label'])->not->toBe('approved and executed')
+        ->and($card['status_label'])->toContain('refused at execution time')
+        ->and($card['execution_status'])->toBe('denied')
+        ->and($card['execution_error'])->toContain('freeze');
+});
+
+it('does say executed when the approval actually produced a successful call', function () {
+    $owner = $this->hqUser('owner');
+    $approval = screenApproval($owner);
+
+    $ok = ToolCall::create([
+        'tool_key' => $approval->tool_key,
+        'status' => 'succeeded',
+        'caller_kind' => 'human',
+        'attempt' => 1,
+    ]);
+
+    $approval->forceFill([
+        'status' => ApprovalStatus::Consumed,
+        'consumed_at' => now(),
+        'resulting_tool_call_id' => $ok->id,
+    ])->save();
+
+    expect($approval->fresh()->toCard()['status_label'])->toBe('approved and executed');
+});
+
+it('sends the decision outcome to the browser so a refusal is never silent', function () {
+    // The controller flashed `outcome`, the Inertia middleware dropped it, and the page rendered
+    // nothing: clicking approve on a refused action looked exactly like clicking a broken button.
+    $shared = file_get_contents(app_path('Http/Middleware/HandleInertiaRequests.php'));
+    expect($shared)->toContain("'outcome' => \$request->session()->get('outcome')");
+
+    foreach (['index', 'show'] as $page) {
+        $source = file_get_contents(resource_path("js/pages/approvals/{$page}.tsx"));
+        expect($source)->toContain('flash')
+            ->and($source)->toContain('Nothing ran.');
+    }
+});

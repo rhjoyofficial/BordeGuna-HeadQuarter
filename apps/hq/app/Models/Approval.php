@@ -137,6 +137,27 @@ class Approval extends Model
     }
 
     /** What a screen may show. Contains no secret: the payload was redacted before it was stored. */
+    /**
+     * What actually happened, which for a consumed approval is not always what its status says.
+     *
+     * `consumed` means the approval was spent. It is spent whatever the tool did, including when the
+     * gateway refused the call at execution time because authority had changed since the human said
+     * yes. Only a `succeeded` resulting call means the action ran.
+     */
+    public function outcomeLabel(): string
+    {
+        if ($this->status !== ApprovalStatus::Consumed) {
+            return $this->status->label();
+        }
+
+        $callStatus = $this->resultingToolCall?->status;
+
+        return $callStatus === 'succeeded'
+            ? 'approved and executed'
+            : 'approved, but the action was refused at execution time and did not run';
+    }
+
+    /** @return array<string, mixed> */
     public function toCard(): array
     {
         return [
@@ -148,7 +169,14 @@ class Approval extends Model
             'risk_label' => $this->risk_tier?->label(),
             'action_class' => $this->action_class,
             'status' => $this->status->value,
-            'status_label' => $this->status->label(),
+            // ⚠ NOT simply `$this->status->label()`. A consumed approval has been SPENT, which is not
+            // the same as having executed: a policy denial at execution time (a freeze, a revoked
+            // permission) spends the approval and produces a `denied` tool call. Saying "approved and
+            // executed" there tells a person something happened that did not, on the one screen whose
+            // whole job is to report what happened. Found by the M3 production UI check.
+            'status_label' => $this->outcomeLabel(),
+            'execution_status' => $this->resultingToolCall?->status,
+            'execution_error' => $this->resultingToolCall?->error,
             'payload' => $this->payload,
             'reason' => $this->reason,
             'evidence' => $this->evidence,

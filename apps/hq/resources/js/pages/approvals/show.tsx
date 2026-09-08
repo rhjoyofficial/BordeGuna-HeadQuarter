@@ -36,10 +36,53 @@ type Approval = {
     payload_intact: boolean;
     supersedes_id: number | null;
     superseded_by: number | null;
+    execution_status: string | null;
+    execution_error: string | null;
 };
 
+type Outcome = { status?: string; error?: string | null; output?: Record<string, unknown> | null; tool_call_id?: number | null };
+
+/**
+ * What the decision actually did.
+ *
+ * A decision on an R4 action must never be answered with a blank page. Clicking "approve" and being
+ * shown nothing is indistinguishable from a broken button, and the natural response is to click it
+ * again. This is the banner the M3 production UI check found missing.
+ */
+function DecisionOutcome({ status, outcome, error }: { status?: string | null; outcome?: Outcome | null; error?: string }) {
+    if (error) {
+        return (
+            <div className="rounded-xl border border-red-400 bg-red-50 p-4 text-sm text-red-900">
+                <strong>The decision could not be applied.</strong> {error}
+            </div>
+        );
+    }
+    if (!status || !outcome) return null;
+
+    if (status === 'approval-executed' && outcome.status === 'succeeded') {
+        return (
+            <div className="rounded-xl border border-green-500 bg-green-50 p-4 text-sm text-green-900">
+                <strong>Approved and executed.</strong> The action ran once
+                {outcome.tool_call_id ? ` and was recorded as tool call #${outcome.tool_call_id}` : ''}.
+                {outcome.output && <pre className="mt-2 max-h-40 overflow-auto rounded bg-white/60 p-2 text-xs">{JSON.stringify(outcome.output, null, 2)}</pre>}
+            </div>
+        );
+    }
+
+    return (
+        <div className="rounded-xl border border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
+            <strong>Nothing ran.</strong> The approval was not executed: {outcome.error ?? 'the gateway refused the call.'}
+            <div className="mt-1 text-xs">Authority is re-checked at execution time, so a change since the request was made can refuse it here.</div>
+        </div>
+    );
+}
+
 export default function ApprovalShow({ approval }: { approval: Approval }) {
-    const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
+    const { auth, flash, errors } = usePage<{
+        auth: { permissions: string[] };
+        flash: { status?: string | null; outcome?: Outcome | null };
+        errors: Record<string, string>;
+    }>().props;
     const canDecide = auth.permissions.includes('hq.approvals.decide');
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(JSON.stringify(approval.payload ?? {}, null, 2));
@@ -89,6 +132,16 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`Approval ${approval.id}`} />
             <div className="flex max-w-3xl flex-col gap-4 p-4">
+                <DecisionOutcome status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
+
+                {approval.status === 'consumed' && approval.execution_status !== 'succeeded' && (
+                    <div className="rounded-xl border border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
+                        <strong>This approval was spent without the action running.</strong> It was approved, but the gateway refused the call at
+                        execution time{approval.execution_error ? `: ${approval.execution_error}` : '.'} An approval is single use, so a fresh request
+                        is needed rather than a retry.
+                    </div>
+                )}
+
                 {!approval.payload_intact && (
                     <div className="rounded-xl border border-red-400 bg-red-50 p-4 text-sm text-red-900">
                         <strong>Integrity failure.</strong> The stored payload no longer matches the hash that was recorded when this approval was
