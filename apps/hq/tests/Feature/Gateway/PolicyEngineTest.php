@@ -12,6 +12,7 @@ use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Agent;
+use App\Models\Approval;
 use App\Models\Business;
 use App\Models\FeatureFlag;
 use App\Models\Policy;
@@ -75,19 +76,22 @@ it('allows R0 to R3 and requires approval for R4 and R5, with no value threshold
         ->and($engine->baselineFor((new CountingTool)->descriptor())->outcome)->toBe(PolicyOutcome::Allow);
 });
 
-it('refuses an R4 call outright, because approvals arrive in M3', function () {
+it('parks an R4 call for a human instead of executing it', function () {
+    // ⚠ Changed by M3. Until the Approval Center existed this was refused outright, because there
+    // was nowhere to park it. Now it parks: the call waits for a person, and still executes nothing.
     $outcome = policyGateway()->execute(ToolRequest::forOperator(policyUser(), 'test.external_write', ['note' => 'x']));
 
-    expect($outcome->status)->toBe(OutcomeStatus::Denied)
+    expect($outcome->status)->toBe(OutcomeStatus::AwaitingApproval)
         ->and($outcome->policy)->toBe(PolicyOutcome::RequireApproval)
-        ->and($outcome->error)->toContain('M3')
+        ->and($outcome->approvalId)->not->toBeNull()
         ->and(WriteTool::$executions)->toBe(0);
 
-    // Not silently approved, and no fake approval record was invented to make it look handled.
+    // Parked, not finished, and never auto-approved.
     $call = ToolCall::findOrFail($outcome->toolCallId);
     expect($call->policy_result)->toBe('require_approval')
-        ->and($call->approval_id)->toBeNull()
-        ->and($call->action_class)->toBe('approval_required');
+        ->and($call->approval_id)->toBe($outcome->approvalId)
+        ->and($call->action_class)->toBe('approval_required')
+        ->and(Approval::findOrFail($outcome->approvalId)->status->value)->toBe('pending');
 });
 
 it('classifies every registered tool, so nothing falls through to the default deny', function () {
@@ -118,8 +122,9 @@ it('lets a guardrail put an approval in front of an otherwise automatic tool', f
 
     $outcome = policyGateway()->execute(ToolRequest::forOperator(policyUser(), 'test.counting'));
 
+    // A guardrail can put a human in front of an automatic tool, and from M3 that means parking it.
     expect($outcome->policy)->toBe(PolicyOutcome::RequireApproval)
-        ->and($outcome->status)->toBe(OutcomeStatus::Denied)
+        ->and($outcome->status)->toBe(OutcomeStatus::AwaitingApproval)
         ->and(CountingTool::$executions)->toBe(0);
 });
 
@@ -294,10 +299,17 @@ it('refuses an agent a tool that is not agent-executable before anything else is
     expect($outcome->status)->toBe(OutcomeStatus::Denied)->and($outcome->error)->toContain('not agent-executable');
 });
 
-it('still refuses to enable anything at R4 or above, or to give any tool to an agent', function () {
-    // The Phase 2 autonomy commitment, unchanged by M2 and enforced rather than promised.
+it('keeps every tool out of agent hands, and allows exactly one R4 registration', function () {
+    // The Phase 2 autonomy commitment. M3 registers ONE R4 tool, whose only effect is a row in HQ
+    // own audit log, so the approval mechanism could be proven without creating or cancelling a
+    // customer order to test it. Every real Phase 1 tool is still below the approval tier.
+    $r4OrAbove = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        expect($descriptor->riskTier->writesOutsideHq())->toBeFalse("[{$key}] must not be enabled at R4 or above");
         expect($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable");
+        if ($descriptor->riskTier->writesOutsideHq()) {
+            $r4OrAbove[] = $key;
+        }
     }
+
+    expect($r4OrAbove)->toBe(['demo.request_approval']);
 });

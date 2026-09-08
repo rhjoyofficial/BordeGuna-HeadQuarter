@@ -308,22 +308,23 @@ it('refuses a business-scoped tool that names no business', function () {
 
 // ---------------------------------------------------------------- policy
 
-it('refuses every R4 and R5 call, because approval is required and the Approval Center is M3', function () {
+it('parks every R4 and R5 call for a human, and executes nothing', function () {
     registerTestTool(WriteTool::class);
     $user = operator();
 
     $outcome = gateway()->execute(ToolRequest::forOperator($user, 'test.external_write', ['note' => 'x']));
 
-    expect($outcome->status)->toBe(OutcomeStatus::Denied)
+    // ⚠ Changed by M3: this used to be refused outright because there was nowhere to park it.
+    expect($outcome->status)->toBe(OutcomeStatus::AwaitingApproval)
         ->and($outcome->policy)->toBe(PolicyOutcome::RequireApproval)
-        ->and($outcome->error)->toContain('human approval is required')
-        ->and($outcome->error)->toContain('M3')
-        // Decision V.1: no value threshold, and nothing at these tiers executes in Phase 2.
+        ->and($outcome->approvalId)->not->toBeNull()
+        // Decision V.1: no value threshold, and nothing at these tiers executes without a human.
         ->and(WriteTool::$executions)->toBe(0);
 
     $call = ToolCall::findOrFail($outcome->toolCallId);
     expect($call->policy_result)->toBe('require_approval')
-        ->and($call->risk_tier)->toBe('r4');
+        ->and($call->risk_tier)->toBe('r4')
+        ->and($call->status)->toBe(OutcomeStatus::AwaitingApproval->value);
 });
 
 it('stops every tool at once when the AI freeze flag is on', function () {
@@ -364,10 +365,16 @@ it('classifies every registered production tool, so nothing falls through to the
     }
 });
 
-it('enables nothing at R4 or above, and gives no production tool to an agent', function () {
-    // The Phase 2 autonomy commitment, as a test rather than a promise (docs/48 Q.2).
+it('gives no tool to an agent, and registers exactly one R4 tool with no external effect', function () {
+    // The Phase 2 autonomy commitment, as a test rather than a promise (docs/48 Q.2). The single R4
+    // registration is M3 demonstration tool, which writes only to HQ own audit log.
+    $r4OrAbove = [];
     foreach (gateway()->descriptors() as $key => $descriptor) {
-        expect($descriptor->riskTier->writesOutsideHq())->toBeFalse("[{$key}] is R4 or above and must not be enabled in Phase 2");
         expect($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable in Phase 2");
+        if ($descriptor->riskTier->writesOutsideHq()) {
+            $r4OrAbove[] = $key;
+        }
     }
+
+    expect($r4OrAbove)->toBe(['demo.request_approval']);
 });

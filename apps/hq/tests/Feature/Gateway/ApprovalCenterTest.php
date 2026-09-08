@@ -83,7 +83,9 @@ it('parks an R4 call instead of refusing it, and executes nothing', function () 
     expect($approval->status)->toBe(ApprovalStatus::Pending)
         ->and($approval->tool_key)->toBe(DEMO)
         ->and($approval->tool_version)->toBe('1.0.0')
-        ->and($approval->payload)->toBe(['note' => 'hello', 'amount' => 250.0])
+        // toEqual, not toBe: a jsonb round trip does not promise that 250.0 comes back as a float
+        // rather than an int, and the guarantee under test is that the CONTENT is what was validated.
+        ->and($approval->payload)->toEqual(['note' => 'hello', 'amount' => 250.0])
         ->and($approval->payloadIntact())->toBeTrue()
         ->and($approval->risk_tier->value)->toBe('r4')
         ->and($approval->expires_at)->not->toBeNull()
@@ -323,12 +325,12 @@ it('creates a successor on approve-with-edit and never mutates the original', fu
     $originalFresh = $original->fresh();
     expect($successor->id)->not->toBe($original->id)
         ->and($successor->supersedes_id)->toBe($original->id)
-        ->and($successor->payload)->toBe(['note' => 'edited note', 'amount' => 50])
+        ->and($successor->payload)->toEqual(['note' => 'edited note', 'amount' => 50])
         ->and($successor->payload_hash)->not->toBe($originalHash)
         ->and($successor->payloadIntact())->toBeTrue()
         // The original is untouched in the way that matters: its payload and hash still say what
         // the person first read.
-        ->and($originalFresh->payload)->toBe(['note' => 'original note', 'amount' => 100.0])
+        ->and($originalFresh->payload)->toEqual(['note' => 'original note', 'amount' => 100.0])
         ->and($originalFresh->payload_hash)->toBe($originalHash)
         ->and($originalFresh->status)->toBe(ApprovalStatus::Cancelled);
 

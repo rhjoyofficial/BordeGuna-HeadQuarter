@@ -48,7 +48,7 @@ final class ApprovalExecutor
     {
         // 1. Approval-specific checks, before anything is claimed. A refusal here leaves the
         //    approval exactly as it was, still pending and still decidable.
-        if (($blocked = $this->guard->blockingReason($approval)) !== null && $approval->status->isOpen()) {
+        if (($blocked = $this->guard->preClaimReason($approval)) !== null) {
             // A hash mismatch is not an ordinary refusal: it means the row changed underneath the
             // application, which cannot happen through any code path here.
             if (! $approval->payloadIntact()) {
