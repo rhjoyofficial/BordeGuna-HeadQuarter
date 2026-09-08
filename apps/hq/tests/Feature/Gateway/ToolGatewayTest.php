@@ -268,7 +268,8 @@ it('refuses an agent a tool that is not agent-executable, before any other consi
     ));
 
     expect($outcome->status)->toBe(OutcomeStatus::Denied)
-        ->and($outcome->error)->toContain('not agent-executable')
+        // "not yet cleared", not "never": this tool is uncleared, not permanently human-only (ADR-025).
+        ->and($outcome->error)->toContain('not yet cleared for agents')
         ->and(CountingTool::$executions)->toBe(0);
 });
 
