@@ -2,6 +2,8 @@
 
 namespace App\Gateway;
 
+use App\Gateway\Approval\ApprovalGuard;
+use App\Gateway\Approval\ApprovalService;
 use App\Gateway\Credentials\CredentialResolver;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\Descriptor\RiskTier;
@@ -16,11 +18,13 @@ use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\Scope\ResolvedScope;
 use App\Gateway\Scope\ScopeResolver;
 use App\Gateway\Validation\ArgumentValidator;
+use App\Models\Approval;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\ToolCall;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Tools\PreviewableTool;
 use App\Tools\Tool;
 use App\Tools\ToolContext;
 use App\Tools\ToolRegistry;
@@ -66,20 +70,22 @@ final class ToolGateway
         private readonly ToolCallRecorder $recorder,
         private readonly FailureClassifier $classifier,
         private readonly Redactor $redactor,
+        private readonly ApprovalService $approvals,
+        private readonly ApprovalGuard $approvalGuard,
         private readonly Auditor $auditor,
     ) {}
 
-    public function execute(ToolRequest $request): ToolOutcome
+    public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
     {
         // The correlation id travels from the caller into every log line, the tool, the connector
         // and the audit row. It is never regenerated here: a new id at each layer is the same as
         // having none.
-        return Context::scope(function () use ($request) {
-            return $this->run($request);
+        return Context::scope(function () use ($request, $approval) {
+            return $this->run($request, $approval);
         }, ['correlation_id' => $request->correlationId, 'tool_key' => $request->toolKey]);
     }
 
-    private function run(ToolRequest $request): ToolOutcome
+    private function run(ToolRequest $request, ?Approval $approval = null): ToolOutcome
     {
         $descriptor = $this->descriptorFor($request->toolKey);
         $call = $this->recorder->open($request, $descriptor);
@@ -127,11 +133,25 @@ final class ToolGateway
         $this->recorder->recordPolicy($call, $decision);
 
         if ($decision->outcome !== PolicyOutcome::Allow) {
-            return $this->handleNonAllow($call, $request, $descriptor, $decision);
+            // An approval satisfies exactly ONE thing: the requirement for a human decision. It is
+            // not a bypass. A deny after the approval was granted still denies, because the reasons
+            // policy denies (a freeze, a revoked permission, a disabled tool) are all things that
+            // SHOULD outrank yesterday's yes.
+            $satisfied = $approval !== null && $decision->outcome === PolicyOutcome::RequireApproval;
+            if (! $satisfied) {
+                return $this->handleNonAllow($call, $request, $descriptor, $decision, $args, $scope);
+            }
+            $call->policy_reason = "{$decision->rule}: {$decision->reason} (satisfied by approval #{$approval->id})";
+            $call->save();
         }
 
         // 6/7. Idempotency: a redelivered request returns its recorded result; an uncertain one is
         //      reconciled before anything is attempted again (ADR-011).
+        if ($approval !== null) {
+            $call->approval_id = $approval->id;
+            $call->save();
+        }
+
         $key = $this->keys->derive($request, $descriptor, $args);
         $this->recorder->recordIdempotencyKey($call, $key);
 
@@ -273,16 +293,93 @@ final class ToolGateway
         return null; // idempotent and nothing to recover: executing again is safe
     }
 
-    private function handleNonAllow(ToolCall $call, ToolRequest $request, ToolDescriptor $descriptor, PolicyDecision $decision): ToolOutcome
-    {
-        // The Approval Center is M3. Until it exists, an approval requirement is a refusal with a
-        // reason that says so, never a row that waits for a decision nobody can make. Fail closed,
-        // and be honest about why.
-        $reason = $decision->outcome === PolicyOutcome::RequireApproval
-            ? $decision->reason.' The Approval Center arrives in M3, so this call is refused rather than queued.'
-            : $decision->reason;
+    /**
+     * Policy did not say allow.
+     *
+     * From M3, `require_approval` PARKS the call: an approval row is created holding the exact
+     * validated payload and its hash, the tool call is marked awaiting approval, an approver is
+     * notified, and the caller gets a pending outcome. Nothing external has happened, and no worker
+     * is blocked waiting for a person: the run is checkpointed and resumable through the approval.
+     *
+     * Everything else is still a refusal.
+     */
+    private function handleNonAllow(
+        ToolCall $call,
+        ToolRequest $request,
+        ToolDescriptor $descriptor,
+        PolicyDecision $decision,
+        array $args,
+        ResolvedScope $scope,
+    ): ToolOutcome {
+        if ($decision->outcome !== PolicyOutcome::RequireApproval) {
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $decision->reason, $descriptor, $decision);
+        }
 
-        return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $reason, $descriptor, $decision);
+        // An agent may PROPOSE a gated action; it may never be the thing that approves it. Parking
+        // is therefore safe for every caller: the decision belongs to a human either way.
+        $preview = $this->preview($descriptor, $request, $args, $scope);
+
+        $approval = $this->approvals->park(
+            request: $request,
+            descriptor: $descriptor,
+            args: $args,
+            decision: $decision,
+            call: $call,
+            businessId: $scope->businessId,
+            storeId: $scope->storeId,
+            evidence: ['policy' => $decision->rule, 'policy_version' => $decision->policyVersion, 'requested_at' => now()->toIso8601String()],
+            preview: $preview,
+        );
+
+        $call->forceFill([
+            'status' => OutcomeStatus::AwaitingApproval->value,
+            'error' => null,
+        ])->save();
+
+        $this->audit($request, $descriptor, $call, OutcomeStatus::AwaitingApproval->value, $decision, $decision->reason);
+
+        return new ToolOutcome(
+            status: OutcomeStatus::AwaitingApproval,
+            output: ['approval_id' => $approval->id, 'approval_uuid' => $approval->uuid],
+            error: $decision->reason.' It is waiting for a human decision in the Approval Center.',
+            policy: $decision->outcome,
+            policyReason: $decision->reason,
+            toolCallId: $call->id,
+            approvalId: $approval->id,
+        );
+    }
+
+    /**
+     * A dry run, where the tool can offer one, so the approver sees what will happen rather than
+     * only what was asked for.
+     *
+     * ⚠ A preview must never perform the external side effect. A tool that cannot preview says so,
+     * and the approval card says so too: pretending a live execution is a preview would be the worst
+     * possible way to fill this field.
+     */
+    private function preview(ToolDescriptor $descriptor, ToolRequest $request, array $args, ResolvedScope $scope): array
+    {
+        $tool = $this->registry->get($descriptor->key);
+        if (! $tool instanceof PreviewableTool) {
+            return ['available' => false, 'reason' => "[{$descriptor->key}] cannot describe what it would do without doing it."];
+        }
+
+        $context = new ToolContext(
+            idempotencyKey: 'preview:'.$request->correlationId,
+            correlationId: $request->correlationId,
+            businessId: $scope->businessId,
+            brandId: $request->brandId,
+            actorUserId: $request->identity->enablingUser()?->getKey(),
+            environment: (string) app()->environment(),
+        );
+
+        try {
+            return ['available' => true, 'result' => $tool->preview($args, $context)];
+        } catch (Throwable $e) {
+            Log::warning('gateway: preview failed', ['tool' => $descriptor->key, 'error' => $e->getMessage()]);
+
+            return ['available' => false, 'reason' => 'The preview could not be produced: '.get_class($e)];
+        }
     }
 
     private function refuse(

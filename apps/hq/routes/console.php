@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\ApprovalsSweep;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Events\ProcessDomainEvents;
 use Illuminate\Support\Facades\Schedule;
@@ -11,6 +12,9 @@ use Illuminate\Support\Facades\Schedule;
  */
 Schedule::command(SchedulerTick::class)->everyMinute()->withoutOverlapping(2)->runInBackground();
 Schedule::command(ProcessDomainEvents::class)->everyMinute()->withoutOverlapping(2)->runInBackground();
+
+// M3: expire approvals nobody decided and escalate ones past their deadline. Never approves.
+Schedule::command(ApprovalsSweep::class)->everyFiveMinutes()->withoutOverlapping(2)->runInBackground();
 
 // Horizon metrics snapshots for its dashboard.
 Schedule::command('horizon:snapshot')->everyFiveMinutes();

@@ -17,6 +17,12 @@ enum OutcomeStatus: string
     /** Permission or policy said no. Nothing was executed and no connector was touched. */
     case Denied = 'denied';
 
+    /**
+     * Policy requires a human, an approval is waiting, and the run is CHECKPOINTED rather than
+     * blocked. Nothing external has happened and no worker is being held.
+     */
+    case AwaitingApproval = 'awaiting_approval';
+
     /** The arguments did not validate. Stopped at the gateway. */
     case Invalid = 'invalid';
 
@@ -28,7 +34,13 @@ enum OutcomeStatus: string
 
     public function terminal(): bool
     {
-        return $this !== self::Started;
+        return $this !== self::Started && $this !== self::AwaitingApproval;
+    }
+
+    /** Parked, not finished: a decision is outstanding. */
+    public function pending(): bool
+    {
+        return $this === self::AwaitingApproval;
     }
 
     public function ok(): bool

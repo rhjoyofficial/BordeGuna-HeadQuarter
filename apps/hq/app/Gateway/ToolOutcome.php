@@ -25,6 +25,8 @@ final readonly class ToolOutcome
         public bool $replayed = false,
         public int $durationMs = 0,
         public ?string $providerRef = null,
+        /** Set when the call was parked for a human, or executed under an approval. */
+        public ?int $approvalId = null,
     ) {}
 
     public function ok(): bool
@@ -64,6 +66,7 @@ final readonly class ToolOutcome
             'tool_call_id' => $this->toolCallId,
             'replayed' => $this->replayed,
             'duration_ms' => $this->durationMs,
+            'approval_id' => $this->approvalId,
         ];
     }
 }

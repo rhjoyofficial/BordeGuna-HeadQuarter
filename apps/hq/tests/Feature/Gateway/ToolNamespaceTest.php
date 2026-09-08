@@ -33,7 +33,12 @@ it('registers every configured tool from the new namespace', function () {
 it('keeps the production tool keys unchanged, because scheduled_jobs rows point at them', function () {
     // ⚠ A tool key is an API identity, not a display label. Renaming one of these silently breaks
     // every scheduled_jobs row that references it, and the failure appears on a nightly run.
-    $live = ['noop', 'test.fail', 'erp.poll_overview', 'erp.poll_low_stock', 'commerce.reconcile_facts', 'commerce.check_fact_integrity'];
+    $live = [
+        'noop', 'test.fail', 'erp.poll_overview', 'erp.poll_low_stock',
+        'commerce.reconcile_facts', 'commerce.check_fact_integrity',
+        // M3 added the approval demonstration tool. It is R4 and writes only to HQ audit log.
+        'demo.request_approval',
+    ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);
 });

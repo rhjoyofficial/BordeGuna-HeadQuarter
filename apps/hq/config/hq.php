@@ -4,6 +4,7 @@ use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
+use App\Tools\Diagnostics\ApprovalDemoTool;
 use App\Tools\Diagnostics\FailingTool;
 use App\Tools\Diagnostics\NoopTool;
 use App\Tools\Erp\PollErpLowStockTool;
@@ -26,6 +27,10 @@ return [
     'tools' => [
         NoopTool::class,
         FailingTool::class,
+        // M3: an R4 tool whose only effect is one HQ audit row, so the approval mechanism can be
+        // proven on production without creating or cancelling a real customer order to test it.
+        // Not agent-executable, and switched OFF at runtime once the acceptance test has run.
+        ApprovalDemoTool::class,
         // Phase 1: read-only ERP polls that fill facts_erp_snapshots (ADR-007 read models).
         PollErpOverviewTool::class,
         PollErpLowStockTool::class,
