@@ -6,6 +6,9 @@ use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolResult;
 use Illuminate\Support\Facades\Log;
 
 /**
