@@ -13,7 +13,7 @@ cost written down. It gives it no ability to act on the answer.
 | Starting release | **`ff34d7d`** (M3 + the M3 UI findings, PR #5) |
 | Ending release | **not merged** - branch `phase2/m4-model-router`, PR #6 |
 | Production | **still `ff34d7d`.** M4 has not been deployed |
-| CI | **280 passed / 1370 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
+| CI | **283 passed / 1377 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
 | Migrations | 1, additive, reversible, **never run anywhere yet** |
 | Shop or ERP code changed | **none** |
 | Model provider connected | **none.** No model has been called |
@@ -274,6 +274,10 @@ flag · `hq:ai:probe` dry first, then `--live` · check the `ai_runs` row · `hq
   wants a column, which is an M5 concern once something actually consumes long output.
 - **The probe makes one call, not one per configured provider.** With a single driver registered the
   distinction is currently theoretical.
+- **`hq:ai:probe` and `hq:ai:cost` had no tests at all** when this milestone was reviewed. They have
+  three now: a dry run makes no call and writes no row, a `--live` probe refuses while the runtime
+  flag is off, and the cost report renders before any model has been called. What is still untested
+  is the `--live` path itself, which cannot be exercised without a real key.
 - **Approve-with-edit is still never exercised on production** (carried over from M3), and
   `/approvals` still wants Joy's eyes on the rendered screen.
 
