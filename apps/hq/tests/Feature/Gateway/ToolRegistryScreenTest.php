@@ -20,7 +20,10 @@ it('shows the registry to a permitted operator and refuses everyone else', funct
 
     $this->actingAsHq($user)->get('/tools')
         ->assertOk()
-        ->assertInertia(fn ($page) => $page->component('tools/index')->has('tools'));
+        // The second argument switches off Inertia's page-file lookup, which searches
+        // resources/js/Pages while this project uses a lowercase `pages` directory. The file's
+        // existence is asserted directly below instead, so nothing is taken on trust.
+        ->assertInertia(fn ($page) => $page->component('tools/index', false)->has('tools'));
 
     $stranger = $this->hqUser('support_agent');
     $this->actingAsHq($stranger)->get('/tools')->assertForbidden();
@@ -91,5 +94,6 @@ it('links the registry from the sidebar for a permitted user', function () {
     $sidebar = file_get_contents(resource_path('js/components/app-sidebar.tsx'));
 
     expect($sidebar)->toContain("url: '/tools'")
-        ->and($sidebar)->toContain("permission: 'hq.tools.view'");
+        ->and($sidebar)->toContain("permission: 'hq.tools.view'")
+        ->and(file_exists(resource_path('js/pages/tools/index.tsx')))->toBeTrue();
 });

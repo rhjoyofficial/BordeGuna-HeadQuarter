@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Audit\Auditor;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\Tools\SecretEchoTool;
@@ -139,11 +140,13 @@ it('keeps the audit log append-only, with the database refusing to rewrite histo
 
     // The Postgres trigger from Phase 0. M1 writes far more audit rows than before, so it is worth
     // re-proving that nothing in the gateway weakened the guarantee they rest on.
+    // Naming the concrete exception rather than the Throwable interface: Pest reads a bare
+    // interface name as a message substring, which would pass for the wrong reason.
     expect(fn () => DB::table('audit_logs')->where('id', $log->id)->update(['action' => 'tampered']))
-        ->toThrow(Throwable::class);
+        ->toThrow(QueryException::class, 'append-only');
 
     expect(fn () => DB::table('audit_logs')->where('id', $log->id)->delete())
-        ->toThrow(Throwable::class);
+        ->toThrow(QueryException::class, 'append-only');
 
     expect(AuditLog::find($log->id)->action)->toBe('test.event');
 });
