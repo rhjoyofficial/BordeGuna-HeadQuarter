@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Scheduling\Tools\Commerce;
+namespace App\Tools\Commerce;
 
 use App\Facts\FactsIntegrityChecker;
 use App\Gateway\Descriptor\ReadWrite;
@@ -8,10 +8,10 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Store;
-use App\Scheduling\Tools\Tool;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolResult;
 use App\Support\Audit\Auditor;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolResult;
 use Carbon\CarbonImmutable;
 
 /**

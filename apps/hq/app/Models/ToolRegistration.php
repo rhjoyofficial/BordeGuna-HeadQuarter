@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * A row in `tools`: the RUNTIME state of a tool that is already registered in code.
  *
- * Named ToolRegistration rather than Tool because App\Scheduling\Tools\Tool is the interface the
+ * Named ToolRegistration rather than Tool because App\Tools\Tool is the interface the
  * capability itself implements, and having two things called Tool one namespace apart is how a
  * reader ends up disabling the wrong one.
  *

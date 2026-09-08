@@ -127,8 +127,10 @@ it('resolves stores to adapters with credentials from integration_credentials, a
     $this->seed(DomainSeeder::class);
     IntegrationCredential::create(['provider' => 'shop_assistant_key', 'account_ref' => 'laladia-com', 'credential_type' => 'api_key', 'payload' => ['value' => 'secret-key'], 'status' => 'active']);
     $registry = app(CommerceRegistry::class);
-    $adapter = $registry->for('laladia-com');
-    expect($adapter->capabilities()->supports('preview'))->toBeTrue()->and($adapter->capabilities()->supports('order_status'))->toBeFalse();
+    withCredentials(shopCredentials('laladia-com'), function () use ($registry) {
+        $adapter = $registry->for('laladia-com');
+        expect($adapter->capabilities()->supports('preview'))->toBeTrue()->and($adapter->capabilities()->supports('order_status'))->toBeFalse();
+    });
     expect($registry->storesWithAdapters())->toEqualCanonicalizing(['laladia-com', 'bionic-garden']);
     expect(fn () => $registry->for(Store::where('slug', 'econic-store')->firstOrFail()))->toThrow(Unsupported::class);
 });

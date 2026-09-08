@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Scheduling\Tools;
+namespace App\Tools;
 
 final readonly class ToolContext
 {

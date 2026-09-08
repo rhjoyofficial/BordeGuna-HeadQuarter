@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Webhooks;
 
+use App\Gateway\Credentials\CredentialVault;
 use App\Http\Controllers\Controller;
-use App\Models\IntegrationCredential;
 use App\Models\Store;
 use App\Support\Events\EventRecorder;
 use Carbon\CarbonImmutable;
@@ -29,7 +29,10 @@ final class ShopWebhookController extends Controller
     /** The six events the LaLaDia platform emits today (verified in its listeners, 5 Sep 2026) plus the two Phase 1 additions. */
     public const ACCEPTED_EVENTS = ['order.created', 'order.updated', 'order.status_changed', 'order.payment_updated', 'shipment.status_updated', 'customer.registered', 'coupon.expired', 'inventory.low', 'payment.completed', 'shipment.delivered'];
 
-    public function __construct(private readonly EventRecorder $events) {}
+    public function __construct(
+        private readonly EventRecorder $events,
+        private readonly CredentialVault $vault,
+    ) {}
 
     public function __invoke(Request $request, string $store): JsonResponse
     {
@@ -38,7 +41,11 @@ final class ShopWebhookController extends Controller
             return response()->json(['error' => 'unknown store'], 404);
         }
 
-        $secret = IntegrationCredential::query()->where('provider', 'shop_webhook_secret')->where('account_ref', $store)->where('status', 'active')->first()?->payload['value'] ?? null;
+        // Inbound verification, so there is no gateway call to hang a credential scope on. It
+        // still goes through the vault, because the vault being the ONLY place that decrypts is
+        // an invariant a test greps for, and an exception carved out here would be the first
+        // step back towards secrets being read wherever they are convenient.
+        $secret = $this->vault->openForAccounts([['shop_webhook_secret', $store]], fn () => $this->vault->optional('shop_webhook_secret', $store));
         if ($secret === null) {
             Log::warning('shop webhook received but no secret configured', ['store' => $store]);
 

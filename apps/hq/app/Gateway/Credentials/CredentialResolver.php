@@ -4,6 +4,7 @@ namespace App\Gateway\Credentials;
 
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Scope\ResolvedScope;
 use App\Gateway\ToolRequest;
 use App\Models\Business;
 use App\Models\IntegrationCredential;
@@ -17,28 +18,24 @@ use App\Models\Store;
  * "does the credential this tool declared exist, is it active, is it unexpired", and it records
  * WHICH credential id was involved.
  *
- * ⚠ The connectors still read their own secrets, as they always have: CommerceRegistry and
- * ErpRegistry each look up integration_credentials at call time. That is the existing credential
- * infrastructure and M1 reuses it rather than inventing a second store. What M1 adds is the
- * pre-flight: a missing or revoked credential now fails at the gateway with a named reason, before
- * a connector produces a confusing 401, and the credential ids land on the tool_calls row so a
- * trace can say which identity HQ used without ever saying what it was.
- *
- * The connector-side refactor that hands the secret down from here belongs with the M2 connector
- * work, and is recorded as a known limitation rather than half-done.
+ * ✅ M2 closed M1's limitation: the connectors no longer read their own secrets. This resolves the
+ * ids, the gateway opens them in the CredentialVault for exactly the length of the call, and the
+ * connector asks the vault. A missing or revoked credential fails here with a named reason, before
+ * a connector produces a confusing 401, and the ids land on the tool_calls row so a trace can say
+ * which identity HQ used without ever saying what it was.
  */
 final class CredentialResolver
 {
     /**
      * @return CredentialResolution ids and status only, never a value
      */
-    public function resolve(ToolDescriptor $descriptor, ToolRequest $request, array $args): CredentialResolution
+    public function resolve(ToolDescriptor $descriptor, ToolRequest $request, array $args, ?ResolvedScope $scope = null): CredentialResolution
     {
         $found = [];
         $missing = [];
 
         foreach ($descriptor->credentials as $requirement) {
-            $accountRef = $this->accountRef($requirement, $request, $args);
+            $accountRef = $this->accountRef($requirement, $request, $args, $scope);
 
             $credential = $accountRef === null ? null : IntegrationCredential::query()
                 ->where('provider', $requirement->provider)
@@ -73,10 +70,10 @@ final class CredentialResolver
      * `args.business_slug|business.slug` keeps the rule next to the tool that has it rather than
      * hidden in a resolver branch.
      */
-    private function accountRef(CredentialRequirement $requirement, ToolRequest $request, array $args): ?string
+    private function accountRef(CredentialRequirement $requirement, ToolRequest $request, array $args, ?ResolvedScope $scope): ?string
     {
         foreach (explode('|', $requirement->accountRefFrom) as $source) {
-            $value = $this->resolveOne(trim($source), $request, $args);
+            $value = $this->resolveOne(trim($source), $request, $args, $scope);
             if ($value !== null && $value !== '') {
                 return $value;
             }
@@ -85,7 +82,7 @@ final class CredentialResolver
         return null;
     }
 
-    private function resolveOne(string $from, ToolRequest $request, array $args): ?string
+    private function resolveOne(string $from, ToolRequest $request, array $args, ?ResolvedScope $scope): ?string
     {
         if (str_starts_with($from, '=')) {
             return substr($from, 1);
@@ -97,12 +94,17 @@ final class CredentialResolver
             return is_string($value) && $value !== '' ? $value : null;
         }
 
+        // The RESOLVED scope first, then the raw request. That ordering matters: the scheduled jobs
+        // name their target in their arguments, so the request itself carries nothing and only the
+        // resolved scope knows which business or store this call is for.
         if ($from === 'business.slug') {
-            return $request->businessId ? Business::find($request->businessId)?->slug : null;
+            return $scope?->businessSlug
+                ?? ($request->businessId ? Business::find($request->businessId)?->slug : null);
         }
 
         if ($from === 'store.slug') {
-            return $request->storeId ? Store::find($request->storeId)?->slug : null;
+            return $scope?->storeSlug
+                ?? ($request->storeId ? Store::find($request->storeId)?->slug : null);
         }
 
         return null;

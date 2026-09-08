@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Scheduling\Tools\Erp;
+namespace App\Tools\Erp;
 
 use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
@@ -13,9 +13,9 @@ use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
 use App\Models\FactsErpSnapshot;
-use App\Scheduling\Tools\Tool;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolResult;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolResult;
 use Carbon\CarbonImmutable;
 
 /**
@@ -79,6 +79,10 @@ abstract class PollErpTool implements Tool
             scope: ToolScope::Business,
             readWrite: ReadWrite::Write,
             agentExecutable: false,
+            // The job rows created in Phase 1 name their business in the PAYLOAD and leave the
+            // request context null. Declaring it here is what lets the gateway resolve the target,
+            // enforce business scope on it, and record it on the tool_calls row.
+            scopeFrom: 'business:args.business_slug',
             credentials: [new CredentialRequirement(ErpRegistry::PROVIDER, 'args.business_slug|business.slug')],
             idempotent: true,
             idempotencyKeyFrom: ['business_slug'],

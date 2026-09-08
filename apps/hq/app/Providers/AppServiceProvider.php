@@ -4,9 +4,9 @@ namespace App\Providers;
 
 use App\Commerce\Support\CommerceRegistry;
 use App\Listeners\RecordAuthenticationEvents;
-use App\Scheduling\Tools\ToolRegistry;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
+use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;

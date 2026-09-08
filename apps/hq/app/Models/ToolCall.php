@@ -24,7 +24,8 @@ class ToolCall extends Model
     protected $fillable = [
         'ai_run_id', 'tool_key', 'tool_version', 'risk_tier', 'caller_kind', 'actor_type', 'actor_id',
         'actor_label', 'agent_key', 'enabling_user_id', 'business_id', 'store_id', 'job_run_id',
-        'correlation_id', 'input', 'output', 'policy_result', 'policy_reason', 'approval_id',
+        'correlation_id', 'input', 'output', 'policy_result', 'policy_reason', 'policy_id',
+        'policy_version', 'action_class', 'approval_id',
         'idempotency_key', 'duration_ms', 'status', 'error', 'failure_class', 'replayed', 'attempt',
         'started_at', 'finished_at',
     ];

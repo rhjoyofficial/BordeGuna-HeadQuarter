@@ -4,8 +4,8 @@ use App\Facts\FactsIntegrityChecker;
 use App\Models\AuditLog;
 use App\Models\FactsOrder;
 use App\Models\Store;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 
 /*

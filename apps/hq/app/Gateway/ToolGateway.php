@@ -3,25 +3,28 @@
 namespace App\Gateway;
 
 use App\Gateway\Credentials\CredentialResolver;
+use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Policy\PolicyDecision;
-use App\Gateway\Policy\PolicyGate;
+use App\Gateway\Policy\PolicyEngine;
 use App\Gateway\Policy\PolicyOutcome;
 use App\Gateway\Recording\IdempotencyKeyFactory;
 use App\Gateway\Recording\ToolCallRecorder;
 use App\Gateway\Redaction\Redactor;
 use App\Gateway\Registry\ToolAvailability;
+use App\Gateway\Scope\ResolvedScope;
+use App\Gateway\Scope\ScopeResolver;
 use App\Gateway\Validation\ArgumentValidator;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\ToolCall;
-use App\Scheduling\Tools\Tool;
-use App\Scheduling\Tools\ToolContext;
-use App\Scheduling\Tools\ToolRegistry;
-use App\Scheduling\Tools\ToolResult;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Tools\Tool;
+use App\Tools\ToolContext;
+use App\Tools\ToolRegistry;
+use App\Tools\ToolResult;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Log;
@@ -36,9 +39,9 @@ use Throwable;
  *
  *   1. registry + runtime switch     -> unavailable
  *   2. schema validation             -> invalid          (before policy, before any credential)
- *   3. business scope + context      -> denied
- *   4. permission (intersection)     -> denied
- *   5. policy (deterministic)        -> allow | require_approval | deny
+ *   3. scope resolution + business scope -> denied
+ *   4/5. policy engine, which owns the permission intersection and the guardrail rules
+ *                                    -> allow | require_approval | deny | dry_run | confirm
  *   6. approval                      -> M3; in M1 an approval requirement is a refusal, not a wait
  *   7. idempotency                   -> replay a recorded result, or reconcile an uncertain one
  *   8. credential pre-flight         -> unavailable, with the missing credential named
@@ -54,9 +57,11 @@ final class ToolGateway
         private readonly ToolRegistry $registry,
         private readonly ToolAvailability $availability,
         private readonly ArgumentValidator $validator,
-        private readonly PolicyGate $policy,
+        private readonly ScopeResolver $scopes,
+        private readonly PolicyEngine $policy,
         private readonly BusinessScope $businessScope,
         private readonly CredentialResolver $credentials,
+        private readonly CredentialVault $vault,
         private readonly IdempotencyKeyFactory $keys,
         private readonly ToolCallRecorder $recorder,
         private readonly FailureClassifier $classifier,
@@ -102,20 +107,23 @@ final class ToolGateway
         // arguments; the gateway still never sees a credential.
         $secrets = $this->redactor->secretsIn($args, $descriptor->redact);
 
-        // 3. Scope. A business-scoped tool must name a business; a restricted human may not name
-        //    one outside their rows; a tool that does not support this business says so.
-        if (($scopeProblem = $this->checkScope($descriptor, $request)) !== null) {
+        // 3. Scope. Resolved from the request context AND from the argument path the tool declared,
+        //    because the Phase 1 scheduled jobs name their target in the payload (see ScopeResolver).
+        $scope = $this->scopes->resolve($descriptor, $request, $args);
+        if ($scope->missing) {
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, (string) $scope->problem, $descriptor);
+        }
+        if (($scopeProblem = $this->checkScope($descriptor, $request, $scope)) !== null) {
             return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $scopeProblem, $descriptor);
         }
+        // Now that the target is known, the row can say which business and store the call was for.
+        // Before M2 an ERP poll recorded null for both, because its business lives in its payload.
+        $this->recorder->recordScope($call, $scope);
 
-        // 4. Permission: the intersection, evaluated in one place, with no fallback branch.
-        if (! $request->identity->holds($descriptor->permission, $descriptor->key)) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused,
-                "{$request->identity->label} does not hold [{$descriptor->permission}] for [{$descriptor->key}].", $descriptor);
-        }
-
-        // 5. Policy. Deterministic, takes no model output, cannot be talked to.
-        $decision = $this->policy->decide($descriptor, $request, $request->identity);
+        // 4/5. Permission and policy, in the engine. The permission intersection is step 4 of the
+        //      engine's own order, so it lives there rather than being asked twice in two places
+        //      that could one day disagree.
+        $decision = $this->policy->decide($descriptor, $request, $request->identity, $args, $scope->businessId);
         $this->recorder->recordPolicy($call, $decision);
 
         if ($decision->outcome !== PolicyOutcome::Allow) {
@@ -130,7 +138,9 @@ final class ToolGateway
         $context = new ToolContext(
             idempotencyKey: $key,
             correlationId: $request->correlationId,
-            businessId: $request->businessId,
+            // The RESOLVED business, so a tool that falls back to its context gets exactly the
+            // target the gateway just enforced scope against.
+            businessId: $scope->businessId,
             brandId: $request->brandId,
             jobRunId: $request->jobRunId,
             actorUserId: $request->identity->enablingUser()?->getKey(),
@@ -144,16 +154,21 @@ final class ToolGateway
 
         // 8. Credentials, last, below every deterministic check. Ids are recorded; values are not
         //    handled here at all.
-        $resolution = $this->credentials->resolve($descriptor, $request, $args);
+        $resolution = $this->credentials->resolve($descriptor, $request, $args, $scope);
         if (! $resolution->satisfied()) {
             return $this->refuse($call, $request, OutcomeStatus::Unavailable, FailureClass::Unsupported,
                 $resolution->reason(), $descriptor);
         }
 
-        // 9. Execute.
+        // Only a call that will actually execute consumes quota. A refused one must not.
+        $this->policy->recordPermittedCall($descriptor, $scope->businessId);
+
+        // 9. Execute, with the declared credentials open for exactly the length of the call and
+        //    cleared afterwards even if it throws. The connector asks the vault; it cannot look a
+        //    credential up for itself (docs/50).
         $started = microtime(true);
         try {
-            $result = $tool->execute($args, $context);
+            $result = $this->vault->open($resolution->found, fn () => $tool->execute($args, $context));
         } catch (Throwable $e) {
             $failure = $this->classifier->classify($e);
             Log::error('gateway: tool threw', [
@@ -292,25 +307,24 @@ final class ToolGateway
         );
     }
 
-    private function checkScope(ToolDescriptor $descriptor, ToolRequest $request): ?string
+    /**
+     * Everything that depends on the RESOLVED target rather than on what the caller happened to put
+     * in the request. A restricted human may not reach outside their businesses, and a tool says
+     * which businesses and stores it supports.
+     */
+    private function checkScope(ToolDescriptor $descriptor, ToolRequest $request, ResolvedScope $scope): ?string
     {
-        if ($descriptor->requiresBusinessContext() && $request->businessId === null && $request->storeId === null) {
-            return "[{$descriptor->key}] is scoped to a {$descriptor->scope->value} and the call named neither a business nor a store.";
-        }
-
         $user = $request->identity->enablingUser();
-        if ($user !== null && ! $this->businessScope->allows($user, $request->businessId)) {
-            return "{$request->identity->label} is not scoped to business {$request->businessId}.";
+        if ($user !== null && ! $this->businessScope->allows($user, $scope->businessId)) {
+            return "{$request->identity->label} is not scoped to business {$scope->businessId}.";
         }
 
-        $businessSlug = $request->businessId ? Business::find($request->businessId)?->slug : null;
-        if (! $descriptor->supportsBusiness($businessSlug)) {
-            return "[{$descriptor->key}] does not support business [".($businessSlug ?? 'none').'].';
+        if (! $descriptor->supportsBusiness($scope->businessSlug)) {
+            return "[{$descriptor->key}] does not support business [".($scope->businessSlug ?? 'none').'].';
         }
 
-        $storeSlug = $request->storeId ? Store::find($request->storeId)?->slug : null;
-        if ($request->storeId !== null && ! $descriptor->supportsStore($storeSlug)) {
-            return "[{$descriptor->key}] does not support store [".($storeSlug ?? 'none').'].';
+        if ($scope->storeId !== null && ! $descriptor->supportsStore($scope->storeSlug)) {
+            return "[{$descriptor->key}] does not support store [".($scope->storeSlug ?? 'none').'].';
         }
 
         return null;

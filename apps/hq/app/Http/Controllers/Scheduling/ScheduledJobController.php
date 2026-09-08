@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\JobRun;
 use App\Models\ScheduledJob;
 use App\Scheduling\ScheduledJobService;
-use App\Scheduling\Tools\ToolRegistry;
+use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Scheduling\Tools;
+namespace App\Tools\Diagnostics;
 
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
