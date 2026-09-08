@@ -13,7 +13,7 @@ cost written down. It gives it no ability to act on the answer.
 | Starting release | **`ff34d7d`** (M3 + the M3 UI findings, PR #5) |
 | Ending release | **not merged** - branch `phase2/m4-model-router`, PR #6 |
 | Production | **still `ff34d7d`.** M4 has not been deployed |
-| CI | **287 passed / 1387 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
+| CI | **286 passed / 1385 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
 | Migrations | 1, additive, reversible, **never run anywhere yet** |
 | Shop or ERP code changed | **none** |
 | Model provider connected | **none.** No model has been called |
