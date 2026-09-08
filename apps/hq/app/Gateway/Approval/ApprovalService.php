@@ -185,9 +185,11 @@ final class ApprovalService
                     'payload' => $payload,
                     'payload_hash' => CanonicalPayload::hash($payload),
                     'reason' => $original->reason,
-                    'status' => ApprovalStatus::Approved->value,
-                    'decided_by_user_id' => $approver->getKey(),
-                    'decided_at' => CarbonImmutable::now(),
+                    // PENDING, not approved. The edit creates a new proposal, which the same human
+                    // then claims through the ordinary path. Marking it approved here would give
+                    // the successor a second route to execution that skips the atomic claim, and
+                    // the claim is what makes single use a database guarantee.
+                    'status' => ApprovalStatus::Pending->value,
                     'decision_note' => $note,
                     'supersedes_id' => $original->id,
                     'sla_due_at' => $original->sla_due_at,

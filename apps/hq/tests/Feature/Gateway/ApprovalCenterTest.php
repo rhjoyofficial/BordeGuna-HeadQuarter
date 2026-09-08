@@ -346,6 +346,9 @@ it('creates a successor on approve-with-edit and never mutates the original', fu
     $originalFresh = $original->fresh();
     expect($successor->id)->not->toBe($original->id)
         ->and($successor->supersedes_id)->toBe($original->id)
+        // A new proposal, which the same human then claims through the ordinary path: an edit must
+        // not create a second route to execution that skips the atomic claim.
+        ->and($successor->status)->toBe(ApprovalStatus::Pending)
         ->and($successor->payload)->toEqual(['note' => 'edited note', 'amount' => 50])
         ->and($successor->payload_hash)->not->toBe($originalHash)
         ->and($successor->payloadIntact())->toBeTrue()
