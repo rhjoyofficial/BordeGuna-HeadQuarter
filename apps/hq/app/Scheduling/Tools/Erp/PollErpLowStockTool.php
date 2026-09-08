@@ -3,12 +3,21 @@
 namespace App\Scheduling\Tools\Erp;
 
 use App\Erp\ErpConnector;
+use App\Gateway\Descriptor\ToolDescriptor;
 
 final class PollErpLowStockTool extends PollErpTool
 {
     public function key(): string
     {
         return 'erp.poll_low_stock';
+    }
+
+    public function descriptor(): ToolDescriptor
+    {
+        return $this->baseDescriptor(
+            'ERP low stock snapshot',
+            'Reads the ERP low-stock list for one business and replaces the HQ snapshot of it.',
+        );
     }
 
     protected function kind(): string

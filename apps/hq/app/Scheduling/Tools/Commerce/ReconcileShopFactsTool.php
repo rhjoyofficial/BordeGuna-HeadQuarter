@@ -5,6 +5,11 @@ namespace App\Scheduling\Tools\Commerce;
 use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
 use App\Facts\FactsReconciler;
+use App\Gateway\Descriptor\CredentialRequirement;
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use App\Models\Store;
 use App\Scheduling\Tools\Tool;
 use App\Scheduling\Tools\ToolContext;
@@ -32,6 +37,49 @@ final class ReconcileShopFactsTool implements Tool
     public function key(): string
     {
         return 'commerce.reconcile_facts';
+    }
+
+    /**
+     * Tier R3: it reads the shop (R2) and then upserts facts_orders, customers and identities,
+     * which is HQ state only. Nothing at the shop changes, which is exactly why this is R3 and not
+     * R4 - the effect is entirely inside HQ and entirely reversible here.
+     *
+     * The permission is `hq.tools.commerce.read` rather than `.write` because the write is to HQ's
+     * own read model; `commerce.write` is reserved for a tool that changes something AT the shop,
+     * and none is enabled in Phase 2.
+     */
+    public function descriptor(): ToolDescriptor
+    {
+        return new ToolDescriptor(
+            key: $this->key(),
+            version: '1.0.0',
+            title: 'Reconcile shop order facts',
+            purpose: 'Re-reads a window of shop orders and fills any fact a lost webhook never created.',
+            riskTier: RiskTier::R3,
+            permission: 'hq.tools.commerce.read',
+            auditAction: 'tool.commerce_reconcile_facts',
+            scope: ToolScope::Store,
+            readWrite: ReadWrite::Write,
+            agentExecutable: false,
+            credentials: [
+                new CredentialRequirement('shop_admin_token', 'args.store_slug|store.slug'),
+            ],
+            idempotent: true,
+            idempotencyKeyFrom: ['store_slug', 'hours'],
+            timeoutSeconds: 120,
+            outputSchema: $this->outputSchema(),
+        );
+    }
+
+    public function outputSchema(): array
+    {
+        return ['type' => 'object', 'properties' => [
+            'store' => ['type' => 'string'],
+            'hours' => ['type' => 'integer'],
+            'since' => ['type' => 'string'],
+            'checked' => ['type' => 'integer'],
+            'inserted' => ['type' => 'integer'],
+        ]];
     }
 
     public function inputSchema(): array

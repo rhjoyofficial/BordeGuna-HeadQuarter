@@ -2,6 +2,10 @@
 
 namespace App\Scheduling\Tools;
 
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use RuntimeException;
 
 /**
@@ -18,6 +22,25 @@ final class FailingTool implements Tool
         return 'test.fail';
     }
 
+    public function descriptor(): ToolDescriptor
+    {
+        return new ToolDescriptor(
+            key: $this->key(),
+            version: '1.0.0',
+            title: 'Deliberate failure',
+            purpose: 'Exercises retry, failure state and dead-lettering without any external system.',
+            riskTier: RiskTier::R0,
+            permission: 'hq.tools.diagnostics',
+            auditAction: 'tool.test_fail',
+            scope: ToolScope::Hq,
+            readWrite: ReadWrite::Read,
+            agentExecutable: false,
+            // It exists to fail, so a retry is the point rather than an accident.
+            idempotent: true,
+            outputSchema: ['type' => 'object', 'properties' => ['recovered_on_attempt' => ['type' => 'integer']]],
+        );
+    }
+
     public function inputSchema(): array
     {
         return [
@@ -28,6 +51,11 @@ final class FailingTool implements Tool
             ],
             'additionalProperties' => false,
         ];
+    }
+
+    public function outputSchema(): array
+    {
+        return $this->descriptor()->outputSchema;
     }
 
     public function execute(array $payload, ToolContext $context): ToolResult

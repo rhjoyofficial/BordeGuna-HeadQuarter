@@ -16,7 +16,19 @@ use Illuminate\Support\Facades\Request;
  */
 final class Auditor
 {
-    private const REDACT = ['password', 'password_confirmation', 'secret', 'token', 'payload', 'two_factor_secret', 'two_factor_recovery_codes', 'api_key', 'access_token', 'refresh_token', 'client_secret', 'authorization', 'remember_token'];
+    private const REDACT = ['password', 'password_confirmation', 'secret', 'token', 'two_factor_secret', 'two_factor_recovery_codes', 'api_key', 'access_token', 'refresh_token', 'client_secret', 'authorization', 'remember_token'];
+
+    /**
+     * Keys that name a secret when they hold a scalar and a structured record when they hold an
+     * array. `payload` is both: on an integration_credentials row it is the encrypted blob, and on
+     * a scheduled_jobs row it is the tool's arguments.
+     *
+     * It used to sit in the list above, which meant that auditing a scheduled job blanked the very
+     * arguments the audit exists to record: `{"payload":"[redacted]"}` says something happened
+     * while destroying every fact about what. Recursing into an array `payload` and masking only a
+     * scalar one keeps the credential protection and gives back the evidence.
+     */
+    private const REDACT_IF_SCALAR = ['payload'];
 
     public function record(
         string $action,
@@ -78,7 +90,11 @@ final class Auditor
     public function redact(array $data): array
     {
         foreach ($data as $key => $value) {
-            if (is_string($key) && in_array(strtolower($key), self::REDACT, true)) {
+            $name = is_string($key) ? strtolower($key) : null;
+
+            if ($name !== null && in_array($name, self::REDACT, true)) {
+                $data[$key] = '[redacted]';
+            } elseif ($name !== null && in_array($name, self::REDACT_IF_SCALAR, true) && ! is_array($value)) {
                 $data[$key] = '[redacted]';
             } elseif (is_array($value)) {
                 $data[$key] = $this->redact($value);
