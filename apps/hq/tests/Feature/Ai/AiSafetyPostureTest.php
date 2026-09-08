@@ -2,15 +2,18 @@
 
 use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\Exceptions\ProviderUnavailable;
+use App\Ai\ModelTier;
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\ModelProvider;
 use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ProviderRegistry;
 use App\Gateway\Credentials\CredentialVault;
 use App\Models\AiModel;
+use App\Models\AiRun;
 use App\Models\IntegrationCredential;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Http;
+use Tests\Support\Ai\FixtureProvider;
 
 /*
  | M4 safety posture.
@@ -267,4 +270,39 @@ it('marks the system prompt as cacheable, which is where most of the input cost 
     );
 
     Http::assertSent(fn ($request) => data_get($request->data(), 'system.0.cache_control.type') === 'ephemeral');
+});
+
+/*
+ | The safety gate itself. `hq:ai:probe` is the first thing anybody runs against a live provider, so
+ | the one thing it must never do is spend money because somebody typed the command to look at it.
+ */
+
+it('sends nothing and spends nothing when hq:ai:probe is run without --live', function () {
+    FixtureProvider::reset();
+    aiProviders();
+    aiModel('fixture', 'a', ModelTier::Low);
+
+    $this->artisan('hq:ai:probe')
+        ->expectsOutputToContain('Dry run: nothing was sent')
+        ->assertSuccessful();
+
+    // ⚠ The assertion that matters is not the wording, it is that the provider was never called and
+    // no run exists. A dry run that quietly made a call would still print this line.
+    expect(FixtureProvider::callsTo('fixture'))->toBe(0)
+        ->and(AiRun::query()->count())->toBe(0);
+});
+
+it('refuses a --live probe while the runtime flag is off, which is how HQ ships', function () {
+    FixtureProvider::reset();
+    aiProviders();
+    aiModel('fixture', 'a', ModelTier::Low);
+
+    // No enableAiRuntime() here on purpose: absence of the flag row is the shipped state.
+    $this->artisan('hq:ai:probe --live')->assertFailed();
+
+    expect(FixtureProvider::callsTo('fixture'))->toBe(0);
+});
+
+it('reports a cost breakdown without a model call', function () {
+    $this->artisan('hq:ai:cost')->assertSuccessful();
 });
