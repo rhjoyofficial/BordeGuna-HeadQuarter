@@ -140,12 +140,22 @@ it('keeps the audit log append-only, with the database refusing to rewrite histo
 
     // The Postgres trigger from Phase 0. M1 writes far more audit rows than before, so it is worth
     // re-proving that nothing in the gateway weakened the guarantee they rest on.
+    // Two details of this test are about Postgres rather than about HQ, and both are worth a line.
+    //
     // Naming the concrete exception rather than the Throwable interface: Pest reads a bare
-    // interface name as a message substring, which would pass for the wrong reason.
-    expect(fn () => DB::table('audit_logs')->where('id', $log->id)->update(['action' => 'tampered']))
+    // interface name as a message substring, so toThrow(Throwable::class) would pass for the
+    // wrong reason.
+    //
+    // Each attempt runs in its own savepoint, because a raised exception aborts the surrounding
+    // transaction and every later statement in it fails with "current transaction is aborted"
+    // instead of reaching the trigger. Without the savepoint the second assertion would be
+    // testing Postgres error recovery rather than the guarantee it means to test.
+    $refused = fn (callable $statement) => DB::transaction($statement);
+
+    expect(fn () => $refused(fn () => DB::table('audit_logs')->where('id', $log->id)->update(['action' => 'tampered'])))
         ->toThrow(QueryException::class, 'append-only');
 
-    expect(fn () => DB::table('audit_logs')->where('id', $log->id)->delete())
+    expect(fn () => $refused(fn () => DB::table('audit_logs')->where('id', $log->id)->delete()))
         ->toThrow(QueryException::class, 'append-only');
 
     expect(AuditLog::find($log->id)->action)->toBe('test.event');
