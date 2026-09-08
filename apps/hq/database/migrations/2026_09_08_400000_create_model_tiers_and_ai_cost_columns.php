@@ -76,8 +76,9 @@ return new class extends Migration
             $table->unsignedSmallInteger('attempt')->default(1)->after('status');
             $table->string('routing_reason', 160)->nullable()->after('degraded_from_tier');
 
+            // ⚠ NOT ['business_id', 'created_at']: that index has existed since the Phase 0 ai_runs
+            // migration. Adding it again is a duplicate-relation error on a fresh database.
             $table->index(['created_at', 'provider']);
-            $table->index(['business_id', 'created_at']);
             $table->index(['agent_key', 'created_at']);
         });
 
@@ -127,7 +128,6 @@ return new class extends Migration
 
         Schema::table('ai_runs', function (Blueprint $table) {
             $table->dropIndex(['created_at', 'provider']);
-            $table->dropIndex(['business_id', 'created_at']);
             $table->dropIndex(['agent_key', 'created_at']);
             $table->dropColumn(['actual_cost_usd', 'cost_source', 'degraded_from_tier', 'attempt', 'routing_reason']);
         });
