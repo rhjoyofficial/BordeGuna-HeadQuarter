@@ -2,6 +2,7 @@
 
 use App\Gateway\ToolGateway;
 use App\Models\ScheduledJob;
+use App\Scheduling\ScheduledJobService;
 use App\Tools\Tool;
 use App\Tools\ToolRegistry;
 
@@ -37,9 +38,28 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);
 });
 
-it('resolves every tool key that any scheduled job references', function () {
+it('resolves every tool key a scheduled job can reference, including the live production set', function () {
     $registry = app(ToolRegistry::class);
 
+    // The five keys production actually schedules today. Creating a job for each proves the whole
+    // path resolves after the namespace move: the service validates the key against the registry,
+    // and the registry builds the class.
+    //
+    // ⚠ Written as an explicit list rather than as a loop over existing rows, because a fresh test
+    // database has no scheduled jobs, and a loop over an empty set asserts nothing while looking
+    // like it asserts everything.
+    $live = ['noop', 'erp.poll_overview', 'erp.poll_low_stock', 'commerce.reconcile_facts', 'commerce.check_fact_integrity'];
+
+    foreach ($live as $key) {
+        expect($registry->has($key))->toBeTrue("[{$key}] is scheduled in production but is not registered");
+
+        $job = app(ScheduledJobService::class)->create([
+            'name' => "resolves {$key}", 'kind' => 'cron', 'cron_expression' => '0 4 * * *', 'tool_key' => $key,
+        ], null);
+        expect($job->tool_key)->toBe($key);
+    }
+
+    // And anything already in the table resolves too, which covers a key this list forgot.
     foreach (ScheduledJob::query()->pluck('tool_key')->unique() as $key) {
         expect($registry->has($key))->toBeTrue("a scheduled job references [{$key}], which is not registered");
     }
