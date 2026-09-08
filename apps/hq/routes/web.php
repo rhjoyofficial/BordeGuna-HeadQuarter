@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\ToolRegistryController;
+use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
@@ -46,6 +47,20 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // Phase 2 M1: what HQ can do, and the audited runtime kill switch (docs/48 D.2).
     Route::get('tools', [ToolRegistryController::class, 'index'])->middleware('permission:hq.tools.view')->name('tools.index');
     Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware('permission:hq.tools.manage')->name('tools.toggle');
+
+    // Phase 2 M3: the Approval Center (docs/48 G, docs/51).
+    //
+    // ⚠ The browser supplies an approval id and a decision. There is deliberately NO endpoint here
+    // that accepts a tool key and arguments: the server loads the persisted approval and executes
+    // the stored, hashed payload a human read.
+    Route::prefix('approvals')->name('approvals.')->group(function () {
+        Route::get('/', [ApprovalController::class, 'index'])->middleware('permission:hq.approvals.view')->name('index');
+        Route::get('{approval}', [ApprovalController::class, 'show'])->middleware('permission:hq.approvals.view')->name('show');
+        Route::post('{approval}/approve', [ApprovalController::class, 'approve'])->middleware('permission:hq.approvals.decide')->name('approve');
+        Route::post('{approval}/reject', [ApprovalController::class, 'reject'])->middleware('permission:hq.approvals.decide')->name('reject');
+        Route::post('{approval}/cancel', [ApprovalController::class, 'cancel'])->middleware('permission:hq.approvals.view')->name('cancel');
+        Route::post('{approval}/delegate', [ApprovalController::class, 'delegate'])->middleware('permission:hq.approvals.delegate')->name('delegate');
+    });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
 

@@ -1,0 +1,172 @@
+<?php
+
+namespace App\Models;
+
+use App\Gateway\Approval\ApprovalStatus;
+use App\Gateway\Approval\CanonicalPayload;
+use App\Gateway\Descriptor\RiskTier;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * One human decision, bound to one exact action (ADR-018).
+ *
+ * ⚠ `payload`, `payload_hash` and `tool_version` are written once and never updated. Approve-with-
+ * edit creates a SUCCESSOR row rather than changing this one, so the record of what a person
+ * actually read and agreed to survives whatever happens afterwards.
+ */
+class Approval extends Model
+{
+    use HasUuids;
+
+    protected $fillable = [
+        'uuid', 'tool_key', 'tool_version', 'payload', 'payload_hash', 'risk_tier', 'action_class',
+        'business_id', 'brand_id', 'store_id', 'requested_by_user_id', 'agent_key', 'ai_run_id',
+        'correlation_id', 'requesting_tool_call_id', 'reason', 'evidence', 'preview', 'estimated_cost',
+        'policy_id', 'policy_version', 'status', 'approver_role', 'decided_by_user_id', 'decided_at',
+        'decision_note', 'delegated_to_user_id', 'delegated_by_user_id', 'delegated_at',
+        'sla_due_at', 'escalate_to_role', 'escalated_at', 'expires_at', 'consumed_at',
+        'resulting_tool_call_id', 'supersedes_id',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'payload' => 'array',
+            'evidence' => 'array',
+            'preview' => 'array',
+            'estimated_cost' => 'array',
+            'status' => ApprovalStatus::class,
+            'risk_tier' => RiskTier::class,
+            'decided_at' => 'datetime',
+            'delegated_at' => 'datetime',
+            'sla_due_at' => 'datetime',
+            'escalated_at' => 'datetime',
+            'expires_at' => 'datetime',
+            'consumed_at' => 'datetime',
+        ];
+    }
+
+    /** HasUuids fills `uuid` while the primary key stays an auto-incrementing id. */
+    public function uniqueIds(): array
+    {
+        return ['uuid'];
+    }
+
+    public function requestedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'requested_by_user_id');
+    }
+
+    public function decidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'decided_by_user_id');
+    }
+
+    public function delegatedTo(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delegated_to_user_id');
+    }
+
+    public function business(): BelongsTo
+    {
+        return $this->belongsTo(Business::class);
+    }
+
+    public function store(): BelongsTo
+    {
+        return $this->belongsTo(Store::class);
+    }
+
+    public function supersedes(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'supersedes_id');
+    }
+
+    public function resultingToolCall(): BelongsTo
+    {
+        return $this->belongsTo(ToolCall::class, 'resulting_tool_call_id');
+    }
+
+    public function scopePending(Builder $query): Builder
+    {
+        return $query->where('status', ApprovalStatus::Pending->value);
+    }
+
+    /** Past its expiry and still waiting. Expiry is only meaningful for a pending approval. */
+    public function scopeLapsed(Builder $query, ?CarbonImmutable $at = null): Builder
+    {
+        return $query->pending()
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', $at ?? CarbonImmutable::now());
+    }
+
+    public function scopePastSla(Builder $query, ?CarbonImmutable $at = null): Builder
+    {
+        return $query->pending()
+            ->whereNull('escalated_at')
+            ->whereNotNull('sla_due_at')
+            ->where('sla_due_at', '<=', $at ?? CarbonImmutable::now());
+    }
+
+    public function hasExpired(?CarbonImmutable $at = null): bool
+    {
+        return $this->expires_at !== null && $this->expires_at <= ($at ?? CarbonImmutable::now());
+    }
+
+    /** The tamper check. Constant time, and over the one canonical encoder. */
+    public function payloadIntact(): bool
+    {
+        return CanonicalPayload::matches($this->payload ?? [], (string) $this->payload_hash);
+    }
+
+    /**
+     * Who may decide this one: the delegate when there is one, otherwise anybody holding the
+     * decide permission. Delegation NARROWS, it never widens.
+     */
+    public function isDecidableBy(User $user): bool
+    {
+        if (! $user->can('hq.approvals.decide')) {
+            return false;
+        }
+
+        return $this->delegated_to_user_id === null || $this->delegated_to_user_id === $user->getKey();
+    }
+
+    /** What a screen may show. Contains no secret: the payload was redacted before it was stored. */
+    public function toCard(): array
+    {
+        return [
+            'id' => $this->id,
+            'uuid' => $this->uuid,
+            'tool_key' => $this->tool_key,
+            'tool_version' => $this->tool_version,
+            'risk_tier' => $this->risk_tier?->value,
+            'risk_label' => $this->risk_tier?->label(),
+            'action_class' => $this->action_class,
+            'status' => $this->status->value,
+            'status_label' => $this->status->label(),
+            'payload' => $this->payload,
+            'reason' => $this->reason,
+            'evidence' => $this->evidence,
+            'preview' => $this->preview,
+            'estimated_cost' => $this->estimated_cost,
+            'business_id' => $this->business_id,
+            'store_id' => $this->store_id,
+            'agent_key' => $this->agent_key,
+            'correlation_id' => $this->correlation_id,
+            'policy_version' => $this->policy_version,
+            'sla_due_at' => $this->sla_due_at?->toIso8601String(),
+            'expires_at' => $this->expires_at?->toIso8601String(),
+            'escalated_at' => $this->escalated_at?->toIso8601String(),
+            'decided_at' => $this->decided_at?->toIso8601String(),
+            'decision_note' => $this->decision_note,
+            'consumed_at' => $this->consumed_at?->toIso8601String(),
+            'supersedes_id' => $this->supersedes_id,
+            'created_at' => $this->created_at?->toIso8601String(),
+        ];
+    }
+}
