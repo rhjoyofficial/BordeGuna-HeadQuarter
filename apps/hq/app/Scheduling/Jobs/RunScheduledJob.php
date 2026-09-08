@@ -2,7 +2,10 @@
 
 namespace App\Scheduling\Jobs;
 
+use App\Gateway\Credentials\CredentialResolver;
+use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
+use App\Gateway\Scope\ScopeResolver;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\JobRun;
@@ -47,13 +50,34 @@ final class RunScheduledJob implements ShouldQueue
 
     public int $timeout = 120;
 
+    /**
+     * Resolved from the container rather than injected, because a queued job is serialised and
+     * these are services rather than data. They are only used by direct mode.
+     */
+    private CredentialResolver $credentials;
+
+    private ScopeResolver $scopes;
+
+    private CredentialVault $vault;
+
     public function __construct(public readonly int $jobRunId)
     {
         $this->onQueue('scheduler');
     }
 
-    public function handle(ToolRegistry $tools, Auditor $auditor, ToolGateway $gateway, Features $features): void
-    {
+    public function handle(
+        ToolRegistry $tools,
+        Auditor $auditor,
+        ToolGateway $gateway,
+        Features $features,
+        CredentialResolver $credentials,
+        ScopeResolver $scopes,
+        CredentialVault $vault,
+    ): void {
+        $this->credentials = $credentials;
+        $this->scopes = $scopes;
+        $this->vault = $vault;
+
         // The owner is eager-loaded because gateway mode reads it to build the acting identity, and
         // lazy loading is an error outside production.
         $run = JobRun::with(['job', 'job.owner'])->find($this->jobRunId);
@@ -162,17 +186,34 @@ final class RunScheduledJob implements ShouldQueue
     }
 
     /**
-     * Direct mode: the Phase 1 path, byte for byte.
+     * Direct mode: the Phase 1 path, kept as the immediate rollback switch for the migration.
      *
-     * Kept as the immediate rollback switch for the migration. It is not a permanent fork in the
-     * road, and removing it is a separately approved step rather than a tidy-up.
+     * ⚠ It is NOT quite byte-for-byte Phase 1 any more, and the difference is deliberate. The same
+     * milestone moved credential resolution into the gateway, so a connector can no longer look one
+     * up for itself. Without the scope below, four of the six live jobs would fail on the rollback
+     * path, which would make the rollback switch decorative exactly when it is needed.
+     *
+     * So direct mode opens the credentials the tool declared, and nothing else. This is the one
+     * piece of gateway-adjacent work it does, it exists only because the two changes landed
+     * together, and it disappears with direct mode itself.
      */
     private function executeDirectly(ToolRegistry $tools, ScheduledJob $job, ToolContext $context, JobRun $run): ToolResult
     {
         $tool = $tools->get($job->tool_key);
-        // ADR-011: on a re-attempt, ask the tool whether the previous attempt already took effect.
-        $result = $run->attempt > 1 ? $tool->reconcile($context) : null;
+        $args = $job->payload ?? [];
 
-        return $result ?? $tool->execute($job->payload ?? [], $context);
+        $resolution = $this->credentials->resolve(
+            $tool->descriptor(),
+            ToolRequest::forScheduledJob($job, $run, $job->owner),
+            $args,
+            $this->scopes->resolve($tool->descriptor(), ToolRequest::forScheduledJob($job, $run, $job->owner), $args),
+        );
+
+        return $this->vault->open($resolution->found, function () use ($tool, $args, $context, $run) {
+            // ADR-011: on a re-attempt, ask the tool whether the previous attempt already took effect.
+            $result = $run->attempt > 1 ? $tool->reconcile($context) : null;
+
+            return $result ?? $tool->execute($args, $context);
+        });
     }
 }

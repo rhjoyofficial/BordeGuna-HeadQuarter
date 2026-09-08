@@ -19,6 +19,7 @@ use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\Support\Tools\AlwaysFailingTool;
 use Tests\Support\Tools\CountingTool;
@@ -103,6 +104,12 @@ beforeEach(function () {
     Cache::flush();
     CountingTool::reset();
     gatewayMode(false);
+
+    // ⚠ The queue connection is `sync` in tests, so a failed run's delayed retry dispatch executes
+    // IMMEDIATELY and recursively until the attempts run out, and every failure ends up `dead`
+    // rather than `failed`. Faking the queue lets each test observe the state the run actually
+    // reached on its first attempt, which is what these tests are about.
+    Queue::fake();
 });
 
 // ---------------------------------------------------------------- the flag itself

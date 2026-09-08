@@ -224,7 +224,9 @@ it('supersedes a policy without rewriting the decision the old version made', fu
         ->and($v1->fresh()->active_to)->not->toBeNull()
         // The old call still points at version 1, and version 1 still says what it said.
         ->and($firstCall->policy_version)->toBe(1)
-        ->and($v1->fresh()->rules)->toBe(['require_approval' => true, 'reason' => 'v1 reason'])
+        // toEqual, not toBe: a jsonb round trip does not promise key order, and the guarantee
+        // being tested is that the CONTENT survived, not that Postgres preserved an ordering.
+        ->and($v1->fresh()->rules)->toEqual(['require_approval' => true, 'reason' => 'v1 reason'])
         // The new call is governed by version 2 and now proceeds.
         ->and($secondCall->policy_version)->toBe(2)
         ->and($second->ok())->toBeTrue();

@@ -303,7 +303,7 @@ it('refuses a business-scoped tool that names no business', function () {
     $outcome = gateway()->execute(ToolRequest::forOperator(operator(), 'erp.poll_overview'));
 
     expect($outcome->status)->toBe(OutcomeStatus::Denied)
-        ->and($outcome->error)->toContain('named neither a business nor a store');
+        ->and($outcome->error)->toContain('neither the call nor its arguments named one');
 });
 
 // ---------------------------------------------------------------- policy
