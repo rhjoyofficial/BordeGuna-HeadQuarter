@@ -680,7 +680,7 @@ explicit status.
 | Web chat | **Planned** |
 | Email | **Planned** |
 | SMS | Exists in the shops and the ERP; not in HQ |
-| Telegram notifications | **Approved design / Implementation pending**. Configuration keys exist in HQ and are **not set** |
+| Telegram notifications | **Implemented and configured** (M3, docs/51). Corrected 8 Sep 2026: the keys ARE set in production; this row previously said they were not |
 | Voice / telephone | **Planned**, Phase 7 |
 | Human handoff | **Planned**, Phase 3 |
 
@@ -702,7 +702,7 @@ calls, voice synthesis, synthetic presenter, avatar video, consent management, v
 | Approvals | **Not implemented** |
 | Evaluation | **Not implemented** |
 | Dashboards | **Approved design / Implementation pending**, M7 |
-| Alerting | **Partially designed**; Telegram credentials not configured |
+| Alerting | **Partially designed**; Telegram credentials ARE configured (corrected 8 Sep 2026, docs/51 F) |
 
 # SECTION 6 - CURRENT PRODUCTION STATE
 
@@ -2923,7 +2923,7 @@ budget at 80 and 100 percent, approval deadline breach, repeated policy denials 
 integrity discrepancy, an event dead-letter, a credential expiring within fourteen days, a stale
 snapshot.
 
-**Channel decision V.4:** Telegram. **Blocked:** the bot token and chat identifier are configuration
+**Channel decision V.4:** Telegram. **Corrected 8 Sep 2026 (docs/51 F): NOT blocked.** The bot token and chat identifier are set in production and the channel is live. The text below was written from configuration defaults rather than the deployed environment. Original text: the bot token and chat identifier are configuration
 keys that exist in HQ and are **not set**.
 
 ## 32.6 What a healthy system looks like
@@ -3521,7 +3521,7 @@ information.
 | --- | --- | --- | --- | --- |
 | **O.1** | **Proceed with M2?** | Proceed: the gateway becomes the only path in fact, and the real policy engine exists. Pause: M1's value stays partly theoretical, because the scheduler still bypasses the gateway | **Proceed.** M2 is the milestone that makes M1 load-bearing | Everything after it |
 | **O.2** | **Which AI provider accounts, and who owns them** | Accounts under the group's own organisation, with keys entered through the interface. The alternative, a personal account, creates a key-person dependency on billing | Group-owned accounts; keys entered by the owner | M4, therefore M5, M6, M7 |
-| **O.3** | **Telegram bot token and chat identifier** | Without them, notifications and the briefing have nowhere to go, and in-app only means the owner sees an approval when he opens HQ | Create a bot and hand over the two values | M3 notifications, M7 briefing delivery |
+| ~~**O.3**~~ **CLOSED 8 Sep 2026** | ~~**Telegram bot token and chat identifier**~~ already set in production, see docs/51 F | Without them, notifications and the briefing have nowhere to go, and in-app only means the owner sees an approval when he opens HQ | Create a bot and hand over the two values | M3 notifications, M7 briefing delivery |
 | **O.4** | **Authorise an offsite backup destination** | Any object store or a second machine attached to the existing extension point. Without it, losing the server loses HQ's data since the last platform snapshot, whose existence is Unknown | **Authorise one.** This is the largest single risk in the register | Nothing technically; it is a risk decision |
 | **O.5** | **Confirm whether a platform snapshot is enabled** | A five-minute check in the hosting panel that materially changes the disaster-recovery statement | Check it | The honesty of the recovery statement |
 | **O.6** | **Consolidate the advertising and page assets under a proper business account** | Until then, Phase 5 cannot obtain an advertising-scoped token and page tokens sit in the wrong portfolio | Consolidate before scaling spend | Phase 5, and Phase 6 publishing |
@@ -4008,7 +4008,7 @@ customer AI, order taking, marketing, content or voice.
 1. **Approve M2** (or decide otherwise). It routes the scheduler through the gateway, with byte-identical
    output as the acceptance test, and builds the real policy engine.
 2. **Provide AI provider keys.** Nothing with the word "AI" in it can start without them.
-3. **Provide a Telegram bot token and chat identifier**, or choose a different notification channel.
+3. ~~**Provide a Telegram bot token and chat identifier**~~ **Not needed: already configured in production** (corrected 8 Sep 2026, docs/51 F).
 4. **Authorise an offsite backup destination.** This is the largest single risk in the register.
 5. **Confirm whether a hosting platform snapshot is enabled.** A five-minute check that changes the
    disaster-recovery statement.

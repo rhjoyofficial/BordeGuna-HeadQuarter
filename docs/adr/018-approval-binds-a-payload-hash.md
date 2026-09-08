@@ -1,6 +1,6 @@
 # ADR-018: An approval binds a canonical payload hash and a tool version, and is single use
 
-**Status:** proposed (Phase 2, docs/48)
+**Status:** **accepted and realised** (Phase 2 M3, docs/51; proven on production 8 September 2026)
 
 ## Context
 `docs/13` already says "the stored payload is what executes on approval. The agent is never asked to
@@ -17,15 +17,24 @@ row edited between decision and execution.
    no insignificant whitespace, fixed number formatting.
 3. On execution the gateway recomputes the hash from the stored payload and compares. A mismatch
    cannot happen through the application, so it means the row was changed underneath it: execution is
-   refused, an alert fires, the approval is marked `cancelled`.
+   refused and an alert fires.
+   **Amended in implementation (M3):** the approval is *not* marked `cancelled`. Writing to a row
+   already known to have been changed underneath the application destroys the forensic state at the
+   moment of detection, and it is unnecessary because the guard refuses a mismatched payload at both
+   the pre-claim and post-claim stages permanently. The row keeps whatever status it had and the
+   expiry sweep closes it in the ordinary way.
 4. `approvals.tool_version` is stored. An approval whose tool has since had a major version bump is
    refused rather than executed against a changed schema.
 5. Approvals are single use (`consumed_at`). A replayed or stolen approval id executes nothing twice.
 6. **No model call happens between approval and execution.** There is no window in which arguments
    could change, because nothing regenerates them.
 7. "Approve with edit" does not mutate the approval. It creates a new row with the edited payload, a
-   new hash and `superseded_by` linkage, plus a `decision_records` row holding proposal, final and
-   delta.
+   new hash and a link back to the original, plus a `decision_records` row holding proposal, final
+   and delta.
+   **Amended in implementation (M3):** the link is stored as `supersedes_id` on the successor, not
+   `superseded_by` on the original, so that accepting an edit writes nothing at all to the row the
+   human actually read. The successor is created `pending` and claimed through the same atomic path
+   as any other approval, rather than arriving pre-approved.
 8. Expiry never auto-approves. An ignored approval is a refusal.
 
 ## Alternatives

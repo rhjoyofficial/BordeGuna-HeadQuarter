@@ -21,7 +21,7 @@ Index of ADRs in `docs/adr/`. Each ADR: context, decision, alternatives, consequ
 | [ADR-015](adr/015-erp-owns-commerce-hq-adapts-to-it.md) | The ERP owns commerce; HQ reaches it through the platform interface. Amends ADR-009, narrows ADR-010 | accepted (Joy, 6 Sep) |
 | [ADR-016](adr/016-one-gateway-for-every-caller.md) | One tool gateway for every caller; the scheduler stops executing tools directly | **accepted and realised** (Phase 2 M2, docs/50; scheduler runs in gateway mode on production) |
 | [ADR-017](adr/017-risk-tier-and-action-class-are-orthogonal.md) | Risk tier is intrinsic to a tool; action class is derived by policy per call | **accepted** (Phase 2 M1, docs/49) |
-| [ADR-018](adr/018-approval-binds-a-payload-hash.md) | An approval binds a canonical payload hash and a tool version, and is single use | proposed (Phase 2) |
+| [ADR-018](adr/018-approval-binds-a-payload-hash.md) | An approval binds a canonical payload hash and a tool version, and is single use | **accepted and realised** (Phase 2 M3, docs/51; proven on production, two amendments recorded in the ADR) |
 | [ADR-019](adr/019-provider-neutral-model-router.md) | The model router is provider-neutral; no model id appears in business code | proposed (Phase 2) |
 
 Decisions inherited from the existing estate and treated as settled unless Joy reopens them: LaLaDia is the product and Bionic its fork (fixes flow upstream then down); brands are a product dimension in the ERP, not tenants; per-account identifiers are settings rows, never code literals; every schema change ships with its migration in the same commit; deploy only after CI is green.

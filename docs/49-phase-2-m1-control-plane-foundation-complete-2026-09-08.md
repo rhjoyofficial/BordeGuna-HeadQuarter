@@ -5,7 +5,8 @@
 M1 of the Phase 2 Command Center (`docs/48`), under Joy's approved decisions V.1 to V.11 of
 8 September. It builds the deterministic layer every later AI capability will depend on, and builds
 none of those capabilities: there is no agent, no model call, no Approval Center, no Ask HQ, no
-natural-language scheduling, no briefing and no Telegram.
+natural-language scheduling and no briefing. (The clause "and no Telegram" that stood here was wrong:
+Telegram is configured in production. Corrected 8 Sep 2026, see docs/51 F.)
 
 | | |
 | --- | --- |
