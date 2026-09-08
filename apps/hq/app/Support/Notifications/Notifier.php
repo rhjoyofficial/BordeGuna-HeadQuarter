@@ -60,6 +60,48 @@ final class Notifier
         );
     }
 
+    /**
+     * The soft cap warning (decision V.8).
+     *
+     * ⚠ It says what will HAPPEN, not merely that a number was passed. "You are at 80 percent" is
+     * information; "at 100 percent HQ will use a cheaper model rather than stop" is a decision the
+     * reader can act on.
+     *
+     * @param  array{spent: float, cap: float, share_percent: int, scope: string, downgrade: bool}  $pressure
+     */
+    public function budgetPressure(array $pressure): void
+    {
+        $this->dispatch(
+            "HQ AI spend at {$pressure['share_percent']}% of the cap ({$pressure['scope']})",
+            implode("\n", [
+                'Spent this period: USD '.number_format($pressure['spent'], 2).' of '.number_format($pressure['cap'], 2).'.',
+                $pressure['downgrade']
+                    ? 'The cap is reached. HQ is now choosing a cheaper model tier rather than stopping, and anything that runs degraded says so on its face.'
+                    : 'Nothing has changed yet. At 100 percent HQ moves to a cheaper model tier; it does not stop working.',
+                'Raise or change the cap in the ai_budgets table, or leave it and accept the lower tier.',
+            ]),
+            ['scope' => $pressure['scope'], 'share_percent' => $pressure['share_percent']],
+        );
+    }
+
+    /**
+     * A hard cap refused a call. Only reachable when somebody deliberately created a `hard` row.
+     *
+     * @param  array{spent: float, cap: float, scope: string}  $pressure
+     */
+    public function budgetRefused(array $pressure): void
+    {
+        $this->dispatch(
+            "HQ AI spend cap REACHED, work refused ({$pressure['scope']})",
+            implode("\n", [
+                'Spent this period: USD '.number_format($pressure['spent'], 2).' against a HARD cap of '.number_format($pressure['cap'], 2).'.',
+                'A model call was refused and did not run. This cap refuses rather than degrades because it was set to `hard`.',
+                'Raise the limit or set the row to `soft` to have HQ downgrade instead of stopping.',
+            ]),
+            ['scope' => $pressure['scope']],
+        );
+    }
+
     public function approvalIntegrityFailed(Approval $approval, string $reason): void
     {
         $this->dispatch(

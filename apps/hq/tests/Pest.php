@@ -1,7 +1,14 @@
 <?php
 
+use App\Ai\ModelTier;
+use App\Ai\Providers\ProviderRegistry;
 use App\Gateway\Credentials\CredentialVault;
+use App\Models\AiModel;
+use App\Models\FeatureFlag;
+use App\Support\Features\Features;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Ai\SecondFixtureProvider;
 use Tests\TestCase;
 
 /*
@@ -99,4 +106,51 @@ function withCredentials(array $pairs, Closure $fn): mixed
 function shopCredentials(string $store): array
 {
     return [['shop_assistant_key', $store], ['shop_admin_token', $store]];
+}
+
+/**
+ * M4 test helpers.
+ *
+ * These live here rather than in one test file because two AI test files need them, and a helper
+ * declared inside a Pest file is global the moment that file loads: two files declaring the same
+ * function is a fatal error that only appears when the loading order changes.
+ */
+function aiModel(string $provider, string $id, ModelTier $tier, int $priority = 10, string $in = '1.0000', string $out = '5.0000', array $capabilities = ['json_schema'], int $context = 200000): AiModel
+{
+    return AiModel::create([
+        'tier' => $tier->value,
+        'provider' => $provider,
+        'model_id' => $id,
+        'display_name' => $id,
+        'context_window' => $context,
+        'max_output_tokens' => 4096,
+        'capabilities' => $capabilities,
+        'input_price_per_mtok' => $in,
+        'output_price_per_mtok' => $out,
+        'cache_read_price_per_mtok' => '0.1000',
+        'cache_write_price_per_mtok' => '1.2500',
+        'priority' => $priority,
+        'is_active' => true,
+    ]);
+}
+
+/** Registers the two scripted providers and binds them, so no network or key is involved. */
+function aiProviders(): ProviderRegistry
+{
+    $registry = new ProviderRegistry;
+    $registry->register(FixtureProvider::class);
+    $registry->register(SecondFixtureProvider::class);
+    app()->instance(ProviderRegistry::class, $registry);
+
+    return $registry;
+}
+
+/** ⚠ The runtime ships OFF. A test that wants a model call must turn it on deliberately. */
+function enableAiRuntime(): void
+{
+    FeatureFlag::updateOrCreate(
+        ['key' => 'ai.runtime', 'environment' => '*'],
+        ['enabled' => true, 'rollout' => null],
+    );
+    app(Features::class)->forget();
 }

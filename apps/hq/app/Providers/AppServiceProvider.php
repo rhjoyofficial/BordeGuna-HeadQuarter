@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Ai\CircuitBreaker;
+use App\Ai\ModelRouter;
+use App\Ai\Providers\ProviderRegistry;
 use App\Commerce\Support\CommerceRegistry;
 use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
@@ -29,6 +32,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Features::class);
         $this->app->singleton(OAuthManager::class);
         $this->app->singleton(CommerceRegistry::class);
+
+        // M4. The provider registry mirrors the tool registry: config names driver CLASSES, the
+        // container resolves them so each driver gets its dependencies, and each names itself.
+        $this->app->singleton(ProviderRegistry::class, fn () => new ProviderRegistry(config('hq.ai.providers', [])));
+        // The breaker's state must be shared, and the router must be the single point of selection
+        // or cost accounting becomes a sample rather than a ledger (ADR-019).
+        $this->app->singleton(CircuitBreaker::class);
+        $this->app->singleton(ModelRouter::class);
     }
 
     public function boot(): void
