@@ -236,6 +236,47 @@ and the gate can be re-run unchanged.
 **Nothing else was altered.** No agent was called, no R4 or R5 tool was enabled, no customer-facing
 capability was touched, and no code was changed.
 
+## I-ter. Safety gate attempts 2 and 3: still refused
+
+**Attempt 2 was never made.** The credential Joy believed he had replaced had not reached HQ: one
+row, `created_at` equal to `updated_at`, and a single `credential.stored` audit event, all predating
+the first failure. Running the probe would have produced an identical 401 against a byte-identical
+input, so it was not run.
+
+⚠⚠ That investigation found a real defect, recorded here and deliberately not fixed:
+**`AdminController::storeCredential()` always calls `create()` and never updates**, so adding a
+"replacement" leaves the old row active and adds a second one. And **`CredentialVault::active()` is
+`->where('status','active')->first()` with no `ORDER BY`**, so with two active rows Postgres returns
+an arbitrary one, in practice the older. Adding a new key without revoking the old one would
+therefore have kept using the invalid one and looked like the new key was also bad. The remedy used
+was procedural: revoke first, then add. The code change is held as a separate post-M4 hardening
+decision.
+
+**Attempt 3 was made and refused.** Joy revoked id 10 and stored id 11 correctly, but a shape check
+showed it began `sk-ant-oat`, an OAuth access token rather than an API key. Those must be sent as
+`Authorization: Bearer` with an `anthropic-beta: oauth-2025-04-20` header, not as `x-api-key`, and
+they are short-lived, so accepting one in the driver would have traded a clean failure for a
+recurring one. The probe was not run. Joy then stored id 12, a proper `sk-ant-api03-` key, and the
+gate was run in full: dry probe detected the credential and routed to Haiku 4.5 at the low tier,
+`ai.runtime` was enabled deliberately with an audit record, and `hq:ai:probe --live` returned:
+
+```
+App\Ai\Exceptions\ProviderRefused
+anthropic 401: API key is invalid.
+```
+
+`ai.runtime` was switched OFF again immediately, with a second audit record. `ai_runs` now holds two
+rows, both `failed`, both recorded with their routing reason and zeroed token counts. **The breaker
+remained `closed` through both**, which is the classification working: a rejected key is this side's
+fault and must never take a healthy provider out of rotation.
+
+⚠ **The key is structurally correct and the provider still rejects it.** Shape only, never
+printed: `sk-ant-api03-` prefix, 109 characters, characters confined to `[A-Za-z0-9_-]`, no
+whitespace. That is exactly what a Console API key looks like, so the fault is not in how HQ stored
+or transmitted it. What remains is a property only the Anthropic Console can show: a key revoked or
+deleted after creation, a disabled workspace or organisation, or a single mistyped character that
+preserved the length. **No further diagnosis is possible from inside HQ.**
+
 ## I. What remains, and what it is waiting on
 
 **The live safety gate has been attempted once and refused** (section I-bis). It needs a valid
