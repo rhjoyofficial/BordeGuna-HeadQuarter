@@ -13,7 +13,7 @@ cost written down. It gives it no ability to act on the answer.
 | Starting release | **`ff34d7d`** (M3 + the M3 UI findings, PR #5) |
 | Ending release | **not merged** - branch `phase2/m4-model-router`, PR #6 |
 | Production | **still `ff34d7d`.** M4 has not been deployed |
-| CI | **283 passed / 1377 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
+| CI | **287 passed / 1387 assertions**, from 237 / 1217 at M3. Inherited red at 20 failed / 256 passed |
 | Migrations | 1, additive, reversible, **never run anywhere yet** |
 | Shop or ERP code changed | **none** |
 | Model provider connected | **none.** No model has been called |
@@ -156,6 +156,19 @@ the tokens went.
 where `AiBudget` coalesces the reported cost over the estimate. The two would have disagreed the
 moment a reconciliation wrote an actual cost, and whichever a future caller reached for would have
 been a coin toss. Removed.
+
+### D.8 HUMAN_ONLY could not be told apart from "not yet cleared"
+
+Pulled forward from `docs/53` on Joy's approval, because it is cheap before the tool count grows and
+archaeology afterwards. A tool declaring `agentExecutable: false` reads as `ActionClass::HumanOnly`
+and cannot be lifted by any approval, which is correct. What it could not say is **why**: all seven
+registered tools are false because none has been cleared yet, not because none may ever be.
+
+`ToolDescriptor` gains `permanentlyHumanOnly`, defaulting false, so nothing existing changes and no
+behaviour changes. The refusal now names which case applies, splitting the reason code into
+`action_class.human_only` and `action_class.human_only_permanent`, so the difference reaches the
+audit trail rather than staying in a boolean nobody prints. The contradiction of declaring both
+permanent and agent-executable throws at construction. ADR-025.
 
 ### D.7 Two test defects of the ordinary kind
 

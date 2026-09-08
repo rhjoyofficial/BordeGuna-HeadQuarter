@@ -1449,6 +1449,14 @@ parallelises safely.
 Nothing in M1 depends on a model provider, an external credential, or a decision from section V.
 It can start the moment this document is approved.
 
+⚠⚠ **CORRECTION, 8 September 2026.** The dependency diagram above promises a `policies`, `tools`
+and **`evaluations`** migration. M1 delivered the first two. **There is no `evaluations` table
+anywhere in the schema and there never was.** `docs/53` found this by checking the architecture
+against the live database rather than against this document, and it matters because `docs/30`
+planned Phases 9 and 10 to widen autonomy using evaluation data that nothing was recording. The
+evaluation subsystem is now a Phase 2.5 deliverable under ADR-023. Do not read the diagram above as
+a record of what shipped; `docs/49` is that record.
+
 ---
 
 ## V. Decisions that need Joy
