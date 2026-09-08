@@ -2,6 +2,8 @@
 
 namespace App\Gateway\Descriptor;
 
+use InvalidArgumentException;
+
 /**
  * A tool's whole contract with the control plane (docs/48 D.1).
  *
@@ -35,7 +37,25 @@ final readonly class ToolDescriptor
         public string $auditAction,
         public ToolScope $scope = ToolScope::Hq,
         public ReadWrite $readWrite = ReadWrite::Read,
+        /**
+         * Whether an agent may EXECUTE this tool today. False is the shipped default and reads as
+         * ActionClass::HumanOnly.
+         */
         public bool $agentExecutable = false,
+        /**
+         * Whether being human-only is PERMANENT rather than merely not yet earned.
+         *
+         * ⛔ These two flags answer different questions and must not be collapsed again.
+         * `agentExecutable: false` alone means "no agent has been cleared for this yet", which is a
+         * STAGE: evaluation evidence can end it. `permanentlyHumanOnly: true` means "no agent may
+         * ever run this", which is a DECISION: moving money, changing permissions, changing autonomy
+         * itself, overriding consent, altering the audit trail.
+         *
+         * Both refuse an agent identically today, so this changes no behaviour. What it changes is
+         * that the two become distinguishable before there are enough tools for the difference to
+         * be lost, which is the whole point of declaring it now (docs/53 section R, ADR-025).
+         */
+        public bool $permanentlyHumanOnly = false,
         public array $supportedBusinesses = ['*'],
         public array $supportedStores = ['*'],
         public ?string $policyClass = null,
@@ -67,7 +87,37 @@ final readonly class ToolDescriptor
          * repeating the work within the window is provably wasted rather than merely similar.
          */
         public int $replayWithinSeconds = 0,
-    ) {}
+    ) {
+        // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
+        // at construction means the mistake fails the build at the line that made it, rather than
+        // becoming a silently agent-executable tool that a document still calls human-only.
+        if ($permanentlyHumanOnly && $agentExecutable) {
+            throw new InvalidArgumentException(
+                "[{$key}] declares permanentlyHumanOnly and agentExecutable together. "
+                .'A permanently human-only tool can never be granted to an agent, so this is a contradiction, not a configuration.'
+            );
+        }
+    }
+
+    /**
+     * Why an agent may not execute this, or null when it may.
+     *
+     * The distinction is surfaced rather than merely stored: a refusal that says "not yet" invites a
+     * different next step from one that says "never", and the difference belongs in the audit trail
+     * where somebody reads it, not only in a boolean nobody prints.
+     */
+    public function agentRefusalReason(): ?string
+    {
+        if ($this->permanentlyHumanOnly) {
+            return "[{$this->key}] is permanently human-only. No approval, configuration or autonomy grant can ever let an agent run it.";
+        }
+
+        if (! $this->agentExecutable) {
+            return "[{$this->key}] is not yet cleared for agents. An agent may propose it; a human must perform it.";
+        }
+
+        return null;
+    }
 
     public function supportsBusiness(?string $slug): bool
     {
@@ -102,6 +152,7 @@ final readonly class ToolDescriptor
             'scope' => $this->scope->value,
             'read_write' => $this->readWrite->value,
             'agent_executable' => $this->agentExecutable,
+            'permanently_human_only' => $this->permanentlyHumanOnly,
             'supported_businesses' => $this->supportedBusinesses,
             'supported_stores' => $this->supportedStores,
             'scope_from' => $this->scopeFrom,

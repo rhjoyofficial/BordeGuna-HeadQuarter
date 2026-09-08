@@ -61,32 +61,6 @@ final class BudgetLedger
     }
 
     /**
-     * The soft advisory AI spend cap (decision V.8).
-     *
-     * @return array{spent: float, cap: float, share: float, notify: bool, downgrade: bool}
-     */
-    public function aiSpendThisMonth(): array
-    {
-        $cap = (float) config('hq.gateway.ai_monthly_soft_cap_usd', 50.0);
-
-        // `ai_runs` is empty in M2 because no model has been called. Reading it now rather than
-        // stubbing means M4 inherits a working budget instead of a placeholder.
-        $spent = (float) AiRun::query()
-            ->where('created_at', '>=', CarbonImmutable::now()->startOfMonth())
-            ->sum('estimated_cost_usd');
-
-        $share = $cap > 0 ? $spent / $cap : 0.0;
-
-        return [
-            'spent' => $spent,
-            'cap' => $cap,
-            'share' => $share,
-            'notify' => $share >= 0.8,
-            'downgrade' => $share >= 1.0,
-        ];
-    }
-
-    /**
      * An agent's own daily caps. Returns null when there is nothing to enforce.
      *
      * @return array{allowed: bool, reason: ?string}|null

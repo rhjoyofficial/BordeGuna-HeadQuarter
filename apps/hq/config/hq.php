@@ -1,5 +1,6 @@
 <?php
 
+use App\Ai\Providers\AnthropicProvider;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Tools\Commerce\CheckFactIntegrityTool;
@@ -82,6 +83,31 @@ return [
         // that did not run because of an advisory cap would be the cap lying about its own name.
         // Reads zero today: no model has ever been called (M4 connects the first provider).
         'ai_monthly_soft_cap_usd' => (float) env('HQ_AI_MONTHLY_SOFT_CAP_USD', 50.0),
+    ],
+
+    /*
+     | M4: the model router.
+     |
+     | ⚠ Only PROVIDER DRIVERS are listed here. Model ids, prices, context windows and capabilities
+     | live in the `model_tiers` table, because a price change or a new model must be a row edit and
+     | not a deploy (ADR-019). A grep test fails the build if a model id appears in `app/` outside
+     | the driver layer.
+     |
+     | Provider API keys are `integration_credentials` rows, added from the UI, never env values.
+     */
+    'ai' => [
+        'providers' => [
+            AnthropicProvider::class,
+        ],
+
+        // Turns the runtime on. OFF means every model call refuses, which is the Phase 2 default
+        // until Joy has added a provider key and said to enable it.
+        'enabled_flag' => 'ai.runtime',
+
+        'probe' => [
+            'max_output_tokens' => 64,
+            'timeout_seconds' => 60,
+        ],
     ],
 
     // M2: the scheduler runs its tools THROUGH the gateway when this feature flag is on.

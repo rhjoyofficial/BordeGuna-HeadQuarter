@@ -1,7 +1,10 @@
 <?php
 
 use App\Gateway\CallerKind;
+use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use App\Gateway\Identity\ActingIdentity;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\Policy\PolicyEngine;
@@ -296,7 +299,71 @@ it('refuses an agent a tool that is not agent-executable before anything else is
         identity: ActingIdentity::agent($agent, $human), correlationId: (string) Str::uuid(),
     ));
 
-    expect($outcome->status)->toBe(OutcomeStatus::Denied)->and($outcome->error)->toContain('not agent-executable');
+    expect($outcome->status)->toBe(OutcomeStatus::Denied)->and($outcome->error)->toContain('not yet cleared for agents');
+});
+
+/*
+ | ADR-025. HUMAN_ONLY has two causes and they are not the same statement.
+ |
+ | ⛔ Until now both read as `agentExecutable: false`, so a tool nobody had cleared yet looked
+ | exactly like one that may never be cleared. That is survivable with seven tools and an audit
+ | waiting to happen with fifty, which is why the distinction is being written down before the
+ | count grows rather than reconstructed afterwards.
+ */
+
+it('refuses an agent a permanently human-only tool, and says never rather than not yet', function () {
+    $human = policyUser();
+    $agent = Agent::create([
+        'key' => 'a-perm', 'name' => 'A', 'status' => 'active',
+        'enabling_user_id' => $human->id, 'allowed_tools' => ['test.permanent'],
+    ]);
+
+    $descriptor = new ToolDescriptor(
+        key: 'test.permanent', version: '1.0.0', title: 'Permanent', purpose: 'Stands in for moving money.',
+        riskTier: RiskTier::R5, permission: 'hq.tools.diagnostics', auditAction: 'tool.test_permanent',
+        scope: ToolScope::Hq, readWrite: ReadWrite::Write,
+        agentExecutable: false, permanentlyHumanOnly: true,
+    );
+
+    $decision = app(PolicyEngine::class)->decide(
+        $descriptor,
+        new ToolRequest(toolKey: 'test.permanent', args: [], caller: CallerKind::Agent,
+            identity: ActingIdentity::agent($agent, $human), correlationId: (string) Str::uuid()),
+        ActingIdentity::agent($agent, $human),
+    );
+
+    // The refusal is identical in effect and different in what it tells the reader to do next.
+    expect($decision->outcome)->toBe(PolicyOutcome::Deny)
+        ->and($decision->rule)->toBe('action_class.human_only_permanent')
+        ->and($decision->reason)->toContain('permanently human-only')
+        ->and($decision->reason)->toContain('can ever let an agent run it');
+});
+
+it('refuses to construct a tool that is permanently human-only and agent-executable at once', function () {
+    // The contradiction fails the build at the line that made it. A tool that quietly resolved the
+    // conflict in either direction would be worse: one silently agent-executable while a document
+    // still called it human-only, or one silently refused while its author believed it was enabled.
+    expect(fn () => new ToolDescriptor(
+        key: 'test.contradiction', version: '1.0.0', title: 'Contradiction', purpose: 'Cannot exist.',
+        riskTier: RiskTier::R5, permission: 'hq.tools.diagnostics', auditAction: 'tool.test_contradiction',
+        agentExecutable: true, permanentlyHumanOnly: true,
+    ))->toThrow(InvalidArgumentException::class, 'contradiction');
+});
+
+it('reports why each registered tool is out of agent hands, not merely that it is', function () {
+    $never = [];
+    $notYet = [];
+
+    foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
+        $descriptor->permanentlyHumanOnly ? $never[] = $key : ($descriptor->agentExecutable ?: $notYet[] = $key);
+    }
+
+    // Today every registered tool is "not yet", and none is permanent. That is the honest state:
+    // these seven are diagnostics, polls and reconciles, none of which is a decision to forbid
+    // forever. The assertion exists so that the first genuinely permanent tool is a deliberate,
+    // visible change to this list rather than one more `false` nobody looked at.
+    expect($never)->toBe([])
+        ->and($notYet)->toHaveCount(count(app(ToolGateway::class)->descriptors()));
 });
 
 it('keeps every tool out of agent hands, and allows exactly one R4 registration', function () {

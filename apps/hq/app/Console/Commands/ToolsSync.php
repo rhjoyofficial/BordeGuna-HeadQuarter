@@ -41,7 +41,7 @@ final class ToolsSync extends Command
                 $descriptor->version,
                 $descriptor->riskTier->value,
                 $descriptor->readWrite->value,
-                $descriptor->agentExecutable ? 'yes' : 'no',
+                $descriptor->permanentlyHumanOnly ? 'NEVER' : ($descriptor->agentExecutable ? 'yes' : 'not yet'),
                 ($state[$key]['enabled'] ?? true) ? 'enabled' : 'DISABLED',
                 $descriptor->permission,
             ];
