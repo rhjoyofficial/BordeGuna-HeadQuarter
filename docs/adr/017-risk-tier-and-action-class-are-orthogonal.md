@@ -1,6 +1,8 @@
 # ADR-017: Risk tier is intrinsic to a tool; action class is derived by policy per call
 
-**Status:** proposed (Phase 2, docs/48)
+**Status:** accepted (Phase 2 M1, 8 Sep 2026, docs/49). Implemented as RiskTier and ActionClass,
+with `agentExecutable` orthogonal to both. All six registered tools are classified, and a
+completeness test fails CI if one is not.
 
 ## Context
 `docs/11` and `docs/13` classify every tool as AUTO, APPROVAL_REQUIRED or HUMAN_ONLY. That single

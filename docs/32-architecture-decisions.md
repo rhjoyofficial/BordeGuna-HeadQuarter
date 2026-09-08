@@ -19,8 +19,8 @@ Index of ADRs in `docs/adr/`. Each ADR: context, decision, alternatives, consequ
 | [ADR-013](adr/013-behavior-alignment-without-fine-tuning.md) | Behavior Alignment Layer instead of training | accepted (Joy, 5 Sep) |
 | [ADR-014](adr/014-local-backup-no-offsite-provider.md) | Local on-VPS PostgreSQL backup; Backblaze B2 removed; no offsite provider in the current deployment | accepted (Joy, 5 Sep) |
 | [ADR-015](adr/015-erp-owns-commerce-hq-adapts-to-it.md) | The ERP owns commerce; HQ reaches it through the platform interface. Amends ADR-009, narrows ADR-010 | accepted (Joy, 6 Sep) |
-| [ADR-016](adr/016-one-gateway-for-every-caller.md) | One tool gateway for every caller; the scheduler stops executing tools directly | proposed (Phase 2) |
-| [ADR-017](adr/017-risk-tier-and-action-class-are-orthogonal.md) | Risk tier is intrinsic to a tool; action class is derived by policy per call | proposed (Phase 2) |
+| [ADR-016](adr/016-one-gateway-for-every-caller.md) | One tool gateway for every caller; the scheduler stops executing tools directly | **accepted** (Phase 2 M1, docs/49; scheduler migration is M2) |
+| [ADR-017](adr/017-risk-tier-and-action-class-are-orthogonal.md) | Risk tier is intrinsic to a tool; action class is derived by policy per call | **accepted** (Phase 2 M1, docs/49) |
 | [ADR-018](adr/018-approval-binds-a-payload-hash.md) | An approval binds a canonical payload hash and a tool version, and is single use | proposed (Phase 2) |
 | [ADR-019](adr/019-provider-neutral-model-router.md) | The model router is provider-neutral; no model id appears in business code | proposed (Phase 2) |
 
