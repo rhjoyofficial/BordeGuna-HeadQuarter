@@ -3,6 +3,10 @@
 namespace App\Scheduling\Tools\Commerce;
 
 use App\Facts\FactsIntegrityChecker;
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use App\Models\Store;
 use App\Scheduling\Tools\Tool;
 use App\Scheduling\Tools\ToolContext;
@@ -36,6 +40,50 @@ final class CheckFactIntegrityTool implements Tool
     public function key(): string
     {
         return 'commerce.check_fact_integrity';
+    }
+
+    /**
+     * Tier R1: it reads facts and writes one audit row saying what it found. Recording the call is
+     * not an effect for the purpose of classification, or every tool in HQ would be R3 and the
+     * scale would say nothing.
+     *
+     * This is the one Phase 2 tool with a replay window. Running the same arithmetic check over the
+     * same window twice inside a minute is provably wasted work rather than merely similar work,
+     * which is the only condition under which a derived key should replay at all.
+     */
+    public function descriptor(): ToolDescriptor
+    {
+        return new ToolDescriptor(
+            key: $this->key(),
+            version: '1.0.0',
+            title: 'Check order fact integrity',
+            purpose: 'Checks the arithmetic of stored order facts and reports discrepancies. Reports, never repairs.',
+            riskTier: RiskTier::R1,
+            permission: 'hq.tools.facts.read',
+            auditAction: 'tool.commerce_check_fact_integrity',
+            scope: ToolScope::Hq,
+            readWrite: ReadWrite::Read,
+            agentExecutable: false,
+            idempotent: true,
+            idempotencyKeyFrom: ['store_slug', 'hours'],
+            timeoutSeconds: 120,
+            outputSchema: $this->outputSchema(),
+            replayWithinSeconds: 60,
+        );
+    }
+
+    public function outputSchema(): array
+    {
+        return ['type' => 'object', 'properties' => [
+            'store' => ['type' => 'string'],
+            'hours' => ['type' => 'integer'],
+            'since' => ['type' => 'string'],
+            'checked' => ['type' => 'integer'],
+            'ok' => ['type' => 'integer'],
+            'without_lines' => ['type' => 'integer'],
+            'discrepancies' => ['type' => 'integer'],
+            'findings' => ['type' => 'array'],
+        ]];
     }
 
     public function inputSchema(): array

@@ -45,6 +45,29 @@ return [
         'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
     ],
 
+    // Phase 2 M1: the Tool Gateway (docs/48, docs/49, ADR-016).
+    //
+    // Everything the gateway needs that is genuinely deployment configuration. Note what is NOT
+    // here: risk tiers, permissions and credential requirements all live on the tool class, because
+    // they are statements about what the code does. A risk tier that could be edited in a config
+    // file would be a risk tier that could be edited to make an expensive action look cheap.
+    'gateway' => [
+        // What unattended internal work may do when no human owns it: the scheduler tick with an
+        // ownerless job, the event drain. Deliberately narrow, and deliberately a fixed list rather
+        // than a role, so widening it is a code change somebody reviews. There is no wildcard.
+        'system_permissions' => [
+            'hq.tools.diagnostics',
+            'hq.tools.erp.read',
+            'hq.tools.commerce.read',
+            'hq.tools.facts.read',
+        ],
+
+        // The oldest a recorded result may be and still be replayed for an explicit idempotency
+        // key. A redelivery arrives in seconds; a day is generous and stops a key from resurrecting
+        // an answer nobody remembers asking for.
+        'replay_ceiling_seconds' => 86400,
+    ],
+
     'scheduler' => [
         'heartbeat_stale_after_seconds' => 180,
         'default_retry_max' => 3,

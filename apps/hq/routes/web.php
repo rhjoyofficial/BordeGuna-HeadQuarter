@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
@@ -41,6 +42,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{job}/run-now', [ScheduledJobController::class, 'runNow'])->middleware('permission:hq.jobs.manage')->name('run-now');
         Route::post('runs/{run}/retry', [ScheduledJobController::class, 'retryRun'])->middleware('permission:hq.jobs.manage')->name('runs.retry');
     });
+
+    // Phase 2 M1: what HQ can do, and the audited runtime kill switch (docs/48 D.2).
+    Route::get('tools', [ToolRegistryController::class, 'index'])->middleware('permission:hq.tools.view')->name('tools.index');
+    Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware('permission:hq.tools.manage')->name('tools.toggle');
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
 

@@ -6,6 +6,11 @@ use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
 use App\Erp\ErpConnector;
 use App\Erp\ErpRegistry;
+use App\Gateway\Descriptor\CredentialRequirement;
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
 use App\Models\FactsErpSnapshot;
 use App\Scheduling\Tools\Tool;
@@ -37,6 +42,49 @@ abstract class PollErpTool implements Tool
             'properties' => ['business_slug' => ['type' => 'string', 'maxLength' => 64]],
             'additionalProperties' => false,
         ];
+    }
+
+    public function outputSchema(): array
+    {
+        return ['type' => 'object', 'properties' => [
+            'business' => ['type' => 'string'],
+            'kind' => ['type' => 'string'],
+            'as_of' => ['type' => 'string'],
+            'items' => ['type' => 'integer'],
+        ]];
+    }
+
+    /**
+     * Shared descriptor for both poll tools. They differ only in key, title and purpose.
+     *
+     * Tier R3, not R2. The rule is the highest tier of any effect the tool has: it reads the ERP
+     * (R2) and then writes a facts_erp_snapshots row (R3, HQ state only, reversible, invisible
+     * outside HQ). Classifying it R2 because "it is a poll" would be describing the intention
+     * rather than the effect.
+     *
+     * Credential: the ERP token is per business, so account_ref follows whichever business the call
+     * actually resolves to - the argument first, then the one the job is filed under, which is the
+     * same order execute() uses.
+     */
+    protected function baseDescriptor(string $title, string $purpose): ToolDescriptor
+    {
+        return new ToolDescriptor(
+            key: $this->key(),
+            version: '1.0.0',
+            title: $title,
+            purpose: $purpose,
+            riskTier: RiskTier::R3,
+            permission: 'hq.tools.erp.read',
+            auditAction: 'tool.'.str_replace('.', '_', $this->key()),
+            scope: ToolScope::Business,
+            readWrite: ReadWrite::Write,
+            agentExecutable: false,
+            credentials: [new CredentialRequirement(ErpRegistry::PROVIDER, 'args.business_slug|business.slug')],
+            idempotent: true,
+            idempotencyKeyFrom: ['business_slug'],
+            timeoutSeconds: 30,
+            outputSchema: $this->outputSchema(),
+        );
     }
 
     public function execute(array $payload, ToolContext $context): ToolResult

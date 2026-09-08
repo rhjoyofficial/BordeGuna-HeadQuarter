@@ -2,6 +2,10 @@
 
 namespace App\Scheduling\Tools;
 
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\Descriptor\ToolScope;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -15,6 +19,30 @@ final class NoopTool implements Tool
         return 'noop';
     }
 
+    public function descriptor(): ToolDescriptor
+    {
+        return new ToolDescriptor(
+            key: $this->key(),
+            version: '1.0.0',
+            title: 'No-op',
+            purpose: 'Proves the scheduler and the gateway run end to end without touching anything outside HQ.',
+            // R0: it logs and it can sleep. No I/O, nothing read, nothing changed.
+            riskTier: RiskTier::R0,
+            permission: 'hq.tools.diagnostics',
+            auditAction: 'tool.noop',
+            scope: ToolScope::Hq,
+            readWrite: ReadWrite::Read,
+            // A diagnostic is not a business capability. No agent has a reason to run one, so none may.
+            agentExecutable: false,
+            outputSchema: ['type' => 'object', 'properties' => [
+                'message' => ['type' => 'string'],
+                'idempotency_key' => ['type' => 'string'],
+                'attempt' => ['type' => 'integer'],
+                'executed_at' => ['type' => 'string'],
+            ]],
+        );
+    }
+
     public function inputSchema(): array
     {
         return [
@@ -25,6 +53,11 @@ final class NoopTool implements Tool
             ],
             'additionalProperties' => false,
         ];
+    }
+
+    public function outputSchema(): array
+    {
+        return $this->descriptor()->outputSchema;
     }
 
     public function execute(array $payload, ToolContext $context): ToolResult
