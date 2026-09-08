@@ -4,7 +4,7 @@ namespace App\Ai\Budget;
 
 use App\Models\AiBudgetRow;
 use App\Models\AiRun;
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 /**
  * What HQ has spent on models, and what it is allowed to spend.
@@ -104,7 +104,13 @@ final class AiBudget
         );
     }
 
-    private function periodStart(string $period): Carbon
+    /**
+     * ⚠ Typed `CarbonInterface`, not `Illuminate\Support\Carbon`. `AppServiceProvider` calls
+     * `Date::use(CarbonImmutable::class)`, so `now()` returns a `CarbonImmutable`, which is NOT a
+     * subclass of `Illuminate\Support\Carbon` - the narrower hint threw a `TypeError` on every
+     * call that touched a budget, which is most of M4.
+     */
+    private function periodStart(string $period): CarbonInterface
     {
         return $period === 'daily' ? now()->startOfDay() : now()->startOfMonth();
     }
