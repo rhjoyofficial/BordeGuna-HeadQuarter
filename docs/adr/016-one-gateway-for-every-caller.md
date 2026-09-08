@@ -1,8 +1,11 @@
 # ADR-016: One tool gateway for every caller, including the scheduler
 
-**Status:** accepted (Phase 2 M1, 8 Sep 2026, docs/49). The gateway is built and deployed; the
-scheduler migration onto it is M2, whose acceptance test is that the six live production jobs produce
-byte-identical output through it.
+**Status:** accepted and realised (Phase 2 M2, 8 Sep 2026, docs/50). The gateway was built in M1 and
+the scheduler was migrated onto it in M2. The acceptance test passed on production: all six live jobs
+produce equivalent output through the gateway, with only the necessarily nondeterministic fields
+(`as_of`, `since`, `executed_at`, `idempotency_key`, `attempt`) differing. The scheduler now runs in
+gateway mode; direct mode remains behind a feature flag as the rollback switch, rehearsed in both
+directions on production.
 
 ## Context
 Phase 0 built a `Tool` interface, a `ToolRegistry` and a `ToolContext`, and `RunScheduledJob` calls
