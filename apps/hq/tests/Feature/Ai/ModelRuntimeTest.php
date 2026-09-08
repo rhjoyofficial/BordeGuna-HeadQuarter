@@ -14,6 +14,7 @@ use App\Ai\TaskType;
 use App\Models\AiBudgetRow;
 use App\Models\AiRun;
 use App\Models\AuditLog;
+use App\Models\Business;
 use App\Models\FeatureFlag;
 use App\Support\Features\Features;
 use Illuminate\Support\Facades\Cache;
@@ -231,13 +232,18 @@ it('refuses and announces when a HARD cap is reached, and never silently', funct
 });
 
 it('scopes spend per business, so one business cannot exhaust another', function () {
-    AiRun::create(['task' => 't', 'status' => 'succeeded', 'business_id' => 1, 'estimated_cost_usd' => '3.000000']);
-    AiRun::create(['task' => 't', 'status' => 'succeeded', 'business_id' => 2, 'estimated_cost_usd' => '7.000000']);
+    // `ai_runs.business_id` is a real foreign key, so these rows need real businesses. Hard-coding
+    // 1 and 2 only looked fine because nothing had inserted a costed run against a business yet.
+    $one = Business::create(['name' => 'One', 'slug' => 'one-biz']);
+    $two = Business::create(['name' => 'Two', 'slug' => 'two-biz']);
+
+    AiRun::create(['task' => 't', 'status' => 'succeeded', 'business_id' => $one->id, 'estimated_cost_usd' => '3.000000']);
+    AiRun::create(['task' => 't', 'status' => 'succeeded', 'business_id' => $two->id, 'estimated_cost_usd' => '7.000000']);
 
     $budget = app(AiBudget::class);
 
-    expect($budget->spend('business', '1', 'monthly'))->toBe(3.0)
-        ->and($budget->spend('business', '2', 'monthly'))->toBe(7.0)
+    expect($budget->spend('business', (string) $one->id, 'monthly'))->toBe(3.0)
+        ->and($budget->spend('business', (string) $two->id, 'monthly'))->toBe(7.0)
         ->and($budget->spend('global', null, 'monthly'))->toBe(10.0);
 });
 
@@ -252,8 +258,10 @@ it('aggregates cost along every dimension a run already carries', function () {
     aiModel('fixture', 'a', ModelTier::Medium);
     FixtureProvider::script('fixture', [FixtureProvider::reply('x', in: 100, out: 10)]);
 
+    $business = Business::create(['name' => 'Reported', 'slug' => 'reported-biz']);
+
     app(ModelRuntime::class)->run(TaskType::OperatorQuestion, 'sys', [['role' => 'user', 'content' => 'hi']],
-        new RoutingContext(businessId: 1, agentKey: 'executive'));
+        new RoutingContext(businessId: $business->id, agentKey: 'executive'));
 
     $report = app(AiBudget::class)->report('monthly');
 
