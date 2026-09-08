@@ -605,8 +605,7 @@ misuse**, the reason Phase 8 must not begin before consent records exist.
 The mechanism exists: a tool declaring `agentExecutable: false` reads as `ActionClass::HumanOnly`,
 checked before everything else, and no approval can lift it.
 
-⚠ **The defect is that the mechanism cannot distinguish "never" from "not yet".** All six current
-tools declare `agentExecutable: false` because none has been cleared, not because none may ever be.
+⚠ **The defect is that the mechanism cannot distinguish "never" from "not yet".** All seven registered tools declare `agentExecutable: false` because none has been cleared, not because none may ever be.
 When there are fifty tools and someone is widening autonomy, the permanently forbidden ones look
 exactly like the merely uncleared ones. **This should be split before the tool count grows**, into a
 `HUMAN_ONLY` declaration that is permanent and a separate "not yet agent-executable" state that is a
