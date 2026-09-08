@@ -148,7 +148,7 @@ final class ModelRuntime
                     $this->structured->repairTurns($request->messages, $response->text, (string) $check['message'], $jsonSchema)
                 );
 
-                $firstTokens = [$response->inputTokens, $response->outputTokens, $response->cachedTokens];
+                $firstTokens = [$response->inputTokens, $response->outputTokens, $response->cachedTokens, $response->cacheWriteTokens];
 
                 $response = $this->vault->openForAccounts(
                     [$provider->credentialPair()],
@@ -164,6 +164,7 @@ final class ModelRuntime
                     cachedTokens: $response->cachedTokens + $firstTokens[2],
                     latencyMs: $response->latencyMs,
                     stopReason: $response->stopReason,
+                    cacheWriteTokens: $response->cacheWriteTokens + $firstTokens[3],
                     rawUsage: $response->rawUsage + ['repaired' => true],
                 );
 
@@ -213,12 +214,17 @@ final class ModelRuntime
 
     private function recordUsage(AiRun $run, AiModel $model, ModelResponse $response, ?string $status = null): void
     {
-        $estimate = $this->costs->estimate($model, $response->inputTokens, $response->outputTokens, $response->cachedTokens);
+        $estimate = $this->costs->estimate(
+            $model, $response->inputTokens, $response->outputTokens, $response->cachedTokens, $response->cacheWriteTokens,
+        );
 
         $run->forceFill(array_filter([
             'input_tokens' => $response->inputTokens,
             'output_tokens' => $response->outputTokens,
             'cached_tokens' => $response->cachedTokens,
+            // Stored, not just priced: without it the row cannot reproduce its own cost, and a
+            // cost you cannot re-derive is a number rather than a record.
+            'cache_write_tokens' => $response->cacheWriteTokens,
             'latency_ms' => $response->latencyMs,
             'estimated_cost_usd' => $estimate,
             // ⚠ `actual_cost_usd` stays NULL. It is filled only by a future reconciliation against

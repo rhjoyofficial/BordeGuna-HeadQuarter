@@ -124,7 +124,7 @@ it('sends the api key as a header and never in the body, url or an error', funct
 
     Http::fake(['api.anthropic.com/*' => Http::response([
         'content' => [['type' => 'text', 'text' => 'hello']],
-        'usage' => ['input_tokens' => 10, 'output_tokens' => 5, 'cache_read_input_tokens' => 3],
+        'usage' => ['input_tokens' => 10, 'output_tokens' => 5, 'cache_read_input_tokens' => 3, 'cache_creation_input_tokens' => 4],
         'stop_reason' => 'end_turn',
     ])]);
 
@@ -135,10 +135,11 @@ it('sends the api key as a header and never in the body, url or an error', funct
     );
 
     expect($response->text)->toBe('hello')
-        // cache reads are reported OUTSIDE input_tokens, so they must be added in to make
-        // `cachedTokens` a true subset of `inputTokens`.
-        ->and($response->inputTokens)->toBe(13)
+        // Cache reads AND cache writes are both reported OUTSIDE `input_tokens`, so both are added
+        // in to make each a true subset of `inputTokens`: 10 fresh + 3 read + 4 written.
+        ->and($response->inputTokens)->toBe(17)
         ->and($response->cachedTokens)->toBe(3)
+        ->and($response->cacheWriteTokens)->toBe(4)
         ->and($response->outputTokens)->toBe(5);
 
     Http::assertSent(function ($request) {

@@ -9,8 +9,9 @@ namespace App\Ai\Providers;
  * token count is a guess, and a cost built on a guess cannot be reconciled against an invoice, which
  * is the entire reason `ai_runs` separates `estimated_cost_usd` from `actual_cost_usd`.
  *
- * ⚠ `cachedTokens` is a SUBSET of `inputTokens`, not an addition to it. Every consumer must treat it
- * that way or cached calls are billed twice.
+ * ⚠ `cachedTokens` and `cacheWriteTokens` are both SUBSETS of `inputTokens`, not additions to it,
+ * and they never overlap: a token is either read from the cache, written to it, or neither. Every
+ * consumer must treat them that way or cached calls are billed twice.
  */
 final readonly class ModelResponse
 {
@@ -21,6 +22,11 @@ final readonly class ModelResponse
         public int $cachedTokens,
         public int $latencyMs,
         public string $stopReason,
+        /**
+         * Input tokens WRITTEN to the prompt cache on this call. Billed at a premium over the base
+         * input rate, so they cannot be lumped in with ordinary input without under-reporting cost.
+         */
+        public int $cacheWriteTokens = 0,
         /** Raw usage as reported, kept so a later reconciliation can see what was actually said. */
         public array $rawUsage = [],
     ) {}

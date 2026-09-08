@@ -126,6 +126,7 @@ final class AnthropicProvider implements ModelProvider
             cachedTokens: $cached,
             latencyMs: $latencyMs,
             stopReason: (string) $response->json('stop_reason', 'end_turn'),
+            cacheWriteTokens: $cacheWrites,
             rawUsage: $usage,
         );
     }

@@ -68,6 +68,11 @@ return new class extends Migration
             $table->decimal('actual_cost_usd', 12, 6)->nullable()->after('estimated_cost_usd');
             $table->string('cost_source', 24)->nullable()->after('actual_cost_usd');
 
+            // Cache WRITES are billed at a premium over base input, so a run that does not record
+            // them cannot re-derive its own cost. `cached_tokens` (reads) has existed since Phase 0;
+            // this is its other half.
+            $table->unsignedInteger('cache_write_tokens')->default(0)->after('cached_tokens');
+
             // Null means the run got the tier it asked for.
             $table->string('degraded_from_tier', 16)->nullable()->after('model_tier');
 
@@ -129,7 +134,7 @@ return new class extends Migration
         Schema::table('ai_runs', function (Blueprint $table) {
             $table->dropIndex(['created_at', 'provider']);
             $table->dropIndex(['agent_key', 'created_at']);
-            $table->dropColumn(['actual_cost_usd', 'cost_source', 'degraded_from_tier', 'attempt', 'routing_reason']);
+            $table->dropColumn(['actual_cost_usd', 'cost_source', 'cache_write_tokens', 'degraded_from_tier', 'attempt', 'routing_reason']);
         });
 
         Schema::dropIfExists('model_tiers');

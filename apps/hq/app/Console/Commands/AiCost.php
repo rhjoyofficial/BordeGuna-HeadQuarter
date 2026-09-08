@@ -41,10 +41,11 @@ class AiCost extends Command
 
             $this->newLine();
             $this->table(
-                [$label, 'runs', 'input', 'output', 'cached', 'USD'],
+                [$label, 'runs', 'input', 'output', 'cache rd', 'cache wr', 'USD'],
                 array_map(fn (array $r) => [
                     $r['key'], $r['runs'],
-                    number_format($r['input_tokens']), number_format($r['output_tokens']), number_format($r['cached_tokens']),
+                    number_format($r['input_tokens']), number_format($r['output_tokens']),
+                    number_format($r['cached_tokens']), number_format($r['cache_write_tokens']),
                     number_format($r['usd'], 6),
                 ], $report[$key]),
             );

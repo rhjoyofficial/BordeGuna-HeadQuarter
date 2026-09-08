@@ -128,7 +128,7 @@ final class AiBudget
 
         $by = fn (string $column) => AiRun::query()
             ->where('created_at', '>=', $since)
-            ->selectRaw("{$column} as k, count(*) as runs, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens, sum(cached_tokens) as cached_tokens, sum({$cost}) as usd")
+            ->selectRaw("{$column} as k, count(*) as runs, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens, sum(cached_tokens) as cached_tokens, sum(cache_write_tokens) as cache_write_tokens, sum({$cost}) as usd")
             ->groupBy($connection->raw($column))
             ->orderByRaw('usd desc')
             ->get()
@@ -138,6 +138,7 @@ final class AiBudget
                 'input_tokens' => (int) $r->input_tokens,
                 'output_tokens' => (int) $r->output_tokens,
                 'cached_tokens' => (int) $r->cached_tokens,
+                'cache_write_tokens' => (int) $r->cache_write_tokens,
                 'usd' => round((float) $r->usd, 6),
             ])
             ->all();
