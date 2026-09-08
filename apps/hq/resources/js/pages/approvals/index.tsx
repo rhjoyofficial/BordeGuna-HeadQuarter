@@ -64,7 +64,8 @@ export default function ApprovalsIndex({
     const [busy, setBusy] = useState<number | null>(null);
 
     const decide = (a: Approval, action: 'approve' | 'reject' | 'cancel') => {
-        let payload: Record<string, unknown> = {};
+        // Inertia types the body as RequestPayload; a bare Record<string, unknown> is not one.
+        let payload: Record<string, string> = {};
         if (action === 'reject') {
             const reason = window.prompt(`Reject ${a.tool_key}. Why? The proposer receives this as feedback.`);
             if (!reason || reason.trim() === '') return;

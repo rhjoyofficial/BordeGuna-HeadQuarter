@@ -51,6 +51,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
     ];
 
     const approve = (edited: boolean) => {
+        // Inertia types the body as RequestPayload; a bare Record<string, unknown> is not one.
         let payload: Record<string, unknown> = {};
         if (edited) {
             try {
@@ -64,7 +65,10 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
             return;
         }
         setBusy(true);
-        router.post(`/approvals/${approval.id}/approve`, payload, { preserveScroll: true, onFinish: () => setBusy(false) });
+        router.post(`/approvals/${approval.id}/approve`, payload as Parameters<typeof router.post>[1], {
+            preserveScroll: true,
+            onFinish: () => setBusy(false),
+        });
     };
 
     const reject = () => {
