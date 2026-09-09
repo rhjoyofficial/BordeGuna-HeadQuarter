@@ -203,3 +203,79 @@ raises a unique violation instead of silently duplicating: a loud 500 on the cre
 rather than a quiet wrong answer. If that is in the way during an incident, revoke the old row
 first, or drop the index by hand with
 `DROP INDEX integration_credentials_one_active_per_identity;`.
+
+## H. The release, as executed (9 September 2026)
+
+| | |
+| --- | --- |
+| Deployment commit | **`2784663`** |
+| Previous release | **`ae41291`** |
+| Rollback commit | **`ae41291`** (`./deploy/rollback.sh ae41291`) |
+| Released at | 9 Sep 2026, **06:49:58 UTC** |
+| Authorised by | Joy, explicitly, after PR #7 was approved and merged |
+| Migration | 1, additive and reversible, ran once as **batch 8** |
+| Model provider called | **none.** `ai_runs` unchanged at three failed rows |
+| Live safety gate | **NOT RUN**, and the bypass test was not run either |
+
+⚠ **On the commit that was deployed.** Joy authorised "`main` at `01c8031`". `origin/main` was
+`2784663` by then, because section G of this document was written and committed when he asked for
+the deployment plan prepared. `git diff 01c8031 origin/main` is **one file, this document, plus 61
+lines, and zero code files**, so the application deployed is `01c8031`'s code exactly.
+`deploy.sh` fast-forwards to `origin/main` by design, so the documented sequence was run unchanged
+rather than pinning a detached commit. That difference was surfaced before the deploy, not after.
+
+### Pre-flight
+
+Production was `ae41291` on branch `main` tracking `origin/main`. `deploy/.env` was mode 600,
+`root:root`. The section F duplicate check ran immediately before the release and returned **zero
+rows**, with 8 active credentials. Seven containers were up.
+
+### Release
+
+`./deploy/deploy.sh`. The pre-deploy dump is taken before anything else and the script exits rather
+than deploying if it fails: **`hq-20260909-064918.dump`**, with `LAST_OK` pointing at it and
+`LAST_STATUS` `0`, taken 40 seconds before the release. Both images built, no repeat of the
+`pecl.php.net` 504. The stack came up, the migration ran in the app entrypoint, Horizon was
+terminated gracefully, `web` was recreated so nginx re-resolved the app container, and `/up`
+answered 200 with `/api/health` ok on application, database, redis, queue and scheduler.
+
+### Verification
+
+**The migration** is row 18, **batch 8**. **The index exists** with exactly the intended definition:
+`CREATE UNIQUE INDEX integration_credentials_one_active_per_identity ON public.integration_credentials USING btree (provider, COALESCE(account_ref, ''::character varying)) WHERE (((status)::text = 'active'::text) AND (deleted_at IS NULL))`.
+
+**Credentials: 8 active, and exactly one per identity** - `anthropic_api_key/hq`,
+`erp_api_token/bor-de-guna`, and `shop_admin_token`, `shop_assistant_key` and `shop_webhook_secret`
+for each of `laladia-com` and `bionic-garden`. Zero identities with more than one active row. No
+credential was written, revoked or deleted by this release.
+
+**The six-job regression**, run through `ScheduledJobService::runNow()` so the real queue path was
+exercised, not a synchronous shortcut. Job runs **46 to 51, all six succeeded on attempt 1** with
+trigger `run_now` and no error. Tool calls **44 to 49, all `policy=allow`, all `succeeded`,
+`caller_kind=scheduler`**, and the scopes still resolve from the payload rather than from the
+request: LaLaDia business 2 / store 1, Bionic business 3 / store 2, both ERP polls business 1.
+**Four connector calls, all `succeeded`** and all against the expected account:
+`shop:laladia-com` listRecentOrders, `erp:bor-de-guna` overview, `erp:bor-de-guna` lowStock,
+`shop:bionic-garden` listRecentOrders. That is the credential path proved end to end: the resolver
+picked an identity, the vault opened it, and the far side accepted it. **Zero denials, zero failed
+queue jobs.**
+
+**Safety posture, re-read rather than assumed.** `ai.runtime` is present and **false**;
+`scheduler.gateway` is the only other flag and stays true. `ai_runs` is still **three rows, all
+failed, all anthropic**, none added. **Agents: 0.** Seven tools registered, **agent column "not yet"
+for every one of them**, so nothing is agent-executable; the only R4 tool, `demo.request_approval`,
+is **DISABLED**, and no R5 tool is registered. The `audit_logs_no_update` and `audit_logs_no_delete`
+triggers are present, as are `approvals_consumed_has_result` and the
+`approvals_resulting_tool_call_unique` index. Approvals unchanged at 12 rows, 4 consumed.
+Seven containers healthy six minutes after the release.
+
+⭐ Worth recording for next time: `approvals_resulting_tool_call_unique` is a **partial unique
+index**, so it appears in `pg_indexes` and NOT in `pg_constraint`. Looking for it in the constraint
+catalogue makes a present guard look missing.
+
+### What this release did not do
+
+It called no model, ran no bypass test, ran no safety gate, and touched no credential. The Anthropic
+driver, its headers, authentication mode and endpoint, the vault's decryption, the model router and
+every M4 gate semantic are unchanged. The remaining open item is still the live provider safety
+gate, still waiting on a working key.
