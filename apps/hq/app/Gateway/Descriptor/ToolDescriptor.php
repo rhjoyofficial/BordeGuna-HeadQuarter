@@ -87,6 +87,29 @@ final readonly class ToolDescriptor
          * repeating the work within the window is provably wasted rather than merely similar.
          */
         public int $replayWithinSeconds = 0,
+        /**
+         * ── Phase 2.5 additions (ADR-026). All additive, all defaulted to the safest value, so no
+         * existing descriptor changes and no existing behaviour changes.
+         *
+         * They exist because a rule that cannot be expressed here gets written inside a tool's body
+         * instead, where the control plane cannot see it, cannot audit it, and cannot notice when
+         * the next tool forgets it.
+         */
+        public Channel $channel = Channel::Internal,
+        public MonetaryImpact $monetaryImpact = MonetaryImpact::None,
+        public ?ConsentRequirement $consentRequired = null,
+        /**
+         * Whether a person outside the group sees the effect.
+         *
+         * Different from `readWrite` and from `riskTier`: a customer-visible action is
+         * reputationally irreversible even when it is technically undoable. Deleting a message you
+         * sent does not unsend it.
+         */
+        public bool $customerFacing = false,
+        public Reversibility $reversibility = Reversibility::NoEffect,
+        /** The tool that compensates this one, where compensation is how it is undone. */
+        public ?string $compensatingTool = null,
+        public DataClass $dataClass = DataClass::Internal,
     ) {
         // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
         // at construction means the mistake fails the build at the line that made it, rather than
@@ -95,6 +118,32 @@ final readonly class ToolDescriptor
             throw new InvalidArgumentException(
                 "[{$key}] declares permanentlyHumanOnly and agentExecutable together. "
                 .'A permanently human-only tool can never be granted to an agent, so this is a contradiction, not a configuration.'
+            );
+        }
+
+        // A customer-facing outbound tool MUST name the consent class the gateway checks. Without
+        // this, the first channel tool written in a hurry is a channel tool that contacts people
+        // with nothing consulted, and it would look exactly like every other descriptor.
+        if ($customerFacing && $channel->isOutbound() && $consentRequired === null) {
+            throw new InvalidArgumentException(
+                "[{$key}] is customer-facing on channel [{$channel->value}] but declares no consentRequired. "
+                .'Name the consent class the gateway must check, or the tool cannot reach a person.'
+            );
+        }
+
+        // Compensable means "undone by doing something else". Saying so without naming what leaves
+        // the claim unactionable at exactly the moment somebody needs to act on it.
+        if ($reversibility === Reversibility::Compensable && ($compensatingTool === null || $compensatingTool === '')) {
+            throw new InvalidArgumentException(
+                "[{$key}] declares Reversibility::Compensable without naming a compensatingTool. "
+                .'A compensable effect that does not say what compensates it is an irreversible one with better manners.'
+            );
+        }
+
+        // Credentials are the vault's, never a tool's declared payload class.
+        if ($dataClass === DataClass::Secret) {
+            throw new InvalidArgumentException(
+                "[{$key}] declares dataClass Secret. Tools do not carry credentials; CredentialVault opens them for the length of a call."
             );
         }
     }
@@ -162,6 +211,13 @@ final readonly class ToolDescriptor
             'replay_within_seconds' => $this->replayWithinSeconds,
             'credentials' => array_map(fn (CredentialRequirement $c) => $c->toArray(), $this->credentials),
             'redact' => $this->redact,
+            'channel' => $this->channel->value,
+            'monetary_impact' => $this->monetaryImpact->value,
+            'consent_required' => $this->consentRequired?->toArray(),
+            'customer_facing' => $this->customerFacing,
+            'reversibility' => $this->reversibility->value,
+            'compensating_tool' => $this->compensatingTool,
+            'data_class' => $this->dataClass->value,
         ];
     }
 }

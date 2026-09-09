@@ -2,6 +2,7 @@
 
 namespace App\Gateway;
 
+use App\Consent\ConsentGate;
 use App\Gateway\Approval\ApprovalGuard;
 use App\Gateway\Approval\ApprovalService;
 use App\Gateway\Credentials\CredentialResolver;
@@ -73,6 +74,7 @@ final class ToolGateway
         private readonly ApprovalService $approvals,
         private readonly ApprovalGuard $approvalGuard,
         private readonly Auditor $auditor,
+        private readonly ConsentGate $consent,
     ) {}
 
     public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
@@ -143,6 +145,19 @@ final class ToolGateway
             }
             $call->policy_reason = "{$decision->rule}: {$decision->reason} (satisfied by approval #{$approval->id})";
             $call->save();
+        }
+
+        // 5b. Consent, for any tool that declares a requirement (ADR-021, Phase 2.5 B).
+        //
+        //     ⛔ HERE, not inside each tool. A check written into each tool's body is a check that
+        //     will eventually be forgotten in one of them, and the one it is forgotten in will be
+        //     the newest channel. It sits below policy because a call policy already denies needs
+        //     no consent lookup, and above execution because consent is not something to discover
+        //     afterwards.
+        $consent = $this->consent->check($descriptor, $request, $args, $scope->businessId);
+        if (! $consent->permitted) {
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused,
+                'consent refused: '.$consent->reason, $descriptor);
         }
 
         // 6/7. Idempotency: a redelivered request returns its recorded result; an uncertain one is
