@@ -6,8 +6,17 @@ use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
 use App\Commerce\Support\CommerceRegistry;
+use App\Evaluation\DeterministicGrader;
+use App\Evaluation\EvaluationRunner;
+use App\Evaluation\RubricGrader;
 use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
+use App\Media\LocalStorageDriver;
+use App\Media\MediaAssetService;
+use App\Platform\CapabilityResolver;
+use App\Platform\Contracts\StorageDriver;
+use App\Platform\PlatformRegistry;
+use App\Support\Audit\Auditor;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
 use App\Tools\ToolRegistry;
@@ -40,6 +49,25 @@ class AppServiceProvider extends ServiceProvider
         // or cost accounting becomes a sample rather than a ledger (ADR-019).
         $this->app->singleton(CircuitBreaker::class);
         $this->app->singleton(ModelRouter::class);
+
+        // ── Phase 2.5 shared foundation ──────────────────────────────────────────────────────
+        //
+        // ⚠ The platform registry ships EMPTY, and that is the correct state: no provider is
+        // implemented yet. `CapabilityResolver` fails closed on an unknown platform, so "we have no
+        // code for this" and "this account may do anything" can never be the same answer.
+        $this->app->singleton(PlatformRegistry::class, fn () => new PlatformRegistry);
+        $this->app->singleton(CapabilityResolver::class);
+
+        // Local disk is the only driver today. Everything above it names a driver and an opaque
+        // key, so swapping this binding is the whole migration to object storage.
+        $this->app->bind(StorageDriver::class, fn () => new LocalStorageDriver);
+        $this->app->singleton(MediaAssetService::class);
+
+        // Deterministic graders decide tool calls and refusals; the rubric grader exists and
+        // refuses while ai.runtime is off, which in this milestone means always.
+        $this->app->singleton(EvaluationRunner::class, fn ($app) => (new EvaluationRunner($app->make(Auditor::class)))
+            ->withGrader(new DeterministicGrader)
+            ->withGrader($app->make(RubricGrader::class)));
     }
 
     public function boot(): void

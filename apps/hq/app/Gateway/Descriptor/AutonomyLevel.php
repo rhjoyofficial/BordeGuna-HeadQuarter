@@ -28,6 +28,17 @@ enum AutonomyLevel: string
     /** Execution with after-the-fact review only. Not in this roadmap. */
     case A4 = 'a4';
 
+    /**
+     * Strategic orchestration: an agent directing other agents against a goal.
+     *
+     * ⛔ **Defined and permanently unreachable** (ADR-020, Phase 2.5 C). Defining the whole ladder
+     * now stops the enum being edited later, when editing an enum means editing every grant, every
+     * evaluation run and every stored decision that named a level. Leaving it unreachable stops it
+     * being used before anybody has decided what it would even mean. `AutonomyResolver` caps at A4
+     * and says so in the trace; there is no configuration that lifts the cap.
+     */
+    case A5 = 'a5';
+
     public function rank(): int
     {
         return (int) substr($this->value, 1);
@@ -36,5 +47,22 @@ enum AutonomyLevel: string
     public function allowsExecution(): bool
     {
         return $this->rank() >= 2;
+    }
+
+    /** The lower of two levels. Autonomy combines by MINIMUM; this is that combinator. */
+    public function min(self $other): self
+    {
+        return $this->rank() <= $other->rank() ? $this : $other;
+    }
+
+    /** The highest level any resolution may return. A5 exists; it is never reachable. */
+    public static function ceiling(): self
+    {
+        return self::A4;
+    }
+
+    public function isReachable(): bool
+    {
+        return $this->rank() <= self::ceiling()->rank();
     }
 }

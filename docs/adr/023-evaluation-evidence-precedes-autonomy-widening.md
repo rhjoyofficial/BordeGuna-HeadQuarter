@@ -1,7 +1,10 @@
 # ADR-023: Evaluation evidence is the precondition for widening autonomy
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Not implemented.** Scheduled
-for Phase 2.5.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 D, docs/57). Suites, cases, runs and results exist; the permanent safety corpus ships with
+12 blocker cases across five categories; and `autonomy_grants.min_agreement_rate` reads the measured
+rate, which is the mechanical link this ADR asked for. Rubric grading is declared and refuses while
+`ai.runtime` is off.
 
 ## Context
 The project has said since Phase 0 that autonomy is earned against a measured agreement rate and

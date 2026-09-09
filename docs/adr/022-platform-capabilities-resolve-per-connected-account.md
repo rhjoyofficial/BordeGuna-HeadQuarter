@@ -1,7 +1,9 @@
 # ADR-022: Platform capabilities are resolved per connected account, not per platform
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Not implemented.** Scheduled
-for Phase 2.5, before any provider-specific integration begins.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 A, docs/57). `App\Platform\Capabilities` and `CapabilityResolver` resolve per connected
+account, the five previously unread `platform_accounts` columns are load-bearing, and eight
+provider-neutral interfaces are declared. No provider is implemented and the registry ships empty.
 
 ## Context
 The pattern already exists and works. `App\Commerce\Dto\Capabilities` carries a flag map with

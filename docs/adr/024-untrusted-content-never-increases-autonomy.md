@@ -1,7 +1,10 @@
 # ADR-024: Untrusted content is labelled, and can never increase autonomy
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Not implemented.** Scheduled
-for Phase 2.5, and binding on every phase that puts third-party text in front of a model.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 G, docs/57). `Provenance`, `ContextBlock` and `ContextBundle` label content structurally;
+`AutonomyResolver` reads the label and caps at A1; conversation messages and memory rows carry
+provenance so a block cannot lose it on the way into storage. A model's own output is labelled
+`generated` and is NOT trusted, which closes the laundering path.
 
 ## Context
 Today no model has ever been called and no tool is agent-executable, so the threat surface is small.
