@@ -1,6 +1,6 @@
 # 57 - Phase 2.5: the Shared Foundation (9 September 2026)
 
-**Status: built, CI green, NOT deployed. No agent exists, no autonomy is granted, no customer-facing
+**Status: built, CI green, DEPLOYED 9 September 10:57 UTC as `db3430a` (batch 9), corpus seeded; see `docs/58`. No agent exists, no autonomy is granted, no customer-facing
 capability is enabled, no external channel is reachable, and `ai.runtime` is still off.**
 
 Phase 2.5 builds the six subsystems `docs/53` identified as missing and shared, before Phase 3 needs
@@ -11,10 +11,10 @@ and consent built inside the Messenger work would be Messenger's consent.
 | | |
 | --- | --- |
 | Milestone | Phase 2.5, Shared Foundation |
-| Migrations | 5, all additive and reversible |
+| Migrations | 6, all additive and reversible (this row first said 5; the list in section N was always six) |
 | Suite | **367 passed / 1764 assertions** (was 296 / 1451) |
 | New tests | **71 across 7 files** |
-| Deployed | **no** |
+| Deployed | **yes, `db3430a`, 9 September 10:57:36 UTC** (`docs/58`) |
 | ADRs implemented | 020, 021, 022, 023, 024, 026 (025 was already done in M4) |
 
 ---
