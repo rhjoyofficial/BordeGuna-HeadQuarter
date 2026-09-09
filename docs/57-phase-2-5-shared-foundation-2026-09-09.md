@@ -291,3 +291,77 @@ automation, and the Research Engine, which stays in Phase 6 as approved. The Ant
 headers, authentication mode and endpoint, the `CredentialVault` decryption path, the `ModelRouter`
 and every M4 safety-gate semantic are unchanged; `ai_runs` still holds the four rows M4 left, of
 which one succeeded.
+
+## N. Merged, and the deployment plan (9 September, not yet executed)
+
+PR #8 was approved and merged as **`acf9e1e`** (`acf9e1eb9558ba3a6da9638e0c7f0d2e0378d871`), carrying
+`8025ef8` and `813e602`. CI on `main` at `acf9e1e`: ****green on both jobs** (run 34329868956, the suite at 367 / 1764 and the production image build)**.
+
+**Production remains `2784663`**, five commits behind `origin/main`. The diff between the two is
+81 files, 6,256 insertions, 14 deletions: the whole of Phase 2.5 and nothing else.
+
+### The pre-flight, run on production on 9 September
+
+`deploy/.env` is mode 600, `root:root`, on `main` tracking `origin/main`. `ai.runtime` is `false`;
+`scheduler.gateway` is the only other flag. Every Phase 2.5 table resolves to NULL through
+`to_regclass`: `consent_events`, `consent_state`, `autonomy_grants`, `evaluation_suites`,
+`media_assets`, `conversations`, `memories`. The two new `platform_accounts` columns are absent.
+The last migration is batch 8, the credential index from `docs/55`. M4 posture: `ai_runs` 4 rows
+with 1 succeeded, agents 0, approvals 12, 8 active credentials, and the section F duplicate check
+from `docs/55` still returns zero rows. Seven containers up. Disk 74 GB free on the volume media
+would land on.
+
+⭐ `customers` holds 17 rows and **zero of them carry a `consent` blob**. There is nothing to
+backfill, and nothing will be: the legacy column stays non-authoritative and no historical
+timestamp is invented for it.
+
+### What makes this release different from the last two
+
+**Nothing in it can refuse.** The `docs/55` migration checked for duplicates and threw; these five
+only create tables and add two nullable columns. The one way they fail is a name collision, and the
+pre-flight above shows every name free. So the release either applies cleanly as **batch 9** or
+fails at the build step before anything is touched.
+
+**Nothing in it changes runtime behaviour on its own.** The consent gate runs only for a tool that
+declares `consentRequired`, and none does. The resolver runs only when something asks it, and
+nothing does. The six scheduled jobs pass through the same gateway sequence they did yesterday
+with one extra step that returns `notRequired()` for every one of them. That step is still on the
+hot path, which is why the six-job regression is run again afterwards rather than assumed.
+
+### The release, when it is authorised
+
+The normal backup-first path: from `/opt/bordeguna-hq`, confirm `deploy/.env` is still 600, re-run
+the table-existence check because production can move, then `./deploy/deploy.sh`. It dumps first and
+refuses to deploy if the dump fails, builds `app` and `backup`, brings the stack up, runs the five
+migrations in the app entrypoint as batch 9, terminates Horizon gracefully, recreates `web`,
+smoke-checks `/up` and `/api/health`, and appends to `RELEASES.md`.
+
+⚠ **The safety corpus seeder is NOT run by the release.** `SafetyCorpusSeeder` is not in
+`DatabaseSeeder`, so a deploy creates the evaluation tables empty. Seeding the corpus is a
+deliberate, separate, authorised step - by full namespace, one at a time, as every seeder on this
+VPS has been run - and it is the ONLY data this release should ever write. It creates twelve
+evaluation cases and nothing else.
+
+### What to verify afterwards
+
+Batch 9 with five rows. Seven tables present and **all seven empty**, plus the two columns. The
+three partial unique indexes present (`consent_state_identity_unique`,
+`conversations_channel_thread_unique`, `memories_structured_key_unique`) and the two
+`consent_events` triggers. Then the six-job regression through `ScheduledJobService::runNow()`:
+all six succeed, zero denials, zero failed queue jobs, four connector calls succeeded. Then the
+posture: `ai.runtime` false, `ai_runs` 4 with 1 succeeded, agents 0, autonomy grants 0,
+conversations 0, consent events 0, approvals 12, 8 credentials one per identity, `hq:tools:sync
+--list` showing agent "not yet" on every tool and `demo.request_approval` still DISABLED.
+
+### Rollback
+
+`./deploy/rollback.sh 2784663`, code-only. The seven tables survive a rollback and hold nothing,
+which is harmless: the old code has no reference to any of them. If the corpus was seeded, its
+twelve rows survive too and are equally inert.
+
+### Recorded and carried forward, not fixed here
+
+Local-only backup no longer covers generated media; a decision before Phase 6. `customers.consent`
+stays non-authoritative and is never backfilled with invented timestamps. Any uniqueness rule over a
+nullable column needs `coalesce`. Append-only tables take no cascading or nulling referential
+action.
