@@ -16,7 +16,7 @@ final class OAuthManager
     /** @var array<string, OAuthProvider> */
     private array $providers = [];
 
-    public function __construct(private readonly Auditor $auditor) {}
+    public function __construct(private readonly Auditor $auditor, private readonly CredentialWriter $credentials) {}
 
     public function register(OAuthProvider $provider): void
     {
@@ -34,16 +34,21 @@ final class OAuthManager
         return array_keys($this->providers);
     }
 
-    /** Store a token set obtained from a provider. The payload is encrypted by the model cast. */
+    /**
+     * Store a token set obtained from a provider. The payload is encrypted by the model cast.
+     *
+     * ⚠ This used to `updateOrCreate` on provider + account_ref + business_id + brand_id. Those
+     * four columns are not the identity the vault resolves by - it asks for provider and
+     * account_ref - so reconnecting the same account against a different business quietly produced
+     * a SECOND active row for one identity. `CredentialWriter` replaces by the identity that is
+     * actually looked up, and audits the revocation of what it replaced.
+     */
     public function store(string $provider, string $accountRef, array $tokenSet, array $scopes = [], ?int $businessId = null, ?int $brandId = null, ?\DateTimeInterface $expiresAt = null): IntegrationCredential
     {
-        $credential = IntegrationCredential::updateOrCreate(
-            ['provider' => $provider, 'account_ref' => $accountRef, 'business_id' => $businessId, 'brand_id' => $brandId],
-            ['credential_type' => 'oauth2', 'payload' => $tokenSet, 'scopes' => $scopes, 'status' => 'active', 'expires_at' => $expiresAt, 'last_refreshed_at' => now()],
-        );
-        $this->auditor->record('credential.stored', $credential, after: $credential->toSafeArray());
-
-        return $credential;
+        return $this->credentials->replace($provider, $accountRef, $tokenSet, [
+            'credential_type' => 'oauth2', 'scopes' => $scopes, 'business_id' => $businessId,
+            'brand_id' => $brandId, 'expires_at' => $expiresAt, 'last_refreshed_at' => now(),
+        ]);
     }
 
     public function refresh(IntegrationCredential $credential): IntegrationCredential

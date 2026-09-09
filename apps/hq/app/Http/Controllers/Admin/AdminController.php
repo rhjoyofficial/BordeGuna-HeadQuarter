@@ -15,6 +15,7 @@ use App\Models\ScheduledJob;
 use App\Models\Store;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
+use App\Support\Credentials\CredentialWriter;
 use App\Support\Features\Features;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,11 @@ use Inertia\Response;
 /** Phase 0 admin screens: dashboard, audit log, feature flags, credentials, domain model. */
 final class AdminController extends Controller
 {
-    public function __construct(private readonly Auditor $auditor, private readonly Features $features) {}
+    public function __construct(
+        private readonly Auditor $auditor,
+        private readonly Features $features,
+        private readonly CredentialWriter $credentials,
+    ) {}
 
     public function dashboard(): Response
     {
@@ -107,12 +112,15 @@ final class AdminController extends Controller
             'scopes' => ['nullable', 'array'],
             'expires_at' => ['nullable', 'date'],
         ]);
-        $credential = IntegrationCredential::create([
-            ...collect($data)->except('secret')->all(),
-            'payload' => ['value' => $data['secret']],
-            'status' => 'active',
-        ]);
-        $this->auditor->record('credential.stored', $credential, after: $credential->toSafeArray());
+        // Storing is REPLACING. The writer revokes whatever was active for this provider/account
+        // first, in one transaction, so this screen can never leave two active rows for one
+        // identity - the state that made a replaced key keep working during the M4 safety gate.
+        $this->credentials->replace(
+            provider: $data['provider'],
+            accountRef: $data['account_ref'] ?? null,
+            payload: ['value' => $data['secret']],
+            attributes: collect($data)->except('secret', 'provider', 'account_ref')->all(),
+        );
 
         return back()->with('status', 'credential-stored');
     }
