@@ -1,8 +1,9 @@
 # ADR-026: The tool descriptor is the control plane's vocabulary
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Partly implemented**: ADR-025's
-`permanentlyHumanOnly` landed in M4. The remaining fields are scheduled for Phase 2.5, each arriving
-with the subsystem that reads it.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 H, docs/57). `channel`, `monetaryImpact`, `consentRequired`, `customerFacing`,
+`reversibility` with its compensating tool, and `dataClass` are all on the descriptor, additive with
+safe defaults, and three construction guards refuse the contradictions they make expressible.
 
 ## Context
 `ToolDescriptor` already declares key, version, risk tier, permission, audit action, scope, read or

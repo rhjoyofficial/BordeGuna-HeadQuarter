@@ -1,7 +1,10 @@
 # ADR-021: Consent is an append-only ledger, enforced at the gateway
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Not implemented.** Scheduled
-for Phase 2.5, before Phase 3 sends any customer message.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 B, docs/57). `consent_events` is append-only and immutable at the database level,
+`consent_state` is a rebuildable projection, and `ConsentGate` runs inside the Tool Gateway.
+`customers.consent` survives as a legacy column with nothing reading it as authoritative; migrating
+its values into the ledger is still outstanding and is noted in docs/57 K.6.
 
 ## Context
 Consent today is `customers.consent`, a mutable jsonb column holding

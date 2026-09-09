@@ -1,8 +1,9 @@
 # ADR-020: The Autonomy Control Plane is a separate resolver from the Policy Engine
 
-**Status:** accepted (8 Sep 2026, approved by Joy against docs/53). **Not implemented.** Scheduled
-for Phase 2.5. Today autonomy is the `AutonomyLevel` enum and the single `agents.max_autonomy_level`
-column, which stays as-is until 2.5 replaces it.
+**Status:** accepted (8 Sep 2026, approved by Joy against docs/53) and **IMPLEMENTED** (9 Sep 2026,
+Phase 2.5 C, docs/57). `AutonomyResolver`, `autonomy_grants` and the minimum-combinator all exist,
+with a structural test proving the resolver has no route to execution. `agents.max_autonomy_level`
+is now one input among many rather than the answer.
 
 ## Context
 The target requires autonomy to vary across business, brand, channel, agent, tool, action, monetary
