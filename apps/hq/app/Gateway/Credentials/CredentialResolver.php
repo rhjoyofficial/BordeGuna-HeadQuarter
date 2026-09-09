@@ -26,6 +26,8 @@ use App\Models\Store;
  */
 final class CredentialResolver
 {
+    public function __construct(private readonly CredentialVault $vault) {}
+
     /**
      * @return CredentialResolution ids and status only, never a value
      */
@@ -37,11 +39,20 @@ final class CredentialResolver
         foreach ($descriptor->credentials as $requirement) {
             $accountRef = $this->accountRef($requirement, $request, $args, $scope);
 
-            $credential = $accountRef === null ? null : IntegrationCredential::query()
-                ->where('provider', $requirement->provider)
-                ->where('account_ref', $accountRef)
-                ->where('status', 'active')
-                ->first();
+            try {
+                // The same lookup the vault will perform when the gateway opens the scope, rather
+                // than a second copy of it here. This used to be its own unordered `first()`, which
+                // meant the resolver could name one credential id on the tool_calls row while the
+                // vault opened a different one.
+                $credential = $accountRef === null ? null : $this->vault->active($requirement->provider, $accountRef);
+            } catch (AmbiguousCredential $e) {
+                // Fail closed and say which rows: HQ does not pick an identity for the operator.
+                if (! $requirement->optional) {
+                    $missing[] = $e->getMessage();
+                }
+
+                continue;
+            }
 
             if ($credential === null || $credential->isExpired() || ! $credential->hasPayload()) {
                 if (! $requirement->optional) {

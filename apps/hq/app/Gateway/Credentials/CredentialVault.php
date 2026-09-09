@@ -5,6 +5,7 @@ namespace App\Gateway\Credentials;
 use App\Commerce\Exceptions\Unsupported;
 use App\Models\IntegrationCredential;
 use Closure;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -142,13 +143,47 @@ final class CredentialVault
             ->all();
     }
 
+    /**
+     * The one active credential for a provider account, or null when there is none.
+     *
+     * ⚠ **Never an unordered `first()`.** Until 9 Sep this read
+     * `->where('status','active')->first()` with no `ORDER BY`, so with two active rows for one
+     * identity PostgreSQL was free to return either and in practice returned the OLDER one: a
+     * replacement key was stored, looked stored, and was then never used. The rule now is
+     * fail-closed - two active rows for one identity is an operational error, not a choice HQ is
+     * entitled to make quietly, so this refuses and names the ids.
+     *
+     * `limit(2)` because the question is only "is there more than one", and there is no reason to
+     * drag a whole table of duplicates into memory to answer it.
+     *
+     * @throws AmbiguousCredential when more than one active credential exists for the identity
+     */
     public function active(string $provider, string $accountRef): ?IntegrationCredential
     {
-        return IntegrationCredential::query()
+        $matches = IntegrationCredential::query()
             ->where('provider', $provider)
             ->where('account_ref', $accountRef)
             ->where('status', 'active')
-            ->first();
+            ->orderBy('id')
+            ->limit(2)
+            ->get();
+
+        if ($matches->count() > 1) {
+            $ids = IntegrationCredential::query()
+                ->where('provider', $provider)
+                ->where('account_ref', $accountRef)
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->pluck('id')
+                ->all();
+
+            // No secret in this line: ids and an account reference only, nothing decrypted.
+            Log::warning('Ambiguous credential refused', ['provider' => $provider, 'account_ref' => $accountRef, 'credential_ids' => $ids]);
+
+            throw new AmbiguousCredential($provider, $accountRef, array_map('intval', $ids));
+        }
+
+        return $matches->first();
     }
 
     /**
