@@ -142,3 +142,64 @@ screen first, and the safety-gate diagnosis should be re-read in that light.
 Once it is deployed, the "revoke the old credential before adding a new one" procedure recorded in
 `docs/54` is retired. Adding a credential revokes what it replaces, in one transaction, and says so
 in the audit log.
+
+## G. Merged, and the deployment plan (9 September, not yet executed)
+
+PR #7 was approved and merged. **`main` is now `01c8031`** (merge commit), carrying `c751b0e` and
+`fbe509b`. CI on the branch was green on both jobs: the suite at 296 / 1451, and the production
+image build after a re-run. The first image build attempt failed on `pecl.php.net` answering HTTP
+504 for `redis-6.3.0.tgz`, which is upstream and unrelated to this change; it matters only because
+`deploy.sh` builds the same image on the VPS and could hit the same outage.
+
+**Production remains `ae41291` and is not deployed.**
+
+### The pre-flight, run on production on 9 September
+
+The section F check returned **zero rows**. The table holds 13 credentials, 8 of them active, every
+one on a distinct `(provider, account_ref)`: `erp_api_token/bor-de-guna`, `shop_admin_token` and
+`shop_assistant_key` and `shop_webhook_secret` for each of `laladia-com` and `bionic-garden`, and
+`anthropic_api_key/hq` at id 13. The three earlier Anthropic rows (10, 11, 12) are revoked and
+soft-deleted, and two old `shop_assistant_key` rows with no account reference (2 and 3) are revoked
+and soft-deleted as well. Those last two are the case the `coalesce` in the index exists for; they
+are retired, so they do not conflict. No `integration_credentials_one_active_per_identity` index is
+present yet, as expected. Seven containers are up and healthy.
+
+**The migration will apply.** Nothing needs repairing first.
+
+⛔ **One live interaction to watch.** Production still runs the OLD code, where storing a credential
+adds a row instead of replacing one. If a new Anthropic key is stored on production before this
+release goes out, and the existing id 13 is not revoked first, that alone creates the duplicate
+state which makes this migration refuse. **Until this is deployed, revoke before adding**, and if a
+key is added in the meantime, re-run the section F check before deploying.
+
+### The release, when it is authorised
+
+The normal backup-first path, nothing bespoke. From `/opt/bordeguna-hq`: confirm `deploy/.env` is
+still mode 600, re-run the section F check because production state can move between now and then,
+then `./deploy/deploy.sh`. That takes the pre-deploy dump first and refuses to deploy if the dump
+fails, builds the `app` and `backup` images, brings the stack up, runs the migration in the app
+entrypoint as batch 8, terminates Horizon gracefully, recreates `web` so nginx re-resolves the app
+container, smoke-checks `/up` and `/api/health`, and appends the release to `deploy/RELEASES.md`.
+
+If the image build hits the pecl outage again it fails at the build step, before anything is
+brought up, and the running stack is untouched. That is a safe failure.
+
+### What to verify afterwards
+
+That the index exists, and that the eight active credentials are still eight. Then the six-job
+regression, as after M4: this release changes `CredentialResolver`, which is on the hot path of
+every scheduled job that uses a credential, so the jobs should be seen succeeding through the
+gateway with zero denials rather than assumed to be fine. Then confirm the safety posture has not
+moved: `ai.runtime` still off, `ai_runs` still three failed rows, no agent, no agent-executable
+tool.
+
+### Rollback
+
+`./deploy/rollback.sh ae41291`, which is code-only by design.
+
+⚠ **The index survives a code rollback**, because rollback deliberately does not run migrations.
+Old code plus new index means storing a credential for an identity that already has an active one
+raises a unique violation instead of silently duplicating: a loud 500 on the credentials screen
+rather than a quiet wrong answer. If that is in the way during an incident, revoke the old row
+first, or drop the index by hand with
+`DROP INDEX integration_credentials_one_active_per_identity;`.
