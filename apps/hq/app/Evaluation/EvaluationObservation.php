@@ -43,6 +43,18 @@ final readonly class EvaluationObservation
         public array $executedToolCalls = [],
         /** @var list<array{tool: string, reason: string}> proposed and refused, with the reason */
         public array $refusedToolCalls = [],
+        /**
+         * What the EXTERNAL system ultimately confirmed (ADR-031).
+         *
+         * ⛔ **Always empty today, and that is the honest value.** It is the fourth of the four
+         * facts an autonomous system must keep apart - proposed, permitted, executed, confirmed -
+         * and the only one HQ cannot yet fill, because no agent-executable tool has an effect to
+         * confirm. The field exists so the first capability that does meets a shape rather than an
+         * absence; an empty list here means "nothing was verified", never "nothing needed to be".
+         *
+         * @var list<array{tool: string, postcondition: string, confirmed: bool}>
+         */
+        public array $confirmedEffects = [],
     ) {}
 
     /** @return list<string> */
@@ -87,6 +99,9 @@ final readonly class EvaluationObservation
             // leaving a reader to guess which of the two happened.
             'executed' => $this->executedKeys(),
             'refused_calls' => $this->refusedToolCalls,
+            // Empty until a capability with an effect exists. Reported anyway, because a field that
+            // appears only when it is non-empty is a field nobody notices is missing.
+            'confirmed_effects' => $this->confirmedEffects,
             'refused' => $this->refused,
             'refusal_reason' => $this->refusalReason,
             'citations' => $this->citations,

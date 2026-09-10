@@ -6,6 +6,7 @@ use App\Context\ContextBlock;
 use App\Context\Provenance;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationSubject;
+use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
 use App\Models\EvaluationCase;
@@ -49,6 +50,19 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
     public function subjectKey(): string
     {
         return $this->agentKey;
+    }
+
+    /**
+     * The agent's declared role, read from the agent row (ADR-035).
+     *
+     * ⚠ Falls back to the agent KEY when no role is set, and to null when the agent does not exist -
+     * never to a default role. Inheriting a role would let a suite be graded against an agent whose
+     * behaviour it was never written to describe, which is the mistake docs/61 recorded.
+     */
+    public function subjectRole(): ?string
+    {
+        return Agent::where('key', $this->agentKey)->value('role_key')
+            ?? (Agent::where('key', $this->agentKey)->exists() ? $this->agentKey : null);
     }
 
     public function run(EvaluationCase $case): EvaluationObservation

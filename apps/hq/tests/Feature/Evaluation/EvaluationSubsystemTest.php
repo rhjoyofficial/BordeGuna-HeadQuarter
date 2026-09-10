@@ -30,6 +30,12 @@ function scriptedSubject(array $script, string $key = 'test-subject'): Evaluatio
             return $this->key;
         }
 
+        public function subjectRole(): ?string
+        {
+            // These doubles have no role, so they are graded only against cases that apply to every role.
+            return null;
+        }
+
         public function run(EvaluationCase $case): EvaluationObservation
         {
             return $this->script[$case->key] ?? new EvaluationObservation(refused: true, refusalReason: 'no script');
@@ -204,8 +210,18 @@ it('catches an agent that obeys an injected instruction', function () {
     $suite = EvaluationSuite::where('key', SafetyCorpusSeeder::SUITE_KEY)->sole();
 
     // A subject that does exactly what the injected text told it to do.
+    //
+    // ⚠ It declares the SUPPORT role, because the twelve original cases are framed as customer
+    // situations and are tagged for that role (ADR-036). Graded against a roleless subject they are
+    // skipped entirely - which is the role filter working, and which this test would otherwise read
+    // as "the case vanished".
     $obedient = new class implements EvaluationSubject
     {
+        public function subjectRole(): ?string
+        {
+            return 'support';
+        }
+
         public function subjectKey(): string
         {
             return 'obedient';

@@ -51,26 +51,51 @@ class SafetyCorpusSeeder extends Seeder
             ],
         );
 
+        // ⚠⚠ The twelve original cases are ALL framed as customer-support situations - "Answer the
+        // customer" eight times, "Act on the request" three times, "Summarise this page" once. That
+        // was invisible until the first real gate run graded them against the EXECUTIVE agent, which
+        // has no customer role and no messaging tool, and scored 0.333 while calling not one
+        // forbidden tool (docs/61).
+        //
+        // They are kept, unchanged and active, and tagged with the role whose behaviour they
+        // actually describe. They will gate the support agent in Phase 3.
+        //
+        // ⛔ Tagging them is a RE-TARGETING and must never become a removal, so every invariant they
+        // cover is also expressed role-neutrally below and graded against every agent. If a future
+        // change moves a case out of the global set without leaving an equivalent behind, the
+        // coverage test fails.
         foreach ($this->cases() as $case) {
-            EvaluationCase::updateOrCreate(
-                ['suite_id' => $suite->id, 'key' => $case['key']],
-                [
-                    'purpose' => $case['purpose'],
-                    'input' => $case['input'],
-                    'expectation' => $case['expectation'],
-                    'grader' => 'deterministic',
-                    'severity' => 'blocker',
-                    // ADR-030. Every case here asks the same shape of question - did the MODEL reach
-                    // for something it must not, or refuse when it must - so the corpus measures
-                    // `tool_selection`. Enforcement, policy, execution and postcondition are
-                    // measured by their own suites, against their own components, because a failure
-                    // in each blames somebody different.
-                    'dimension' => $case['dimension'] ?? EvaluationDimension::ToolSelection->value,
-                    'tags' => $case['tags'],
-                    'is_active' => true,
-                ],
-            );
+            $this->upsert($suite, $case, 'support');
         }
+
+        foreach (RoleNeutralSafetyCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
+    }
+
+    private function upsert(EvaluationSuite $suite, array $case, ?string $role): void
+    {
+
+        EvaluationCase::updateOrCreate(
+            ['suite_id' => $suite->id, 'key' => $case['key']],
+            [
+                'purpose' => $case['purpose'],
+                'input' => $case['input'],
+                'expectation' => $case['expectation'],
+                'grader' => 'deterministic',
+                'severity' => 'blocker',
+                'applies_to_role' => $role,
+                // ADR-030. Every case here asks the same shape of question - did the MODEL reach
+                // for something it must not, or refuse when it must - so the corpus measures
+                // `tool_selection`. Enforcement, policy, execution and postcondition are
+                // measured by their own suites, against their own components, because a failure
+                // in each blames somebody different.
+                'dimension' => $case['dimension'] ?? EvaluationDimension::ToolSelection->value,
+                'tags' => $case['tags'],
+                'is_active' => true,
+            ],
+        );
+
     }
 
     /** @return list<array<string, mixed>> */
