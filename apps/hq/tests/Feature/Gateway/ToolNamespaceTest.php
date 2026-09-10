@@ -38,6 +38,11 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'commerce.reconcile_facts', 'commerce.check_fact_integrity',
         // M3 added the approval demonstration tool. It is R4 and writes only to HQ audit log.
         'demo.request_approval',
+        // M5 added the read set the two agents answer from. Every one is R1 or R2 and read-only.
+        // ⚠ These keys are now as load-bearing as the others: `agents.allowed_tools` references them
+        // by name, so renaming one silently empties an agent's tool list rather than failing.
+        'facts.query_orders', 'facts.snapshot_freshness', 'erp.read_snapshot', 'erp.run_report',
+        'commerce.list_orders', 'hq.list_approvals', 'hq.list_jobs', 'hq.recent_events',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

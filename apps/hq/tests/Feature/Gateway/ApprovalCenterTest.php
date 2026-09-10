@@ -417,9 +417,17 @@ it('audits every step of the lifecycle', function () {
 // ---------------------------------------------------------------- the standing commitments
 
 it('still enables no R4 or R5 tool for an agent, and keeps the demo tool out of agent hands', function () {
+    // ⚠ Narrowed in M5. It used to assert that NO tool was agent-executable, which stopped being a
+    // statement about approvals the moment M5 gave two agents a read set. What it was really
+    // guarding is that nothing needing an approval is ever handed to an agent, and that is what it
+    // now says: an agent may propose an R4 action and can never be the thing that performs it.
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        expect($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable");
+        if ($descriptor->riskTier->writesOutsideHq()) {
+            expect($descriptor->agentExecutable)->toBeFalse("[{$key}] is R4 or above and must not be agent-executable");
+        }
     }
+
+    expect(app(ToolGateway::class)->descriptors()[DEMO]->agentExecutable)->toBeFalse();
 });
 
 it('keeps every real Phase 1 tool below the approval tier', function () {

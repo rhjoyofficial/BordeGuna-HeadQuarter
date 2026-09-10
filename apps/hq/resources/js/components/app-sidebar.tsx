@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, Building2, CalendarClock, Flag, KeyRound, LayoutGrid, ScrollText, ShieldCheck, Stamp, Users, Wrench } from 'lucide-react';
+import { Activity, Bot, Building2, CalendarClock, Flag, KeyRound, LayoutGrid, ScrollText, ShieldCheck, Stamp, Users, Wrench } from 'lucide-react';
 import AppLogo from './app-logo';
 
 type SharedAuth = { auth: { permissions: string[] } };
@@ -15,6 +15,7 @@ const allNavItems: (NavItem & { permission?: string })[] = [
     { title: 'Businesses', url: '/businesses', icon: Building2, permission: 'hq.businesses.view' },
     { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
     { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view' },
+    { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view' },
     { title: 'Tools', url: '/tools', icon: Wrench, permission: 'hq.tools.view' },
     { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
     { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },

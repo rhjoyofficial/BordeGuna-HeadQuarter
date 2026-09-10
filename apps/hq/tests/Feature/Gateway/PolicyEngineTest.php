@@ -358,22 +358,27 @@ it('reports why each registered tool is out of agent hands, not merely that it i
         $descriptor->permanentlyHumanOnly ? $never[] = $key : ($descriptor->agentExecutable ?: $notYet[] = $key);
     }
 
-    // Today every registered tool is "not yet", and none is permanent. That is the honest state:
-    // these seven are diagnostics, polls and reconciles, none of which is a decision to forbid
-    // forever. The assertion exists so that the first genuinely permanent tool is a deliberate,
-    // visible change to this list rather than one more `false` nobody looked at.
-    expect($never)->toBe([])
-        ->and($notYet)->toHaveCount(count(app(ToolGateway::class)->descriptors()));
+    // ⚠ Updated in M5. Until now every registered tool was "not yet" and the assertion counted them
+    // all; M5 cleared nine reads for agents, so the count no longer holds. The point of the test was
+    // never the count - it is that NOTHING is permanently human-only yet, so the first genuinely
+    // permanent tool is a deliberate, visible change rather than one more `false` nobody looked at.
+    //
+    // Still true, and still the honest state: the writes and the R4 demo are "not yet" (a stage
+    // evaluation evidence can end), and nothing anywhere is "never" (a decision).
+    expect($never)->toBe([]);
+    expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 
 it('keeps every tool out of agent hands, and allows exactly one R4 registration', function () {
     // The Phase 2 autonomy commitment. M3 registers ONE R4 tool, whose only effect is a row in HQ
     // own audit log, so the approval mechanism could be proven without creating or cancelling a
     // customer order to test it. Every real Phase 1 tool is still below the approval tier.
+    // ⚠ Narrowed in M5: an agent may now execute reads. What may never be handed to one is anything
+    // that writes outside HQ, which is the commitment this test actually carries.
     $r4OrAbove = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        expect($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable");
         if ($descriptor->riskTier->writesOutsideHq()) {
+            expect($descriptor->agentExecutable)->toBeFalse("[{$key}] writes outside HQ and must not be agent-executable");
             $r4OrAbove[] = $key;
         }
     }

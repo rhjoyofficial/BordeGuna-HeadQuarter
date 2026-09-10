@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\ToolRegistryController;
+use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
@@ -60,6 +61,17 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{approval}/reject', [ApprovalController::class, 'reject'])->middleware('permission:hq.approvals.decide')->name('reject');
         Route::post('{approval}/cancel', [ApprovalController::class, 'cancel'])->middleware('permission:hq.approvals.view')->name('cancel');
         Route::post('{approval}/delegate', [ApprovalController::class, 'delegate'])->middleware('permission:hq.approvals.delegate')->name('delegate');
+    });
+
+    // Phase 2 M5: the agents, and the shadow review the seven-day period consists of (docs/48 M5).
+    //
+    // ⛔ There is deliberately NO route here that starts a run, and none that activates, pauses or
+    // re-tools an agent. The browser reads runs and records a verdict; a run is started from the
+    // console, and changing what an agent may do is a deploy. `Ask HQ` is M6.
+    Route::prefix('agents')->name('agents.')->group(function () {
+        Route::get('/', [AgentController::class, 'index'])->middleware('permission:hq.agents.view')->name('index');
+        Route::get('runs/{run}', [AgentController::class, 'show'])->middleware('permission:hq.agents.view')->name('runs.show');
+        Route::post('runs/{run}/review', [AgentController::class, 'review'])->middleware('permission:hq.agents.manage')->name('runs.review');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');

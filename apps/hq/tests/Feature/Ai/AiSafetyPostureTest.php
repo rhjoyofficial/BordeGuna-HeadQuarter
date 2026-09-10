@@ -8,6 +8,8 @@ use App\Ai\Providers\ModelProvider;
 use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ProviderRegistry;
 use App\Gateway\Credentials\CredentialVault;
+use App\Gateway\Descriptor\ReadWrite;
+use App\Gateway\Descriptor\RiskTier;
 use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\IntegrationCredential;
@@ -86,13 +88,28 @@ it('never reads a provider credential outside the vault', function () {
         ->and($source)->not->toContain("env('");
 });
 
-it('leaves every tool non agent-executable and nothing enabled above R3', function () {
-    // M4 gives a model the ability to produce TEXT. It gives it no ability to act, and this is the
-    // assertion that will fail the day somebody assumes otherwise.
+it('lets an agent execute only reads below R3, and nothing that reaches a person', function () {
+    // ⚠⚠ REWRITTEN IN M5, and the old assertion is worth recording because it was correct until it
+    // was not. Through M4 and Phase 2.5 this read `every tool is non agent-executable`, which was a
+    // true statement about a release with no agent in it. M5 is the milestone that ends it: the two
+    // agents hold nine read tools, so an assertion that no tool is agent-executable now only says
+    // "M5 has not shipped".
+    //
+    // What replaces it is stronger and does not expire. The property that must hold for the life of
+    // this system is not that agents have nothing, it is WHAT they may never have: anything that
+    // writes, anything that reaches R3, anything a person outside the group can see, and anything
+    // that needs consent. Widening autonomy tool by tool is a legitimate future change; crossing one
+    // of these four lines is not, and this fails the build if somebody does.
     $descriptors = collect(app(ToolRegistry::class)->keys())
         ->map(fn (string $key) => app(ToolRegistry::class)->get($key)->descriptor());
 
-    expect($descriptors->every(fn ($d) => $d->agentExecutable === false))->toBeTrue();
+    foreach ($descriptors->filter(fn ($d) => $d->agentExecutable) as $d) {
+        expect($d->readWrite)->toBe(ReadWrite::Read, "[{$d->key}] is agent-executable and writes");
+        expect($d->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$d->key}] is agent-executable at {$d->riskTier->value}");
+        expect($d->customerFacing)->toBeFalse("[{$d->key}] is agent-executable and customer-facing");
+        expect($d->channel->isOutbound())->toBeFalse("[{$d->key}] is agent-executable on an outbound channel");
+        expect($d->consentRequired)->toBeNull("[{$d->key}] is agent-executable and requires consent");
+    }
 
     $highRisk = $descriptors->filter(fn ($d) => in_array($d->riskTier->value, ['r4', 'r5'], true))
         ->map(fn ($d) => $d->key)->values()->all();
