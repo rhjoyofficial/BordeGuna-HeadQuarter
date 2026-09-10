@@ -4,7 +4,9 @@ use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AuditLog;
+use App\Models\Business;
 use App\Models\DecisionRecord;
+use App\Models\UserBusinessScope;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -145,4 +147,46 @@ it('keeps the screen behind hq.agents.view, and the review behind hq.agents.mana
     expect($run->refresh()->review_verdict)->toBeNull();
 
     $this->actingAsHq($this->hqUser('support_agent'))->get('/agents')->assertForbidden();
+});
+
+it('scopes runs to the businesses a restricted operator may see', function () {
+    // ⛔ Found reviewing this milestone's own PR. `brand_manager` holds `hq.agents.view`, and the
+    // screen applied NO business scope - so a manager restricted to LaLaDia could read a Bionic run,
+    // including the model's claims, and a claim quotes figures. Harmless today because HQ has one
+    // operator with no scope rows (V.11); this is the gap closed before the first second user, not
+    // after.
+    $this->seed(DomainSeeder::class);
+    $laladia = Business::where('slug', 'laladia')->first()
+        ?? Business::orderBy('id')->first();
+    $other = Business::where('id', '!=', $laladia->id)->orderBy('id')->firstOrFail();
+
+    $mine = shadowRun(['business_id' => $laladia->id, 'question' => 'mine']);
+    $theirs = shadowRun(['business_id' => $other->id, 'question' => 'theirs']);
+    $groupWide = shadowRun(['business_id' => null, 'question' => 'group wide']);
+
+    // An OPERATOR with a scope row, not a brand_manager: a brand_manager lacks `hq.agents.manage`,
+    // so the permission middleware would answer 403 on the review path before the scope check ever
+    // ran, and the test would prove the wrong thing about the write path.
+    $restricted = $this->hqUser('operator');
+    UserBusinessScope::create(['user_id' => $restricted->id, 'business_id' => $laladia->id]);
+
+    $this->actingAsHq($restricted)->get('/agents')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->has('runs', 1)->where('runs.0.question', 'mine'));
+
+    $this->actingAsHq($restricted)->get("/agents/runs/{$mine->id}")->assertOk();
+
+    // 404 rather than 403: that run 412 exists at all is itself a disclosure.
+    $this->actingAsHq($restricted)->get("/agents/runs/{$theirs->id}")->assertNotFound();
+
+    // A cross-business run is group-wide by nature, so a restricted user does not see it either.
+    $this->actingAsHq($restricted)->get("/agents/runs/{$groupWide->id}")->assertNotFound();
+
+    // And reviewing is reading: the same gate, or the verdict path becomes the way around it.
+    $this->actingAsHq($restricted)->post("/agents/runs/{$theirs->id}/review", ['verdict' => 'approved'])->assertNotFound();
+    expect($theirs->refresh()->review_verdict)->toBeNull();
+
+    // The owner holds no scope rows, so nothing about today's only operator changes.
+    $this->actingAsHq($this->owner)->get('/agents')
+        ->assertInertia(fn ($page) => $page->has('runs', 3));
 });

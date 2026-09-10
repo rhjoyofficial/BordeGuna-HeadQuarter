@@ -9,6 +9,8 @@ use App\Models\AiRun;
 use App\Models\DecisionRecord;
 use App\Models\ToolCall;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\BusinessScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -43,7 +45,31 @@ final class AgentController extends Controller
      */
     private const VERDICTS = ['approved', 'edited', 'rejected'];
 
-    public function __construct(private readonly Auditor $auditor) {}
+    public function __construct(
+        private readonly Auditor $auditor,
+        private readonly BusinessScope $businessScope,
+    ) {}
+
+    /**
+     * The runs this human may read.
+     *
+     * ⛔ **A run carries the model's own claims, and a claim quotes figures.** Reading somebody
+     * else's business's run is therefore reading their numbers, which is why this is scoped rather
+     * than left to `hq.agents.view` alone - `brand_manager` holds that permission.
+     *
+     * ⚠ A run with a NULL business is a cross-business question. It is group-wide by nature, so a
+     * restricted user does not see it. Fail closed: showing it because it names no single business
+     * is the inversion that would leak the most.
+     *
+     * Null scope means unrestricted, which is today's only operator (V.11), so nothing changes now.
+     */
+    private function readable(Request $request): Builder
+    {
+        $query = AgentRun::query();
+        $scope = ($user = $request->user()) === null ? [] : $this->businessScope->all($user);
+
+        return $scope === null ? $query : $query->whereIn('business_id', $scope);
+    }
 
     public function index(Request $request): Response
     {
@@ -57,15 +83,16 @@ final class AgentController extends Controller
             'max_autonomy_level' => $a->max_autonomy_level?->value,
             'allowed_tools' => (array) ($a->allowed_tools ?? []),
             'enabling_user' => $a->enablingUser?->email,
-            'runs' => AgentRun::where('agent_key', $a->key)->count(),
-            'awaiting_review' => AgentRun::where('agent_key', $a->key)
+            // Counted over what this human may READ, not over the table. A count is a disclosure.
+            'runs' => $this->readable($request)->where('agent_key', $a->key)->count(),
+            'awaiting_review' => $this->readable($request)->where('agent_key', $a->key)
                 ->where('shadow', true)->whereNull('reviewed_at')
                 ->whereIn('status', ['answered', 'refused', 'stopped'])->count(),
         ]);
 
         $filter = (string) $request->query('filter', 'all');
 
-        $runs = AgentRun::query()
+        $runs = $this->readable($request)
             ->when($filter === 'unreviewed', fn ($q) => $q->whereNull('reviewed_at')->where('shadow', true))
             ->when($filter !== 'all' && $filter !== 'unreviewed', fn ($q) => $q->where('agent_key', $filter))
             ->latest('id')
@@ -92,6 +119,8 @@ final class AgentController extends Controller
 
     public function show(Request $request, AgentRun $run): Response
     {
+        $this->assertReadable($request, $run);
+
         $calls = ToolCall::where('correlation_id', $run->correlation_id)
             ->orderBy('id')
             ->get(['id', 'tool_key', 'status', 'policy_result', 'policy_reason', 'duration_ms', 'created_at']);
@@ -128,6 +157,10 @@ final class AgentController extends Controller
      */
     public function review(Request $request, AgentRun $run): RedirectResponse
     {
+        // Reviewing a run is also reading it, and a verdict writes the run's answer into the
+        // alignment corpus. Both need the same gate.
+        $this->assertReadable($request, $run);
+
         $data = $request->validate([
             'verdict' => 'required|string|in:'.implode(',', self::VERDICTS),
             'note' => 'nullable|string|max:2000',
@@ -165,6 +198,17 @@ final class AgentController extends Controller
         ], reason: $data['note'] ?? null, actorUserId: $request->user()?->getKey());
 
         return back();
+    }
+
+    /**
+     * ⚠ 404, not 403. A restricted user learning that run 412 exists and belongs to a business they
+     * cannot see is itself a disclosure, and the useful cases are indistinguishable to them anyway.
+     */
+    private function assertReadable(Request $request, AgentRun $run): void
+    {
+        if (! $this->readable($request)->whereKey($run->getKey())->exists()) {
+            abort(404);
+        }
     }
 
     private function card(AgentRun $run, float $cost): array
