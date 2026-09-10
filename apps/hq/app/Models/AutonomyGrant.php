@@ -22,7 +22,7 @@ class AutonomyGrant extends Model
     protected $fillable = [
         'uuid', 'name', 'reason', 'agent_key', 'business_id', 'brand_id', 'channel', 'tool_key',
         'action_class', 'customer_segment', 'environment', 'data_class', 'max_monetary_impact',
-        'time_window', 'min_agreement_rate', 'evaluation_suite_key', 'max_level', 'status',
+        'time_window', 'min_agreement_rate', 'min_agreement_dimension', 'evaluation_suite_key', 'max_level', 'status',
         'version', 'supersedes_id', 'granted_by', 'granted_at', 'expires_at',
     ];
 

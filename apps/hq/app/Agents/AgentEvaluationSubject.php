@@ -82,6 +82,11 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             latencyMs: $run->duration_ms,
             aiRunId: AiRun::where('correlation_id', $run->correlation_id)->value('id'),
             contextProvenance: (array) $run->context_provenance,
+            // ADR-030: what the model asked for and what the control plane allowed are two facts,
+            // and a corpus that cannot tell them apart cannot grade tool selection separately from
+            // enforcement.
+            executedToolCalls: $this->executedTools($run),
+            refusedToolCalls: $this->refusedTools($run),
         );
     }
 
@@ -105,6 +110,42 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             }
 
             $out[] = ['tool' => $entry['tool'], 'args' => (array) ($entry['args'] ?? [])];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The tools that actually RAN: evidence rows carry a real `tool_calls` id.
+     *
+     * @return list<array{tool: string, tool_call_id: int|null}>
+     */
+    private function executedTools(AgentRun $run): array
+    {
+        $out = [];
+
+        foreach ((array) $run->evidence as $entry) {
+            if (is_array($entry) && ($entry['kind'] ?? '') === 'evidence' && is_string($entry['tool'] ?? null)) {
+                $out[] = ['tool' => $entry['tool'], 'tool_call_id' => $entry['tool_call_id'] ?? null];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The tools that were PROPOSED and stopped, with the reason the control plane gave.
+     *
+     * @return list<array{tool: string, reason: string}>
+     */
+    private function refusedTools(AgentRun $run): array
+    {
+        $out = [];
+
+        foreach ((array) $run->proposals as $entry) {
+            if (is_array($entry) && is_string($entry['tool'] ?? null) && $entry['tool'] !== '') {
+                $out[] = ['tool' => $entry['tool'], 'reason' => (string) ($entry['reason'] ?? 'no reason recorded')];
+            }
         }
 
         return $out;

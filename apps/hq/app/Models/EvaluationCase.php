@@ -16,7 +16,7 @@ class EvaluationCase extends Model
 {
     protected $fillable = [
         'suite_id', 'key', 'purpose', 'input', 'expectation', 'grader', 'grader_config',
-        'severity', 'tags', 'is_active',
+        'severity', 'dimension', 'tags', 'is_active',
     ];
 
     protected function casts(): array

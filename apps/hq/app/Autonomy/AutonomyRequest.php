@@ -33,8 +33,18 @@ final readonly class AutonomyRequest
         public ?DataClass $dataClass = null,
         public ?MonetaryImpact $monetaryImpact = null,
         public ?DateTimeInterface $at = null,
-        /** The measured agreement rate for this combination, from the evaluation subsystem. */
+        /** The measured OVERALL agreement rate for this combination, from the evaluation subsystem. */
         public ?float $agreementRate = null,
+        /**
+         * Measured rates per evaluation dimension (ADR-030), e.g. `['tool_selection' => 0.98]`.
+         *
+         * ⚠ A grant naming a dimension is matched against THIS map and never against the overall
+         * rate. An absent dimension does not fall back: falling back is how a dimension nobody has
+         * measured comes to be treated as one that was.
+         *
+         * @var array<string, float>
+         */
+        public array $dimensionRates = [],
         /** The context that will be put in front of the model, carrying its provenance labels. */
         public ?ContextBundle $context = null,
         /** A ceiling imposed by compliance, e.g. consent withdrawn or a channel restriction. */

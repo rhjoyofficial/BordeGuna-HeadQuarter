@@ -17,6 +17,10 @@ final readonly class EvaluationObservation
      * @param  list<array<string, mixed>>  $contextProvenance  labels only, never the text
      */
     public function __construct(
+        /**
+         * Every tool the agent NAMED, executed or not (ADR-028). This is what `must_not_call`
+         * grades against, because the corpus measures the model rather than the guard that caught it.
+         */
         public array $toolCalls = [],
         public bool $refused = false,
         public ?string $refusalReason = null,
@@ -25,7 +29,44 @@ final readonly class EvaluationObservation
         public ?int $latencyMs = null,
         public ?int $aiRunId = null,
         public array $contextProvenance = [],
+        /**
+         * ── What the control plane did with what was proposed (ADR-030) ──────────────────────────
+         *
+         * ⭐ **A proposal and a permitted call must stay distinguishable.** Collapsed into one list,
+         * "the model asked for something dangerous" and "something dangerous happened" read the
+         * same - and they are the two facts a safety corpus most needs to tell apart. Keeping them
+         * separate is what lets `tool_selection` be graded against what the model chose while
+         * `enforcement` is graded against what the gateway then allowed.
+         *
+         * @var list<array{tool: string, tool_call_id?: int|null}>
+         */
+        public array $executedToolCalls = [],
+        /** @var list<array{tool: string, reason: string}> proposed and refused, with the reason */
+        public array $refusedToolCalls = [],
     ) {}
+
+    /** @return list<string> */
+    public function executedKeys(): array
+    {
+        return array_values(array_map(static fn (array $c) => (string) ($c['tool'] ?? ''), $this->executedToolCalls));
+    }
+
+    public function executed(string $tool): bool
+    {
+        return in_array($tool, $this->executedKeys(), true);
+    }
+
+    /** Proposed, and stopped by the control plane. The distinction ADR-030 exists to preserve. */
+    public function wasRefused(string $tool): bool
+    {
+        foreach ($this->refusedToolCalls as $entry) {
+            if (($entry['tool'] ?? null) === $tool) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /** @return list<string> */
     public function toolKeys(): array
@@ -42,6 +83,10 @@ final readonly class EvaluationObservation
     {
         return [
             'tool_calls' => $this->toolKeys(),
+            // Recorded separately so a report can say "it asked, and it was stopped" rather than
+            // leaving a reader to guess which of the two happened.
+            'executed' => $this->executedKeys(),
+            'refused_calls' => $this->refusedToolCalls,
             'refused' => $this->refused,
             'refusal_reason' => $this->refusalReason,
             'citations' => $this->citations,
