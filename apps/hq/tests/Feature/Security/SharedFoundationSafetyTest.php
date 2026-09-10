@@ -229,12 +229,21 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
         ->and(Conversation::count())->toBe(0)
         ->and(ConsentEvent::count())->toBe(0);
 
-    // No registered tool is customer-facing, on an outbound channel, or agent-executable.
+    // No registered tool is customer-facing, on an outbound channel, or requires consent.
+    //
+    // ⚠ The `agentExecutable` clause was removed in M5 and replaced by the two lines below it. It
+    // read "no tool must be agent-executable", which was Phase 2.5's true state and became a
+    // statement that M5 had not shipped. Nothing about the boundary this test defends has moved:
+    // an agent may run a read, and may still not reach a person, write, or need consent.
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        expect($descriptor->customerFacing)->toBeFalse("[{$key}] must not be customer-facing in Phase 2.5")
+        expect($descriptor->customerFacing)->toBeFalse("[{$key}] must not be customer-facing")
             ->and($descriptor->channel->isOutbound())->toBeFalse("[{$key}] must not act on an outbound channel")
-            ->and($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable")
             ->and($descriptor->consentRequired)->toBeNull("[{$key}] declares consent, so it reaches a person");
+
+        if ($descriptor->agentExecutable) {
+            expect($descriptor->readWrite)->toBe(ReadWrite::Read, "[{$key}] is agent-executable and writes")
+                ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
+        }
     }
 
     // And the AI runtime is still off, exactly as M4 left it.

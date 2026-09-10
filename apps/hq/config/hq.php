@@ -4,12 +4,20 @@ use App\Ai\Providers\AnthropicProvider;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Tools\Commerce\CheckFactIntegrityTool;
+use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Diagnostics\ApprovalDemoTool;
 use App\Tools\Diagnostics\FailingTool;
 use App\Tools\Diagnostics\NoopTool;
 use App\Tools\Erp\PollErpLowStockTool;
 use App\Tools\Erp\PollErpOverviewTool;
+use App\Tools\Erp\ReadErpSnapshotTool;
+use App\Tools\Erp\RunErpReportTool;
+use App\Tools\Facts\QueryOrdersTool;
+use App\Tools\Facts\SnapshotFreshnessTool;
+use App\Tools\Hq\ListApprovalsTool;
+use App\Tools\Hq\ListJobsTool;
+use App\Tools\Hq\RecentEventsTool;
 
 /*
  | BordeGuna-HeadQuarter application configuration.
@@ -40,6 +48,17 @@ return [
         ReconcileShopFactsTool::class,
         // The arithmetic check that would have caught the 0.00 line prices on day one.
         CheckFactIntegrityTool::class,
+
+        // M5: the read set the two agents answer from. Every one is R1 or R2, read-only, and
+        // `agentExecutable: true` - the first tools in HQ an agent may run at all.
+        QueryOrdersTool::class,
+        SnapshotFreshnessTool::class,
+        ReadErpSnapshotTool::class,
+        ListApprovalsTool::class,
+        ListJobsTool::class,
+        RecentEventsTool::class,
+        ListOrdersTool::class,
+        RunErpReportTool::class,
     ],
 
     // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an
@@ -54,6 +73,18 @@ return [
     'erp' => [
         'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.bordeguna.com'),
         'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
+
+        // M5: the report keys `erp.run_report` may run. NOT free-form, and deliberately not "every
+        // report the ERP offers": an open key space handed to a model is an interface whose reach
+        // nobody here has enumerated. Widening it is a deploy somebody reviews.
+        //
+        // Measured against production on 10 September 2026: the HQ token can see exactly one
+        // report, `sales_by_brand` (it requires `sales.reports.view`). That is V.9 working - the
+        // purchasing reports are not merely unlisted here, the ERP does not offer them to this
+        // token at all.
+        'report_whitelist' => [
+            'sales_by_brand',
+        ],
     ],
 
     // Phase 2 M1: the Tool Gateway (docs/48, docs/49, ADR-016).

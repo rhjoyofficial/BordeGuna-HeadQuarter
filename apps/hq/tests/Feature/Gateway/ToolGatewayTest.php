@@ -369,10 +369,13 @@ it('classifies every registered production tool, so nothing falls through to the
 it('gives no tool to an agent, and registers exactly one R4 tool with no external effect', function () {
     // The Phase 2 autonomy commitment, as a test rather than a promise (docs/48 Q.2). The single R4
     // registration is M3 demonstration tool, which writes only to HQ own audit log.
+    // ⚠ Narrowed in M5, which cleared nine READ tools for the two agents. The Phase 2 commitment was
+    // never "an agent may run nothing" - it is that an agent may not act outside HQ, and that is
+    // what stays asserted here.
     $r4OrAbove = [];
     foreach (gateway()->descriptors() as $key => $descriptor) {
-        expect($descriptor->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable in Phase 2");
         if ($descriptor->riskTier->writesOutsideHq()) {
+            expect($descriptor->agentExecutable)->toBeFalse("[{$key}] writes outside HQ and must not be agent-executable");
             $r4OrAbove[] = $key;
         }
     }

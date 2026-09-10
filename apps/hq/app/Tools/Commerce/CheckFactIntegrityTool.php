@@ -63,7 +63,11 @@ final class CheckFactIntegrityTool implements Tool
             auditAction: 'tool.commerce_check_fact_integrity',
             scope: ToolScope::Hq,
             readWrite: ReadWrite::Read,
-            agentExecutable: false,
+            // M5: cleared for agents. It reads facts and writes one audit note saying what it found;
+            // it repairs nothing, and an agent that can see a discrepancy can warn that a figure it
+            // is about to quote may be short - which is the whole reason the checker reports rather
+            // than repairs. The audit row it writes names the agent, so the trail stays attributable.
+            agentExecutable: true,
             idempotent: true,
             idempotencyKeyFrom: ['store_slug', 'hours'],
             timeoutSeconds: 120,

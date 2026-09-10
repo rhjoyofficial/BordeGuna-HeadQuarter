@@ -181,6 +181,7 @@ final class ToolGateway
             actorUserId: $request->identity->enablingUser()?->getKey(),
             attempt: $request->attempt,
             environment: (string) app()->environment(),
+            permittedBusinessIds: $this->permittedBusinesses($request),
         );
 
         if (($replayed = $this->replay($call, $request, $descriptor, $tool, $context, $key, $decision)) !== null) {
@@ -386,6 +387,7 @@ final class ToolGateway
             brandId: $request->brandId,
             actorUserId: $request->identity->enablingUser()?->getKey(),
             environment: (string) app()->environment(),
+            permittedBusinessIds: $this->permittedBusinesses($request),
         );
 
         try {
@@ -493,6 +495,24 @@ final class ToolGateway
             // holds the truth, and losing it too would make a bad moment worse.
             Log::warning('gateway: audit write failed', ['tool' => $request->toolKey, 'error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Which businesses this call's human may read, resolved once and handed to the tool (M5).
+     *
+     * A tool whose scope is `business` or `store` has already had its single target checked in
+     * `checkScope`. This is for the `hq`-scoped tools that read ACROSS businesses, where there is
+     * no single target to check and the filter can only be applied inside the query.
+     *
+     * ⚠ An unattended identity with no enabling human is NOT treated as unrestricted by accident:
+     * it genuinely is group-wide, because `system` holds a fixed narrow permission list instead
+     * (see ActingIdentity). The restriction being modelled here is a human's, and there is no human.
+     */
+    private function permittedBusinesses(ToolRequest $request): ?array
+    {
+        $user = $request->identity->enablingUser();
+
+        return $user === null ? null : $this->businessScope->all($user);
     }
 
     private function descriptorFor(string $key): ?ToolDescriptor
