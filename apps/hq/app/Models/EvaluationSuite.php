@@ -15,7 +15,7 @@ use LogicException;
  */
 class EvaluationSuite extends Model
 {
-    protected $fillable = ['key', 'name', 'purpose', 'kind', 'is_permanent', 'is_active', 'pass_threshold'];
+    protected $fillable = ['key', 'name', 'purpose', 'role_key', 'kind', 'is_permanent', 'is_active', 'pass_threshold'];
 
     protected function casts(): array
     {

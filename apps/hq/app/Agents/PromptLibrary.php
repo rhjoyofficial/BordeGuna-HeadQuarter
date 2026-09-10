@@ -26,7 +26,15 @@ use RuntimeException;
  */
 final class PromptLibrary
 {
-    private const CORE = 'hq-core.v1';
+    /**
+     * The shared rules, resolved by the same newest-wins rule as a role file.
+     *
+     * ⚠ This was the literal `hq-core.v1`, which meant adding `hq-core.v2.md` changed nothing and
+     * said nothing: the new file sat on disk unread while every version stamp stayed identical -
+     * and worse, it leaked into `roles()` as a role called "hq-core", because the exclusion compared
+     * against the versioned name. A constant naming a version is a version that cannot be raised.
+     */
+    private const CORE = 'hq-core';
 
     /** @var array<string, string> */
     private array $cache = [];
@@ -42,7 +50,7 @@ final class PromptLibrary
      */
     public function system(string $role): string
     {
-        return $this->read(self::CORE)."\n\n---\n\n".$this->read($this->roleFile($role));
+        return $this->read($this->roleFile(self::CORE))."\n\n---\n\n".$this->read($this->roleFile($role));
     }
 
     /** The stamp written to `ai_runs.prompt_version` and `agent_runs.prompt_version`. */
@@ -65,7 +73,8 @@ final class PromptLibrary
 
         foreach (glob($this->path('*.md')) ?: [] as $file) {
             $name = basename($file, '.md');
-            if ($name === self::CORE) {
+            // Every version of the core file, not just the one that happens to be named here.
+            if (str_starts_with($name, self::CORE.'.')) {
                 continue;
             }
             // `executive.v1` -> `executive`

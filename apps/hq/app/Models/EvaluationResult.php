@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class EvaluationResult extends Model
 {
     protected $fillable = [
-        'run_id', 'case_id', 'passed', 'score', 'grader', 'dimension', 'expected', 'actual', 'reason',
+        'run_id', 'case_id', 'passed', 'score', 'grader', 'dimension', 'checks', 'expected', 'actual', 'reason',
         'latency_ms', 'ai_run_id', 'context_provenance',
     ];
 
@@ -24,6 +24,7 @@ class EvaluationResult extends Model
         return [
             'passed' => 'boolean',
             'score' => 'float',
+            'checks' => 'array',
             'expected' => 'array',
             'actual' => 'array',
             'context_provenance' => 'array',

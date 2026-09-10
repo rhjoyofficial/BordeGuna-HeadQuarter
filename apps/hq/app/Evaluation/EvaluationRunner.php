@@ -8,6 +8,7 @@ use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Support\Audit\Auditor;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Runs a suite and records the evidence (ADR-023).
@@ -38,7 +39,24 @@ final readonly class EvaluationRunner
      */
     public function run(EvaluationSuite $suite, EvaluationSubject $subject, array $stamps = []): EvaluationRun
     {
-        $cases = $suite->cases()->where('is_active', true)->orderBy('id')->get();
+        $role = $subject->subjectRole();
+
+        // ⛔ A role-scoped suite graded against the wrong role is a category error, not a result.
+        // Returning "passed" for a suite that matched nothing is the single most misleading thing
+        // this subsystem could do, so it refuses instead.
+        if ($suite->role_key !== null && $suite->role_key !== $role) {
+            throw new RuntimeException(
+                "Suite [{$suite->key}] is scoped to role [{$suite->role_key}] and the subject's role is ["
+                .($role ?? 'none').']. A case is only evidence about an agent whose role makes its expectation '
+                .'meaningful, so this suite will not be graded against this subject.'
+            );
+        }
+
+        $all = $suite->cases()->where('is_active', true)->orderBy('id')->get();
+
+        // A case may narrow further within a suite. Null applies to every role.
+        $cases = $all->filter(fn (EvaluationCase $c) => $c->applies_to_role === null || $c->applies_to_role === $role)->values();
+        $skipped = $all->count() - $cases->count();
 
         $run = EvaluationRun::create([
             'uuid' => (string) Str::uuid(),
@@ -54,6 +72,7 @@ final readonly class EvaluationRunner
             'channel' => $stamps['channel'] ?? null,
             'status' => 'running',
             'cases_total' => $cases->count(),
+            'cases_skipped' => $skipped,
             'triggered_by' => $stamps['triggered_by'] ?? 'manual',
             'triggered_by_user_id' => $stamps['triggered_by_user_id'] ?? null,
             'started_at' => now(),
@@ -64,6 +83,7 @@ final readonly class EvaluationRunner
         $failed = 0;
         $blockerFailed = false;
         $byDimension = [];
+        $byCheck = [];
 
         foreach ($cases as $case) {
             $observation = $subject->run($case);
@@ -82,6 +102,7 @@ final readonly class EvaluationRunner
                 'score' => $result->score,
                 'grader' => $grader->key(),
                 'dimension' => $dimension,
+                'checks' => $result->checks,
                 'expected' => $result->expected,
                 'actual' => $result->actual,
                 'reason' => $result->reason,
@@ -92,6 +113,18 @@ final readonly class EvaluationRunner
 
             $byDimension[$dimension]['passed'] = ($byDimension[$dimension]['passed'] ?? 0) + ($result->passed ? 1 : 0);
             $byDimension[$dimension]['failed'] = ($byDimension[$dimension]['failed'] ?? 0) + ($result->passed ? 0 : 1);
+
+            // ⭐ Per CHECK, independently of the case verdict. This is what keeps "must_not_call
+            // passed 12 of 12" visible on a run that failed (docs/61). `not_applicable` is counted
+            // as neither, because a case that never expressed an expectation is not evidence
+            // about it in either direction.
+            foreach ($result->checks as $check => $outcome) {
+                if ($outcome === GradeResult::PASS) {
+                    $byCheck[$check]['passed'] = ($byCheck[$check]['passed'] ?? 0) + 1;
+                } elseif ($outcome === GradeResult::FAIL) {
+                    $byCheck[$check]['failed'] = ($byCheck[$check]['failed'] ?? 0) + 1;
+                }
+            }
 
             if ($result->passed) {
                 $passed++;
@@ -122,7 +155,8 @@ final readonly class EvaluationRunner
             // ⭐ The per-dimension evidence an autonomy grant can require (ADR-030). The overall
             // rate is kept because it is still the right number for "did this whole suite pass";
             // it is simply no longer the only number a widening decision may rest on.
-            'dimension_rates' => $this->dimensionRates($byDimension),
+            'dimension_rates' => $this->rates($byDimension),
+            'check_rates' => $this->rates($byCheck),
             'status' => $status,
             'finished_at' => now(),
             'regressions' => $this->regressions($run),
@@ -130,7 +164,9 @@ final readonly class EvaluationRunner
 
         $this->auditor->record('evaluation.run_completed', $run, after: [
             'suite' => $suite->key, 'status' => $status, 'agreement_rate' => $rate,
-            'passed' => $passed, 'failed' => $failed, 'blocker_failed' => $blockerFailed,
+            'passed' => $passed, 'failed' => $failed, 'skipped' => $skipped,
+            'blocker_failed' => $blockerFailed, 'role' => $role,
+            'dimension_rates' => $this->rates($byDimension), 'check_rates' => $this->rates($byCheck),
         ]);
 
         return $run->refresh();
@@ -140,7 +176,7 @@ final readonly class EvaluationRunner
      * @param  array<string, array{passed?: int, failed?: int}>  $byDimension
      * @return array<string, array{passed: int, failed: int, rate: float}>
      */
-    private function dimensionRates(array $byDimension): array
+    private function rates(array $byDimension): array
     {
         $out = [];
 

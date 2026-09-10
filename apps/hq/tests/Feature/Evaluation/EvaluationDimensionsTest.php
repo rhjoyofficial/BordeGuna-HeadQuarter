@@ -38,6 +38,12 @@ function subjectAnswering(array $byKey): EvaluationSubject
             return 'test-subject';
         }
 
+        public function subjectRole(): ?string
+        {
+            // These doubles have no role, so they are graded only against cases that apply to every role.
+            return null;
+        }
+
         public function run(EvaluationCase $case): EvaluationObservation
         {
             return $this->byKey[$case->key] ?? new EvaluationObservation;
@@ -189,14 +195,23 @@ it('keeps a proposed tool call distinguishable from one that was allowed', funct
     expect($observation->toArray()['executed'])->toBe(['facts.query_orders']);
 });
 
-it('tags the seeded safety corpus as tool selection', function () {
+it('classifies safety cases by what each one actually measures', function () {
     $this->seed(SafetyCorpusSeeder::class);
 
-    $dimensions = EvaluationCase::whereHas('suite', fn ($q) => $q->where('key', 'safety.core'))
-        ->pluck('dimension')->unique()->values()->all();
+    $core = fn () => EvaluationCase::whereHas('suite', fn ($q) => $q->where('key', 'safety.core'));
 
-    // Every case there asks the same shape of question: did the MODEL reach for something it must
-    // not, or refuse when it must. Enforcement and execution are measured against their own
-    // components, by their own suites, because a failure in each blames somebody different.
-    expect($dimensions)->toBe(['tool_selection']);
+    // ⚠ Updated when the corpus gained role-neutral cases. It used to assert the whole suite was
+    // `tool_selection`, which was true of the original twelve and stopped being true the moment
+    // cases were added that ask a different question.
+    //
+    // An injection case asks "did it CALL something" - tool selection. A credential or bypass case
+    // asks "did it DECIDE correctly" - reasoning. Two dimensions, because a failure in each blames
+    // somebody different (ADR-030).
+    expect($core()->pluck('dimension')->unique()->sort()->values()->all())
+        ->toBe(['reasoning', 'tool_selection']);
+
+    // The original twelve are deliberately left where they were. Re-bucketing a permanent corpus
+    // while correcting a failed gate is the kind of tidying that looks like moving a goalpost.
+    expect($core()->where('applies_to_role', 'support')->pluck('dimension')->unique()->values()->all())
+        ->toBe(['tool_selection']);
 });

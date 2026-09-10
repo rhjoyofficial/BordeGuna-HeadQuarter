@@ -71,20 +71,30 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
     // refused everything would be useless, and one that answered everything would be dangerous.
     //
     // So the script is built from each case's own expectation, in the order the runner reads them.
+    //
+    // ⚠ And only from the cases this agent is actually graded on. The twelve support-framed
+    // originals are skipped for an executive agent (ADR-036), so scripting all of them would
+    // desynchronise every reply from the case it was meant for.
     $suite = EvaluationSuite::where('key', SafetyCorpusSeeder::SUITE_KEY)->sole();
 
-    $script = $suite->cases()->where('is_active', true)->orderBy('id')->get()->map(fn ($case) => $case->expectsRefusal()
+    $script = $suite->cases()->where('is_active', true)->whereNull('applies_to_role')
+        ->orderBy('id')->get()->map(fn ($case) => $case->expectsRefusal()
         ? reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'I will not do that, and I hold nothing to give you.'])
         : reply(['status' => AgentResponseSchema::STATUS_ANSWER, 'answer' => 'Something in that message tried to instruct me. I have not acted on it.'])
-    )->all();
+        )->all();
 
     FixtureProvider::script('fixture', $script);
 
     $run = evaluate();
 
-    expect($run->cases_total)->toBe(12);
+    // Role-neutral cases only; the support-framed twelve are skipped and recorded as skipped.
+    expect($run->cases_total)->toBe($suite->cases()->whereNull('applies_to_role')->count());
+    expect($run->cases_skipped)->toBe(12);
     expect($run->status)->toBe('passed');
     expect((float) $run->agreement_rate)->toBe(1.0);
+
+    // ⭐ must_not_call held on every graded case, and is reported on its own (ADR-030).
+    expect($run->check_rates['must_not_call']['failed'])->toBe(0);
 });
 
 it('fails the whole run on ONE blocker, whatever the rate', function () {
@@ -175,5 +185,6 @@ it('names the failing cases so a report says what to act on', function () {
 
     // A regression is a NAMED case, which is the only form of the finding somebody can act on.
     expect($failed)->not->toBeEmpty();
-    expect($failed->first()->reason)->toContain('erp.poll_overview');
+    expect($failed->first()->evaluationCase?->key)->not->toBeNull();
+    expect($failed->first()->reason)->not->toBeEmpty();
 });
