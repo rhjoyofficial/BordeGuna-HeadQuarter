@@ -19,6 +19,15 @@ SWAP_MAX_PCT=${SWAP_MAX_PCT:-50}
 DISK_MAX_PCT=${DISK_MAX_PCT:-80}
 LOAD_MAX=${LOAD_MAX:-4.0}
 
+# Containers an operator has decided restart on a designed cycle. Logged, never texted.
+# ⚠ It does NOT suppress a restart-loop: RESTART_LOOP_DELTA is checked first, so a named container
+# that starts failing fast still pages. An allowlist that silenced everything would be a way to make
+# a crash invisible by remembering to add it to a list.
+RESTART_ALERT_IGNORE=${RESTART_ALERT_IGNORE:-"bordeguna-erp-worker-1"}
+# Restarts within one 5-minute tick that mean "looping" rather than "recycled". A worker on
+# --max-time=3600 cannot reach 2.
+RESTART_LOOP_DELTA=${RESTART_LOOP_DELTA:-2}
+
 log() { echo "[$(date -u +%FT%TZ)] $*"; }
 tg() {
     [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ] || return 0
@@ -61,7 +70,22 @@ fi
 # recycle. That produced an alert every hour (docs/58 section H.4 recorded it as unexplained), and an
 # hourly false alarm is worse than no alarm, because it is the one people mute.
 #
-# So: a clean exit (code 0, not OOM-killed) is logged and not alerted; anything else still pages.
+# Three rules, in this order, and each closes a hole the others leave:
+#
+#   1. RATE FIRST. More than one restart inside a single 5-minute tick is a crash-loop, and it pages
+#      whatever the exit code says. A worker on `--max-time=3600` restarts at most once every twelve
+#      ticks; a process failing fast can exit 0 every few seconds, and rule 2 alone would silence
+#      exactly that. Rate is checked first so nothing below can suppress it.
+#   2. AN EXPLICIT ALLOWLIST. `RESTART_ALERT_IGNORE` names containers an operator has decided are
+#      self-recycling. Logged, never texted.
+#   3. A CLEAN EXIT. Code 0 and not OOM-killed is the ordinary recycle, logged and not texted -
+#      so a new self-recycling worker does not page for the days before somebody adds it to rule 2.
+#
+# ⚠⚠ Rules 2 and 3 were written independently on 10 September - rule 2 by hand on the production
+# checkout, rule 3 in this repository - for the same symptom, and each has a hole the other closes.
+# An allowlist alone silences a genuine crash of a named container forever; a clean-exit rule alone
+# silences a fast exit-0 loop of any container. Keeping both, with the rate check above them, is the
+# reconciliation rather than a preference between two authors.
 R_F="$STATE_DIR/restarts.txt"; touch "$R_F"
 docker ps -a --format '{{.Names}}' | while read -r c; do
     n=$(docker inspect -f '{{.RestartCount}}' "$c" 2>/dev/null || echo 0)
@@ -69,8 +93,15 @@ docker ps -a --format '{{.Names}}' | while read -r c; do
     if [ "$n" -gt "$p" ]; then
         code=$(docker inspect -f '{{.State.ExitCode}}' "$c" 2>/dev/null || echo unknown)
         oom=$(docker inspect -f '{{.State.OOMKilled}}' "$c" 2>/dev/null || echo unknown)
-        if [ "$code" = "0" ] && [ "$oom" = "false" ]; then
-            log "restart (clean exit, not alerted): $c $p->$n"
+        delta=$((n - p))
+
+        if [ "$delta" -ge "$RESTART_LOOP_DELTA" ]; then
+            log "ALERT restart-loop: $c $p->$n (${delta} in one tick) exit=${code} oom=${oom}"
+            tg "🔴 ${HOST} container ${c} is RESTART-LOOPING: ${delta} restarts in one 5-minute tick (${p} -> ${n}), exit ${code}, oom ${oom}. Look: docker logs --tail 100 ${c}"
+        elif echo " $RESTART_ALERT_IGNORE " | grep -q " $c "; then
+            log "restart (allowlisted as self-recycling, not texted): $c $p->$n"
+        elif [ "$code" = "0" ] && [ "$oom" = "false" ]; then
+            log "restart (clean exit, not texted): $c $p->$n"
         else
             log "ALERT restart: $c $p->$n exit=${code} oom=${oom}"
             tg "🟠 ${HOST} container ${c} restarted (${p} -> ${n}), exit ${code}, oom ${oom}. Look: docker logs --tail 100 ${c}"
