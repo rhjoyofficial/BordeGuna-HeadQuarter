@@ -212,12 +212,22 @@ final class AutonomyResolver
             return true;
         }
 
-        // No measurement is not a passing measurement.
-        if ($request->agreementRate === null) {
+        // ⭐ ADR-030: a grant may name the DIMENSION its evidence must come from. An overall rate
+        // averages model reasoning, tool selection, policy, enforcement, execution and postcondition
+        // together, and the dimension that matters for the action being unlocked may be the one
+        // dragging the average up rather than the one being measured. Null keeps the old meaning.
+        $measured = $grant->min_agreement_dimension === null
+            ? $request->agreementRate
+            : ($request->dimensionRates[$grant->min_agreement_dimension] ?? null);
+
+        // No measurement is not a passing measurement. That is doubly true here: a grant naming a
+        // dimension nothing has ever measured must not fall back to the overall number, because
+        // falling back is exactly how an unmeasured dimension gets treated as a measured one.
+        if ($measured === null) {
             return false;
         }
 
-        return $request->agreementRate >= $grant->min_agreement_rate;
+        return $measured >= $grant->min_agreement_rate;
     }
 
     private function minutes(string $time): int

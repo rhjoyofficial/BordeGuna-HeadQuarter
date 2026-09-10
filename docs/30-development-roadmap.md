@@ -1,5 +1,29 @@
 # 30 - Development Roadmap
 
+> ## ⛔ GOVERNED BY THE ARCHITECTURE CHECKPOINT (10 September 2026)
+>
+> **Read `docs/60-architecture-checkpoint-2026-09-10.md` before implementing any phase below.**
+>
+> HQ is a business operating system with a ten-to-twenty-year horizon, not a collection of AI
+> features. One principle governs every phase: **AI models, AI vendors, tool protocols, external
+> providers and infrastructure implementations must remain replaceable; HQ's business and control
+> contracts must remain durable.**
+>
+> Nine invariants and eleven boundaries are set out in `docs/60`. The decisions themselves are ADRs,
+> and an ADR is what a change to a phase below has to argue with:
+>
+> | | |
+> | --- | --- |
+> | ADR-029 | The Tool Gateway and Capability Registry are canonical. **MCP is an adapter, not the governance layer.** An agent reasons about a capability, never a vendor endpoint. |
+> | ADR-030 | Evaluation measures six dimensions, and autonomy consumes dimension-scoped evidence rather than one averaged number. |
+> | ADR-031 | Consequential execution is verification-first. **A 200 is not a postcondition.** |
+> | ADR-032 | Agents decide what should happen; durable infrastructure decides how it progresses. **No process state lives in a model.** |
+> | ADR-033 | Memory is never truth, whatever transport it arrived on. |
+> | ADR-034 | Approval-required is a **stage** evidence can end; HUMAN_ONLY is a **decision** it cannot. |
+>
+> ⚠ Phases 3 to 10 below were written before this checkpoint. Their *sequence* stands; their
+> implementation is bound by the boundaries above wherever the two differ.
+
 Phases are adjusted to what actually exists. Sizes are for one senior engineer working with Claude Code, part-time alongside the ERP and shops; "wk" = working weeks of focused effort, not calendar time.
 
 | Phase | Name | Delivers | Size | Hard external dependency |

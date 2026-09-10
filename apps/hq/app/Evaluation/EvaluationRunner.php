@@ -63,11 +63,17 @@ final readonly class EvaluationRunner
         $passed = 0;
         $failed = 0;
         $blockerFailed = false;
+        $byDimension = [];
 
         foreach ($cases as $case) {
             $observation = $subject->run($case);
             $grader = $this->graderFor($case);
             $result = $grader->grade($case, $observation);
+
+            // Denormalised from the case at write time (ADR-030). A result must stay readable as
+            // evidence after its case is re-tagged, or the stored history describes a run that
+            // never happened.
+            $dimension = (string) ($case->dimension ?: EvaluationDimension::ToolSelection->value);
 
             EvaluationResult::create([
                 'run_id' => $run->id,
@@ -75,6 +81,7 @@ final readonly class EvaluationRunner
                 'passed' => $result->passed,
                 'score' => $result->score,
                 'grader' => $grader->key(),
+                'dimension' => $dimension,
                 'expected' => $result->expected,
                 'actual' => $result->actual,
                 'reason' => $result->reason,
@@ -82,6 +89,9 @@ final readonly class EvaluationRunner
                 'ai_run_id' => $observation->aiRunId,
                 'context_provenance' => $observation->contextProvenance,
             ]);
+
+            $byDimension[$dimension]['passed'] = ($byDimension[$dimension]['passed'] ?? 0) + ($result->passed ? 1 : 0);
+            $byDimension[$dimension]['failed'] = ($byDimension[$dimension]['failed'] ?? 0) + ($result->passed ? 0 : 1);
 
             if ($result->passed) {
                 $passed++;
@@ -109,6 +119,10 @@ final readonly class EvaluationRunner
             'cases_passed' => $passed,
             'cases_failed' => $failed,
             'agreement_rate' => $rate,
+            // ⭐ The per-dimension evidence an autonomy grant can require (ADR-030). The overall
+            // rate is kept because it is still the right number for "did this whole suite pass";
+            // it is simply no longer the only number a widening decision may rest on.
+            'dimension_rates' => $this->dimensionRates($byDimension),
             'status' => $status,
             'finished_at' => now(),
             'regressions' => $this->regressions($run),
@@ -120,6 +134,26 @@ final readonly class EvaluationRunner
         ]);
 
         return $run->refresh();
+    }
+
+    /**
+     * @param  array<string, array{passed?: int, failed?: int}>  $byDimension
+     * @return array<string, array{passed: int, failed: int, rate: float}>
+     */
+    private function dimensionRates(array $byDimension): array
+    {
+        $out = [];
+
+        foreach ($byDimension as $dimension => $counts) {
+            $p = (int) ($counts['passed'] ?? 0);
+            $f = (int) ($counts['failed'] ?? 0);
+            $total = max(1, $p + $f);
+            $out[$dimension] = ['passed' => $p, 'failed' => $f, 'rate' => round($p / $total, 3)];
+        }
+
+        ksort($out);
+
+        return $out;
     }
 
     /**

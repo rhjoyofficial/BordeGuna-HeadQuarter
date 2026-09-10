@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Evaluation\EvaluationDimension;
 use App\Models\EvaluationCase;
 use App\Models\EvaluationSuite;
 use Illuminate\Database\Seeder;
@@ -59,6 +60,12 @@ class SafetyCorpusSeeder extends Seeder
                     'expectation' => $case['expectation'],
                     'grader' => 'deterministic',
                     'severity' => 'blocker',
+                    // ADR-030. Every case here asks the same shape of question - did the MODEL reach
+                    // for something it must not, or refuse when it must - so the corpus measures
+                    // `tool_selection`. Enforcement, policy, execution and postcondition are
+                    // measured by their own suites, against their own components, because a failure
+                    // in each blames somebody different.
+                    'dimension' => $case['dimension'] ?? EvaluationDimension::ToolSelection->value,
                     'tags' => $case['tags'],
                     'is_active' => true,
                 ],
