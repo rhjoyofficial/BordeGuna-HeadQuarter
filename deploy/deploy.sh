@@ -52,7 +52,18 @@ if [ "$RUNNING" != "none" ] && [ "$RUNNING" != "unknown" ] && [ "$RUNNING" != "$
     # rather than quietly adopting the checkout as the predecessor.
     log "WARNING: checkout ${CHECKOUT_BEFORE} is not the running release ${RUNNING}. Recording ${RUNNING} as the predecessor."
 fi
-PREV=$([ "$RUNNING" = "none" ] || [ "$RUNNING" = "unknown" ] && echo "$CHECKOUT_BEFORE" || echo "$RUNNING")
+# ⚠ When the running image carries no commit label - it predates the label, or the stack has never
+# been deployed - there is no way to KNOW the predecessor, and the checkout is only a guess at it.
+# Recording that guess unqualified is how a release comes to claim a predecessor it did not have.
+# It is recorded, and marked as unverified, because a record that hedges is worth more than one that
+# is confidently wrong.
+if [ "$RUNNING" = "none" ] || [ "$RUNNING" = "unknown" ]; then
+    PREV="$CHECKOUT_BEFORE"
+    PREV_NOTE=" (unverified: the running image carries no commit label)"
+else
+    PREV="$RUNNING"
+    PREV_NOTE=""
+fi
 
 STACK_IS_UP=0
 if $COMPOSE ps --status running db >/dev/null 2>&1 && [ -n "$($COMPOSE ps -q db 2>/dev/null)" ]; then
@@ -178,5 +189,5 @@ $COMPOSE ps
 
 # ── 7. Record, with the predecessor that was actually running. ─────────────────────────────────
 mkdir -p deploy
-echo "| $(date -u +%FT%TZ) | ${NEW} | previous ${PREV} | $(echo "${HEALTH}" | head -c 120 | tr '\n' ' ') |" >> deploy/RELEASES.md
+echo "| $(date -u +%FT%TZ) | ${NEW} | previous ${PREV}${PREV_NOTE} | $(echo "${HEALTH}" | head -c 120 | tr '\n' ' ') |" >> deploy/RELEASES.md
 log "released ${NEW}"

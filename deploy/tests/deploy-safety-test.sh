@@ -185,6 +185,17 @@ grep -q "| ${NEW_HEAD} | previous ${NEW_HEAD} |" "${STUB_REPO}/deploy/RELEASES.m
     || ok "no release records itself as its own predecessor"
 cleanup
 
+# ── 8. An unverifiable predecessor is marked, not guessed at silently ──────────────────────────
+new_world
+# The running image carries no commit label: it predates the label, or the stack was never deployed.
+# The checkout is then only a GUESS at the predecessor, and recording a guess unqualified is how a
+# release comes to claim a predecessor it did not have.
+export STUB_RUNNING_COMMIT=""
+RC=$(run_deploy)
+is   "a deploy with an unlabelled running image still succeeds"  "$RC" "0"
+grep -q "unverified: the running image carries no commit label" "${STUB_REPO}/deploy/RELEASES.md"     && ok "an unverifiable predecessor is recorded as unverified"     || bad "an unverifiable predecessor should be marked: $(tail -1 "${STUB_REPO}/deploy/RELEASES.md")"
+cleanup
+
 echo
 echo "  ${PASS} passed, ${FAIL} failed"
 echo
