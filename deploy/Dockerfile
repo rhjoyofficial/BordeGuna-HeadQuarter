@@ -25,6 +25,17 @@ RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --opt
 # ---------- 3. Runtime ----------
 FROM php:8.3-fpm-alpine AS runtime
 
+# ⭐ The commit this image was built from, stamped onto the image itself.
+#
+# `deploy.sh` reads it back off the RUNNING container to answer "what is actually released", instead
+# of inferring it from the checkout. The checkout states intent; the label states fact, and the two
+# can disagree - a refused deploy, a manual `git pull`, a detached HEAD. Recording intent as fact is
+# how RELEASES.md came to say a release followed itself (docs/58).
+#
+# Empty by default so a plain `docker compose build` still works; deploy.sh always passes it.
+ARG GIT_COMMIT=""
+LABEL com.bordeguna.commit=$GIT_COMMIT
+
 RUN apk add --no-cache bash curl postgresql17-client icu-libs libzip libpng libjpeg-turbo freetype tzdata \
  && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS postgresql17-dev icu-dev libzip-dev libpng-dev libjpeg-turbo-dev freetype-dev linux-headers \
  && docker-php-ext-configure gd --with-freetype --with-jpeg \

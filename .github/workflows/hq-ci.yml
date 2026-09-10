@@ -110,3 +110,20 @@ jobs:
           file: deploy/backup.Dockerfile
           push: false
           tags: bordeguna-hq-backup:ci
+
+  deploy-safety:
+    name: Deployment/backup safety invariant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The real deploy/deploy.sh, run against a stubbed `docker` and a throwaway git repository.
+      # It proves that a verified backup exists BEFORE any release-changing checkout mutation, that a
+      # refused deploy leaves the checkout aligned with the running release, and that the predecessor
+      # recorded in RELEASES.md is the release that was actually running.
+      #
+      # ⚠ This job exists because the defect it guards shipped: on 9 September 2026 a refused deploy
+      # left the checkout ahead of the containers and the next release recorded itself as its own
+      # predecessor (docs/58). Nothing in the PHP suite can see a bash ordering bug.
+      - name: Deployment safety regression suite
+        run: bash deploy/tests/deploy-safety-test.sh

@@ -34,7 +34,20 @@ notify() {
 take_backup() {
     local stamp target size tables
     stamp=$(date -u +'%Y%m%d-%H%M%S')
-    mkdir -p "${BACKUP_DIR}/daily" "${BACKUP_DIR}/weekly"
+
+    # ⚠⚠ The mount, before anything that writes into it.
+    #
+    # `${BACKUP_DIR}` is a bind mount of a host directory. If that directory is deleted or replaced
+    # on the host, this container keeps pointing at the dead inode and `mkdir -p` fails with ENOENT -
+    # it does NOT quietly recreate the path, because the path's parent no longer exists from in here.
+    # Without this branch the failure surfaced further down as a confusing shell redirection error
+    # while the container still looked healthy (docs/58 section B).
+    if ! mkdir -p "${BACKUP_DIR}/daily" "${BACKUP_DIR}/weekly" 2>/dev/null; then
+        log "FAILED: ${BACKUP_DIR} is not writable. The host directory behind this bind mount has probably been deleted or replaced, and this container is holding a dead inode. Recreating the host directory is NOT enough: this container must be recreated so its mount reattaches."
+        notify "HQ backup: ${BACKUP_DIR} unwritable. The bind mount is dead - recreate the backup container after restoring the host directory."
+        return 1
+    fi
+
     target="${BACKUP_DIR}/daily/hq-${stamp}.dump"
 
     if ! pg_dump --host="${DB_HOST:-db}" --port="${DB_PORT:-5432}" --username="${DB_USERNAME}" \
