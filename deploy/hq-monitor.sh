@@ -53,12 +53,29 @@ if [ "$OOM_NOW" -gt "$OOM_PREV" ]; then
     log "ALERT oom: $WHO"; tg "🔴 ${HOST} OOM kill detected: ${WHO:-see journalctl -k}"
 fi
 
-# Container restarts (any container) since last run
+# Container restarts (any container) since last run.
+#
+# ⚠ A restart is not automatically a fault, and treating it as one is how a monitor teaches people to
+# ignore it. `bordeguna-erp-worker-1` runs `queue:work --max-time=3600`, so it EXITS DELIBERATELY
+# every hour with code 0 and `restart: unless-stopped` brings it back - the ordinary Laravel worker
+# recycle. That produced an alert every hour (docs/58 section H.4 recorded it as unexplained), and an
+# hourly false alarm is worse than no alarm, because it is the one people mute.
+#
+# So: a clean exit (code 0, not OOM-killed) is logged and not alerted; anything else still pages.
 R_F="$STATE_DIR/restarts.txt"; touch "$R_F"
 docker ps -a --format '{{.Names}}' | while read -r c; do
     n=$(docker inspect -f '{{.RestartCount}}' "$c" 2>/dev/null || echo 0)
     p=$(grep "^$c " "$R_F" | awk '{print $2}'); p=${p:-0}
-    if [ "$n" -gt "$p" ]; then log "ALERT restart: $c $p->$n"; tg "🟠 ${HOST} container ${c} restarted (${p} -> ${n}). Look: docker logs --tail 100 ${c}"; fi
+    if [ "$n" -gt "$p" ]; then
+        code=$(docker inspect -f '{{.State.ExitCode}}' "$c" 2>/dev/null || echo unknown)
+        oom=$(docker inspect -f '{{.State.OOMKilled}}' "$c" 2>/dev/null || echo unknown)
+        if [ "$code" = "0" ] && [ "$oom" = "false" ]; then
+            log "restart (clean exit, not alerted): $c $p->$n"
+        else
+            log "ALERT restart: $c $p->$n exit=${code} oom=${oom}"
+            tg "🟠 ${HOST} container ${c} restarted (${p} -> ${n}), exit ${code}, oom ${oom}. Look: docker logs --tail 100 ${c}"
+        fi
+    fi
 done
 docker ps -a --format '{{.Names}} {{.RestartCount}}' > "$R_F" 2>/dev/null || docker ps -a --format '{{.Names}}' | while read -r c; do echo "$c $(docker inspect -f '{{.RestartCount}}' "$c")"; done > "$R_F"
 
@@ -90,12 +107,32 @@ overall=${overall:-unknown}
 ERP=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H 'Host: erp.srv1808022.hstgr.cloud' http://127.0.0.1/up 2>/dev/null)
 check erp_up $([ "$ERP" = "200" ] || [ "$ERP" = "301" ] || [ "$ERP" = "302" ] && echo 0 || echo 1) "ERP /up returned ${ERP:-nothing}"
 
+# ── The HQ backup directory itself ──────────────────────────────────────────────────────────────
+#
+# ⛔⛔ This check used to be `if [ -e "$p" ]`, and that is why the 9 September deletion was silent.
+# The directory going missing did not fire the check, it REMOVED the check: absence became silence,
+# which is the worst possible behaviour from a monitor watching for absence. HQ's backup history was
+# gone for nearly two hours before a deploy happened to trip over it (docs/58).
+#
+# A missing HQ backup root is now an alert in its own right, separate from staleness, because the two
+# need different responses: stale means the job is failing, missing means the mount is dead and the
+# container needs recreating.
+HQ_BACKUP_ROOT=/root/backups/bordeguna-hq
+if [ ! -d "$HQ_BACKUP_ROOT" ]; then
+    check backup_hq_root 1 "HQ backup directory ${HQ_BACKUP_ROOT} DOES NOT EXIST. The sidecar's bind mount is dead and every dump is failing. Fix: mkdir -p ${HQ_BACKUP_ROOT}/daily ${HQ_BACKUP_ROOT}/weekly && cd /opt/bordeguna-hq && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --force-recreate --no-deps backup"
+else
+    check backup_hq_root 0 "present"
+fi
+
 # Backups fresh?
 for pair in "hq:/root/backups/bordeguna-hq/LAST_RUN" "erp:/root/backups/bordeguna-erp/daily"; do
     n=${pair%%:*}; p=${pair#*:}
     if [ -e "$p" ]; then
         age_h=$(( ( $(date +%s) - $(stat -c %Y "$(ls -t "$p"/* 2>/dev/null | head -1 || echo "$p")") ) / 3600 ))
         check "backup_$n" $([ "$age_h" -gt 30 ] && echo 1 || echo 0) "${n} backup is ${age_h}h old (max 30h)"
+    elif [ "$n" = "hq" ]; then
+        # ⚠ Missing is not "nothing to report". For HQ it is the strongest thing this monitor can say.
+        check "backup_$n" 1 "HQ backup marker ${p} is MISSING: no dump has ever completed here, or the directory was replaced. Look: ls -la ${HQ_BACKUP_ROOT}"
     fi
 done
 
