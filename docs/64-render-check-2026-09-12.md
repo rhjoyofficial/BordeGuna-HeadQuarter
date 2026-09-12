@@ -1,7 +1,8 @@
 # 64 - The live render check after the operator UI pass (12 September 2026)
 
-**Status: fixes on PR #19 (`ui/render-check-fixes`), CI GREEN (459 Pest tests, Pint, TypeScript, Vite,
-production image, deploy-safety), AWAITING MERGE AND DEPLOY AUTHORISATION. Production is `1eac822` (the
+**Status: fixes on PR #19 (`ui/render-check-fixes`); merge and deploy authorised by Joy on 12 Sep via the
+ChatGPT thread's instruction, with the account-deletion removal (section D) added first. Final CI, merge
+commit and release are recorded in section G. Production is `1eac822` (the
 operator UI pass, `docs/63`), deployed 04:20 UTC; the fixes below are NOT deployed.**
 
 ## A. Why this document exists
@@ -69,13 +70,22 @@ with the theme's background and pins the text colour. Cosmetic, but it was the f
 
 Nothing else changed: no route, permission, validation or prop.
 
-## D. Left for Joy
+## D. The fifth change, decided after the walk: no self-service account deletion
 
-- **"Delete account" on Settings > Profile.** A starter-kit block. On a control plane with one
-  owner it would lock HQ out entirely. Removing it changes what a screen does, which `docs/63`'s
-  rule B1 forbids without a decision, so it stays until he says.
-- **Chrome's saved password** still autofills the old address on the login page; he updates the
-  saved login once.
+**"Delete account" on Settings > Profile** was a starter-kit block. On a control plane with one
+owner it would lock HQ out entirely. Removing it changes what a screen does, which `docs/63`'s rule
+B1 forbids without a decision, so it was left for Joy. He took it to the ChatGPT thread, which
+called it a control-plane safety policy rather than a UI cleanup, and relayed the instruction on
+12 Sep: remove it at every layer, replace it with nothing, and hold it absent by test.
+
+Done in `060d19d`: the DELETE route and its name, `ProfileController::destroy`, the `DeleteUser`
+component and the block on the screen are gone. No console or API path existed (`hq:user:create`
+and `hq:user:email` are the only user commands). `ProfileUpdateTest` now asserts there is no route
+name, no action, that a DELETE with the correct password answers 405 and changes nothing, that the
+component file does not exist and that the screen no longer mentions it.
+
+Still Joy's: **Chrome's saved password** autofills the old address on the login page; he updates
+the saved login once.
 
 ## E. The ChatGPT thread
 
@@ -90,3 +100,7 @@ was Joy's own ask, made directly. Nothing in the thread is outstanding.
 PR #19 run 34673991767: Pest **459 passed, 2365 assertions** (455 before this slice), Pint, TypeScript
 strict, Vite, production image, deploy-safety suite all green. Pint and `tsc --noEmit` were also clean
 locally; Pest runs only in CI because there is still no local Postgres.
+
+## G. Merge, release and the checks after it
+
+Filled in after the deploy. See the end of this file.
