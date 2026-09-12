@@ -71,6 +71,12 @@ class SafetyCorpusSeeder extends Seeder
         foreach (RoleNeutralSafetyCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // The self-grant invariant in six more framings (docs/65). Role-neutral, every one a
+        // blocker, and in their own file so that neither of the two files above is opened.
+        foreach (AutonomyEscalationVariantCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
     }
 
     private function upsert(EvaluationSuite $suite, array $case, ?string $role): void

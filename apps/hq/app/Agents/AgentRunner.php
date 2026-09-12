@@ -39,9 +39,26 @@ use Throwable;
  *         allow             -> result folded back, loop may continue
  *         deny              -> reason folded back ONCE; a second denial of the same tool ends the run
  *         awaiting approval -> recorded as a proposal, never waited on
- *    -> bounded: 3 model turns, 8 tool calls, hard-stopped here
+ *    -> bounded: 3 model turns, 8 tool calls
+ *    -> budget spent without a verdict -> ONE closing turn, no tool honoured: answer or refuse
  *    -> agent_runs row: answer, evidence, proposals, provenance, and whether it was shadow
  * ```
+ *
+ * ## A run ends with a verdict, not with silence (docs/65)
+ *
+ * ⭐ The second gate run (docs/62) ended five executive runs at `loop_bound`: three model turns and
+ * eight tool calls spent gathering evidence, and then nothing - no answer, no refusal, a row that
+ * says only that the limit was reached. Two of those were safety cases the agent needed to REFUSE;
+ * it never got as far as saying so. Raising the bound would have been the wrong fix: the bound is
+ * containment, and a wider one is the same silence arriving later.
+ *
+ * So the bound is unchanged, and what changes is what happens when it is reached. The model is told,
+ * on every turn, exactly how much budget it has left; and when the budget is spent without a
+ * verdict, it gets one **closing turn** in which no tool will run and the only useful replies are an
+ * answer from what it holds or a refusal. A closing turn that asks for more evidence anyway ends
+ * the run as `loop_bound`, exactly as before - the run has then been told twice and still did not
+ * decide, and that is the pattern that needs a person. The closing turn is recorded on the row
+ * (`closed_by_budget`), so a reviewer can tell an answer given freely from one given when cornered.
  *
  * ## Reading is not acting, and that is what makes A0 workable
  *
@@ -86,6 +103,14 @@ final class AgentRunner
 
     /** Denials of the SAME tool key before the run is stopped. */
     private const DENIAL_LIMIT = 2;
+
+    /**
+     * What the model is told when its budget is spent and it has not decided. Not a suggestion: the
+     * runner honours no tool call in the turn that follows this, whatever the reply asks for.
+     */
+    public const CLOSING_NOTE = 'Your evidence budget is spent: no further tool will run in this conversation. '
+        .'Answer now from what you already hold, naming every gap as a gap, or refuse if the request is one '
+        .'you should not serve. A reply that asks for tools ends this run with no answer at all.';
 
     private const MAX_OUTPUT_TOKENS = 4096;
 
@@ -187,7 +212,7 @@ final class AgentRunner
         AutonomyDecision $decision,
         string $correlationId,
     ): void {
-        $messages = [['role' => 'user', 'content' => $bundle->render()]];
+        $messages = [['role' => 'user', 'content' => $bundle->render()."\n\n".$this->budgetLine(1, 0)]];
         $evidence = [];
         $proposals = [];
         $denials = [];
@@ -247,7 +272,12 @@ final class AgentRunner
 
             foreach ($requested as $call) {
                 if ($toolCalls >= self::MAX_TOOL_CALLS) {
-                    $this->finish($run, 'stopped', $this->compose($reply), $evidence, $proposals, null, $toolCalls, 'loop_bound');
+                    // The tool budget ran out part-way through a turn. What DID run is handed back,
+                    // and the model gets its closing turn rather than a row that says only "limit".
+                    $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
+                    $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)];
+                    $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn,
+                        'the tool-call budget of '.self::MAX_TOOL_CALLS.' was spent');
 
                     return;
                 }
@@ -284,13 +314,91 @@ final class AgentRunner
             }
 
             $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
-            $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)];
+            $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)
+                ."\n\n".$this->budgetLine($turn + 1, $toolCalls)];
 
             $run->forceFill(['tool_calls_count' => $toolCalls])->save();
         }
 
+        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, self::MAX_TURNS,
+            'the limit of '.self::MAX_TURNS.' model turns was reached');
+    }
+
+    /**
+     * The line the model reads at the top of every turn, so "ask for everything in one turn" is a
+     * budget it can see rather than a rule it has to remember.
+     */
+    private function budgetLine(int $turn, int $toolCallsUsed): string
+    {
+        $turnsLeft = max(0, self::MAX_TURNS - $turn + 1);
+        $callsLeft = max(0, self::MAX_TOOL_CALLS - $toolCallsUsed);
+
+        return "Budget: this is turn {$turn} of ".self::MAX_TURNS." ({$turnsLeft} left including this one). "
+            ."{$callsLeft} of ".self::MAX_TOOL_CALLS.' tool calls remain. '
+            .($turnsLeft <= 1 ? 'This is your last turn with tools: answer or refuse in it.' : 'Ask for everything you need in one turn.');
+    }
+
+    /**
+     * The closing turn: budget spent, no verdict yet, one more reply in which no tool is honoured.
+     *
+     * @param  list<array{role: string, content: string}>  $messages
+     */
+    private function close(
+        AgentRun $run,
+        Agent $agent,
+        AgentRunRequest $request,
+        array $messages,
+        array $evidence,
+        array $proposals,
+        int $toolCalls,
+        string $correlationId,
+        int $turnsSoFar,
+        string $why,
+    ): void {
+        $messages[] = ['role' => 'user', 'content' => self::CLOSING_NOTE.' ('.ucfirst($why).'.)'];
+
+        $outcome = $this->models->run(
+            task: $request->task,
+            system: $this->assembler->system($agent),
+            messages: $messages,
+            context: new RoutingContext(
+                businessId: $request->businessId,
+                brandId: $request->brandId,
+                agentKey: $agent->key,
+                correlationId: $correlationId,
+                inputRef: "agent_run:{$run->id}",
+            ),
+            jsonSchema: AgentResponseSchema::schema(),
+            maxOutputTokens: self::MAX_OUTPUT_TOKENS,
+            promptVersion: $run->prompt_version,
+        );
+
+        $reply = $outcome->data ?? [];
+
+        $run->forceFill([
+            'turns' => $turnsSoFar + 1,
+            'closed_by_budget' => true,
+            'model' => $outcome->model->model_id,
+            'model_tier' => $outcome->model->tier,
+        ])->save();
+
+        $status = (string) ($reply['status'] ?? '');
+
+        if ($status === AgentResponseSchema::STATUS_REFUSE) {
+            $this->finish($run, 'refused', null, $evidence, $proposals, (string) ($reply['refusal_reason'] ?? ''), $toolCalls);
+
+            return;
+        }
+
+        // Nothing requested in this turn runs: the note said so, and this is where that is kept.
+        if ($status === AgentResponseSchema::STATUS_ANSWER && ($answer = $this->compose($reply)) !== null) {
+            $this->finish($run, 'answered', $answer, [...$evidence, ...$this->citedFacts($reply)], $proposals, null, $toolCalls);
+
+            return;
+        }
+
         $this->finish($run, 'stopped', null, $evidence, $proposals,
-            'The run reached its limit of '.self::MAX_TURNS.' model turns without producing an answer.',
+            'The run was stopped: '.$why.', and the closing turn asked for more evidence instead of answering or refusing.',
             $toolCalls, 'loop_bound');
     }
 

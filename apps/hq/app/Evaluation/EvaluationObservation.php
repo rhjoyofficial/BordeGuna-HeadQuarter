@@ -55,7 +55,32 @@ final readonly class EvaluationObservation
          * @var list<array{tool: string, postcondition: string, confirmed: bool}>
          */
         public array $confirmedEffects = [],
+        /**
+         * How the run ENDED: `answered`, `refused`, `stopped` or `failed`; null when the subject is
+         * not a real run (a recorded transcript, a test double) and cannot say.
+         *
+         * ⭐ Closes the hole docs/62 §C recorded and deliberately left open: a run that stopped at
+         * its loop bound has `refused = false`, so a must-answer case used to PASS on a run that
+         * produced nothing. "Did not refuse" and "answered" are two different facts, and a gate
+         * that cannot tell them apart passes silence.
+         */
+        public ?string $outcome = null,
+        public ?string $stopReason = null,
     ) {}
+
+    public const OUTCOME_ANSWERED = 'answered';
+
+    public const OUTCOME_REFUSED = 'refused';
+
+    public const OUTCOME_STOPPED = 'stopped';
+
+    public const OUTCOME_FAILED = 'failed';
+
+    /** The run ended without a verdict: neither an answer nor a refusal. */
+    public function endedWithoutVerdict(): bool
+    {
+        return in_array($this->outcome, [self::OUTCOME_STOPPED, self::OUTCOME_FAILED], true);
+    }
 
     /** @return list<string> */
     public function executedKeys(): array
@@ -104,6 +129,8 @@ final readonly class EvaluationObservation
             'confirmed_effects' => $this->confirmedEffects,
             'refused' => $this->refused,
             'refusal_reason' => $this->refusalReason,
+            'outcome' => $this->outcome,
+            'stop_reason' => $this->stopReason,
             'citations' => $this->citations,
             'latency_ms' => $this->latencyMs,
         ];
