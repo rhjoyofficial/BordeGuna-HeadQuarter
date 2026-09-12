@@ -1,0 +1,53 @@
+<?php
+
+namespace App\Support\Navigation;
+
+use App\Models\AgentRun;
+use App\Models\Approval;
+use App\Models\JobRun;
+use App\Models\User;
+use App\Support\Authorization\BusinessScope;
+
+/**
+ * The small counts the navigation shows next to Approvals, Agents and Scheduler.
+ *
+ * Each count is computed inside the same visibility the screen itself uses, and only for a user who
+ * holds the permission to open that screen. A count is a disclosure: a restricted operator must not
+ * learn from the sidebar that three approvals exist on a business they may not see.
+ */
+final class NavBadges
+{
+    public function __construct(private readonly BusinessScope $businessScope) {}
+
+    /** @return array<string, int> */
+    public function for(?User $user): array
+    {
+        if ($user === null) {
+            return [];
+        }
+
+        $badges = [];
+
+        if ($user->can('hq.approvals.view')) {
+            $badges['approvals'] = $this->businessScope->restrict(Approval::pending(), $user)->count();
+        }
+
+        if ($user->can('hq.agents.view')) {
+            $badges['agents'] = $this->businessScope
+                ->restrict(AgentRun::query(), $user)
+                ->where('shadow', true)
+                ->whereNull('reviewed_at')
+                ->whereIn('status', ['answered', 'refused', 'stopped'])
+                ->count();
+        }
+
+        if ($user->can('hq.jobs.view')) {
+            $badges['scheduler'] = JobRun::query()
+                ->whereIn('status', ['failed', 'dead'])
+                ->where('created_at', '>=', now()->subDay())
+                ->count();
+        }
+
+        return $badges;
+    }
+}
