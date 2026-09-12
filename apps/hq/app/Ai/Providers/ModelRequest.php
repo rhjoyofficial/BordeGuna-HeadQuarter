@@ -49,6 +49,15 @@ final readonly class ModelRequest
         );
     }
 
+    /** The same request with more room to answer: the truncation retry (ADR-038). */
+    public function withMaxOutputTokens(int $maxOutputTokens): self
+    {
+        return new self(
+            $this->model, $this->system, $this->messages, $maxOutputTokens,
+            $this->jsonSchema, $this->timeoutSeconds, $this->cacheSystem,
+        );
+    }
+
     public function onModel(AiModel $model): self
     {
         return new self(

@@ -5,9 +5,11 @@ namespace App\Ai;
 use App\Ai\Budget\AiBudget;
 use App\Ai\Exceptions\BudgetExceeded;
 use App\Ai\Exceptions\NoModelAvailable;
+use App\Ai\Exceptions\OutputTruncated;
 use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\Exceptions\ProviderUnavailable;
 use App\Ai\Exceptions\StructuredOutputFailed;
+use App\Ai\Providers\ModelProvider;
 use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ModelResponse;
 use App\Ai\Providers\ProviderRegistry;
@@ -31,10 +33,29 @@ use Throwable;
  * returns text. Every action a model might suggest still goes through the Tool Gateway, under a
  * human's identity, subject to policy and approval. M4 changes none of that.
  *
- * The sequence: budget check, route, open the provider credential scope, call, enforce the schema
- * with at most one repair, and on a retryable failure fall through to the next candidate, preferring
- * a different provider. Every attempt writes its own `ai_runs` row, including the failed ones,
- * because a fallback that leaves no trace is indistinguishable from a first-choice success.
+ * The sequence: budget check, route, open the provider credential scope, call, and then sort the
+ * reply into one of five outcomes that are kept apart on purpose (ADR-038):
+ *
+ *  1. a valid reply (or, with a schema, a valid object);
+ *  2. a provider error: `ProviderUnavailable` (retryable, the breaker counts it, the next candidate
+ *     is tried) or `ProviderRefused` (the request is broken; nobody else is asked);
+ *  3. **a truncated reply**: the provider stopped at the output limit. Re-asked ONCE with a larger
+ *     budget from `OutputBudget`, and if that is cut off too, or there is no headroom, the run ends
+ *     as `OutputTruncated`;
+ *  4. a malformed structured reply: re-asked ONCE with the validation error; a second failure is
+ *     `StructuredOutputFailed`;
+ *  5. a repair that was itself truncated, which is outcome 3 and is reported as such.
+ *
+ * ⚠⚠ Outcome 3 used to be reported as outcome 4. A reply cut off mid-object is not a JSON object,
+ * so the schema check called it malformed, the repair ran into the same limit, and two safety gates
+ * in a row recorded a `model_error` that was really a budget. The `ai_runs` row now carries the
+ * provider's stop reason and the budget the call was sent with, so that reading never has to be
+ * inferred from token counts again (docs/65 §F, ADR-038).
+ *
+ * Recovery is bounded: at most one raise and one repair per provider attempt, so three provider
+ * calls at the very most, every one billed and counted on the same row. Every attempt writes its
+ * own `ai_runs` row, including the failed ones, because a fallback that leaves no trace is
+ * indistinguishable from a first-choice success.
  */
 final class ModelRuntime
 {
@@ -50,13 +71,16 @@ final class ModelRuntime
         private readonly StructuredOutput $structured,
         private readonly AiBudget $budget,
         private readonly Notifier $notifier,
+        private readonly OutputBudget $output,
     ) {}
 
     /**
      * @param  list<array{role: string, content: string}>  $messages
      * @param  array<string, mixed>|null  $jsonSchema  when given, the reply must validate against it
+     * @param  int|null  $maxOutputTokens  the budget asked for; null means the policy's default.
+     *                                     Clamped to the model and the ceiling before it is sent.
      *
-     * @throws NoModelAvailable|BudgetExceeded|ProviderUnavailable|ProviderRefused|StructuredOutputFailed
+     * @throws NoModelAvailable|BudgetExceeded|ProviderUnavailable|ProviderRefused|StructuredOutputFailed|OutputTruncated
      */
     public function run(
         TaskType $task,
@@ -64,7 +88,7 @@ final class ModelRuntime
         array $messages,
         ?RoutingContext $context = null,
         ?array $jsonSchema = null,
-        int $maxOutputTokens = 1024,
+        ?int $maxOutputTokens = null,
         ?string $promptVersion = null,
     ): AiOutcome {
         $context ??= new RoutingContext;
@@ -79,7 +103,7 @@ final class ModelRuntime
             model: $choice->model,
             system: $system,
             messages: $messages,
-            maxOutputTokens: $maxOutputTokens,
+            maxOutputTokens: $this->output->clamp($maxOutputTokens ?? $this->output->default(), $choice->model),
             jsonSchema: $jsonSchema,
         );
 
@@ -110,6 +134,13 @@ final class ModelRuntime
                 $this->failRun($run, 'provider_refused: '.$e->getMessage());
 
                 throw $e;
+            } catch (OutputTruncated $e) {
+                // Not retryable across providers either: the answer was too long for the room it
+                // was given, and a different model would write the same answer into the same room.
+                // Not the provider's fault, so the breaker is not touched.
+                $this->failRun($run, 'output_truncated: '.$e->getMessage());
+
+                throw $e;
             } catch (StructuredOutputFailed $e) {
                 $this->failRun($run, 'structured_output_failed: '.$e->getMessage());
 
@@ -124,17 +155,53 @@ final class ModelRuntime
         throw $lastError ?? new NoModelAvailable('No model could serve the call and no error was recorded, which should be impossible.');
     }
 
-    /** One provider attempt, including at most one schema repair. */
+    /**
+     * One provider attempt: the call, at most one raise for a truncated reply, at most one repair
+     * for a malformed one.
+     */
     private function attempt(ModelRequest $request, AiRun $run, ?array $jsonSchema): AiOutcome
     {
         $provider = $this->providers->get($request->model->provider);
 
-        // The credential scope is opened around the call and closed in the vault's `finally`, so the
-        // key exists in memory only for the duration of one request.
-        $response = $this->vault->openForAccounts(
-            [$provider->credentialPair()],
-            fn (): ModelResponse => $provider->complete($request),
-        );
+        $run->forceFill(['max_output_tokens' => $request->maxOutputTokens])->save();
+
+        $response = $this->call($provider, $request);
+
+        // ── Truncation, BEFORE the schema check (ADR-038) ─────────────────────────────────────
+        // A reply the provider stopped at the output limit is not a malformed reply; it is an
+        // unfinished one. Handing it to the schema check would report it as malformed and spend
+        // the repair call running into the same limit, which is exactly what failed gate 3.
+        if ($response->truncated()) {
+            $raised = $this->output->truncationRetries() > 0
+                ? $this->output->raised($request->maxOutputTokens, $request->model)
+                : null;
+
+            if ($raised === null) {
+                $this->recordUsage($run, $request->model, $response);
+
+                throw new OutputTruncated(
+                    "The model stopped at the output limit ({$response->outputTokens} output tokens against a budget of "
+                    ."{$request->maxOutputTokens}) and there was no headroom to retry: the budget is already at the "
+                    .'model\'s limit or the configured ceiling.',
+                    $response->outputTokens, $request->maxOutputTokens,
+                );
+            }
+
+            $request = $request->withMaxOutputTokens($raised);
+            $run->forceFill(['max_output_tokens' => $raised])->save();
+
+            $response = $this->call($provider, $request)->plus($response, ['truncation_retry' => true, 'raised_to' => $raised]);
+
+            if ($response->truncated()) {
+                $this->recordUsage($run, $request->model, $response);
+
+                throw new OutputTruncated(
+                    "The model stopped at the output limit twice: at the original budget and again at {$raised}. "
+                    .'Recovery is bounded to one raise, so the run ends here rather than retrying into the same limit.',
+                    $response->outputTokens, $raised,
+                );
+            }
+        }
 
         $data = null;
 
@@ -142,31 +209,25 @@ final class ModelRuntime
             $check = $this->structured->check($response->json(), $jsonSchema);
 
             if (! $check['valid']) {
-                // One repair. The failed attempt is still charged for, so its tokens are recorded on
-                // this run before the second call is made.
+                // One repair, with the actual validation error handed back. Both calls are billed,
+                // so both are counted on this run.
                 $repairRequest = $request->withMessages(
                     $this->structured->repairTurns($request->messages, $response->text, (string) $check['message'], $jsonSchema)
                 );
 
-                $firstTokens = [$response->inputTokens, $response->outputTokens, $response->cachedTokens, $response->cacheWriteTokens];
+                $response = $this->call($provider, $repairRequest)->plus($response, ['repaired' => true]);
 
-                $response = $this->vault->openForAccounts(
-                    [$provider->credentialPair()],
-                    fn (): ModelResponse => $provider->complete($repairRequest),
-                );
+                // A repair that was itself cut off is a truncation and is reported as one. Calling
+                // it a malformed object would send the next reader to the schema for a fault that
+                // is in the budget.
+                if ($response->truncated()) {
+                    $this->recordUsage($run, $request->model, $response);
 
-                // Both calls are billed, so both are counted. Recording only the successful one
-                // would make repairs look free and remove the incentive to fix the prompt.
-                $response = new ModelResponse(
-                    text: $response->text,
-                    inputTokens: $response->inputTokens + $firstTokens[0],
-                    outputTokens: $response->outputTokens + $firstTokens[1],
-                    cachedTokens: $response->cachedTokens + $firstTokens[2],
-                    latencyMs: $response->latencyMs,
-                    stopReason: $response->stopReason,
-                    cacheWriteTokens: $response->cacheWriteTokens + $firstTokens[3],
-                    rawUsage: $response->rawUsage + ['repaired' => true],
-                );
+                    throw new OutputTruncated(
+                        "The repair reply was stopped at the output limit (budget {$request->maxOutputTokens}).",
+                        $response->outputTokens, $request->maxOutputTokens,
+                    );
+                }
 
                 $check = $this->structured->check($response->json(), $jsonSchema);
 
@@ -188,6 +249,18 @@ final class ModelRuntime
             run: $run->refresh(),
             model: $request->model,
             degraded: $run->degraded_from_tier !== null,
+        );
+    }
+
+    /**
+     * The credential scope is opened around the call and closed in the vault's `finally`, so the
+     * key exists in memory only for the duration of one request.
+     */
+    private function call(ModelProvider $provider, ModelRequest $request): ModelResponse
+    {
+        return $this->vault->openForAccounts(
+            [$provider->credentialPair()],
+            fn (): ModelResponse => $provider->complete($request),
         );
     }
 
@@ -227,6 +300,9 @@ final class ModelRuntime
             'cache_write_tokens' => $response->cacheWriteTokens,
             'latency_ms' => $response->latencyMs,
             'estimated_cost_usd' => $estimate,
+            // Why the LAST reply on this row ended, in the driver's neutral vocabulary. A truncation
+            // is then a recorded fact, not a subtraction somebody does while reading a failed gate.
+            'stop_reason' => substr($response->stopReason, 0, 32),
             // ⚠ `actual_cost_usd` stays NULL. It is filled only by a future reconciliation against
             // the provider's own billing; writing our own estimate into it would make the two
             // columns agree by construction and destroy the only check they exist to provide.

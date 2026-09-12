@@ -68,7 +68,13 @@ class FixtureProvider implements ModelProvider
 
     public static function reply(string $text, int $in = 100, int $out = 20, int $cached = 0): ModelResponse
     {
-        return new ModelResponse($text, $in, $out, $cached, 42, 'end_turn');
+        return new ModelResponse($text, $in, $out, $cached, 42, ModelResponse::STOP_END_TURN);
+    }
+
+    /** A reply the provider cut off at the output limit: the text is whatever got out before the wall. */
+    public static function truncated(string $text, int $in = 100, int $out = 4096): ModelResponse
+    {
+        return new ModelResponse($text, $in, $out, 0, 42, ModelResponse::STOP_MAX_TOKENS);
     }
 
     public static function outage(string $message = 'simulated outage'): ProviderUnavailable
