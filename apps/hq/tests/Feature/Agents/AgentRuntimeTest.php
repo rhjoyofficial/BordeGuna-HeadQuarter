@@ -489,6 +489,9 @@ it('asks for the agent-turn budget from policy, and it clears the constant that 
 });
 
 it('ends a run whose reply was cut off at the output limit as output_truncated, not model_error', function () {
+    // Headroom is what makes this a "cut off twice" case: at the test model's 4,096 limit the clamped
+    // budget has nowhere to go, the policy says so, and the runtime correctly makes ONE call.
+    AiModel::query()->update(['max_output_tokens' => 64000]);
     $cut = FixtureProvider::truncated('{"status":"answer","answer":"a very long report that never fin');
     FixtureProvider::script('fixture', [$cut, $cut]);
 
