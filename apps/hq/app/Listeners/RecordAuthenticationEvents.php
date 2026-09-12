@@ -16,13 +16,16 @@ final class RecordAuthenticationEvents
     public function login(Login $event): void
     {
         $event->user->forceFill(['last_login_at' => now(), 'last_login_ip' => Request::ip()])->saveQuietly();
-        $this->auditor->record('auth.login', $event->user, actorUserId: $event->user->getAuthIdentifier());
+        // The Login event fires before the guard has set its user, so the auditor cannot look the
+        // actor up and would label the row `user:1`; the label is passed in so the audit log reads
+        // "who" the same way for a login as for everything that follows it.
+        $this->auditor->record('auth.login', $event->user, actorUserId: $event->user->getAuthIdentifier(), actorLabel: $event->user->email);
     }
 
     public function logout(Logout $event): void
     {
         if ($event->user) {
-            $this->auditor->record('auth.logout', $event->user, actorUserId: $event->user->getAuthIdentifier());
+            $this->auditor->record('auth.logout', $event->user, actorUserId: $event->user->getAuthIdentifier(), actorLabel: $event->user->email);
         }
     }
 

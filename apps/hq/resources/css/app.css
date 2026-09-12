@@ -157,4 +157,18 @@
     body {
         @apply bg-background text-foreground;
     }
+
+    /*
+     * Chrome paints an autofilled box light blue with its own text colour, which on the dark
+     * sign-in screen looks like a broken field. The inset shadow covers Chrome's fill with the
+     * page background, and the text colour is pinned to the theme's foreground.
+     */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--foreground);
+        -webkit-box-shadow: 0 0 0 1000px var(--background) inset;
+        caret-color: var(--foreground);
+        transition: background-color 9999s ease-in-out 0s;
+    }
 }

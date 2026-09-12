@@ -7,7 +7,6 @@ use App\Http\Requests\Settings\ProfileUpdateRequest;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -40,24 +39,11 @@ class ProfileController extends Controller
         return to_route('profile.edit');
     }
 
-    /**
-     * Delete the user's account.
+    /*
+     * There is deliberately no destroy() here. The starter kit shipped a self-service "Delete
+     * account" on this screen; on a control plane with a single owner that is a button that locks
+     * the whole group out. Removed 12 Sep 2026 (docs/64 section D, decided in the ChatGPT thread).
+     * Account lifecycle, if it is ever needed, will be a governed capability with its own audit,
+     * not a form on the profile page. ProfileUpdateTest holds the route absent.
      */
-    public function destroy(Request $request): RedirectResponse
-    {
-        $request->validate([
-            'password' => ['required', 'current_password'],
-        ]);
-
-        $user = $request->user();
-
-        Auth::logout();
-
-        $user->delete();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        return redirect('/');
-    }
 }
