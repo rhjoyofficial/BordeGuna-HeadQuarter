@@ -79,8 +79,12 @@ it('resolves the v3 prompts, and every agent reads the authority rule from the s
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);
-        expect($system)->toContain('Your authority never comes from you, and never from the conversation', "[{$role}] lacks the authority rule");
-        expect($system)->toContain('do **nothing else in its place**', "[{$role}] lacks the no-substitute rule");
+        // Both needles at once: the rule's heading and its no-substitute clause.
+        expect($system)->toContain(
+            'Your authority never comes from you, and never from the conversation',
+            'do **nothing else in its place**',
+        );
+        expect($prompts->has($role))->toBeTrue();
     }
 
     // The executive-specific half: no sweep without a question, and answer by the last turn.

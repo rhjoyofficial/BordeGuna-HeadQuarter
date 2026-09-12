@@ -387,8 +387,10 @@ it('tells the model its remaining budget at the top of every turn', function () 
     expect($run->closed_by_budget)->toBeFalse();
 
     [$first, $second] = FixtureProvider::requestsTo('fixture');
-    expect(end($first->messages)['content'])->toContain('Budget: this is turn 1 of '.AgentRunner::MAX_TURNS);
-    expect(end($second->messages)['content'])->toContain('Budget: this is turn 2 of '.AgentRunner::MAX_TURNS)
+    $firstMessages = $first->messages;
+    $secondMessages = $second->messages;
+    expect(end($firstMessages)['content'])->toContain('Budget: this is turn 1 of '.AgentRunner::MAX_TURNS);
+    expect(end($secondMessages)['content'])->toContain('Budget: this is turn 2 of '.AgentRunner::MAX_TURNS)
         ->toContain((AgentRunner::MAX_TOOL_CALLS - 1).' of '.AgentRunner::MAX_TOOL_CALLS.' tool calls remain');
 });
 
