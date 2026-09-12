@@ -47,7 +47,8 @@ wrong for an engineer who built the thing. All of it is wrong for the person it 
 | D | Approvals index and detail: plain-language cards, dialogs, technical detail folded | `approvals/*.tsx` |
 | E | Agents index and detail: badges, review form, less monospace | `agents/*.tsx` |
 | F | Scheduler index and detail: "New job" in a dialog, schedule in words, badges, run history readable | `scheduler/*.tsx` |
-| G | Tools, feature flags, credentials, audit log, businesses: forms in dialogs, badges, consistent headers | remaining pages |
+| G | Tools, feature flags, credentials, audit log, businesses, customers: forms in dialogs, badges, consistent headers | remaining pages |
+| H | Sign-in: branded auth frame, a PasswordInput with a show/hide eye used by EVERY password field, the remember-me box actually wired; `hq:user:email` to change a login address, audited | `layouts/auth`, `pages/auth`, `components/ui/password-input.tsx`, `UpdateUserEmail` |
 
 ## D. Verification path
 
@@ -58,4 +59,39 @@ merge is deployed, which is a separate decision Joy makes; nothing in this pass 
 
 ## E. Record of what each slice did
 
-Filled in as each slice lands.
+All eight slices landed on 12 Sep as eight commits on `ui/operator-friendly-pass`, each with
+`tsc --noEmit`, eslint and prettier clean; `vite build` green at the end (14.9 s, 75 chunks).
+Backend changes were additive only: `NavBadges` + the shared `nav` prop (B), the dashboard's
+`attention`/`health`/`businesses` props (C), `tool_title`/`tool_purpose`/`business`/`store` on
+approval cards (D), and the new `hq:user:email` command with four tests (H). Three Inertia assertions
+were added to `DashboardTest`; no existing test was changed.
+
+### What Joy asked for mid-pass (12 Sep)
+
+1. **Replace `joy@bordeguna.com` with `rakibulhasanjoy009@gmail.com` as the HQ login.** The change
+   is a production data change on the `users` row. It is done with the new audited command, on the
+   VPS:
+
+   ```
+   docker exec bordeguna-hq-app-1 php artisan hq:user:email joy@bordeguna.com rakibulhasanjoy009@gmail.com
+   ```
+
+   The command refuses if the old address matches nobody or the new one is taken, changes nothing
+   but the email (password, two-factor secret and role survive), and writes `user.email_changed`
+   to the audit log with both addresses. ⚠ It exists only once this branch is deployed; until then
+   the equivalent is a one-line tinker update, which this session was not permitted to run.
+2. **An eye toggle on every password field.** `PasswordInput` wraps `Input`; the eight fields that
+   were `type="password"` (login, confirm, reset x2, change password x3, sessions, two-factor x2,
+   delete account, credential secret) all use it. `grep 'type="password"'` over `resources/js`
+   finds only the component itself.
+3. **A better sign-in screen.** Branded frame (mark, "Bor de Guna HQ", "Group control room"), the
+   form in a card, one line that says a one-time code follows and that actions are recorded.
+   ⚠ The remember-me checkbox was never wired to the form (`Checkbox` had no `onCheckedChange`), so
+   "Remember me" had never done anything. It does now.
+
+## F. Not done, deliberately
+
+- **No deploy.** Deploying is Joy's call ([[feedback_deploy_only_on_explicit_request]]).
+- **No browser render check yet.** The Chrome extension was not connected this session; the check
+  happens against production after the deploy, as the ERP practice requires.
+- **The ChatGPT thread Joy shared was not read** (same reason). Its link is in memory for next time.

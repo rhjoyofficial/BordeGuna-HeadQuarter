@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, useForm } from '@inertiajs/react';
@@ -51,7 +51,7 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                     <Label htmlFor="pw" className="mt-3 block">
                         Current password
                     </Label>
-                    <Input id="pw" type="password" value={form.data.password} onChange={(e) => form.setData('password', e.target.value)} />
+                    <PasswordInput id="pw" value={form.data.password} onChange={(e) => form.setData('password', e.target.value)} />
                     {form.errors.password && <div className="text-sm text-red-600">{form.errors.password}</div>}
                     <Button className="mt-3" variant="outline" type="submit" disabled={form.processing}>
                         Log out other sessions

@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
@@ -128,9 +129,8 @@ function NewCredentialDialog({
                         </Field>
                     </FormRow>
                     <Field label="Secret value" htmlFor="secret" size="grow" error={form.errors.secret}>
-                        <Input
+                        <PasswordInput
                             id="secret"
-                            type="password"
                             autoComplete="off"
                             value={form.data.secret}
                             onChange={(e) => form.setData('secret', e.target.value)}
