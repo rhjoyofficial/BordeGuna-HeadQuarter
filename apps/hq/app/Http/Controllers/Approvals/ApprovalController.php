@@ -8,6 +8,8 @@ use App\Gateway\Approval\ApprovalStatus;
 use App\Gateway\Validation\ArgumentValidator;
 use App\Http\Controllers\Controller;
 use App\Models\Approval;
+use App\Models\Business;
+use App\Models\Store;
 use App\Models\User;
 use App\Support\Notifications\Notifier;
 use App\Tools\ToolRegistry;
@@ -52,7 +54,7 @@ final class ApprovalController extends Controller
             $query->where('status', $status);
         }
 
-        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + [
+        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + [
             'requested_by' => $a->requestedBy?->email,
             'decided_by' => $a->decidedBy?->email,
             'delegated_to' => $a->delegatedTo?->email,
@@ -77,7 +79,7 @@ final class ApprovalController extends Controller
     public function show(Request $request, Approval $approval): Response
     {
         return Inertia::render('approvals/show', [
-            'approval' => $approval->toCard() + [
+            'approval' => $approval->toCard() + $this->readable($approval) + [
                 'requested_by' => $approval->requestedBy?->email,
                 'decided_by' => $approval->decidedBy?->email,
                 'delegated_to' => $approval->delegatedTo?->email,
@@ -87,6 +89,30 @@ final class ApprovalController extends Controller
                 'superseded_by' => Approval::where('supersedes_id', $approval->id)->value('id'),
             ],
         ]);
+    }
+
+    /**
+     * The words a person reads on the card: the tool's title and purpose from the registry, and the
+     * business and store by name. The key and the ids stay on the card underneath for anyone who
+     * needs them; a tool that is no longer registered simply has no title.
+     *
+     * @return array<string, string|null>
+     */
+    private function readable(Approval $approval): array
+    {
+        static $businesses = null;
+        static $stores = null;
+        $businesses ??= Business::query()->pluck('name', 'id');
+        $stores ??= Store::query()->pluck('name', 'id');
+
+        $descriptor = $this->registry->has($approval->tool_key) ? $this->registry->get($approval->tool_key)->descriptor() : null;
+
+        return [
+            'tool_title' => $descriptor?->title,
+            'tool_purpose' => $descriptor?->purpose,
+            'business' => $approval->business_id !== null ? $businesses[$approval->business_id] ?? null : null,
+            'store' => $approval->store_id !== null ? $stores[$approval->store_id] ?? null : null,
+        ];
     }
 
     /**
