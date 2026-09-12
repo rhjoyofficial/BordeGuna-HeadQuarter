@@ -1,6 +1,6 @@
 # 63 - The operator UI pass (12 September 2026)
 
-**Status: in progress on branch `ui/operator-friendly-pass`.** Joy asked, resuming HQ on 12 Sep,
+**Status: MERGED to `main` on 12 Sep 2026 as PR #17 (CI green: 455 Pest tests, Pint, TypeScript, Vite, production image). NOT DEPLOYED; production is still `e9bc530`.** Joy asked, resuming HQ on 12 Sep,
 to "focus on the UI part, make it more user friendly". This document is the plan that was written
 before the first component was touched, and the record of what each slice did.
 
