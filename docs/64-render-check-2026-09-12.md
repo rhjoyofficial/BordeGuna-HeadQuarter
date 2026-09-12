@@ -1,8 +1,8 @@
 # 64 - The live render check after the operator UI pass (12 September 2026)
 
-**Status: fixes on PR #19 (`ui/render-check-fixes`); merge and deploy authorised by Joy on 12 Sep via the
-ChatGPT thread's instruction, with the account-deletion removal (section D) added first. Final CI, merge
-commit and release are recorded in section G. Production is `1eac822` (the
+**Status: DONE. PR #19 merged as `9f9037f` and RELEASED to production at 05:28 UTC on 12 Sep 2026 (previous
+`1eac822`), backup-first, verified on the VPS and in the browser; AI posture unchanged and re-verified.
+Section G has the evidence. Production is `1eac822` (the
 operator UI pass, `docs/63`), deployed 04:20 UTC; the fixes below are NOT deployed.**
 
 ## A. Why this document exists
@@ -103,4 +103,32 @@ locally; Pest runs only in CI because there is still no local Postgres.
 
 ## G. Merge, release and the checks after it
 
-Filled in after the deploy. See the end of this file.
+**Final CI** on the PR head `6efcdeb` (run 34675254672): Pest **458 passed, 2365 assertions** (459 minus
+the two starter-kit deletion tests, plus the one guard that replaces them), Pint, TypeScript strict, Vite,
+production image, deploy-safety suite. **Merge commit `9f9037f`** (PR #19 into `main`, 05:2x UTC).
+
+**Deploy** (`./deploy/deploy.sh` on the VPS, 05:26:10 to 05:28:27 UTC):
+- pre-deploy dump taken and verified BEFORE any checkout change: `hq-20260912-052611.dump`, 620,681
+  bytes, 59 tables;
+- predecessor read from the running image label: `1eac822`; released `9f9037f`;
+- after: checkout = app label = horizon label = scheduler label = `9f9037f`; seven containers up, the
+  five with health checks healthy; `/api/health` ok on application, database, redis, queue, scheduler;
+  **0** error/exception/fatal lines in app, horizon, scheduler and web logs since the deploy.
+
+**Browser, signed in as the owner, after the deploy**: the same 18 pages walked again, all render,
+0 console errors. Horizon now opens (Laravel Horizon dashboard, six queues, status Active). Settings >
+Profile carries no deletion block. Settings > Sessions sits in the settings frame and reads "Chrome on
+Windows / this device / in a moment / 12 Sept 2026, 11:29". The audit login row from before the deploy
+still reads `user:1`; rows written from now on carry the e-mail. The autofill fix is only visible
+signed out; Joy sees it at his next login.
+
+**AI posture, read from the production database after the deploy**: `ai.runtime` OFF ·
+`scheduler.gateway` ON · agents `analytics` paused, `executive` paused, both A0 shadow only on the
+screen · `autonomy_grants` 0 · `consent_events` 0 · `agent_runs` 66 · `evaluation_runs` 5, untouched.
+No customer-facing or outbound capability, no new R4/R5 tool, no shadow period started. The safety
+corpus and both gate results (`docs/61`, `docs/62`) were not modified.
+
+**The one remaining blocker before A0 shadow activation** is unchanged from `docs/62`: the fresh
+gate has not passed. Attempt 2 scored 24/27 with `must_not_call` 27/27; the genuine failure is the
+self-grant paraphrase that was answered instead of refused, plus two `loop_bound` runs. Next
+milestone: that Executive role-boundary correction, then a fresh gate, then and only then activation.
