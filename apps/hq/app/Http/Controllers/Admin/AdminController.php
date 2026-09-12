@@ -3,18 +3,25 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Agent;
+use App\Models\AgentRun;
+use App\Models\Approval;
 use App\Models\AuditLog;
 use App\Models\Brand;
 use App\Models\Business;
+use App\Models\ConnectorCall;
 use App\Models\DomainEvent;
+use App\Models\FactsOrder;
 use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
 use App\Models\JobRun;
 use App\Models\PlatformAccount;
 use App\Models\ScheduledJob;
 use App\Models\Store;
+use App\Models\ToolRegistration;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\BusinessScope;
 use App\Support\Credentials\CredentialWriter;
 use App\Support\Features\Features;
 use Illuminate\Http\RedirectResponse;
@@ -30,11 +37,120 @@ final class AdminController extends Controller
         private readonly Auditor $auditor,
         private readonly Features $features,
         private readonly CredentialWriter $credentials,
+        private readonly BusinessScope $businessScope,
     ) {}
 
-    public function dashboard(): Response
+    /**
+     * The landing screen answers "what needs me" before it shows anything else.
+     *
+     * `attention` is the list of things a person has to act on, each with a count and the screen
+     * that resolves it; `health` is whether the machinery is running; `businesses` is one card per
+     * business with its stores and how recently an order arrived. The Phase 0 `counts` stay, at the
+     * bottom. Counts that describe rows a restricted operator may not see are computed inside the
+     * same business scope the screens use.
+     */
+    public function dashboard(Request $request): Response
     {
+        $user = $request->user();
+        $scoped = fn ($query, string $column = 'business_id') => $user === null ? $query : $this->businessScope->restrict($query, $user, $column);
+        $since = now()->subDay();
+
+        $attention = [
+            [
+                'key' => 'approvals_pending',
+                'label' => 'Approvals waiting for a decision',
+                'count' => $scoped(Approval::pending())->count(),
+                'href' => '/approvals',
+                'permission' => 'hq.approvals.view',
+                'tone' => 'pending',
+            ],
+            [
+                'key' => 'approvals_overdue',
+                'label' => 'Approvals past their deadline',
+                'count' => $scoped(Approval::pastSla())->count(),
+                'href' => '/approvals',
+                'permission' => 'hq.approvals.view',
+                'tone' => 'warn',
+            ],
+            [
+                'key' => 'runs_to_review',
+                'label' => 'Shadow runs to read',
+                'count' => $scoped(AgentRun::query())->where('shadow', true)->whereNull('reviewed_at')
+                    ->whereIn('status', ['answered', 'refused', 'stopped'])->count(),
+                'href' => '/agents?filter=unreviewed',
+                'permission' => 'hq.agents.view',
+                'tone' => 'pending',
+            ],
+            [
+                'key' => 'jobs_failed',
+                'label' => 'Scheduled runs that failed in the last day',
+                'count' => JobRun::whereIn('status', ['failed', 'dead'])->where('created_at', '>=', $since)->count(),
+                'href' => '/scheduler',
+                'permission' => 'hq.jobs.view',
+                'tone' => 'danger',
+            ],
+            [
+                'key' => 'events_dead',
+                'label' => 'Events that could not be processed',
+                'count' => DomainEvent::where('status', 'dead')->count(),
+                'href' => '/audit?action=event',
+                'permission' => 'hq.audit.view',
+                'tone' => 'danger',
+            ],
+            [
+                'key' => 'tools_disabled',
+                'label' => 'Tools switched off by hand',
+                'count' => ToolRegistration::where('enabled', false)->count(),
+                'href' => '/tools?state=disabled',
+                'permission' => 'hq.tools.view',
+                'tone' => 'warn',
+            ],
+        ];
+
+        $lastTick = Cache::get(SchedulerTick::HEARTBEAT_KEY);
+        $connectorCalls = ConnectorCall::where('created_at', '>=', $since)
+            ->selectRaw("count(*) as total, sum(case when status = 'succeeded' then 1 else 0 end) as ok")
+            ->first();
+
+        $health = [
+            'scheduler' => [
+                'last_tick' => $lastTick,
+                'stale_after_seconds' => 180,
+            ],
+            'ai_runtime' => $this->features->enabled('ai.runtime'),
+            'agents' => Agent::query()->orderBy('key')->get(['key', 'name', 'status', 'max_autonomy_level'])
+                ->map(fn (Agent $a) => ['key' => $a->key, 'name' => $a->name, 'status' => $a->status, 'autonomy' => $a->max_autonomy_level?->value])
+                ->values(),
+            'events' => [
+                'pending' => DomainEvent::whereIn('status', ['pending', 'failed'])->count(),
+                'dead' => DomainEvent::where('status', 'dead')->count(),
+                'last_at' => DomainEvent::max('occurred_at'),
+            ],
+            'connectors_24h' => [
+                'total' => (int) ($connectorCalls?->total ?? 0),
+                'ok' => (int) ($connectorCalls?->ok ?? 0),
+            ],
+        ];
+
+        $businesses = $scoped(Business::query(), 'id')->with(['stores:id,business_id,name,adapter,is_active', 'brands:id,business_id,name'])
+            ->orderBy('name')->get()
+            ->map(fn (Business $b) => [
+                'id' => $b->id,
+                'name' => $b->name,
+                'slug' => $b->slug,
+                'is_active' => $b->is_active,
+                'timezone' => $b->timezone,
+                'brands' => $b->brands->pluck('name')->values(),
+                'stores' => $b->stores->map(fn (Store $s) => ['name' => $s->name, 'adapter' => $s->adapter, 'is_active' => $s->is_active])->values(),
+                'orders_24h' => FactsOrder::where('business_id', $b->id)->where('placed_at', '>=', $since)->count(),
+                'last_order_at' => FactsOrder::where('business_id', $b->id)->max('placed_at'),
+            ])
+            ->values();
+
         return Inertia::render('dashboard', [
+            'attention' => $attention,
+            'health' => $health,
+            'businesses' => $businesses,
             'counts' => [
                 'businesses' => Business::count(), 'brands' => Brand::count(), 'stores' => Store::count(),
                 'platform_accounts' => PlatformAccount::count(), 'credentials' => IntegrationCredential::count(),
@@ -45,7 +161,7 @@ final class AdminController extends Controller
                 'events_dead' => DomainEvent::where('status', 'dead')->count(),
                 'audit_24h' => AuditLog::where('occurred_at', '>=', now()->subDay())->count(),
             ],
-            'scheduler' => ['last_tick' => Cache::get(SchedulerTick::HEARTBEAT_KEY)],
+            'scheduler' => ['last_tick' => $lastTick],
             'recentAudit' => AuditLog::latest('occurred_at')->limit(10)->get(),
         ]);
     }
