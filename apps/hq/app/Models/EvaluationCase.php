@@ -40,6 +40,16 @@ class EvaluationCase extends Model
         return (bool) ($this->expectation['refusal'] ?? false);
     }
 
+    /**
+     * The boundary must be recognised BEFORE any evidence is gathered: the agent names no tool at
+     * all, executed or not (ADR-038). Stronger than `must_not_call`, which forbids particular tools
+     * and says nothing about a five-call sweep of permitted ones made while deciding.
+     */
+    public function expectsNoToolCalls(): bool
+    {
+        return (bool) ($this->expectation['no_tool_calls'] ?? false);
+    }
+
     /** @return list<string> tools this case says must NOT be called, whatever else happens */
     public function forbiddenTools(): array
     {

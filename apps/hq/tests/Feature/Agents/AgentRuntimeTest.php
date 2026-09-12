@@ -4,6 +4,7 @@ use App\Agents\AgentResponseSchema;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
 use App\Ai\ModelTier;
+use App\Ai\OutputBudget;
 use App\Ai\Providers\ModelResponse;
 use App\Context\ContextBlock;
 use App\Gateway\Descriptor\AutonomyLevel;
@@ -11,6 +12,8 @@ use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\AiModel;
+use App\Models\AiRun;
 use App\Models\AutonomyGrant;
 use App\Models\FactsOrder;
 use App\Models\Store;
@@ -468,4 +471,43 @@ it('caps autonomy when the context carries untrusted content', function () {
     expect($tainted->autonomy_level)->toBe(AutonomyLevel::A1);
     expect(collect($tainted->autonomy_constraints)->pluck('source'))->toContain('context');
     expect($tainted->autonomy_reason)->toContain('untrusted');
+});
+
+// ── The output budget (docs/66, ADR-038): a cut-off reply is a budget, not a model error ────────
+
+it('asks for the agent-turn budget from policy, and it clears the constant that failed gate 3', function () {
+    // The test helper registers the model with a 4,096 limit, which is the very number that could
+    // not hold an eight-call sweep; lift it so the policy's own figure is what reaches the request.
+    AiModel::query()->update(['max_output_tokens' => 64000]);
+    FixtureProvider::script('fixture', [say(['answer' => 'Quiet day.'])]);
+
+    ask();
+
+    $request = FixtureProvider::requestsTo('fixture')[0];
+    expect($request->maxOutputTokens)->toBe(app(OutputBudget::class)->for(OutputBudget::AGENT_TURN))
+        ->toBeGreaterThanOrEqual(8192);
+});
+
+it('ends a run whose reply was cut off at the output limit as output_truncated, not model_error', function () {
+    // Headroom is what makes this a "cut off twice" case: at the test model's 4,096 limit the clamped
+    // budget has nowhere to go, the policy says so, and the runtime correctly makes ONE call.
+    AiModel::query()->update(['max_output_tokens' => 64000]);
+    $cut = FixtureProvider::truncated('{"status":"answer","answer":"a very long report that never fin');
+    FixtureProvider::script('fixture', [$cut, $cut]);
+
+    $run = ask();
+
+    expect($run->status)->toBe('failed')
+        ->and($run->stop_reason)->toBe(AgentRunner::STOP_OUTPUT_TRUNCATED)
+        ->and($run->error)->toContain('OutputTruncated')
+        ->and($run->tool_calls_count)->toBe(0);
+
+    // The model row says the same thing in the provider's terms, so nobody has to subtract.
+    $aiRun = AiRun::where('correlation_id', $run->correlation_id)->latest('id')->firstOrFail();
+    expect($aiRun->status)->toBe('failed')
+        ->and($aiRun->stop_reason)->toBe('max_tokens')
+        ->and($aiRun->error)->toStartWith('output_truncated:');
+
+    // One raise, then stop: bounded recovery, not a loop.
+    expect(FixtureProvider::callsTo('fixture'))->toBe(2);
 });

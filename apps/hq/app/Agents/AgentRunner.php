@@ -2,7 +2,9 @@
 
 namespace App\Agents;
 
+use App\Ai\Exceptions\OutputTruncated;
 use App\Ai\ModelRuntime;
+use App\Ai\OutputBudget;
 use App\Ai\RoutingContext;
 use App\Autonomy\AutonomyDecision;
 use App\Autonomy\AutonomyRequest;
@@ -60,6 +62,16 @@ use Throwable;
  * decide, and that is the pattern that needs a person. The closing turn is recorded on the row
  * (`closed_by_budget`), so a reviewer can tell an answer given freely from one given when cornered.
  *
+ * ## A cut-off reply is a budget, not a model error (ADR-038)
+ *
+ * ⚠ Two gates in a row ended a run as `model_error` because the model's reply was longer than the
+ * room it was given: a constant 4,096-token cap, an eight-call sweep that needed twice that, and a
+ * runtime that read the cut-off object as a malformed one. The cap is now a policy (`OutputBudget`)
+ * that knows the class of work, the model's limit and a configured ceiling, and the runtime retries
+ * a truncation once with more room before giving up. When it does give up, the run ends as
+ * `output_truncated` - its own stop reason - so a gate report can say what actually happened rather
+ * than leaving a reader to subtract token counts.
+ *
  * ## Reading is not acting, and that is what makes A0 workable
  *
  * ⭐⭐ **The one interpretation this class had to make, stated plainly.** `AutonomyLevel::A0` reads
@@ -112,7 +124,8 @@ final class AgentRunner
         .'Answer now from what you already hold, naming every gap as a gap, or refuse if the request is one '
         .'you should not serve. A reply that asks for tools ends this run with no answer at all.';
 
-    private const MAX_OUTPUT_TOKENS = 4096;
+    /** The stop reason of a run whose reply was cut off at the output limit even after the retry. */
+    public const STOP_OUTPUT_TRUNCATED = 'output_truncated';
 
     public function __construct(
         private readonly ModelRuntime $models,
@@ -122,6 +135,7 @@ final class AgentRunner
         private readonly ContextAssembler $assembler,
         private readonly AutonomyResolver $autonomy,
         private readonly PromptLibrary $prompts,
+        private readonly OutputBudget $output,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -184,6 +198,17 @@ final class AgentRunner
 
         try {
             $this->loop($run, $agent, $enabling, $request, $bundle, $decision, $correlationId);
+        } catch (OutputTruncated $e) {
+            // Its own stop reason, because it is its own failure: the answer was too long for the
+            // room it had, twice. Not the model misbehaving, not the schema, and the next reader
+            // should not have to work that out from token counts (ADR-038).
+            Log::error('agent run cut off at the output limit', ['agent' => $agent->key, 'run' => $run->id, 'exception' => $e]);
+
+            $run->forceFill([
+                'status' => 'failed',
+                'stop_reason' => self::STOP_OUTPUT_TRUNCATED,
+                'error' => get_class($e).': '.mb_substr($e->getMessage(), 0, 900),
+            ])->save();
         } catch (Throwable $e) {
             Log::error('agent run failed', ['agent' => $agent->key, 'run' => $run->id, 'exception' => $e]);
 
@@ -231,7 +256,7 @@ final class AgentRunner
                     inputRef: "agent_run:{$run->id}",
                 ),
                 jsonSchema: AgentResponseSchema::schema(),
-                maxOutputTokens: self::MAX_OUTPUT_TOKENS,
+                maxOutputTokens: $this->output->for(OutputBudget::AGENT_TURN),
                 promptVersion: $run->prompt_version,
             );
 
@@ -369,7 +394,7 @@ final class AgentRunner
                 inputRef: "agent_run:{$run->id}",
             ),
             jsonSchema: AgentResponseSchema::schema(),
-            maxOutputTokens: self::MAX_OUTPUT_TOKENS,
+            maxOutputTokens: $this->output->for(OutputBudget::AGENT_TURN),
             promptVersion: $run->prompt_version,
         );
 

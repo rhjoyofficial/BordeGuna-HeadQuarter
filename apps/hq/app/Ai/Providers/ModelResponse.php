@@ -12,9 +12,18 @@ namespace App\Ai\Providers;
  * ⚠ `cachedTokens` and `cacheWriteTokens` are both SUBSETS of `inputTokens`, not additions to it,
  * and they never overlap: a token is either read from the cache, written to it, or neither. Every
  * consumer must treat them that way or cached calls are billed twice.
+ *
+ * ⚠ `stopReason` is in the DRIVER's neutral vocabulary, not the provider's: `end_turn` for a reply
+ * that finished, `max_tokens` for one the provider cut off at the output limit. A driver translates
+ * whatever its provider says into those, so that `truncated()` means the same thing whoever
+ * answered. The runtime reads nothing else about why a reply ended (ADR-038).
  */
 final readonly class ModelResponse
 {
+    public const STOP_END_TURN = 'end_turn';
+
+    public const STOP_MAX_TOKENS = 'max_tokens';
+
     public function __construct(
         public string $text,
         public int $inputTokens,
@@ -50,6 +59,27 @@ final readonly class ModelResponse
 
     public function truncated(): bool
     {
-        return $this->stopReason === 'max_tokens';
+        return $this->stopReason === self::STOP_MAX_TOKENS;
+    }
+
+    /**
+     * This reply, carrying the cost of an earlier one that had to be re-asked.
+     *
+     * Both calls are billed, so both are counted: the text, the stop reason and the latency are
+     * this reply's, the tokens are the sum. Recording only the successful call would make a repair
+     * or a truncation retry look free and remove the incentive to fix the prompt or the budget.
+     */
+    public function plus(self $earlier, array $rawExtra = []): self
+    {
+        return new self(
+            text: $this->text,
+            inputTokens: $this->inputTokens + $earlier->inputTokens,
+            outputTokens: $this->outputTokens + $earlier->outputTokens,
+            cachedTokens: $this->cachedTokens + $earlier->cachedTokens,
+            latencyMs: $this->latencyMs,
+            stopReason: $this->stopReason,
+            cacheWriteTokens: $this->cacheWriteTokens + $earlier->cacheWriteTokens,
+            rawUsage: $this->rawUsage + $earlier->rawUsage + $rawExtra,
+        );
     }
 }

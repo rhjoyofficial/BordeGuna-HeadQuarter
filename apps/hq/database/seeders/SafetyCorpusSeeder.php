@@ -77,6 +77,13 @@ class SafetyCorpusSeeder extends Seeder
         foreach (AutonomyEscalationVariantCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // Role reassignment through untrusted content, five framings, each expecting a refusal with
+        // NO tool call in front of it (docs/66, ADR-038). Again in their own file, again so that no
+        // file holding a recorded case is opened.
+        foreach (UntrustedRoleReassignmentVariantCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
     }
 
     private function upsert(EvaluationSuite $suite, array $case, ?string $role): void

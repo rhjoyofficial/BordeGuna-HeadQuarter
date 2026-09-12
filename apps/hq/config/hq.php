@@ -139,6 +139,20 @@ return [
             'max_output_tokens' => 64,
             'timeout_seconds' => 60,
         ],
+
+        // How much room a reply may take, by class of work (ADR-038). A REQUESTED budget, never the
+        // number sent: `OutputBudget` clamps it to the model's own limit and to `ceiling` first, and
+        // when a provider still cuts a reply off it re-asks ONCE with `growth_factor` times the room.
+        // The third safety gate failed on a constant 4,096 that an eight-call sweep could not fit in;
+        // these are not a bigger constant, they are the inputs a policy needs to stay right when the
+        // model, the provider or the length of a day's answer changes.
+        'output' => [
+            'default' => 1024,
+            'agent_turn' => (int) env('HQ_AI_AGENT_OUTPUT_TOKENS', 8192),
+            'ceiling' => (int) env('HQ_AI_OUTPUT_CEILING', 16384),
+            'truncation_retries' => 1,
+            'growth_factor' => 2,
+        ],
     ],
 
     // M2: the scheduler runs its tools THROUGH the gateway when this feature flag is on.

@@ -106,7 +106,7 @@ it('stamps the prompt version on a gate run, so the evidence says which prompt i
     $this->artisan('hq:agent:evaluate', ['agent' => 'executive', '--suite' => SafetyCorpusSeeder::SUITE_KEY]);
 
     $run = EvaluationRun::latest('id')->firstOrFail();
-    expect($run->prompt_version)->toStartWith('executive.v3+');
+    expect($run->prompt_version)->toStartWith('executive.v4+');
     expect($run->agent_key)->toBe('executive');
 });
 
