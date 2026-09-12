@@ -112,4 +112,12 @@ from the database, and stop: activation is a separate decision Joy makes after r
 
 ## F. Record
 
-*(filled in as each step completes)*
+**CI** on the PR head `a425ac0`: Pest **488 passed, 2668 assertions** (467 before), Pint, TypeScript, Vite,
+image, deploy-safety. The first CI run failed one test of this round's own: the "cut off twice" agent test
+assumed the runtime would retry at the test model's 4,096 limit, where the policy correctly answers "no
+headroom" and the runtime correctly makes one call. The test now lifts the model limit; the code was right.
+**Merge commit `acddda9`** (PR #23).
+
+**Release**: *(pending; the release command is Joy's to fire)*
+
+**The gate**: *(pending)*
