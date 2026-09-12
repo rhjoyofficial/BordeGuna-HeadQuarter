@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
@@ -105,7 +106,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                             <Label htmlFor="rp" className="mt-3 block">
                                 Current password
                             </Label>
-                            <Input id="rp" type="password" value={regen.data.password} onChange={(e) => regen.setData('password', e.target.value)} />
+                            <PasswordInput id="rp" value={regen.data.password} onChange={(e) => regen.setData('password', e.target.value)} />
                             {regen.errors.password && <div className="text-sm text-red-600">{regen.errors.password}</div>}
                             <Button className="mt-3" variant="outline" type="submit" disabled={regen.processing}>
                                 Regenerate
@@ -125,12 +126,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                             <Label htmlFor="dp" className="mt-3 block">
                                 Current password
                             </Label>
-                            <Input
-                                id="dp"
-                                type="password"
-                                value={disable.data.password}
-                                onChange={(e) => disable.setData('password', e.target.value)}
-                            />
+                            <PasswordInput id="dp" value={disable.data.password} onChange={(e) => disable.setData('password', e.target.value)} />
                             {disable.errors.password && <div className="text-sm text-red-600">{disable.errors.password}</div>}
                             <Button className="mt-3" variant="destructive" type="submit" disabled={disable.processing}>
                                 Disable

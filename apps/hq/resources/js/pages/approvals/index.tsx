@@ -1,7 +1,15 @@
+import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, PreviewList, riskTone } from '@/components/approvals/shared';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EmptyState } from '@/components/empty-state';
+import { NativeSelect } from '@/components/form/field';
+import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Inbox } from 'lucide-react';
 import { useState } from 'react';
 
 type Approval = {
@@ -9,6 +17,8 @@ type Approval = {
     uuid: string;
     tool_key: string;
     tool_version: string;
+    tool_title: string | null;
+    tool_purpose: string | null;
     risk_tier: string | null;
     risk_label: string | null;
     action_class: string;
@@ -20,6 +30,8 @@ type Approval = {
     estimated_cost: Record<string, unknown> | null;
     business_id: number | null;
     store_id: number | null;
+    business: string | null;
+    store: string | null;
     agent_key: string | null;
     sla_due_at: string | null;
     expires_at: string | null;
@@ -36,18 +48,18 @@ type Approval = {
     execution_error: string | null;
 };
 
-type Outcome = { status?: string; error?: string | null; tool_call_id?: number | null };
+type Decision = { kind: 'approve' | 'reject' | 'cancel' | 'delegate'; approval: Approval } | null;
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Approvals', href: '/approvals' }];
 
-const statusTone: Record<string, string> = {
-    pending: 'text-amber-700',
-    approved: 'text-sky-700',
-    consumed: 'text-green-700',
-    rejected: 'text-red-700',
-    cancelled: 'text-muted-foreground',
-    expired: 'text-muted-foreground',
-};
+const STATUS_FILTERS: { key: string; label: string }[] = [
+    { key: 'pending', label: 'Waiting' },
+    { key: 'consumed', label: 'Done' },
+    { key: 'rejected', label: 'Rejected' },
+    { key: 'expired', label: 'Expired' },
+    { key: 'cancelled', label: 'Withdrawn' },
+    { key: 'all', label: 'All' },
+];
 
 export default function ApprovalsIndex({
     approvals,
@@ -70,151 +82,258 @@ export default function ApprovalsIndex({
     const canDecide = auth.permissions.includes('hq.approvals.decide');
     const canDelegate = auth.permissions.includes('hq.approvals.delegate');
     const [busy, setBusy] = useState<number | null>(null);
+    const [decision, setDecision] = useState<Decision>(null);
+    const [delegateTo, setDelegateTo] = useState<string>(approvers[0]?.id.toString() ?? '');
 
-    const decide = (a: Approval, action: 'approve' | 'reject' | 'cancel') => {
-        // Inertia types the body as RequestPayload; a bare Record<string, unknown> is not one.
-        let payload: Record<string, string> = {};
-        if (action === 'reject') {
-            const reason = window.prompt(`Reject ${a.tool_key}. Why? The proposer receives this as feedback.`);
-            if (!reason || reason.trim() === '') return;
-            payload = { reason };
-        }
-        if (action === 'approve' && !window.confirm(`Approve and execute ${a.tool_key}?\n\n${a.reason ?? ''}`)) return;
-        if (action === 'cancel' && !window.confirm(`Withdraw this request for ${a.tool_key}?`)) return;
-
+    const submit = (a: Approval, action: 'approve' | 'reject' | 'cancel' | 'delegate', body: Record<string, string | number> = {}) => {
         setBusy(a.id);
-        router.post(`/approvals/${a.id}/${action}`, payload, { preserveScroll: true, onFinish: () => setBusy(null) });
+        router.post(`/approvals/${a.id}/${action}`, body, {
+            preserveScroll: true,
+            onFinish: () => {
+                setBusy(null);
+                setDecision(null);
+            },
+        });
     };
 
-    const delegate = (a: Approval) => {
-        const list = approvers.map((u) => `${u.id}: ${u.email}`).join('\n');
-        const id = window.prompt(`Delegate ${a.tool_key} to which approver?\n\n${list}`);
-        if (!id) return;
-        setBusy(a.id);
-        router.post(`/approvals/${a.id}/delegate`, { user_id: Number(id) }, { preserveScroll: true, onFinish: () => setBusy(null) });
-    };
+    const activeChannels = Object.entries(channels)
+        .filter(([, on]) => on)
+        .map(([name]) => name);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Approvals" />
-            <div className="flex flex-col gap-4 p-4">
-                {errors?.approval && (
-                    <div className="rounded-xl border border-red-400 bg-red-50 p-4 text-sm text-red-900">
-                        <strong>The decision could not be applied.</strong> {errors.approval}
-                    </div>
-                )}
-                {flash?.status === 'approval-executed' && flash.outcome?.status === 'succeeded' && (
-                    <div className="rounded-xl border border-green-500 bg-green-50 p-4 text-sm text-green-900">
-                        <strong>Approved and executed.</strong> The action ran once
-                        {flash.outcome.tool_call_id ? ` and was recorded as tool call #${flash.outcome.tool_call_id}` : ''}.
-                    </div>
-                )}
-                {flash?.status && flash.outcome && flash.outcome.status !== 'succeeded' && (
-                    <div className="rounded-xl border border-amber-500 bg-amber-50 p-4 text-sm text-amber-900">
-                        <strong>Nothing ran.</strong> {flash.outcome.error ?? 'The gateway refused the call.'}
-                    </div>
-                )}
-                <div className="text-muted-foreground text-sm">
-                    Actions waiting for a human. <span className="font-medium">{counts.pending} pending</span>
-                    {counts.overdue > 0 && <span className="text-orange-700">, {counts.overdue} past their deadline</span>}. Ignoring an approval
-                    expires it; nothing here is ever approved by default.
-                    <div className="mt-1 text-xs">
-                        Notification channels:{' '}
-                        {Object.entries(channels).map(([name, on]) => (
-                            <span key={name} className={`mr-2 font-mono ${on ? 'text-green-700' : 'text-muted-foreground'}`}>
-                                {name}
-                                {on ? '' : ' (not configured)'}
-                            </span>
+            <div className="flex flex-col gap-6 p-4 md:p-6">
+                <PageHeader
+                    title="Approvals"
+                    description={
+                        <>
+                            Actions that need a person before they run. Ignoring one lets it expire; nothing here is ever approved by default.
+                            {activeChannels.length > 0 ? (
+                                <> You are notified by {activeChannels.join(' and ')}.</>
+                            ) : (
+                                <> No notification channel is configured, so check this screen yourself.</>
+                            )}
+                        </>
+                    }
+                    actions={
+                        <div className="flex items-center gap-2">
+                            <StatusBadge tone="pending">{counts.pending} waiting</StatusBadge>
+                            {counts.overdue > 0 && <StatusBadge tone="warn">{counts.overdue} past deadline</StatusBadge>}
+                        </div>
+                    }
+                >
+                    <div className="flex flex-wrap gap-2">
+                        {STATUS_FILTERS.map((s) => (
+                            <Button
+                                key={s.key}
+                                size="sm"
+                                variant={filters.status === s.key ? 'default' : 'outline'}
+                                onClick={() => router.get('/approvals', { status: s.key }, { preserveState: true, replace: true })}
+                            >
+                                {s.label}
+                            </Button>
                         ))}
                     </div>
-                </div>
+                </PageHeader>
 
-                <div className="flex flex-wrap gap-2">
-                    {['pending', 'consumed', 'rejected', 'expired', 'cancelled', 'all'].map((s) => (
-                        <Button
-                            key={s}
-                            size="sm"
-                            variant={filters.status === s ? 'default' : 'outline'}
-                            onClick={() => router.get('/approvals', { status: s }, { preserveState: true, replace: true })}
-                        >
-                            {s}
-                        </Button>
-                    ))}
-                </div>
+                <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
 
-                <div className="flex flex-col gap-3">
-                    {approvals.map((a) => (
-                        <div key={a.id} className="rounded-xl border p-4">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <Link href={`/approvals/${a.id}`} className="font-mono text-sm underline-offset-2 hover:underline">
-                                        {a.tool_key} <span className="text-muted-foreground">v{a.tool_version}</span>
-                                    </Link>
-                                    <div className="text-muted-foreground text-xs">{a.reason}</div>
-                                    <div className="mt-1 text-xs">
-                                        <span className={statusTone[a.status] ?? ''}>{a.status_label}</span>
-                                        {a.risk_label && <span className="text-muted-foreground"> · {a.risk_label}</span>}
-                                        {a.requested_by && <span className="text-muted-foreground"> · asked by {a.requested_by}</span>}
-                                        {a.agent_key && <span className="text-amber-700"> · proposed by agent {a.agent_key}</span>}
-                                        {a.delegated_to && <span className="text-sky-700"> · delegated to {a.delegated_to}</span>}
-                                        {a.escalated_at && <span className="text-orange-700"> · escalated</span>}
-                                        {a.decided_by && <span className="text-muted-foreground"> · decided by {a.decided_by}</span>}
-                                    </div>
-                                    {a.payload && (
-                                        <pre className="bg-muted/40 mt-2 max-h-32 max-w-xl overflow-auto rounded p-2 text-[11px]">
-                                            {JSON.stringify(a.payload, null, 2)}
-                                        </pre>
-                                    )}
-                                    {a.preview?.available === false && (
-                                        <div className="text-muted-foreground mt-1 text-xs">No preview: {a.preview.reason}</div>
-                                    )}
-                                    {a.preview?.available && (
-                                        <div className="mt-1 text-xs text-sky-800">
-                                            <div className="font-medium">Would do</div>
-                                            {Object.entries(a.preview.result ?? {}).map(([k, v]) => (
-                                                <div key={k} className="ml-2">
-                                                    <span className="text-muted-foreground">{k}:</span> {typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}
+                {approvals.length === 0 ? (
+                    <EmptyState
+                        icon={Inbox}
+                        title={filters.status === 'pending' ? 'Nothing is waiting for a decision' : 'Nothing here'}
+                        description={
+                            filters.status === 'pending'
+                                ? 'When a tool needs a human before it may run, the request appears here with what it would do.'
+                                : 'Try another filter.'
+                        }
+                    />
+                ) : (
+                    <div className="flex flex-col gap-3">
+                        {approvals.map((a) => {
+                            const st = approvalStatus(a);
+                            const overdue = a.status === 'pending' && a.sla_due_at && new Date(a.sla_due_at).getTime() < Date.now();
+                            return (
+                                <article key={a.id} className="bg-card rounded-xl border p-4">
+                                    <div className="flex flex-wrap items-start justify-between gap-4">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Link href={`/approvals/${a.id}`} className="font-semibold hover:underline">
+                                                    {a.tool_title ?? humanKey(a.tool_key)}
+                                                </Link>
+                                                <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                                                {a.risk_label && (
+                                                    <StatusBadge tone={riskTone(a.risk_tier)} dot={false}>
+                                                        {a.risk_label}
+                                                    </StatusBadge>
+                                                )}
+                                                {a.escalated_at && <StatusBadge status="escalated" />}
+                                                {overdue && <StatusBadge status="overdue">past deadline</StatusBadge>}
+                                            </div>
+                                            {a.reason && <p className="mt-1 text-sm">{a.reason}</p>}
+
+                                            <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                                                {(a.business || a.store) && (
+                                                    <span>
+                                                        {a.business ?? ''}
+                                                        {a.store ? ` · ${a.store}` : ''}
+                                                    </span>
+                                                )}
+                                                {a.agent_key && (
+                                                    <span className="text-amber-700 dark:text-amber-300">proposed by the {a.agent_key} agent</span>
+                                                )}
+                                                {a.requested_by && !a.agent_key && <span>asked by {a.requested_by}</span>}
+                                                {a.delegated_to && (
+                                                    <span className="text-sky-700 dark:text-sky-300">delegated to {a.delegated_to}</span>
+                                                )}
+                                                {a.decided_by && (
+                                                    <span>
+                                                        decided by {a.decided_by} {a.decided_at ? timeAgo(a.decided_at) : ''}
+                                                    </span>
+                                                )}
+                                                {a.created_at && <span title={formatDateTime(a.created_at)}>requested {timeAgo(a.created_at)}</span>}
+                                                {a.status === 'pending' && a.sla_due_at && (
+                                                    <span
+                                                        title={formatDateTime(a.sla_due_at)}
+                                                        className={overdue ? 'text-orange-700 dark:text-orange-300' : ''}
+                                                    >
+                                                        decide {timeAgo(a.sla_due_at)}
+                                                    </span>
+                                                )}
+                                                {a.status === 'pending' && a.expires_at && (
+                                                    <span title={formatDateTime(a.expires_at)}>expires {timeAgo(a.expires_at)}</span>
+                                                )}
+                                            </div>
+
+                                            {a.preview && (
+                                                <div className="mt-3">
+                                                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Would do</div>
+                                                    <PreviewList preview={a.preview} />
                                                 </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {a.decision_note && <div className="text-muted-foreground mt-1 text-xs italic">Reason given: {a.decision_note}</div>}
-                                    <div className="text-muted-foreground mt-1 text-[11px]">
-                                        {a.sla_due_at && <>decide by {new Date(a.sla_due_at).toLocaleString()} · </>}
-                                        {a.expires_at && <>expires {new Date(a.expires_at).toLocaleString()}</>}
-                                    </div>
-                                </div>
+                                            )}
+                                            {a.decision_note && (
+                                                <p className="text-muted-foreground mt-2 text-xs italic">Reason given: {a.decision_note}</p>
+                                            )}
+                                            {a.execution_error && (
+                                                <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">
+                                                    Refused at execution: {a.execution_error}
+                                                </p>
+                                            )}
 
-                                {a.status === 'pending' && (
-                                    <div className="flex flex-wrap gap-2">
-                                        {canDecide && a.decidable && (
-                                            <>
-                                                <Button size="sm" disabled={busy === a.id} onClick={() => decide(a, 'approve')}>
-                                                    Approve
+                                            <div className="mt-3">
+                                                <TechnicalDetail summary={`Technical detail · ${a.tool_key} v${a.tool_version}`}>
+                                                    <JsonBlock value={a.payload} />
+                                                </TechnicalDetail>
+                                            </div>
+                                        </div>
+
+                                        {a.status === 'pending' && (
+                                            <div className="flex flex-wrap gap-2 sm:flex-col sm:items-stretch">
+                                                {canDecide && a.decidable && (
+                                                    <>
+                                                        <Button
+                                                            size="sm"
+                                                            disabled={busy === a.id}
+                                                            onClick={() => setDecision({ kind: 'approve', approval: a })}
+                                                        >
+                                                            Approve
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            disabled={busy === a.id}
+                                                            onClick={() => setDecision({ kind: 'reject', approval: a })}
+                                                        >
+                                                            Reject
+                                                        </Button>
+                                                    </>
+                                                )}
+                                                {canDelegate && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={busy === a.id}
+                                                        onClick={() => setDecision({ kind: 'delegate', approval: a })}
+                                                    >
+                                                        Delegate
+                                                    </Button>
+                                                )}
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    disabled={busy === a.id}
+                                                    onClick={() => setDecision({ kind: 'cancel', approval: a })}
+                                                >
+                                                    Withdraw
                                                 </Button>
-                                                <Button size="sm" variant="outline" disabled={busy === a.id} onClick={() => decide(a, 'reject')}>
-                                                    Reject
-                                                </Button>
-                                            </>
+                                            </div>
                                         )}
-                                        {canDelegate && (
-                                            <Button size="sm" variant="outline" disabled={busy === a.id} onClick={() => delegate(a)}>
-                                                Delegate
-                                            </Button>
-                                        )}
-                                        <Button size="sm" variant="outline" disabled={busy === a.id} onClick={() => decide(a, 'cancel')}>
-                                            Cancel
-                                        </Button>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    {approvals.length === 0 && (
-                        <div className="text-muted-foreground rounded-xl border p-6 text-center text-sm">Nothing is waiting for a decision.</div>
-                    )}
-                </div>
+                                </article>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
+
+            <ConfirmDialog
+                open={decision?.kind === 'approve'}
+                onOpenChange={(o) => !o && setDecision(null)}
+                title={`Approve and run: ${decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key)}`}
+                description={
+                    decision?.approval.reason ?? 'The action runs once, exactly as shown on the card. Authority is checked again at execution time.'
+                }
+                confirmLabel="Approve and run"
+                busy={busy !== null}
+                onConfirm={() => decision && submit(decision.approval, 'approve')}
+            >
+                {decision?.approval.preview?.available && (
+                    <div className="rounded-md border p-3">
+                        <PreviewList preview={decision.approval.preview} />
+                    </div>
+                )}
+            </ConfirmDialog>
+
+            <ConfirmDialog
+                open={decision?.kind === 'reject'}
+                onOpenChange={(o) => !o && setDecision(null)}
+                title={`Reject: ${decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key)}`}
+                description="Nothing runs. Whoever proposed this receives your reason as feedback."
+                confirmLabel="Reject"
+                destructive
+                busy={busy !== null}
+                reason={{ label: 'Why', placeholder: 'What is wrong with it, or what should happen instead.', required: true }}
+                onConfirm={(reason) => decision && submit(decision.approval, 'reject', { reason })}
+            />
+
+            <ConfirmDialog
+                open={decision?.kind === 'cancel'}
+                onOpenChange={(o) => !o && setDecision(null)}
+                title="Withdraw this request?"
+                description="The request is closed without a decision. Nothing runs, and a fresh request is needed to try again."
+                confirmLabel="Withdraw"
+                busy={busy !== null}
+                onConfirm={() => decision && submit(decision.approval, 'cancel')}
+            />
+
+            <ConfirmDialog
+                open={decision?.kind === 'delegate'}
+                onOpenChange={(o) => !o && setDecision(null)}
+                title="Delegate to another approver"
+                description="They decide instead of you. The delegation is recorded on the approval."
+                confirmLabel="Delegate"
+                busy={busy !== null || delegateTo === ''}
+                onConfirm={() => decision && submit(decision.approval, 'delegate', { user_id: Number(delegateTo) })}
+            >
+                <NativeSelect value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
+                    {approvers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                            {u.email}
+                        </option>
+                    ))}
+                </NativeSelect>
+            </ConfirmDialog>
         </AppLayout>
     );
 }

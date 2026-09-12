@@ -1,9 +1,18 @@
+import { EmptyState } from '@/components/empty-state';
+import { Field, FormRow, NativeSelect } from '@/components/form/field';
+import { PageHeader } from '@/components/page-header';
+import { Pagination, type PageLink } from '@/components/pagination';
+import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTime, humanKey, humanSchedule, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { CalendarClock, Plus } from 'lucide-react';
+import { useState } from 'react';
 
 type Job = {
     id: number;
@@ -24,13 +33,32 @@ type Job = {
     business?: { name: string } | null;
     brand?: { name: string } | null;
 };
-type Paginated<T> = { data: T[]; links: { url: string | null; label: string; active: boolean }[]; total: number };
+type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Scheduler', href: '/scheduler' }];
 
-export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginated<Job>; tools: string[]; filters: { state: string } }) {
-    const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
-    const canManage = auth.permissions.includes('hq.jobs.manage');
+const STATES: { key: string; label: string }[] = [
+    { key: '', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'paused', label: 'Paused' },
+    { key: 'done', label: 'Done' },
+    { key: 'cancelled', label: 'Cancelled' },
+];
+
+const KINDS: { key: string; label: string; hint: string }[] = [
+    { key: 'once', label: 'Once', hint: 'at a date and time' },
+    { key: 'cron', label: 'On a timetable', hint: 'a cron expression' },
+    { key: 'interval', label: 'Every so often', hint: 'a fixed number of seconds' },
+    { key: 'event', label: 'When something happens', hint: 'an event type' },
+];
+
+const MISSED: Record<string, string> = {
+    skip: 'Skip it',
+    catch_up: 'Run every missed slot',
+    run_latest_only: 'Run the latest slot only',
+};
+
+function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: boolean; onOpenChange: (o: boolean) => void }) {
     const form = useForm({
         name: '',
         kind: 'once',
@@ -46,59 +74,66 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
     });
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Scheduler" />
-            <div className="flex flex-col gap-6 p-4">
-                {canManage && (
-                    <form
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            form.post('/scheduler', { onSuccess: () => form.reset() });
-                        }}
-                        className="grid gap-3 rounded-xl border p-4 md:grid-cols-4"
-                    >
-                        <div className="text-sm font-medium md:col-span-4">New scheduled job</div>
-                        <div>
-                            <Label htmlFor="name">Name</Label>
-                            <Input id="name" value={form.data.name} onChange={(e) => form.setData('name', e.target.value)} required />
-                        </div>
-                        <div>
-                            <Label htmlFor="kind">Kind</Label>
-                            <select
-                                id="kind"
-                                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                                value={form.data.kind}
-                                onChange={(e) => form.setData('kind', e.target.value)}
-                            >
-                                {['once', 'cron', 'interval', 'event'].map((k) => (
-                                    <option key={k} value={k}>
-                                        {k}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <Label htmlFor="tool">Tool</Label>
-                            <select
-                                id="tool"
-                                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                                value={form.data.tool_key}
-                                onChange={(e) => form.setData('tool_key', e.target.value)}
-                            >
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-2xl">
+                <form
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        form.post('/scheduler', {
+                            onSuccess: () => {
+                                form.reset();
+                                onOpenChange(false);
+                            },
+                        });
+                    }}
+                    className="flex flex-col gap-5"
+                >
+                    <DialogHeader>
+                        <DialogTitle>New scheduled job</DialogTitle>
+                        <DialogDescription>
+                            A job runs one tool on a schedule, through the same gateway as everything else. A tool that needs approval still needs it
+                            on every run.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <FormRow>
+                        <Field label="Name" htmlFor="name" size="grow" error={form.errors.name}>
+                            <Input id="name" value={form.data.name} onChange={(e) => form.setData('name', e.target.value)} required autoFocus />
+                        </Field>
+                        <Field label="Tool" htmlFor="tool" size="auto" error={form.errors.tool_key}>
+                            <NativeSelect id="tool" value={form.data.tool_key} onChange={(e) => form.setData('tool_key', e.target.value)}>
                                 {tools.map((t) => (
                                     <option key={t} value={t}>
-                                        {t}
+                                        {humanKey(t)}
                                     </option>
                                 ))}
-                            </select>
+                            </NativeSelect>
+                        </Field>
+                    </FormRow>
+
+                    <div className="grid gap-1.5">
+                        <div className="text-sm font-medium">When</div>
+                        <div className="grid gap-2 sm:grid-cols-4">
+                            {KINDS.map((k) => (
+                                <button
+                                    key={k.key}
+                                    type="button"
+                                    onClick={() => form.setData('kind', k.key)}
+                                    aria-pressed={form.data.kind === k.key}
+                                    className={`rounded-lg border p-2.5 text-left text-sm transition-colors ${
+                                        form.data.kind === k.key ? 'border-primary bg-accent' : 'hover:bg-accent/50'
+                                    }`}
+                                >
+                                    <div className="font-medium">{k.label}</div>
+                                    <div className="text-muted-foreground text-xs">{k.hint}</div>
+                                </button>
+                            ))}
                         </div>
-                        <div>
-                            <Label htmlFor="tz">Timezone</Label>
-                            <Input id="tz" value={form.data.timezone} onChange={(e) => form.setData('timezone', e.target.value)} />
-                        </div>
+                    </div>
+
+                    <FormRow>
                         {form.data.kind === 'once' && (
-                            <div>
-                                <Label htmlFor="run_at">Run at (local to timezone)</Label>
+                            <Field label="Run at" htmlFor="run_at" size="auto" hint="Local to the timezone" error={form.errors.run_at}>
                                 <Input
                                     id="run_at"
                                     type="datetime-local"
@@ -106,23 +141,32 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                                     onChange={(e) => form.setData('run_at', e.target.value)}
                                     required
                                 />
-                            </div>
+                            </Field>
                         )}
                         {form.data.kind === 'cron' && (
-                            <div>
-                                <Label htmlFor="cron">Cron expression</Label>
+                            <Field
+                                label="Cron expression"
+                                htmlFor="cron"
+                                size="sm"
+                                hint={
+                                    form.data.cron_expression
+                                        ? humanSchedule({ kind: 'cron', cron_expression: form.data.cron_expression })
+                                        : 'minute hour day month weekday'
+                                }
+                                error={form.errors.cron_expression}
+                            >
                                 <Input
                                     id="cron"
                                     placeholder="0 9 * * *"
+                                    className="font-mono"
                                     value={form.data.cron_expression}
                                     onChange={(e) => form.setData('cron_expression', e.target.value)}
                                     required
                                 />
-                            </div>
+                            </Field>
                         )}
                         {form.data.kind === 'interval' && (
-                            <div>
-                                <Label htmlFor="interval">Interval (seconds, min 60)</Label>
+                            <Field label="Every (seconds)" htmlFor="interval" size="sm" hint="At least 60" error={form.errors.interval_seconds}>
                                 <Input
                                     id="interval"
                                     type="number"
@@ -131,145 +175,191 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                                     onChange={(e) => form.setData('interval_seconds', Number(e.target.value))}
                                     required
                                 />
-                            </div>
+                            </Field>
                         )}
                         {form.data.kind === 'event' && (
-                            <div>
-                                <Label htmlFor="event">Event type</Label>
+                            <Field label="Event type" htmlFor="event" size="md" error={form.errors.event_type}>
                                 <Input
                                     id="event"
                                     placeholder="order.created"
+                                    className="font-mono"
                                     value={form.data.event_type}
                                     onChange={(e) => form.setData('event_type', e.target.value)}
                                     required
                                 />
-                            </div>
+                            </Field>
                         )}
-                        <div>
-                            <Label htmlFor="missed">Missed-slot policy</Label>
-                            <select
-                                id="missed"
-                                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-                                value={form.data.missed_policy}
-                                onChange={(e) => form.setData('missed_policy', e.target.value)}
-                            >
-                                {['skip', 'catch_up', 'run_latest_only'].map((k) => (
+                        <Field label="Timezone" htmlFor="tz" size="md" error={form.errors.timezone}>
+                            <Input id="tz" value={form.data.timezone} onChange={(e) => form.setData('timezone', e.target.value)} />
+                        </Field>
+                    </FormRow>
+
+                    <FormRow>
+                        <Field label="If a slot is missed" htmlFor="missed" size="auto" error={form.errors.missed_policy}>
+                            <NativeSelect id="missed" value={form.data.missed_policy} onChange={(e) => form.setData('missed_policy', e.target.value)}>
+                                {Object.entries(MISSED).map(([k, label]) => (
                                     <option key={k} value={k}>
-                                        {k}
+                                        {label}
                                     </option>
                                 ))}
-                            </select>
-                        </div>
-                        <div>
-                            <Label htmlFor="retry">Retries</Label>
+                            </NativeSelect>
+                        </Field>
+                        <Field label="Retries" htmlFor="retry" size="xs" error={form.errors.retry_max}>
                             <Input
                                 id="retry"
                                 type="number"
                                 min={0}
                                 max={10}
+                                className="w-full"
                                 value={form.data.retry_max}
                                 onChange={(e) => form.setData('retry_max', Number(e.target.value))}
                             />
-                        </div>
-                        <div>
-                            <Label htmlFor="msg">Payload message</Label>
+                        </Field>
+                        <Field label="Message to the tool" htmlFor="msg" size="grow" hint="Optional">
                             <Input
                                 id="msg"
                                 value={form.data.payload.message}
                                 onChange={(e) => form.setData('payload', { message: e.target.value })}
                             />
-                        </div>
-                        <div className="flex items-end">
-                            <Button type="submit" disabled={form.processing}>
-                                Create
-                            </Button>
-                        </div>
-                        {Object.values(form.errors).length > 0 && (
-                            <div className="text-sm text-red-600 md:col-span-4">{Object.values(form.errors).join(' ')}</div>
-                        )}
-                    </form>
-                )}
+                        </Field>
+                    </FormRow>
 
-                <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Filter:</span>
-                    {['', 'active', 'paused', 'cancelled', 'done'].map((s) => (
-                        <Link
-                            key={s || 'all'}
-                            href={s ? `/scheduler?state=${s}` : '/scheduler'}
-                            className={`rounded-md border px-2 py-1 ${filters.state === s ? 'bg-accent' : ''}`}
-                        >
-                            {s || 'all'}
-                        </Link>
-                    ))}
-                    <span className="text-muted-foreground ml-auto">{jobs.total} jobs</span>
-                </div>
-
-                <div className="overflow-x-auto rounded-xl border">
-                    <table className="w-full text-sm">
-                        <thead className="text-muted-foreground text-left text-xs uppercase">
-                            <tr>
-                                <th className="px-4 py-2">Name</th>
-                                <th className="px-4 py-2">Kind</th>
-                                <th className="px-4 py-2">Tool</th>
-                                <th className="px-4 py-2">State</th>
-                                <th className="px-4 py-2">Next run</th>
-                                <th className="px-4 py-2">Last</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {jobs.data.map((j) => (
-                                <tr key={j.id} className="border-t">
-                                    <td className="px-4 py-2">
-                                        <Link href={`/scheduler/${j.id}`} className="underline">
-                                            {j.name}
-                                        </Link>
-                                        <div className="text-muted-foreground text-xs">
-                                            {j.business?.name ?? ''}
-                                            {j.brand ? ` · ${j.brand.name}` : ''}
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-2 font-mono text-xs">
-                                        {j.kind}
-                                        {j.cron_expression ? ` ${j.cron_expression}` : ''}
-                                        {j.interval_seconds ? ` ${j.interval_seconds}s` : ''}
-                                        {j.event_type ? ` ${j.event_type}` : ''}
-                                    </td>
-                                    <td className="px-4 py-2 font-mono text-xs">{j.tool_key}</td>
-                                    <td className="px-4 py-2">
-                                        {j.state}
-                                        {j.approval_state !== 'approved' ? ` (${j.approval_state})` : ''}
-                                    </td>
-                                    <td className="px-4 py-2 whitespace-nowrap">{j.next_run_at ? new Date(j.next_run_at).toLocaleString() : '-'}</td>
-                                    <td className="px-4 py-2 whitespace-nowrap">
-                                        {j.last_run_at ? `${new Date(j.last_run_at).toLocaleString()} · ${j.last_status ?? ''}` : '-'}
-                                    </td>
-                                </tr>
-                            ))}
-                            {jobs.data.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="text-muted-foreground px-4 py-6 text-center">
-                                        No scheduled jobs.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="flex flex-wrap gap-1 text-sm">
-                    {jobs.links.map((l, i) =>
-                        l.url ? (
-                            <Link
-                                key={i}
-                                href={l.url}
-                                className={`rounded border px-2 py-1 ${l.active ? 'bg-accent' : ''}`}
-                                dangerouslySetInnerHTML={{ __html: l.label }}
-                            />
-                        ) : (
-                            <span key={i} className="text-muted-foreground px-2 py-1" dangerouslySetInnerHTML={{ __html: l.label }} />
-                        ),
+                    {Object.values(form.errors).length > 0 && (
+                        <div className="text-sm text-red-600 dark:text-red-400">{Object.values(form.errors).join(' ')}</div>
                     )}
-                </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                            Cancel
+                        </Button>
+                        <Button type="submit" disabled={form.processing}>
+                            Create job
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginated<Job>; tools: string[]; filters: { state: string } }) {
+    const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
+    const canManage = auth.permissions.includes('hq.jobs.manage');
+    const [creating, setCreating] = useState(false);
+
+    return (
+        <AppLayout breadcrumbs={breadcrumbs}>
+            <Head title="Scheduler" />
+            <div className="flex flex-col gap-6 p-4 md:p-6">
+                <PageHeader
+                    title="Scheduler"
+                    description="Work HQ does on its own clock: polls, syncs and checks, each running one tool through the gateway. Pause a job to stop it without losing it."
+                    actions={
+                        canManage ? (
+                            <Button onClick={() => setCreating(true)}>
+                                <Plus className="size-4" aria-hidden /> New job
+                            </Button>
+                        ) : undefined
+                    }
+                >
+                    <div className="flex flex-wrap items-center gap-2">
+                        {STATES.map((s) => (
+                            <Button
+                                key={s.key || 'all'}
+                                size="sm"
+                                variant={filters.state === s.key ? 'default' : 'outline'}
+                                onClick={() => router.get('/scheduler', s.key ? { state: s.key } : {}, { preserveState: true, replace: true })}
+                            >
+                                {s.label}
+                            </Button>
+                        ))}
+                        <span className="text-muted-foreground ml-auto text-sm">
+                            {jobs.total} {jobs.total === 1 ? 'job' : 'jobs'}
+                        </span>
+                    </div>
+                </PageHeader>
+
+                {jobs.data.length === 0 ? (
+                    <EmptyState
+                        icon={CalendarClock}
+                        title={filters.state ? `No ${filters.state} jobs` : 'No scheduled jobs'}
+                        description={filters.state ? 'Try another filter.' : 'Create one to have HQ run a tool on a schedule.'}
+                        action={
+                            canManage && !filters.state ? (
+                                <Button size="sm" onClick={() => setCreating(true)}>
+                                    New job
+                                </Button>
+                            ) : undefined
+                        }
+                    />
+                ) : (
+                    <div className="bg-card overflow-x-auto rounded-xl border">
+                        <table className="w-full text-sm">
+                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <tr>
+                                    <th className="px-3 py-2 font-medium">Job</th>
+                                    <th className="px-3 py-2 font-medium">Schedule</th>
+                                    <th className="px-3 py-2 font-medium">Runs</th>
+                                    <th className="px-3 py-2 font-medium">State</th>
+                                    <th className="px-3 py-2 font-medium">Next run</th>
+                                    <th className="px-3 py-2 font-medium">Last run</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {jobs.data.map((j) => {
+                                    const st = jobState(j);
+                                    return (
+                                        <tr key={j.id} className="border-t align-top">
+                                            <td className="px-3 py-2">
+                                                <Link href={`/scheduler/${j.id}`} className="font-medium hover:underline">
+                                                    {j.name}
+                                                </Link>
+                                                {(j.business || j.brand) && (
+                                                    <div className="text-muted-foreground text-xs">
+                                                        {j.business?.name ?? ''}
+                                                        {j.brand ? ` · ${j.brand.name}` : ''}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <div>{humanSchedule(j)}</div>
+                                                <div className="text-muted-foreground font-mono text-[11px]">
+                                                    {j.cron_expression ?? (j.interval_seconds ? `${j.interval_seconds}s` : (j.event_type ?? ''))}{' '}
+                                                    {j.timezone}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2" title={j.tool_key}>
+                                                {humanKey(j.tool_key)}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                                            </td>
+                                            <td className="px-3 py-2 whitespace-nowrap" title={formatDateTime(j.next_run_at)}>
+                                                {j.next_run_at ? timeAgo(j.next_run_at) : <span className="text-muted-foreground">-</span>}
+                                            </td>
+                                            <td className="px-3 py-2 whitespace-nowrap">
+                                                {j.last_run_at ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <StatusBadge status={j.last_status ?? 'unknown'} />
+                                                        <span className="text-muted-foreground text-xs" title={formatDateTime(j.last_run_at)}>
+                                                            {timeAgo(j.last_run_at)}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">never</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <Pagination links={jobs.links} total={jobs.total} noun="jobs" />
             </div>
+
+            {canManage && <NewJobDialog tools={tools} open={creating} onOpenChange={setCreating} />}
         </AppLayout>
     );
 }

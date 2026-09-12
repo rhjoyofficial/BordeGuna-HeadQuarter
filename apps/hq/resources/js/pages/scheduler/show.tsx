@@ -1,7 +1,14 @@
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EmptyState } from '@/components/empty-state';
+import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
+import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
+import { formatDateTime, humanDuration, humanKey, humanMillis, humanSchedule, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
+import { type ReactNode, useState } from 'react';
 
 type Job = {
     id: number;
@@ -42,156 +49,237 @@ type Run = {
 };
 type Paginated<T> = { data: T[]; total: number };
 
+const MISSED: Record<string, string> = {
+    skip: 'skip it',
+    catch_up: 'run every missed slot',
+    run_latest_only: 'run the latest slot only',
+};
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="min-w-0">
+            <dt className="text-muted-foreground text-xs">{label}</dt>
+            <dd className="text-sm break-words">{children}</dd>
+        </div>
+    );
+}
+
 export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated<Run> }) {
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.jobs.manage');
+    const [confirmCancel, setConfirmCancel] = useState(false);
+    const [busy, setBusy] = useState(false);
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Scheduler', href: '/scheduler' },
         { title: job.name, href: `/scheduler/${job.id}` },
     ];
-    const act = (action: string) => router.post(`/scheduler/${job.id}/${action}`, {}, { preserveScroll: true });
+    const act = (action: string) => {
+        setBusy(true);
+        router.post(`/scheduler/${job.id}/${action}`, {}, { preserveScroll: true, onFinish: () => setBusy(false) });
+    };
+    const st = jobState(job);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={job.name} />
-            <div className="flex flex-col gap-6 p-4">
-                <div className="rounded-xl border p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <h1 className="text-lg font-semibold">{job.name}</h1>
-                            <div className="text-muted-foreground text-xs">
-                                uuid {job.uuid} · created from {job.created_from}
-                                {job.owner ? ` by ${job.owner.email}` : ''}
-                            </div>
-                        </div>
-                        {canManage && (
-                            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-6 p-4 md:p-6">
+                <PageHeader
+                    title={
+                        <span className="flex flex-wrap items-center gap-2">
+                            {job.name}
+                            <StatusBadge tone={st.tone}>{st.label}</StatusBadge>
+                        </span>
+                    }
+                    description={
+                        <>
+                            {humanSchedule(job)} ({job.timezone}) · runs <span title={job.tool_key}>{humanKey(job.tool_key)}</span>
+                            {job.business ? ` · ${job.business.name}` : ''}
+                            {job.brand ? ` · ${job.brand.name}` : ''}
+                        </>
+                    }
+                    actions={
+                        canManage ? (
+                            <>
                                 {job.state !== 'cancelled' && (
-                                    <Button variant="outline" onClick={() => act('run-now')}>
+                                    <Button variant="outline" disabled={busy} onClick={() => act('run-now')}>
                                         Run now
                                     </Button>
                                 )}
                                 {job.state === 'active' && (
-                                    <Button variant="outline" onClick={() => act('pause')}>
+                                    <Button variant="outline" disabled={busy} onClick={() => act('pause')}>
                                         Pause
                                     </Button>
                                 )}
                                 {job.state === 'paused' && (
-                                    <Button variant="outline" onClick={() => act('resume')}>
+                                    <Button disabled={busy} onClick={() => act('resume')}>
                                         Resume
                                     </Button>
                                 )}
                                 {(job.state === 'active' || job.state === 'paused') && (
-                                    <Button variant="destructive" onClick={() => act('cancel')}>
-                                        Cancel
+                                    <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>
+                                        Cancel job
                                     </Button>
                                 )}
-                            </div>
-                        )}
-                    </div>
-                    <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-                        <div>
-                            <dt className="text-muted-foreground">State</dt>
-                            <dd>
-                                {job.state} · {job.approval_state}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Kind</dt>
-                            <dd className="font-mono text-xs">
-                                {job.kind} {job.cron_expression ?? ''}
-                                {job.interval_seconds ? `${job.interval_seconds}s` : ''}
-                                {job.event_type ?? ''}
-                                {job.run_at ? new Date(job.run_at).toLocaleString() : ''}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Tool</dt>
-                            <dd className="font-mono text-xs">{job.tool_key}</dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Timezone</dt>
-                            <dd>{job.timezone}</dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Next run (UTC)</dt>
-                            <dd>{job.next_run_at ?? '-'}</dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Last run</dt>
-                            <dd>
-                                {job.last_run_at ?? '-'} {job.last_status ?? ''}
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Retries / backoff</dt>
-                            <dd>
-                                {job.retry_max} · {job.retry_backoff_seconds}s
-                            </dd>
-                        </div>
-                        <div>
-                            <dt className="text-muted-foreground">Missed policy</dt>
-                            <dd>{job.missed_policy}</dd>
-                        </div>
-                        <div className="sm:col-span-2 lg:col-span-4">
-                            <dt className="text-muted-foreground">Payload</dt>
-                            <dd className="font-mono text-xs break-all">{JSON.stringify(job.payload ?? {})}</dd>
-                        </div>
-                    </dl>
-                </div>
+                            </>
+                        ) : undefined
+                    }
+                />
 
-                <div className="overflow-x-auto rounded-xl border">
-                    <div className="border-b px-4 py-3 text-sm font-medium">Run history ({runs.total})</div>
-                    <table className="w-full text-sm">
-                        <thead className="text-muted-foreground text-left text-xs uppercase">
-                            <tr>
-                                <th className="px-4 py-2">Slot (UTC)</th>
-                                <th className="px-4 py-2">Trigger</th>
-                                <th className="px-4 py-2">Status</th>
-                                <th className="px-4 py-2">Attempts</th>
-                                <th className="px-4 py-2">Result</th>
-                                <th className="px-4 py-2"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {runs.data.map((r) => (
-                                <tr key={r.id} className="border-t align-top">
-                                    <td className="px-4 py-2 whitespace-nowrap">{r.scheduled_for}</td>
-                                    <td className="px-4 py-2">{r.trigger}</td>
-                                    <td
-                                        className={`px-4 py-2 font-medium ${r.status === 'succeeded' ? 'text-green-700' : r.status === 'failed' || r.status === 'dead' ? 'text-red-600' : ''}`}
-                                    >
-                                        {r.status}
-                                    </td>
-                                    <td className="px-4 py-2 text-xs">
-                                        {r.attempt}
-                                        {r.attempts ? ` (${r.attempts.map((a) => `${a.attempt}:${a.status}`).join(', ')})` : ''}
-                                    </td>
-                                    <td className="px-4 py-2 font-mono text-xs break-all">{r.error ?? JSON.stringify(r.output?.output ?? {})}</td>
-                                    <td className="px-4 py-2">
-                                        {canManage && (r.status === 'failed' || r.status === 'dead') && (
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => router.post(`/scheduler/runs/${r.id}/retry`, {}, { preserveScroll: true })}
-                                            >
-                                                Retry
-                                            </Button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            {runs.data.length === 0 && (
-                                <tr>
-                                    <td colSpan={6} className="text-muted-foreground px-4 py-6 text-center">
-                                        No runs yet.
-                                    </td>
-                                </tr>
+                <section className="bg-card rounded-xl border p-4">
+                    <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <Fact label="Next run">
+                            {job.next_run_at ? (
+                                <>
+                                    {timeAgo(job.next_run_at)}
+                                    <div className="text-muted-foreground text-xs">{formatDateTime(job.next_run_at)}</div>
+                                </>
+                            ) : (
+                                <span className="text-muted-foreground">not scheduled</span>
                             )}
-                        </tbody>
-                    </table>
-                </div>
+                        </Fact>
+                        <Fact label="Last run">
+                            {job.last_run_at ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <StatusBadge status={job.last_status ?? 'unknown'} />
+                                    <span className="text-muted-foreground text-xs" title={formatDateTime(job.last_run_at)}>
+                                        {timeAgo(job.last_run_at)}
+                                    </span>
+                                </div>
+                            ) : (
+                                <span className="text-muted-foreground">never</span>
+                            )}
+                        </Fact>
+                        <Fact label="If a slot is missed">{MISSED[job.missed_policy] ?? job.missed_policy}</Fact>
+                        <Fact label="Retries">
+                            {job.retry_max === 0 ? 'none' : `up to ${job.retry_max}, ${humanDuration(job.retry_backoff_seconds)} apart`}
+                        </Fact>
+                        <Fact label="Created">
+                            {humanKey(job.created_from).toLowerCase()}
+                            {job.owner ? ` by ${job.owner.name || job.owner.email}` : ''}
+                        </Fact>
+                        <Fact label="Approval">{humanKey(job.approval_state)}</Fact>
+                    </dl>
+                    <div className="mt-4">
+                        <TechnicalDetail summary={`Technical detail · ${job.tool_key} · ${job.uuid}`}>
+                            <dl className="text-muted-foreground mb-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
+                                <dt>kind</dt>
+                                <dd>{job.kind}</dd>
+                                <dt>expression</dt>
+                                <dd>
+                                    {job.cron_expression ??
+                                        job.event_type ??
+                                        (job.interval_seconds ? `${job.interval_seconds}s` : (job.run_at ?? '-'))}
+                                </dd>
+                            </dl>
+                            <div className="text-muted-foreground mb-1 text-xs">Payload</div>
+                            <JsonBlock value={job.payload ?? {}} />
+                        </TechnicalDetail>
+                    </div>
+                </section>
+
+                <section className="flex flex-col gap-2">
+                    <SectionHeader title="Run history" aside={`${runs.total} ${runs.total === 1 ? 'run' : 'runs'}`} />
+                    {runs.data.length === 0 ? (
+                        <EmptyState
+                            title="No runs yet"
+                            description="The first run appears here when the schedule fires, or when you press Run now."
+                        />
+                    ) : (
+                        <div className="bg-card overflow-x-auto rounded-xl border">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                    <tr>
+                                        <th className="px-3 py-2 font-medium">Slot</th>
+                                        <th className="px-3 py-2 font-medium">Started by</th>
+                                        <th className="px-3 py-2 font-medium">Outcome</th>
+                                        <th className="px-3 py-2 font-medium">Attempts</th>
+                                        <th className="px-3 py-2 font-medium">Result</th>
+                                        <th className="px-3 py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {runs.data.map((r) => (
+                                        <tr key={r.id} className="border-t align-top">
+                                            <td className="px-3 py-2 whitespace-nowrap" title={r.scheduled_for}>
+                                                {formatDateTime(r.scheduled_for)}
+                                                <div className="text-muted-foreground text-xs">{timeAgo(r.scheduled_for)}</div>
+                                            </td>
+                                            <td className="px-3 py-2">{humanKey(r.trigger).toLowerCase()}</td>
+                                            <td className="px-3 py-2">
+                                                <StatusBadge status={r.status} />
+                                            </td>
+                                            <td className="px-3 py-2 text-xs">
+                                                {r.attempts && r.attempts.length > 1 ? (
+                                                    <ul className="space-y-0.5">
+                                                        {r.attempts.map((a) => (
+                                                            <li key={a.attempt} className="flex items-center gap-1.5">
+                                                                <span className="text-muted-foreground">#{a.attempt}</span>
+                                                                <StatusBadge status={a.status} dot={false} />
+                                                                <span className="text-muted-foreground">{humanMillis(a.duration_ms)}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <span>
+                                                        {r.attempt}{' '}
+                                                        {r.attempts?.[0]?.duration_ms !== undefined
+                                                            ? `· ${humanMillis(r.attempts[0].duration_ms)}`
+                                                            : ''}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="max-w-md px-3 py-2 text-xs">
+                                                {r.error ? (
+                                                    <span className="text-red-700 dark:text-red-300">{r.error}</span>
+                                                ) : r.output?.output && Object.keys(r.output.output).length > 0 ? (
+                                                    <TechnicalDetail summary="Output">
+                                                        <JsonBlock value={r.output.output} />
+                                                    </TechnicalDetail>
+                                                ) : (
+                                                    <span className="text-muted-foreground">-</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                {canManage && (r.status === 'failed' || r.status === 'dead') && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={busy}
+                                                        onClick={() => {
+                                                            setBusy(true);
+                                                            router.post(
+                                                                `/scheduler/runs/${r.id}/retry`,
+                                                                {},
+                                                                { preserveScroll: true, onFinish: () => setBusy(false) },
+                                                            );
+                                                        }}
+                                                    >
+                                                        Retry
+                                                    </Button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
             </div>
+
+            <ConfirmDialog
+                open={confirmCancel}
+                onOpenChange={setConfirmCancel}
+                title={`Cancel ${job.name}?`}
+                description="The job stops for good and cannot be resumed; its run history stays. To stop it for a while, use Pause instead."
+                confirmLabel="Cancel the job"
+                destructive
+                busy={busy}
+                onConfirm={() => {
+                    setConfirmCancel(false);
+                    act('cancel');
+                }}
+            />
         </AppLayout>
     );
 }

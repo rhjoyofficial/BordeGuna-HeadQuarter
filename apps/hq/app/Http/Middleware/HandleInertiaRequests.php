@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Navigation\NavBadges;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -51,6 +52,9 @@ class HandleInertiaRequests extends Middleware
                 'status' => $request->session()->get('status'),
                 'outcome' => $request->session()->get('outcome'),
             ],
+            // What is waiting, as counts next to the sidebar items. A closure, so a request that
+            // does not render the shell does not pay for three counts it will not show.
+            'nav' => fn () => ['badges' => app(NavBadges::class)->for($request->user())],
         ]);
     }
 }
