@@ -84,6 +84,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             return new EvaluationObservation(
                 refused: true,
                 refusalReason: 'the run could not be completed: '.get_class($e).': '.$e->getMessage(),
+                outcome: EvaluationObservation::OUTCOME_FAILED,
+                stopReason: 'exception',
             );
         }
 
@@ -101,6 +103,9 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // enforcement.
             executedToolCalls: $this->executedTools($run),
             refusedToolCalls: $this->refusedTools($run),
+            // How it ended, so the grader can refuse to pass silence (docs/62 §C, closed in docs/65).
+            outcome: (string) $run->status,
+            stopReason: $run->stop_reason,
         );
     }
 

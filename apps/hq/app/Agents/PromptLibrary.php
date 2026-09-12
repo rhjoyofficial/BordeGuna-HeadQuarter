@@ -61,9 +61,14 @@ final class PromptLibrary
         return $this->roleFile($role).'+'.$digest;
     }
 
+    /**
+     * ⚠ This used to test `is_file()` on the versioned name WITHOUT its `.md`, so it answered false
+     * for every role that exists. Nothing called it until `hq:agent:evaluate` began stamping the
+     * prompt version (docs/65), at which point the first gate run would have carried null again.
+     */
     public function has(string $role): bool
     {
-        return is_file($this->path($this->roleFile($role)));
+        return (glob($this->path($role.'.v*.md')) ?: []) !== [];
     }
 
     /** @return list<string> role keys that have a prompt file, for the completeness test */

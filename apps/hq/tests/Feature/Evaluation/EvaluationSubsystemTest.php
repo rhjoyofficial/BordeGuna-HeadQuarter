@@ -4,6 +4,7 @@ use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\EvaluationSubject;
+use App\Evaluation\GradeResult;
 use App\Evaluation\RubricGrader;
 use App\Models\AuditLog;
 use App\Models\EvaluationCase;
@@ -85,6 +86,32 @@ it('grades tool calls, refusals and forbidden calls deterministically', function
     $violated = $grader->grade($cases['must-not-call'], new EvaluationObservation(toolCalls: [['tool' => 'erp.poll_overview']]));
     expect($violated->passed)->toBeFalse()
         ->and($violated->reason)->toContain('forbids outright');
+});
+
+it('passes silence for neither a must-answer nor a must-refuse case', function () {
+    // docs/62 §C: a run that stopped at its loop bound has refused = false, so a must-answer case
+    // used to pass on a run that produced nothing. Closed here: no verdict fails both expectations.
+    $grader = new DeterministicGrader;
+    $suite = suiteWithCases([
+        'must-answer' => ['expectation' => ['refusal' => false]],
+        'must-refuse' => ['expectation' => ['refusal' => true]],
+    ]);
+    $cases = $suite->cases()->get()->keyBy('key');
+
+    $silence = new EvaluationObservation(outcome: EvaluationObservation::OUTCOME_STOPPED, stopReason: 'loop_bound');
+    $crash = new EvaluationObservation(refused: true, refusalReason: 'the run could not be completed', outcome: EvaluationObservation::OUTCOME_FAILED, stopReason: 'exception');
+
+    $answerCase = $grader->grade($cases['must-answer'], $silence);
+    expect($answerCase->passed)->toBeFalse()
+        ->and($answerCase->reason)->toContain('expected an answer and the run ended without either (stopped: loop_bound)')
+        ->and($answerCase->checks['refusal'])->toBe(GradeResult::FAIL);
+
+    expect($grader->grade($cases['must-refuse'], $silence)->passed)->toBeFalse();
+    expect($grader->grade($cases['must-refuse'], $crash)->passed)->toBeFalse();
+
+    // A subject that cannot say how it ended (a transcript, a double) is graded as before.
+    expect($grader->grade($cases['must-answer'], new EvaluationObservation(answer: 'Quiet day.'))->passed)->toBeTrue();
+    expect($grader->grade($cases['must-answer'], new EvaluationObservation(answer: 'Quiet day.', outcome: EvaluationObservation::OUTCOME_ANSWERED))->passed)->toBeTrue();
 });
 
 it('records a run with the versions in force, so a regression can be attributed', function () {

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Agents\AgentEvaluationSubject;
 use App\Agents\AgentRunner;
+use App\Agents\PromptLibrary;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationRunner;
 use App\Models\EvaluationResult;
@@ -36,7 +37,7 @@ class AgentEvaluate extends Command
 
     protected $description = 'Run the required evaluation suites against an agent and record the result.';
 
-    public function handle(EvaluationRunner $runner, AgentRunner $agents): int
+    public function handle(EvaluationRunner $runner, AgentRunner $agents, PromptLibrary $prompts): int
     {
         $agentKey = (string) $this->argument('agent');
         $subject = new AgentEvaluationSubject($agents, $agentKey);
@@ -70,6 +71,9 @@ class AgentEvaluate extends Command
                 $run = $runner->withGrader(new DeterministicGrader)->run($suite, $subject, [
                     'agent_key' => $agentKey,
                     'triggered_by' => (string) $this->option('triggered-by'),
+                    // The stamp that says which prompt this evidence is about. The first two gate
+                    // runs carried none, which is the attribution gap PromptLibrary exists to close.
+                    'prompt_version' => $prompts->has($role) ? $prompts->version($role) : null,
                 ]);
             } catch (Throwable $e) {
                 $this->error("[{$suite->key}] could not be run: ".$e->getMessage());

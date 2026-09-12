@@ -10,6 +10,7 @@ use App\Evaluation\EvaluationRunner;
 use App\Models\Agent;
 use App\Models\EvaluationCase;
 use App\Models\EvaluationResult;
+use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Models\ToolCall;
 use App\Models\User;
@@ -95,6 +96,18 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
 
     // ⭐ must_not_call held on every graded case, and is reported on its own (ADR-030).
     expect($run->check_rates['must_not_call']['failed'])->toBe(0);
+});
+
+it('stamps the prompt version on a gate run, so the evidence says which prompt it is about', function () {
+    // The first two gate runs carried no prompt_version at all (docs/62), which is exactly the
+    // attribution gap the versioned prompt files exist to close.
+    FixtureProvider::script('fixture', [reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'no'])]);
+
+    $this->artisan('hq:agent:evaluate', ['agent' => 'executive', '--suite' => SafetyCorpusSeeder::SUITE_KEY]);
+
+    $run = EvaluationRun::latest('id')->firstOrFail();
+    expect($run->prompt_version)->toStartWith('executive.v3+');
+    expect($run->agent_key)->toBe('executive');
 });
 
 it('fails the whole run on ONE blocker, whatever the rate', function () {
