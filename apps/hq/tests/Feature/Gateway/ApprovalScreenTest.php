@@ -196,9 +196,15 @@ it('sends the decision outcome to the browser so a refusal is never silent', fun
     $shared = file_get_contents(app_path('Http/Middleware/HandleInertiaRequests.php'));
     expect($shared)->toContain("'outcome' => \$request->session()->get('outcome')");
 
+    // Since the 12 Sep operator UI pass the banner lives in one shared component both screens render,
+    // so the guard follows it: each page reads `flash` and renders `OutcomeBanner`, and the banner
+    // itself still says "Nothing ran." when the gateway refused.
     foreach (['index', 'show'] as $page) {
         $source = file_get_contents(resource_path("js/pages/approvals/{$page}.tsx"));
         expect($source)->toContain('flash')
-            ->and($source)->toContain('Nothing ran.');
+            ->and($source)->toContain('<OutcomeBanner');
     }
+
+    $banner = file_get_contents(resource_path('js/components/approvals/shared.tsx'));
+    expect($banner)->toContain('Nothing ran.');
 });
