@@ -3,7 +3,6 @@
 namespace App\Providers;
 
 use Illuminate\Support\Facades\Gate;
-use Laravel\Horizon\Horizon;
 use Laravel\Horizon\HorizonApplicationServiceProvider;
 
 class HorizonServiceProvider extends HorizonApplicationServiceProvider
@@ -14,23 +13,19 @@ class HorizonServiceProvider extends HorizonApplicationServiceProvider
     public function boot(): void
     {
         parent::boot();
-
-        // Horizon::routeSmsNotificationsTo('15556667777');
-        // Horizon::routeMailNotificationsTo('example@example.com');
-        // Horizon::routeSlackNotificationsTo('slack-webhook-url', '#channel');
     }
 
     /**
      * Register the Horizon gate.
      *
-     * This gate determines who can access Horizon in non-local environments.
+     * Who may open the queue dashboard outside `local`. The starter kit ships this as an empty
+     * list of e-mail addresses, which meant that the sidebar offered "Queues (Horizon)" to anyone
+     * holding `hq.horizon.view` and production answered every click with a bare 403 (found on the
+     * 12 Sep 2026 render check). The same permission that shows the link now opens the page, so
+     * the two can never disagree again.
      */
     protected function gate(): void
     {
-        Gate::define('viewHorizon', function ($user = null) {
-            return in_array(optional($user)->email, [
-                //
-            ]);
-        });
+        Gate::define('viewHorizon', fn ($user = null) => (bool) $user?->can('hq.horizon.view'));
     }
 }

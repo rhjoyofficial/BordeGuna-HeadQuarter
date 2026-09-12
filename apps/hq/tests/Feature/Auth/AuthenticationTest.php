@@ -42,6 +42,18 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
+    /** The audit log names the person for a login the same way it does for every later action. */
+    public function test_a_login_and_a_logout_are_audited_under_the_users_email()
+    {
+        $user = User::factory()->create();
+
+        $this->post('/login', ['email' => $user->email, 'password' => 'password']);
+        $this->post('/logout');
+
+        $this->assertDatabaseHas('audit_logs', ['action' => 'auth.login', 'actor_type' => 'human', 'actor_id' => $user->id, 'actor_label' => $user->email]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'auth.logout', 'actor_type' => 'human', 'actor_id' => $user->id, 'actor_label' => $user->email]);
+    }
+
     public function test_users_can_logout()
     {
         $user = User::factory()->create();

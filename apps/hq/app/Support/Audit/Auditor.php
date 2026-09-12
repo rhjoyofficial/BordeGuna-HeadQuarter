@@ -38,6 +38,7 @@ final class Auditor
         ?string $reason = null,
         ?int $actorUserId = null,
         array $context = [],
+        ?string $actorLabel = null,
     ): AuditLog {
         $user = $actorUserId ? null : Auth::user();
         $actorId = $actorUserId ?? $user?->getAuthIdentifier();
@@ -45,7 +46,7 @@ final class Auditor
         return $this->write(
             actorType: $actorId ? 'human' : 'system',
             actorId: $actorId,
-            actorLabel: $user?->email ?? ($actorId ? "user:{$actorId}" : 'system'),
+            actorLabel: $actorLabel ?? $user?->email ?? ($actorId ? "user:{$actorId}" : 'system'),
             action: $action, target: $target, before: $before, after: $after, reason: $reason, context: $context,
         );
     }
