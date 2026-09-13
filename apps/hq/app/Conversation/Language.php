@@ -25,7 +25,12 @@ final class Language
         }
 
         $bengali = preg_match('/[\x{0980}-\x{09FF}]/u', $text) === 1;
-        $latin = preg_match('/[A-Za-z]/u', $text) === 1;
+
+        // An order number, a SKU, a URL or an e-mail is not English: every token carrying a digit,
+        // an @ or a scheme is dropped before asking whether Latin words remain. "আমার অর্ডার
+        // LLD-20260912-QW3 কোথায়?" is Bangla; "Order LLD-20260912-QW3 এখনো আসেনি, please check" is both.
+        $words = preg_replace('/\S*(?:\d|@|:\/\/)\S*/u', ' ', $text) ?? $text;
+        $latin = preg_match('/[A-Za-z]{2,}/u', $words) === 1;
 
         return match (true) {
             $bengali && $latin => self::BANGLISH,

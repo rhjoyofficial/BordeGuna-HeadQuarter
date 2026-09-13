@@ -54,7 +54,8 @@ final readonly class OutboundPolicy
                 ->where('conversation_id', $conversation->id)
                 ->where('direction', 'outbound')
                 ->where('author_type', 'agent')
-                ->where('created_at', '>', $lastInbound->created_at)
+                // By id, not by timestamp: a reply written in the same second as the inbound is still after it.
+                ->where('id', '>', $lastInbound->id)
                 ->count();
             if ($agentRepliesSince >= 1) {
                 return 'the agent has already replied to the latest inbound message; a second reply waits for the customer';
@@ -63,10 +64,12 @@ final readonly class OutboundPolicy
 
         // A per-thread cap, whoever is writing: a burst is a defect or an abuse either way.
         $cap = (int) config('hq.outbound.per_thread_hourly_cap', 6);
+        // ⚠ The binding is converted to UTC first: a Dhaka-zoned instant formatted as-is would be
+        // compared against UTC rows six hours off.
         $lastHour = ConversationMessage::query()
             ->where('conversation_id', $conversation->id)
             ->where('direction', 'outbound')
-            ->where('created_at', '>=', $now->subHour())
+            ->where('created_at', '>=', $now->utc()->subHour())
             ->count();
         if ($lastHour >= $cap) {
             return "the thread has already had {$lastHour} outbound messages in the last hour; the cap is {$cap}";

@@ -39,6 +39,17 @@ final readonly class ConversationService
     /** The agent that would answer a customer thread when it is active. Paused for all of this milestone. */
     public const SUPPORT_AGENT = 'support';
 
+    /**
+     * Which kind of platform account a channel's messages arrive on, so a Messenger page id is only
+     * ever matched against Facebook Pages and never against a pixel or an ad account that happens to
+     * share a number. A channel not listed here matches on the reference alone.
+     */
+    public const PLATFORM_FOR_CHANNEL = [
+        'messenger' => 'facebook_page',
+        'instagram' => 'instagram_account',
+        'whatsapp' => 'whatsapp_number',
+    ];
+
     public function __construct(
         private IdentityResolver $identity,
         private ConsentLedger $consent,
@@ -69,6 +80,7 @@ final readonly class ConversationService
 
         $account = PlatformAccount::query()
             ->where('account_ref', $inbound->platformAccountRef)
+            ->when(self::PLATFORM_FOR_CHANNEL[$inbound->channel->value] ?? null, fn ($q, $platform) => $q->where('platform', $platform))
             ->where('is_active', true)
             ->with('brand')
             ->first();
@@ -81,6 +93,9 @@ final readonly class ConversationService
         $business = Business::query()->findOrFail($account->brand->business_id);
 
         return DB::transaction(function () use ($inbound, $account, $business) {
+            // ⚠ UTC before anything is stored or bound: a provider timestamp carrying +06:00 written
+            // as-is would be read back six hours late by every UTC column.
+            $receivedAt = $inbound->receivedAt->utc();
             $customer = $this->identity->resolveChannelIdentity($inbound->channel, $inbound->senderExternalId, $business);
             $agentActive = Agent::query()->where('key', self::SUPPORT_AGENT)->where('status', 'active')->exists();
 
@@ -108,7 +123,7 @@ final readonly class ConversationService
             $message = $this->recordInbound($conversation, (string) $body, [
                 'customer_id' => $customer->id,
                 'external_message_ref' => $inbound->externalMessageRef,
-                'received_at' => $inbound->receivedAt,
+                'received_at' => $receivedAt,
                 'metadata' => array_filter([
                     'language' => $language,
                     'digest' => $inbound->digest,
@@ -143,10 +158,10 @@ final readonly class ConversationService
                 state: ConsentState::Granted,
                 basis: ConsentBasis::Inbound,
                 channel: $inbound->channel->value,
-                occurredAt: $inbound->receivedAt,
+                occurredAt: $receivedAt,
                 attributes: [
                     'brand_id' => $account->brand_id,
-                    'expires_at' => $inbound->receivedAt->addHours((int) config('hq.outbound.reply_window_hours', 24)),
+                    'expires_at' => $receivedAt->addHours((int) config('hq.outbound.reply_window_hours', 24)),
                     'evidence_ref' => "conversation_message:{$message->uuid}",
                     'reason' => 'the customer wrote to us on this channel',
                     'correlation_id' => $conversation->uuid,
@@ -158,6 +173,9 @@ final readonly class ConversationService
                 $this->states->transition($conversation, ConversationState::HumanRequired, null, $reason);
             } elseif ($reason === null && $conversation->state === ConversationState::AiWaiting) {
                 $this->states->transition($conversation, ConversationState::AiActive, null, 'the customer replied');
+            } elseif ($reason === null && $conversation->state === ConversationState::HumanResolved) {
+                // A person closed the matter and the customer came back; the active agent takes it.
+                $this->states->transition($conversation, ConversationState::AiResumed, null, 'the customer wrote again after a person resolved the thread', self::SUPPORT_AGENT);
             }
 
             $this->events->record(
@@ -177,7 +195,7 @@ final readonly class ConversationService
                 aggregateId: $conversation->uuid,
                 businessId: $business->id,
                 dedupeKey: "conversation:message:{$inbound->channel->value}:{$inbound->externalMessageRef}",
-                occurredAt: $inbound->receivedAt,
+                occurredAt: $receivedAt,
             );
 
             return $message;

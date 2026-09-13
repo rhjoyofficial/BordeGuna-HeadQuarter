@@ -1,0 +1,6 @@
+{"object":"page","entry":[{"id":"100085015853889","time":1757757700000,"messaging":[
+ {"sender":{"id":"7412589630"},"recipient":{"id":"100085015853889"},"timestamp":1757757700100,"message":{"mid":"m_img1","attachments":[{"type":"image","payload":{"url":"https://scontent.example/photo.jpg"}}]}},
+ {"sender":{"id":"100085015853889"},"recipient":{"id":"7412589630"},"timestamp":1757757700200,"message":{"mid":"m_echo1","is_echo":true,"text":"our own reply"}},
+ {"sender":{"id":"7412589630"},"recipient":{"id":"100085015853889"},"timestamp":1757757700300,"delivery":{"mids":["m_x"],"watermark":1757757700000}},
+ {"sender":{"id":"7412589630"},"recipient":{"id":"100085015853889"},"timestamp":1757757700400,"message":{"mid":"m_qr1","text":"Yes","quick_reply":{"payload":"CONFIRM_ORDER"}}}
+]}]}

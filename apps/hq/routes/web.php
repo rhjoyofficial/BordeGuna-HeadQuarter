@@ -88,6 +88,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{conversation:uuid}/toggle-ai', [InboxController::class, 'toggleAi'])->middleware('permission:hq.inbox.manage')->name('toggle-ai');
         Route::post('{conversation:uuid}/note', [InboxController::class, 'note'])->middleware('permission:hq.inbox.manage')->name('note');
         Route::post('{conversation:uuid}/reply', [InboxController::class, 'reply'])->middleware('permission:hq.inbox.manage')->name('reply');
+        Route::post('{conversation:uuid}/proposals/{run}/decide', [InboxController::class, 'decide'])->middleware('permission:hq.inbox.manage')->name('decide');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');

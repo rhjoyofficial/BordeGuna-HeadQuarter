@@ -25,12 +25,13 @@ enum ConversationState: string
     public function allowedNext(): array
     {
         return match ($this) {
-            self::AiActive => [self::AiWaiting, self::HumanRequired, self::Closed],
-            self::AiWaiting => [self::AiActive, self::HumanRequired, self::Closed],
+            // A person may take a thread from the agent at any moment; the agent never takes one from a person.
+            self::AiActive => [self::AiWaiting, self::HumanRequired, self::HumanActive, self::Closed],
+            self::AiWaiting => [self::AiActive, self::HumanRequired, self::HumanActive, self::Closed],
             self::HumanRequired => [self::HumanActive, self::Closed],
             self::HumanActive => [self::HumanResolved, self::Closed],
-            self::HumanResolved => [self::AiResumed, self::Closed],
-            self::AiResumed => [self::AiActive, self::HumanRequired, self::Closed],
+            self::HumanResolved => [self::AiResumed, self::HumanRequired, self::Closed],
+            self::AiResumed => [self::AiActive, self::HumanRequired, self::HumanActive, self::Closed],
             self::Closed => [],
         };
     }

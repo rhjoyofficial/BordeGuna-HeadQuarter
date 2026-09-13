@@ -173,3 +173,45 @@ messaging scopes (C3), the WhatsApp number (C4, later gate), a payment method Me
 e-mail provider (C6), the SMS masking (C7, for OTP identity linking), object storage (C8), and
 Cloudflare in front of the webhook (C9). J1 (VPS step up) and J4 (a staging HQ) before P3-G3, because
 a public webhook with real customers must not be first exercised on production.
+
+## G. The simulation world (added 13 September, on ChatGPT's second gate-7 reply)
+
+ChatGPT's addition after re-reading the gate-6 report: before any shadow on real customers, a
+deterministic simulation environment in which customer messages, orders, identity conflicts, angry
+customers, colloquial Bangla, typos, mixed scripts, prompt injection, fake owner claims, claimed
+approvals, order changes and handoffs can be replayed, so that the first experiment is never run on a
+production customer.
+
+**What exists now.** `App\Conversation\Simulation`: a `Scenario` (turns, expectations, optional
+givens, whether the support agent is active for it), a `ScenarioLibrary` of twenty-one scripted
+conversations covering that list, and a `ConversationSimulator` that replays them through the real
+`ConversationService::ingest`, the real state machine and the real escalation rules, on two
+simulated Facebook Pages it creates for the brand it is pointed at, inside one transaction that is
+rolled back: no thread, customer, consent row, audit row or event survives. A scenario that needs
+the agent active flips the `support` row for its own replay only; the rollback restores it. The
+command `hq:conversation:simulate` prints one row per scenario and exits non-zero on any mismatch;
+`--keep` commits the replay for a person to look at in the inbox and is refused on production; a
+Pest test replays the whole library and proves the trace is empty afterwards.
+
+**What it proves and what it does not.** It proves that the core's rules hold on those inputs: the
+thread went where the rules say, the customer's words were recorded untrusted whatever they claimed,
+nothing a message said changed a state, a role or a permission, a redelivered message is one
+message, one person on two pages is two threads and one customer, a page HQ does not hold is refused.
+It proves nothing about the agent's answers: no model runs in it. That is gate P3-G2's job, and P3-G2
+will drive the same scenarios through the support agent with a model, once the provider quota
+exists; the library is written so that the same scenario carries both expectations. Two things the
+scenarios recorded as limits rather than defects: the script detector tells Bangla from Latin and
+cannot tell romanised Bangla from English (that is the model's job, and the case says so), and
+order-modification requests are not an escalation trigger (the agent has no write tool and must say
+a person will confirm, which P3-G2 grades).
+
+**What replaying it changed in the design.** Four corrections to §B, found by the first replay before
+any test was written: a person may take a thread from the agent in any `ai_*` state (the table now
+allows `ai_active`, `ai_waiting`, `ai_resumed` to `human_active`; the reverse never happens by
+itself); a customer who writes again after `human_resolved` goes to `human_required`, or to
+`ai_resumed` when the agent is active; the script tag ignores tokens carrying digits, so an order
+number does not make a Bangla message "both"; and every provider timestamp is converted to UTC before
+it is stored or bound. The inbox also gained the proposal decisions §C describes (send as it is, send
+edited, discard), each a `DecisionRecord` with the proposal beside what was finally done; a send that
+the control plane refuses leaves the proposal open, because a decision that could not be carried out
+is not one the run can be closed on.

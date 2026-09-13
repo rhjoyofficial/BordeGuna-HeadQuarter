@@ -19,6 +19,7 @@ use App\Models\FactsOrder;
 use App\Models\Store;
 use App\Models\ToolCall;
 use App\Models\User;
+use App\Platform\PlatformRegistry;
 use App\Tools\ToolRegistry;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
@@ -98,16 +99,32 @@ function anOrder(array $overrides = []): FactsOrder
 it('gives neither agent a single write tool', function () {
     $registry = app(ToolRegistry::class);
 
+    // ⚠ Phase 3 stream 3 (docs/72 §B) added the `support` agent with ONE write, `messaging.send_reply`,
+    // named here rather than the rule being loosened. It is R3, customer-facing and consent-gated by
+    // declaration, so at A0 the runner records a proposal and runs nothing; and the platform registry
+    // holds no messaging provider, so it cannot execute for anyone. The two older agents keep the
+    // original line word for word.
+    $writes = [];
     foreach (Agent::all() as $agent) {
         foreach ((array) $agent->allowed_tools as $key) {
             $descriptor = $registry->get($key)->descriptor();
+            expect($descriptor->agentExecutable)->toBeTrue("[{$key}] is not cleared for agents");
+
+            if ($descriptor->readWrite === ReadWrite::Write) {
+                $writes[] = "{$agent->key}:{$key}";
+                expect($descriptor->customerFacing)->toBeTrue("[{$key}] is an agent write that is not customer-facing")
+                    ->and($descriptor->consentRequired)->not->toBeNull("[{$key}] is an agent write with no consent class");
+
+                continue;
+            }
 
             // The whole safety argument of the first agent release is this line.
             expect($descriptor->readWrite)->toBe(ReadWrite::Read, "[{$key}] on [{$agent->key}] writes");
             expect($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] on [{$agent->key}] is R3 or above");
-            expect($descriptor->agentExecutable)->toBeTrue("[{$key}] is not cleared for agents");
         }
     }
+    expect($writes)->toBe(['support:messaging.send_reply'])
+        ->and(app(PlatformRegistry::class)->platforms())->toBe([]);
 });
 
 it('ships both agents paused and at A0, so the deploy is inert', function () {

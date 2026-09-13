@@ -235,9 +235,24 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
     // read "no tool must be agent-executable", which was Phase 2.5's true state and became a
     // statement that M5 had not shipped. Nothing about the boundary this test defends has moved:
     // an agent may run a read, and may still not reach a person, write, or need consent.
+    //
+    // ⚠ Phase 3 stream 3 (docs/72 §B) added ONE exception, `messaging.send_reply`, and it is named
+    // here rather than the clause being loosened: it is customer-facing, on an outbound channel and
+    // consent-gated BY DECLARATION, which is what makes the gateway check consent before it runs;
+    // and it cannot execute for anyone, because the platform registry holds no messaging provider
+    // (the test below this one). An agent naming it at A0 produces a proposal and nothing else.
+    $customerFacing = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        expect($descriptor->customerFacing)->toBeFalse("[{$key}] must not be customer-facing")
-            ->and($descriptor->channel->isOutbound())->toBeFalse("[{$key}] must not act on an outbound channel")
+        if ($descriptor->customerFacing) {
+            $customerFacing[] = $key;
+            expect($descriptor->consentRequired)->not->toBeNull("[{$key}] is customer-facing and declares no consent")
+                ->and($descriptor->channel->isOutbound())->toBeTrue("[{$key}] is customer-facing on no outbound channel")
+                ->and($descriptor->permission)->toBe('hq.inbox.manage');
+
+            continue;
+        }
+
+        expect($descriptor->channel->isOutbound())->toBeFalse("[{$key}] must not act on an outbound channel")
             ->and($descriptor->consentRequired)->toBeNull("[{$key}] declares consent, so it reaches a person");
 
         if ($descriptor->agentExecutable) {
@@ -245,6 +260,7 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
                 ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
         }
     }
+    expect($customerFacing)->toBe(['messaging.send_reply']);
 
     // And the AI runtime is still off, exactly as M4 left it.
     expect(app(Features::class)->enabled('ai.runtime'))->toBeFalse();

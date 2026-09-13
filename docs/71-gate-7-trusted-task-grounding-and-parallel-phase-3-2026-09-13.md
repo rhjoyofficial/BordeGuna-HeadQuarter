@@ -138,4 +138,35 @@ activation-ready, not activated.
 
 ## F. Record
 
-*(pending: CI, merge, release, gate 7, Phase 3 streams)*
+**Stream 1 built and green.** Commit `478d077`, docs `0559716`, the older tests brought to the new
+outcomes in `50006db`; draft PR #28; CI green on `50006db` (Pest, Pint, tsc, Vite, image,
+deploy-safety).
+
+**Stream 3 built, on the same branch.** The first attempt ran in a git worktree whose `vendor` and
+`node_modules` were junctions into the main checkout, which meant two things at once: Composer
+resolved `App\` from the main checkout, so nothing new in the worktree could be autoloaded or
+tested, and `git worktree remove` followed the junctions and deleted the main checkout's `vendor`
+and `node_modules` (restored from the lock files; recorded as a trap). The session was also lost to
+a power cut mid-stream. The checkpoint the fork left (every class linting, no tests, no pages, no
+fixtures) was committed as `cecb5ea` and merged as `bf12733`; the rest was built in the main
+checkout. What `docs/72` §E lists is all there: the values and contracts, the simulated channel,
+the Meta normaliser with two recorded fixtures, the webhook behind the OFF flag, the state machine
+and triggers, the migration, `ingest()` and the channel-identity path, the inbox (two pages, ten
+routes, two permissions, the badge), the two tools, the `support` agent paused at A0 with no
+enabling user, `support.v1.md`, the role suite (10 cases, `role_key = support`, invisible to the
+executive gate), the outbound policy, and tests for all of it (55 in `tests/Feature/Conversation`,
+the foundation-safety invariant renamed to name its one exception). Plus the simulation world
+ChatGPT asked for on 13 September, `docs/72` §G.
+
+**What the simulation found before any test did.** Replaying the scripted scenarios through the
+core caught four defects in the checkpoint, each fixed and now under test: a person could not take
+a thread from an active agent (the table lacked `ai_* -> human_active`); a customer writing again
+after a person resolved the thread was left in `human_resolved` (now `human_required`, or
+`ai_resumed` when the agent is active); the script detector read an order number as English
+("আমার অর্ডার LLD-20260912-QW3 কোথায়?" was `banglish`; tokens carrying digits are now ignored); and
+a provider timestamp carrying `+06:00` was stored six hours late (UTC before any write or binding,
+and the outbound policy's hourly cap had the same fault). A fifth came from the tests: the
+one-reply-per-inbound rule compared timestamps and missed a reply written in the same second as the
+inbound (now by id).
+
+*(pending: CI on the full branch, merge to main, release, gate 7)*

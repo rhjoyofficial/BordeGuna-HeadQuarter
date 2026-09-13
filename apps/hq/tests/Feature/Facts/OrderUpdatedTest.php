@@ -73,7 +73,7 @@ it('reproduces the production discrepancy, then clears it with order.updated', f
     // Exactly what the integrity checker found live on LLD-20260906-JRQXXJLN: the shop's totals moved
     // when the order was edited, and HQ's lines stayed behind.
     $fact->forceFill(['subtotal' => 1239.0, 'discount_total' => 90.0, 'gross' => 1239.0])->save();
-    $stale = app(FactsIntegrityChecker::class)->check(laladia(), CarbonImmutable::now()->subDays(7));
+    $stale = app(FactsIntegrityChecker::class)->check(laladia(), CarbonImmutable::parse('2026-09-06T00:00:00Z') /* the fixture's own date: a window relative to today expired on 13 September */);
     expect(array_column($stale['findings'], 'code'))->toContain(FactsIntegrityChecker::LINES_NOT_SUBTOTAL);
 
     app(FactsOrderUpserter::class)->upsertFromShopPayload(laladia(), updatedPayload(), 'evt-updated', CarbonImmutable::parse('2026-09-07T10:00:00Z'));
@@ -87,7 +87,7 @@ it('reproduces the production discrepancy, then clears it with order.updated', f
         ->and((float) $fact->discount_total)->toBe(90.0)
         ->and((float) $fact->gross)->toBe(1239.0);
 
-    $after = app(FactsIntegrityChecker::class)->check(laladia(), CarbonImmutable::now()->subDays(7));
+    $after = app(FactsIntegrityChecker::class)->check(laladia(), CarbonImmutable::parse('2026-09-06T00:00:00Z') /* the fixture's own date: a window relative to today expired on 13 September */);
     expect($after['discrepancies'])->toBe(0)->and($after['ok'])->toBe(1);
 });
 

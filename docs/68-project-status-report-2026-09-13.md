@@ -100,6 +100,12 @@ The model now names the task it is serving, in your own words, before it asks fo
 
 Gate 6 ran at 09:55 UTC. Its result is in section 7.
 
+### 3.10 Gate 7 built, and Phase 3 begins inert (13 September, afternoon and evening)
+
+ChatGPT read the gate-6 report and, this time, changed the pace as well as the plan: one longer milestone, four streams in parallel, activation still serialised. Stream 1 is the gate-7 correction, built and green on the branch: the runtime now decides for itself, from the operator's own words, whether a task exists at all, and the model's task field is a reading it records beside that decision, never authority. A message that only says "proceed" establishes nothing; a message that asks the agent to widen its own authority invalidates everything after it; and a group-wide question is expanded by the runtime into one scoped call per business the agent may read, each through the gateway, so the agent can no longer emit the unscoped call that failed gate 6. A provider refusal is recorded as unmeasured and fails the run without being counted as behaviour. Stream 2 is docs/72, the Phase 3 design with its five gates. Stream 3 is the inert half of Phase 3, built on the same branch: the conversation core that turns any channel's message into a thread, a person, an untrusted message and a state a machine decided; the Meta webhook behind a flag that is off; the operator inbox; a support agent seeded paused with nobody to enable it; a reply tool that cannot execute for anyone because no messaging provider exists. Nothing customer-facing is reachable, and a test now names the one tool that could be and proves why it cannot.
+
+ChatGPT's second reply added one thing, a simulation world, and it earned its place on the first day: twenty-one scripted conversations replayed through the real core, with no model and no provider, leaving no trace, found four defects in the checkpoint before a single test had been written. The stream-3 work itself survived a power cut that took the session with it; the audit that followed found the fork's checkpoint intact but untestable in the worktree it had been given, and that is recorded as a trap so it is not given again.
+
 ## 4. Where production stands today
 
 | System | Release | Notes |
@@ -134,7 +140,9 @@ Gate 6 ran at 09:55 UTC. Its result is in section 7.
 
 **Built, deployed, deliberately inert.** M5's two agents and everything a gate exercises: prompts, evaluation, the safety corpus, the closing turns, the business-reference contract. They run only for the minutes a gate takes, under audit, and are switched off again before the report.
 
-**Not started, by decision.** Phase 3 customer AI and the Messenger channel. Phase 4 AI orders. Phase 5 marketing and ads. Phase 6 content factory and the research engine. Phase 7 voice. Phase 8 avatar. Phases 9 and 10, measured autonomy. None begins before the architecture checkpoint's sequence allows it, and none begins unprompted.
+**Started inert, on the branch, not yet released.** Phase 3 customer AI and the Messenger channel: the conversation core, the inbox, the state machine, the Meta webhook (flag off, no credential), the support agent (paused, no enabling user, no autonomy), the reply tool (no provider, so it cannot execute), and the simulation world that replays scripted conversations through all of it. Real inbound needs Meta's app and Business Verification; any send needs gate P3-G4; the agent's first answers need gate P3-G2 and a provider quota.
+
+**Not started, by decision.** Phase 4 AI orders. Phase 5 marketing and ads. Phase 6 content factory and the research engine. Phase 7 voice. Phase 8 avatar. Phases 9 and 10, measured autonomy. None begins before the architecture checkpoint's sequence allows it, and none begins unprompted.
 
 ## 6. What only you can do
 

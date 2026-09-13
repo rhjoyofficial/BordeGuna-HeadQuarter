@@ -7,9 +7,11 @@ use App\Conversation\ConversationState;
 use App\Conversation\HandoffStateMachine;
 use App\Conversation\InvalidTransition;
 use App\Gateway\ToolGateway;
+use App\Gateway\ToolOutcome;
 use App\Gateway\ToolRequest;
 use App\Http\Controllers\Controller;
 use App\Models\Agent;
+use App\Models\AgentRun;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\DecisionRecord;
@@ -55,6 +57,9 @@ final class InboxController extends Controller
     public function index(Request $request): Response
     {
         $filter = (string) $request->query('filter', 'needs_person');
+        if (! in_array($filter, ['needs_person', 'mine', 'open', 'all'], true)) {
+            $filter = 'needs_person';
+        }
 
         $threads = $this->readable($request)
             ->with(['business:id,name,slug', 'brand:id,name', 'customer:id,name,primary_phone_canonical,attributes', 'assignee:id,email'])
@@ -73,7 +78,7 @@ final class InboxController extends Controller
             ->keyBy('conversation_id');
 
         return Inertia::render('inbox/index', [
-            'threads' => $threads->map(fn (Conversation $c) => $this->card($c, $lastMessages[$c->id] ?? null)),
+            'threads' => $threads->map(fn (Conversation $c) => $this->card($c, $lastMessages[$c->id] ?? null))->values(),
             'filter' => $filter,
             'counts' => [
                 'needs_person' => $this->readable($request)->where('state', ConversationState::HumanRequired->value)->count(),
@@ -109,13 +114,6 @@ final class InboxController extends Controller
                 'at' => ($m->received_at ?? $m->sent_at ?? $m->created_at)?->setTimezone($timezone)->toIso8601String(),
             ]);
 
-        // Proposals the agent made on this thread that a person has not decided yet: the shadow the
-        // P3-G2 gate reviews. Read from agent_runs, never from a message, because a proposal is not a
-        // message until a person sends it.
-        $proposals = DecisionRecord::query()->where('context_type', 'conversation')->where('context_id', $conversation->uuid)->exists()
-            ? []
-            : $this->proposalsFor($conversation);
-
         return Inertia::render('inbox/show', [
             'thread' => $this->card($conversation, null) + [
                 'ai_disabled' => $conversation->ai_disabled,
@@ -124,7 +122,7 @@ final class InboxController extends Controller
                 'allowed_next' => array_map(fn (ConversationState $s) => $s->value, $conversation->state->allowedNext()),
             ],
             'messages' => $messages,
-            'proposals' => $proposals,
+            'proposals' => $this->proposalsFor($conversation),
             'assignees' => User::query()->get(['id', 'email'])
                 ->filter(fn (User $u) => $u->can('hq.inbox.manage') && $this->businessScope->allows($u, $conversation->business_id))
                 ->map(fn (User $u) => ['id' => $u->id, 'email' => $u->email])->values(),
@@ -217,12 +215,7 @@ final class InboxController extends Controller
             'keep_as_note' => ['nullable', 'boolean'],
         ]);
 
-        $outcome = $this->gateway->execute(ToolRequest::forOperator(
-            $request->user(),
-            'messaging.send_reply',
-            ['business_slug' => $conversation->business?->slug, 'conversation_uuid' => $conversation->uuid, 'text' => $data['text']],
-            $conversation->business_id,
-        ));
+        $outcome = $this->send($request, $conversation, $data['text']);
 
         if (! $outcome->ok() && ($data['keep_as_note'] ?? false)) {
             $this->conversations->recordInternal($conversation, '[draft reply, not sent] '.$data['text'], ['user_id' => $request->user()?->getKey()]);
@@ -232,6 +225,74 @@ final class InboxController extends Controller
             'status' => $outcome->ok() ? 'reply-sent' : 'reply-not-sent',
             'outcome' => ['status' => $outcome->status->value, 'error' => $outcome->error ?? $outcome->policyReason],
         ]);
+    }
+
+    /**
+     * A person decides an agent proposal (docs/72 §C): send as it is, send edited, or discard. Each is
+     * a `DecisionRecord` with the proposal beside what was finally done, which is the shadow evidence
+     * gate P3-G2 reads. A send goes through the gateway like the composer and, in this milestone,
+     * fails there; the proposal then stays open, because a decision that could not be carried out
+     * is not a decision the run can be closed on.
+     */
+    public function decide(Request $request, Conversation $conversation, AgentRun $run): RedirectResponse
+    {
+        $this->assertReadable($request, $conversation);
+        $data = $request->validate([
+            'decision' => ['required', 'in:send,discard'],
+            'text' => ['nullable', 'string', 'max:2000'],
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $proposal = collect((array) $run->proposals)->first(fn ($p) => is_array($p) && ($p['kind'] ?? null) === 'proposal' && ($p['tool'] ?? null) === 'messaging.send_reply');
+        if ($run->agent_key !== ConversationService::SUPPORT_AGENT || $run->correlation_id !== $conversation->uuid || $proposal === null) {
+            abort(404);
+        }
+        if ($run->reviewed_at !== null) {
+            throw ValidationException::withMessages(['decision' => 'This proposal has already been decided.']);
+        }
+
+        $proposed = (string) data_get($proposal, 'args.text', '');
+        $final = $data['decision'] === 'send' ? (string) ($data['text'] ?? $proposed) : null;
+        $outcome = $final === null ? null : $this->send($request, $conversation, $final);
+        $carriedOut = $data['decision'] === 'discard' || ($outcome?->ok() ?? false);
+
+        DecisionRecord::create([
+            'agent_key' => $run->agent_key,
+            'user_id' => $request->user()?->getKey(),
+            'context_type' => 'conversation',
+            'context_id' => $conversation->uuid,
+            'proposal' => ['run_id' => $run->id, 'text' => $proposed, 'why' => $proposal['why'] ?? null],
+            'final' => ['decision' => $data['decision'], 'text' => $final, 'edited' => $final !== null && $final !== $proposed],
+            'delta' => $final !== null && $final !== $proposed ? ['from' => $proposed, 'to' => $final] : null,
+            'decision' => $data['decision'],
+            'reason' => $data['reason'] ?? null,
+            'outcome' => $outcome === null ? ['status' => 'discarded'] : ['status' => $outcome->status->value, 'error' => $outcome->error ?? $outcome->policyReason],
+            'correlation_id' => $run->correlation_id,
+        ]);
+
+        if ($carriedOut) {
+            $run->forceFill([
+                'reviewed_at' => now(),
+                'reviewed_by' => $request->user()?->getKey(),
+                'review_verdict' => $data['decision'] === 'send' ? 'sent' : 'discarded',
+                'review_note' => $data['reason'] ?? null,
+            ])->save();
+        }
+
+        return back()->with([
+            'status' => $data['decision'] === 'discard' ? 'proposal-discarded' : ($carriedOut ? 'reply-sent' : 'reply-not-sent'),
+            'outcome' => $outcome === null ? null : ['status' => $outcome->status->value, 'error' => $outcome->error ?? $outcome->policyReason],
+        ]);
+    }
+
+    private function send(Request $request, Conversation $conversation, string $text): ToolOutcome
+    {
+        return $this->gateway->execute(ToolRequest::forOperator(
+            $request->user(),
+            'messaging.send_reply',
+            ['business_slug' => $conversation->business?->slug, 'conversation_uuid' => $conversation->uuid, 'text' => $text],
+            $conversation->business_id,
+        ));
     }
 
     /** ⚠ 404, not 403 (see the agent screen): a thread on a business you may not see does not exist for you. */
@@ -263,18 +324,25 @@ final class InboxController extends Controller
         return ['active' => $status === 'active', 'status' => $status];
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * Proposals the support agent made on this thread that a person has not decided yet: the shadow
+     * the P3-G2 gate reviews. Read from agent_runs, never from a message, because a proposal is not a
+     * message until a person sends it.
+     *
+     * @return list<array<string, mixed>>
+     */
     private function proposalsFor(Conversation $conversation): array
     {
-        return \App\Models\AgentRun::query()
+        return AgentRun::query()
             ->where('agent_key', ConversationService::SUPPORT_AGENT)
             ->where('correlation_id', $conversation->uuid)
             ->whereNull('reviewed_at')
             ->latest('id')
             ->limit(5)
             ->get()
-            ->flatMap(fn ($run) => collect((array) $run->proposals)
-                ->filter(fn ($p) => is_array($p) && ($p['tool'] ?? null) === 'messaging.send_reply')
+            ->flatMap(fn (AgentRun $run) => collect((array) $run->proposals)
+                ->filter(fn ($p) => is_array($p) && ($p['kind'] ?? null) === 'proposal' && ($p['tool'] ?? null) === 'messaging.send_reply')
+                ->take(1)
                 ->map(fn ($p) => ['run_id' => $run->id, 'text' => (string) data_get($p, 'args.text', ''), 'why' => $p['why'] ?? null, 'at' => $run->created_at?->toIso8601String()]))
             ->values()
             ->all();
