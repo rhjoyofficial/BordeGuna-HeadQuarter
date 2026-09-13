@@ -2,12 +2,22 @@
 
 namespace App\Conversation;
 
+use App\Consent\ConsentBasis;
+use App\Consent\ConsentLedger;
+use App\Consent\ConsentPurpose;
+use App\Consent\ConsentState;
 use App\Context\Provenance;
+use App\Conversation\Channels\InboundMessage;
 use App\Gateway\Descriptor\Channel;
+use App\Identity\IdentityResolver;
+use App\Models\Agent;
+use App\Models\Business;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\ConversationParticipant;
 use App\Models\CustomerIdentity;
+use App\Models\PlatformAccount;
+use App\Support\Events\EventRecorder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -26,6 +36,154 @@ use Illuminate\Support\Str;
  */
 final readonly class ConversationService
 {
+    /** The agent that would answer a customer thread when it is active. Paused for all of this milestone. */
+    public const SUPPORT_AGENT = 'support';
+
+    public function __construct(
+        private IdentityResolver $identity,
+        private ConsentLedger $consent,
+        private EventRecorder $events,
+        private HandoffStateMachine $states,
+        private EscalationTriggers $triggers,
+    ) {}
+
+    /**
+     * One inbound message, from any channel, into the conversation core (docs/72 §B).
+     *
+     * In order: the page or number it was sent to says which business and brand (never guessed; an
+     * unknown reference throws); the thread is found or opened; the sender becomes a customer, a
+     * stranger if need be; the message is recorded UNTRUSTED with its script tagged; a Service consent
+     * with basis Inbound is written for this channel for the reply window; the state machine decides
+     * whether a person is needed; and the event goes out. Idempotent on the provider's message id, so a
+     * redelivered webhook creates nothing.
+     */
+    public function ingest(InboundMessage $inbound): ConversationMessage
+    {
+        $existing = ConversationMessage::query()
+            ->where('channel', $inbound->channel->value)
+            ->where('external_message_ref', $inbound->externalMessageRef)
+            ->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $account = PlatformAccount::query()
+            ->where('account_ref', $inbound->platformAccountRef)
+            ->where('is_active', true)
+            ->with('brand')
+            ->first();
+        if ($account === null || $account->brand === null) {
+            throw new UnknownPlatformAccount(
+                "No active platform account holds the reference [{$inbound->platformAccountRef}] on [{$inbound->channel->value}], "
+                .'so HQ cannot say which business this message is for and will not guess.'
+            );
+        }
+        $business = Business::query()->findOrFail($account->brand->business_id);
+
+        return DB::transaction(function () use ($inbound, $account, $business) {
+            $customer = $this->identity->resolveChannelIdentity($inbound->channel, $inbound->senderExternalId, $business);
+            $agentActive = Agent::query()->where('key', self::SUPPORT_AGENT)->where('status', 'active')->exists();
+
+            $conversation = $this->openOrFind($business->id, $inbound->channel, $inbound->externalThreadRef, $customer->id, [
+                'brand_id' => $account->brand_id,
+                'owner' => 'human',
+            ]);
+
+            $fill = [];
+            if ($conversation->platform_account_id === null) {
+                $fill['platform_account_id'] = $account->id;
+            }
+            if ($conversation->wasRecentlyCreated) {
+                $opening = $this->states->openingState($agentActive, false);
+                $fill['state'] = $opening->value;
+                $fill['owner'] = $opening->owner();
+            }
+            if ($fill !== []) {
+                $conversation->forceFill($fill)->save();
+            }
+
+            $body = Language::normalise($inbound->body);
+            $language = Language::detect($body);
+
+            $message = $this->recordInbound($conversation, (string) $body, [
+                'customer_id' => $customer->id,
+                'external_message_ref' => $inbound->externalMessageRef,
+                'received_at' => $inbound->receivedAt,
+                'metadata' => array_filter([
+                    'language' => $language,
+                    'digest' => $inbound->digest,
+                    'attachments' => $inbound->attachments,
+                    'sender_external_id' => $inbound->senderExternalId,
+                ] + $inbound->metadata, static fn ($v) => $v !== null && $v !== []),
+            ]);
+
+            if ($language !== null && $conversation->language === null) {
+                $conversation->forceFill(['language' => $language])->save();
+            }
+
+            $identity = CustomerIdentity::query()
+                ->where('channel', (string) $inbound->channel->identityChannel())
+                ->where('external_id', $inbound->senderExternalId)
+                ->first();
+            $alreadyIn = ConversationParticipant::query()
+                ->where('conversation_id', $conversation->id)
+                ->where('participant_type', 'customer')
+                ->where('customer_id', $customer->id)
+                ->exists();
+            if (! $alreadyIn) {
+                $this->addParticipant($conversation, 'customer', ['customer_id' => $customer->id, 'identity_id' => $identity?->id]);
+            }
+
+            // Writing to us on a channel is consent to be answered on it, for the window the channel
+            // itself defines, and to nothing else. Marketing is never inferred from a message.
+            $this->consent->record(
+                customerId: $customer->id,
+                businessId: $business->id,
+                purpose: ConsentPurpose::Service,
+                state: ConsentState::Granted,
+                basis: ConsentBasis::Inbound,
+                channel: $inbound->channel->value,
+                occurredAt: $inbound->receivedAt,
+                attributes: [
+                    'brand_id' => $account->brand_id,
+                    'expires_at' => $inbound->receivedAt->addHours((int) config('hq.outbound.reply_window_hours', 24)),
+                    'evidence_ref' => "conversation_message:{$message->uuid}",
+                    'reason' => 'the customer wrote to us on this channel',
+                    'correlation_id' => $conversation->uuid,
+                ],
+            );
+
+            $reason = $this->triggers->reasonFor($conversation, $body, $agentActive);
+            if ($reason !== null && $conversation->state->canMoveTo(ConversationState::HumanRequired)) {
+                $this->states->transition($conversation, ConversationState::HumanRequired, null, $reason);
+            } elseif ($reason === null && $conversation->state === ConversationState::AiWaiting) {
+                $this->states->transition($conversation, ConversationState::AiActive, null, 'the customer replied');
+            }
+
+            $this->events->record(
+                type: 'conversation.message_received',
+                payload: [
+                    'conversation_uuid' => $conversation->uuid,
+                    'message_uuid' => $message->uuid,
+                    'channel' => $inbound->channel->value,
+                    'language' => $language,
+                    'has_text' => $inbound->hasText(),
+                    'digest' => $inbound->digest,
+                    'state' => $conversation->fresh()->state->value,
+                ],
+                source: 'channel:'.$inbound->channel->value,
+                direction: 'inbound',
+                aggregateType: 'conversation',
+                aggregateId: $conversation->uuid,
+                businessId: $business->id,
+                dedupeKey: "conversation:message:{$inbound->channel->value}:{$inbound->externalMessageRef}",
+                occurredAt: $inbound->receivedAt,
+            );
+
+            return $message;
+        });
+    }
+
     /** Find the open thread for this platform conversation, or start one. */
     public function openOrFind(
         int $businessId,

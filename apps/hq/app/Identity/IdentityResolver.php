@@ -2,6 +2,8 @@
 
 namespace App\Identity;
 
+use App\Gateway\Descriptor\Channel;
+use App\Models\Business;
 use App\Models\Customer;
 use App\Models\CustomerIdentity;
 use App\Models\CustomerMerge;
@@ -10,6 +12,7 @@ use App\Models\Store;
 use App\Support\Audit\Auditor;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * Unified customer identity (docs/14, docs/35 section H). Deterministic rules only:
@@ -98,6 +101,51 @@ final class IdentityResolver
             if ($created) {
                 $this->auditor->recordSystem('customer.created', $customer, after: ['business_id' => $businessId, 'has_phone' => $phone !== null, 'store' => $store->slug]);
             }
+
+            return $customer;
+        });
+    }
+
+    /**
+     * The person behind a channel identity, or a new stranger holding only that identity (docs/72 §B).
+     *
+     * A Messenger PSID or a WhatsApp number is a rule-3 identity: already linked means confidence 1.0.
+     * Unknown means a customer exists from this moment with nothing but the channel id, a name only
+     * if the channel supplied one, and no phone; a later order or an OTP links them (docs/14). Never
+     * merged automatically with anyone: a stranger stays a stranger until a human or a hard identity
+     * says otherwise.
+     *
+     * @param  array{name?: ?string}  $profile
+     */
+    public function resolveChannelIdentity(Channel $channel, string $externalId, Business $business, array $profile = []): Customer
+    {
+        $identityChannel = $channel->identityChannel();
+        if ($identityChannel === null || trim($externalId) === '') {
+            throw new InvalidArgumentException("[{$channel->value}] carries no customer identity HQ can resolve a person from.");
+        }
+
+        return DB::transaction(function () use ($identityChannel, $externalId, $business, $profile, $channel) {
+            $existing = $this->byIdentity($identityChannel, $externalId, null);
+
+            if ($existing !== null) {
+                $existing->forceFill(['last_seen_at' => now()])->save();
+                CustomerIdentity::query()->where('channel', $identityChannel)->where('external_id', $externalId)->whereNull('source_store_id')
+                    ->update(['last_seen_at' => now()]);
+
+                return $existing;
+            }
+
+            $customer = Customer::create([
+                'business_id' => $business->id,
+                'name' => $profile['name'] ?? null,
+                'first_seen_at' => now(),
+                'last_seen_at' => now(),
+                'attributes' => ['arrived_via' => $channel->value, 'stranger' => true],
+            ]);
+            $this->link($customer, $identityChannel, $externalId, null, 1.0);
+            $this->auditor->recordSystem('customer.created', $customer, after: [
+                'business_id' => $business->id, 'has_phone' => false, 'channel' => $channel->value, 'stranger' => true,
+            ]);
 
             return $customer;
         });

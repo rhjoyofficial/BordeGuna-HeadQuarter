@@ -2,8 +2,10 @@
 
 namespace App\Support\Navigation;
 
+use App\Conversation\ConversationState;
 use App\Models\AgentRun;
 use App\Models\Approval;
+use App\Models\Conversation;
 use App\Models\JobRun;
 use App\Models\User;
 use App\Support\Authorization\BusinessScope;
@@ -38,6 +40,13 @@ final class NavBadges
                 ->where('shadow', true)
                 ->whereNull('reviewed_at')
                 ->whereIn('status', ['answered', 'refused', 'clarified', 'stopped'])
+                ->count();
+        }
+
+        if ($user->can('hq.inbox.view')) {
+            $badges['inbox'] = $this->businessScope
+                ->restrict(Conversation::query(), $user)
+                ->where('state', ConversationState::HumanRequired->value)
                 ->count();
         }
 

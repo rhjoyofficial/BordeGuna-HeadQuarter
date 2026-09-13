@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Identity\CustomerController;
+use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
@@ -72,6 +73,21 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('/', [AgentController::class, 'index'])->middleware('permission:hq.agents.view')->name('index');
         Route::get('runs/{run}', [AgentController::class, 'show'])->middleware('permission:hq.agents.view')->name('runs.show');
         Route::post('runs/{run}/review', [AgentController::class, 'review'])->middleware('permission:hq.agents.manage')->name('runs.review');
+    });
+
+    // Phase 3 (docs/72 C): the operator inbox and the handoff actions. Every state change is a
+    // transition the state machine allows and audits; the composer sends only through the gateway.
+    Route::prefix('inbox')->name('inbox.')->group(function () {
+        Route::get('/', [InboxController::class, 'index'])->middleware('permission:hq.inbox.view')->name('index');
+        Route::get('{conversation:uuid}', [InboxController::class, 'show'])->middleware('permission:hq.inbox.view')->name('show');
+        Route::post('{conversation:uuid}/take-over', [InboxController::class, 'takeOver'])->middleware('permission:hq.inbox.manage')->name('take-over');
+        Route::post('{conversation:uuid}/resolve', [InboxController::class, 'resolve'])->middleware('permission:hq.inbox.manage')->name('resolve');
+        Route::post('{conversation:uuid}/return-to-agent', [InboxController::class, 'returnToAgent'])->middleware('permission:hq.inbox.manage')->name('return-to-agent');
+        Route::post('{conversation:uuid}/close', [InboxController::class, 'close'])->middleware('permission:hq.inbox.manage')->name('close');
+        Route::post('{conversation:uuid}/assign', [InboxController::class, 'assign'])->middleware('permission:hq.inbox.manage')->name('assign');
+        Route::post('{conversation:uuid}/toggle-ai', [InboxController::class, 'toggleAi'])->middleware('permission:hq.inbox.manage')->name('toggle-ai');
+        Route::post('{conversation:uuid}/note', [InboxController::class, 'note'])->middleware('permission:hq.inbox.manage')->name('note');
+        Route::post('{conversation:uuid}/reply', [InboxController::class, 'reply'])->middleware('permission:hq.inbox.manage')->name('reply');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
