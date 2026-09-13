@@ -54,7 +54,7 @@ function scopedRequest(string $tool, array $args, User $enabling, ?int $business
         args: $args,
         caller: CallerKind::Agent,
         identity: ActingIdentity::agent(Agent::where('key', 'executive')->sole(), $enabling),
-        correlationId: 'corr-'.uniqid(),
+        correlationId: (string) Str::uuid(),
         businessId: $businessId,
     );
 }
@@ -91,8 +91,9 @@ it('resolves nothing when a reference names two different businesses, because an
     Brand::create(['business_id' => $econic->id, 'code' => 'DUP', 'slug' => 'duplicate', 'name' => 'LaLaDia', 'is_active' => true]);
 
     expect(app(BusinessReferenceResolver::class)->business('LaLaDia'))->toBeNull();
-    // The slug is still unambiguous.
-    expect(app(BusinessReferenceResolver::class)->business('laladia')?->slug)->toBe('laladia');
+    // A name only one business carries is still unambiguous.
+    expect(app(BusinessReferenceResolver::class)->business('laladia-com')?->slug)->toBe('laladia');
+    expect(app(BusinessReferenceResolver::class)->business('laladia.com')?->slug)->toBe('laladia');
 });
 
 it('normalises the way a person would: case, accents and punctuation do not distinguish two names', function () {
