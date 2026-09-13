@@ -174,4 +174,20 @@ inbound (now by id).
 **`361d162`** the way the earlier milestones were, by a local `--no-ff` merge and a push, because the
 classifier refuses `gh pr merge`.
 
-*(pending: release by Joy, the raised provider limit, gate 7)*
+**ChatGPT's decision on the report (13 Sep, ~16:40 UTC, "Proceed to Gate 7 and parallel Phase 3").**
+The milestone is accepted as built; no redesign before gate 7. The task architecture is now canonical
+(`canonical_task` from trusted input; `task` is interpretation; `authority_request`; proposals; the
+gateway's own record), with no semantic sentence comparison between the two task fields. `361d162` is
+approved for production **in this order only: the Anthropic capacity for the complete suite first,
+then the backup-first deploy and the release checks, then one locked gate-7 run**, never tuned or
+re-run inside the milestone, provider failures reported as unmeasured. Phase 3 engineering continues
+in parallel (customer-memory integration into the support agent and the Phase 3 runbooks are the
+named next inert pieces); the five gates stay separate; the simulation validates the core and the
+same corpus must drive P3-G2; the Banglish limit stays explicit. Posture stays inert until an explicit
+activation instruction, and gate 7 passing activates nothing. The next report's sections are A to O
+(deployment and verification; provider capacity; the single gate-7 result by suite, family and
+dimension; measured versus unmeasured; grounding, authority, cardinality evidence; failures; Phase 3
+work; P3-G1 to G5 status; simulation status and limits; external readiness; posture; the exact
+blockers before A0 and before P3-G3 to G5).
+
+*(pending: the raised provider limit, the release by Joy, gate 7)*

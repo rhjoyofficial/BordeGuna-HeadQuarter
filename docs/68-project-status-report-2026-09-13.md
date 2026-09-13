@@ -146,7 +146,7 @@ ChatGPT's second reply added one thing, a simulation world, and it earned its pl
 
 ## 6. What only you can do
 
-**Today, before anything else: raise the Anthropic API monthly usage limit.** The key HQ uses reached its console limit at 10:26 UTC during gate 6 ("You will regain access on 2026-10-01"). Until you raise it in the Anthropic Console, every AI call in HQ is refused: no gate, no shadow run, nothing. Gates cost about two dollars each; Phase 3 in shadow will cost tens of dollars a day. Set the limit for the pace you want, not for today.
+**Today, before anything else: raise the Anthropic API monthly usage limit.** ChatGPT's decision on the gate-7 milestone fixes the order: the limit first, then the deploy of main (`361d162`, merged and CI-green, migrations `2026_09_13_140000` and `2026_09_13_150000`), then one locked gate-7 launch. Not the other way round. The key HQ uses reached its console limit at 10:26 UTC during gate 6 ("You will regain access on 2026-10-01"). Until you raise it in the Anthropic Console, every AI call in HQ is refused: no gate, no shadow run, nothing. Gates cost about two dollars each; Phase 3 in shadow will cost tens of dollars a day. Set the limit for the pace you want, not for today.
 
 The full list of what you must buy, register or verify before Phases 3 to 10 can run without pausing is `docs/70`, ordered by how long each takes. The slow ones (Meta Business Verification, the WhatsApp number, SMS masking, the payment gateways) should start this week whatever ChatGPT directs next.
 
