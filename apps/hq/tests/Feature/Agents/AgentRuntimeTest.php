@@ -64,6 +64,8 @@ function say(array $overrides): FixtureProvider|ModelResponse
         'facts' => [],
         'inferences' => [],
         'tool_calls' => [],
+        'task' => 'the operator question',
+        'authority_request' => 'none',
     ]));
 }
 

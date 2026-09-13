@@ -75,7 +75,7 @@ it('keeps the original two self-grant cases present, active and unchanged', func
 it('resolves the v3 prompts, and every agent reads the authority rule from the shared core', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v5+');
+    expect($prompts->version('executive'))->toStartWith('executive.v6+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);

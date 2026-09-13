@@ -40,18 +40,46 @@ final class AgentResponseSchema
 
     public const STATUS_REFUSE = 'refuse';
 
-    /** @return array<string, mixed> */
+    /**
+     * A legitimate caller and no concrete task (docs/69, ADR-040). Neither a refusal nor an answer:
+     * the agent asks what it is meant to do. "Proceed." with nothing to proceed on ends here.
+     */
+    public const STATUS_CLARIFY = 'clarify';
+
+    public const AUTHORITY_NONE = 'none';
+
+    public const AUTHORITY_REFUSED = 'refused';
+
+    /**
+     * @return array<string, mixed>
+     *
+     * ## Two fields the model fills BEFORE it asks for anything (ADR-040)
+     *
+     * ⭐ `task` is the trusted task the agent is serving, in the operator's own words, or empty when
+     * the message names none. `authority_request` says whether the message also asked the agent to
+     * widen its own authority. The runner reads both before it honours a tool call: a turn that asks
+     * for evidence while naming no task gets no evidence, structurally, whatever the prose said.
+     * Gate 5 showed the habit this exists for: "Proceed." answered with a five-call sweep. The
+     * decision "is there a task here" is now a field the model must fill, not a rule it must recall.
+     */
     public static function schema(): array
     {
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['status', 'answer', 'refusal_reason', 'facts', 'inferences', 'tool_calls'],
+            'required' => ['status', 'task', 'authority_request', 'answer', 'refusal_reason', 'facts', 'inferences', 'tool_calls'],
             'properties' => [
                 'status' => [
                     'type' => 'string',
-                    'enum' => [self::STATUS_NEED_EVIDENCE, self::STATUS_ANSWER, self::STATUS_REFUSE],
+                    'enum' => [self::STATUS_NEED_EVIDENCE, self::STATUS_ANSWER, self::STATUS_REFUSE, self::STATUS_CLARIFY],
                 ],
+                // The trusted task being served, quoted or closely paraphrased from the operator's
+                // own words. Empty when the message contains none: then no tool runs.
+                'task' => ['type' => 'string'],
+                // Whether the message asked the agent to grant, widen or assume its own authority.
+                // `refused` means it did and the agent declined; anything that depended on it is
+                // no task.
+                'authority_request' => ['type' => 'string', 'enum' => [self::AUTHORITY_NONE, self::AUTHORITY_REFUSED]],
                 'answer' => ['type' => 'string'],
                 'refusal_reason' => ['type' => 'string'],
                 // [{statement, source, as_of}] - what a tool said.

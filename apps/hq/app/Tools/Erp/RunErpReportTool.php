@@ -8,6 +8,7 @@ use App\Erp\ErpRegistry;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
@@ -59,6 +60,7 @@ final class RunErpReportTool implements Tool
             readWrite: ReadWrite::Read,
             agentExecutable: true,
             scopeFrom: 'business:args.business_slug',
+            cardinality: ToolCardinality::OnePerBusiness,
             credentials: [
                 new CredentialRequirement(ErpRegistry::PROVIDER, 'args.business_slug|business.slug'),
             ],

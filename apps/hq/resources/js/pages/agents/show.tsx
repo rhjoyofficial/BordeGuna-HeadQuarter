@@ -27,6 +27,8 @@ type Run = {
     uuid: string;
     agent_key: string;
     question: string;
+    task: string | null;
+    authority_request: string | null;
     answer: string | null;
     status: string;
     stop_reason: string | null;
@@ -138,6 +140,21 @@ export default function AgentRunShow({
                         <div className="text-muted-foreground text-xs font-medium uppercase">The question</div>
                         <p className="mt-1 text-base">{run.question}</p>
                     </div>
+                    {run.task !== null && (
+                        <div>
+                            <div className="text-muted-foreground text-xs font-medium uppercase">What it set out to serve</div>
+                            {run.task ? (
+                                <p className="mt-1 text-sm">{run.task}</p>
+                            ) : (
+                                <p className="text-muted-foreground mt-1 text-sm italic">No task named in the message, so nothing was gathered.</p>
+                            )}
+                            {run.authority_request === 'refused' && (
+                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                    The message asked the agent to widen its own authority. It refused, and nothing that depended on that was done.
+                                </p>
+                            )}
+                        </div>
+                    )}
                     <div>
                         <div className="text-muted-foreground text-xs font-medium uppercase">What it said</div>
                         {run.answer ? (

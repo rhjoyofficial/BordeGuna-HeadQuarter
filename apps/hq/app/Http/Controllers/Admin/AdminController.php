@@ -76,7 +76,7 @@ final class AdminController extends Controller
                 'key' => 'runs_to_review',
                 'label' => 'Shadow runs to read',
                 'count' => $scoped(AgentRun::query())->where('shadow', true)->whereNull('reviewed_at')
-                    ->whereIn('status', ['answered', 'refused', 'stopped'])->count(),
+                    ->whereIn('status', ['answered', 'refused', 'clarified', 'stopped'])->count(),
                 'href' => '/agents?filter=unreviewed',
                 'permission' => 'hq.agents.view',
                 'tone' => 'pending',

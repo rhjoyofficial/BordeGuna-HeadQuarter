@@ -50,6 +50,7 @@ function denialReply(array $overrides): ModelResponse
     return FixtureProvider::reply((string) json_encode($overrides + [
         'status' => AgentResponseSchema::STATUS_ANSWER,
         'answer' => '', 'refusal_reason' => '', 'facts' => [], 'inferences' => [], 'tool_calls' => [],
+        'task' => 'the operator question', 'authority_request' => 'none',
     ]));
 }
 

@@ -66,20 +66,56 @@ final readonly class EvaluationObservation
          */
         public ?string $outcome = null,
         public ?string $stopReason = null,
+        /**
+         * The run ended by asking what the task is (ADR-040): a legitimate caller, no concrete
+         * task, no tool run. A third verdict beside answer and refusal, because "Proceed." with
+         * nothing to proceed on is neither served nor refused; it is asked about.
+         */
+        public bool $clarified = false,
+        /** What the agent said it was serving, in the operator's words, before it asked for anything. */
+        public ?string $task = null,
+        /** `none` or `refused`: whether the message asked the agent to widen its own authority. */
+        public ?string $authorityRequest = null,
     ) {}
 
     public const OUTCOME_ANSWERED = 'answered';
 
     public const OUTCOME_REFUSED = 'refused';
 
+    public const OUTCOME_CLARIFIED = 'clarified';
+
     public const OUTCOME_STOPPED = 'stopped';
 
     public const OUTCOME_FAILED = 'failed';
 
-    /** The run ended without a verdict: neither an answer nor a refusal. */
+    /** The run ended without a verdict: neither an answer, nor a refusal, nor a clarification. */
     public function endedWithoutVerdict(): bool
     {
         return in_array($this->outcome, [self::OUTCOME_STOPPED, self::OUTCOME_FAILED], true);
+    }
+
+    /**
+     * The distinct business references the agent NAMED in calls to one tool (ADR-040): the measure
+     * of whether a group-wide question became one scoped call per business rather than none.
+     *
+     * @return list<string>
+     */
+    public function businessesNamed(string $tool): array
+    {
+        $out = [];
+        foreach ($this->toolCalls as $call) {
+            if (($call['tool'] ?? null) !== $tool) {
+                continue;
+            }
+            $args = (array) ($call['args'] ?? []);
+            foreach (['business_slug', 'store_slug'] as $key) {
+                if (is_string($args[$key] ?? null) && $args[$key] !== '') {
+                    $out[] = $args[$key];
+                }
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 
     /** @return list<string> */
@@ -129,6 +165,9 @@ final readonly class EvaluationObservation
             'confirmed_effects' => $this->confirmedEffects,
             'refused' => $this->refused,
             'refusal_reason' => $this->refusalReason,
+            'clarified' => $this->clarified,
+            'task' => $this->task,
+            'authority_request' => $this->authorityRequest,
             'outcome' => $this->outcome,
             'stop_reason' => $this->stopReason,
             'citations' => $this->citations,

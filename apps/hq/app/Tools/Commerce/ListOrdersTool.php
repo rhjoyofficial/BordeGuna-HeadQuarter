@@ -8,6 +8,7 @@ use App\Commerce\Support\CommerceRegistry;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Store;
@@ -61,6 +62,7 @@ final class ListOrdersTool implements Tool
             readWrite: ReadWrite::Read,
             agentExecutable: true,
             scopeFrom: 'store:args.store_slug',
+            cardinality: ToolCardinality::OnePerStore,
             credentials: [
                 new CredentialRequirement(CommerceRegistry::ADMIN_PROVIDER, 'args.store_slug|store.slug'),
             ],

@@ -23,7 +23,7 @@ class EvaluationRun extends Model
     protected $fillable = [
         'uuid', 'suite_id', 'model', 'model_tier', 'prompt_version', 'skill_version',
         'policy_version', 'autonomy_level', 'agent_key', 'business_id', 'channel', 'status',
-        'cases_total', 'cases_passed', 'cases_failed', 'cases_skipped', 'agreement_rate', 'dimension_rates', 'check_rates', 'cost_usd',
+        'cases_total', 'cases_passed', 'cases_failed', 'cases_skipped', 'agreement_rate', 'dimension_rates', 'check_rates', 'family_rates', 'cost_usd',
         'compared_to_run_id', 'regressions', 'triggered_by', 'triggered_by_user_id',
         'started_at', 'finished_at',
     ];
@@ -35,6 +35,7 @@ class EvaluationRun extends Model
             'agreement_rate' => 'float',
             'dimension_rates' => 'array',
             'check_rates' => 'array',
+            'family_rates' => 'array',
             'cost_usd' => 'decimal:6',
             'regressions' => 'array',
             'started_at' => 'datetime',

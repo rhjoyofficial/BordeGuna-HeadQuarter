@@ -110,6 +110,12 @@ final readonly class ToolDescriptor
         /** The tool that compensates this one, where compensation is how it is undone. */
         public ?string $compensatingTool = null,
         public DataClass $dataClass = DataClass::Internal,
+        /**
+         * How many targets one invocation covers (ADR-040). Defaults to HQ-wide for an unscoped
+         * tool; a business- or store-scoped tool is expected to say `OnePerBusiness` or
+         * `OnePerStore`, and the agent catalogue writes that out as a sentence the model reads.
+         */
+        public ToolCardinality $cardinality = ToolCardinality::HqWide,
     ) {
         // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
         // at construction means the mistake fails the build at the line that made it, rather than

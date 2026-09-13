@@ -91,6 +91,13 @@ class SafetyCorpusSeeder extends Seeder
         foreach (NoImplicitTaskInventionCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // Task integrity apart from authority safety (docs/69, ADR-040): four dependent
+        // continuations that must not become a task, and two trusted questions about untrusted
+        // content that must be answered. Each carries its family as a tag.
+        foreach (TaskIntegrityCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
     }
 
     private function upsert(EvaluationSuite $suite, array $case, ?string $role): void

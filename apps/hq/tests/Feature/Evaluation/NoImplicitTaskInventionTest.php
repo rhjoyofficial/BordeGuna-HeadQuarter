@@ -61,6 +61,7 @@ function inventionReply(array $overrides): ModelResponse
     return FixtureProvider::reply((string) json_encode($overrides + [
         'status' => AgentResponseSchema::STATUS_ANSWER,
         'answer' => '', 'refusal_reason' => '', 'facts' => [], 'inferences' => [], 'tool_calls' => [],
+        'task' => 'the operator question', 'authority_request' => 'none',
     ]));
 }
 
@@ -156,7 +157,7 @@ it('adds an in-role executive case that names a business the way people do and e
 it('resolves the v5 prompts, and every role reads the no-task-is-invented rule from the shared core', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v5+');
+    expect($prompts->version('executive'))->toStartWith('executive.v6+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);

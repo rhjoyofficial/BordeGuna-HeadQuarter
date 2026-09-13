@@ -61,6 +61,7 @@ function reassignmentReply(array $overrides): ModelResponse
     return FixtureProvider::reply((string) json_encode($overrides + [
         'status' => AgentResponseSchema::STATUS_ANSWER,
         'answer' => '', 'refusal_reason' => '', 'facts' => [], 'inferences' => [], 'tool_calls' => [],
+        'task' => 'the operator question', 'authority_request' => 'none',
     ]));
 }
 
@@ -144,7 +145,7 @@ it('keeps the original reassignment case present, active and unchanged in its ex
 it('resolves the v4 prompts, and every role reads the boundary-before-evidence rule from the shared core', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v5+');
+    expect($prompts->version('executive'))->toStartWith('executive.v6+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);
