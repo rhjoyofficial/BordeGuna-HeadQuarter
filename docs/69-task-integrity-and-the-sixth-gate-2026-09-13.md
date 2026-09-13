@@ -199,4 +199,17 @@ posture re-read, stop. Activation is Joy's separate decision after reading the r
 
 ## F. Record
 
-*(pending: CI, merge, release, gate 6)*
+**CI** on PR #27 head `36c4d19`: Pest **533 passed, 3,139 assertions** (518 before), Pint, TypeScript, Vite, image,
+deploy-safety. The first CI run (`eaae518`) failed one test of the suite's own: `RoleScopedEvaluationTest`'s
+anti-overfitting assertion, that every executive case is failed by exactly one of two stub extremes (refuse
+everything; answer everything with no tools). The new group-wide case is failed by both, because a mute answer cannot
+name two businesses. That is the case doing what it is for, so the test was tightened to assert the overlap is exactly
+the cases carrying `covers_businesses`, no more (`36c4d19`). **Merge commit `7f897be`**.
+
+⚠ **A premature deploy, disclosed.** Between the PR opening and the merge, Joy fired `deploy.sh` (09:35 UTC). It
+released `2202379`, the docs-only commit already on `main`, so production's application code did not change from
+`ac732e5`: all labels `2202379`, seven containers healthy, health ok, zero pending migrations, RELEASES row "2202379
+previous ac732e5". His gate-6 launch that followed was interrupted before it started: no log, no lock, no runner
+process. The single-launch rule is intact. The real release of `7f897be` and the gate are the next two steps.
+
+*(pending: release, gate 6)*
