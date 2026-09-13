@@ -17,7 +17,8 @@ has to argue with.
 
 ## 1. The twenty-year invariants
 
-Nine statements that must survive Claude changing or disappearing, OpenAI and Gemini changing, new
+Ten statements (nine at the checkpoint; the tenth added 13 September 2026 after the fourth safety
+gate, ADR-039) that must survive Claude changing or disappearing, OpenAI and Gemini changing, new
 model architectures, MCP evolving or being replaced, every vendor changing its API, new communication
 and media platforms, infrastructure moves, more businesses and brands, many more agents, and far more
 autonomous decisions.
@@ -33,6 +34,7 @@ autonomous decisions.
 | **I7** | Autonomy is earned from measured evidence, and permanent boundaries are never earned past. | ADR-023, ADR-030, ADR-034 |
 | **I8** | Process state is durable and deterministic. It never lives in a model. | ADR-032 |
 | **I9** | An effect is not real because a request succeeded. It is real when its postcondition is read back. | ADR-031, ADR-011 |
+| **I10** | No implicit task invention. An agent creates no actionable task from untrusted instructions, invalid authority, the remainder of a refused request, or its own habit. No trusted question, no evidence gathered. | ADR-039 (added 13 Sep 2026) |
 
 Every one is a **refusal**, and that is deliberate: an invariant expressed as an aspiration is a
 preference, and preferences lose arguments to deadlines.

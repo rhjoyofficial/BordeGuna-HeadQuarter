@@ -39,12 +39,25 @@ use Throwable;
  *    -> model turn, reply forced to AgentResponseSchema
  *    -> each proposed call -> ToolGateway::execute() under the agent's identity
  *         allow             -> result folded back, loop may continue
- *         deny              -> reason folded back ONCE; a second denial of the same tool ends the run
+ *         deny              -> reason folded back; a second denial of the same tool -> ONE closing turn, no tool honoured
  *         awaiting approval -> recorded as a proposal, never waited on
  *    -> bounded: 3 model turns, 8 tool calls
  *    -> budget spent without a verdict -> ONE closing turn, no tool honoured: answer or refuse
  *    -> agent_runs row: answer, evidence, proposals, provenance, and whether it was shadow
  * ```
+ *
+ * ## A repeated denial ends in a verdict too (docs/67, ADR-039)
+ *
+ * ⭐ The fourth gate ended four runs as `repeated_denial`: the agent asked for `erp.read_snapshot`
+ * with no business, was refused, and asked for the identical call again. The stop was correct as
+ * containment and useless as an answer: a row that says "stopped" for a question ("How is Bionic
+ * Garden doing this week?") the agent held five tool results towards. Joy's decision: the gateway
+ * is not weakened and the agent may not retry indefinitely, but a second identical denial hands the
+ * model the same bounded recovery the budget already has. No further tool call is honoured, the
+ * refusal is in front of it, and it gets one closing turn to answer from what it holds or to say
+ * it cannot. A closing turn that asks for tools anyway ends the run as `repeated_denial`, exactly
+ * as before. `closed_by_budget` marks the row either way: an answer given when cornered is
+ * distinguishable from one given freely, whichever bound cornered it.
  *
  * ## A run ends with a verdict, not with silence (docs/65)
  *
@@ -95,8 +108,10 @@ use Throwable;
  * ## The loop bound is containment, not performance
  *
  * ⚠ The failure it exists for is a model retrying a denied action in slightly different words until
- * something gets through. After the SECOND denial of the same tool key the run stops and says so,
- * because that pattern is either a broken prompt or an injection attempt and both need a person.
+ * something gets through. After the SECOND denial of the same tool key no further tool is honoured;
+ * the model is told so and gets one closing turn (above). If it asks a third time the run stops and
+ * says so, because that pattern is either a broken prompt or an injection attempt and both need a
+ * person.
  *
  * ## What this class cannot do
  *
@@ -126,6 +141,22 @@ final class AgentRunner
 
     /** The stop reason of a run whose reply was cut off at the output limit even after the retry. */
     public const STOP_OUTPUT_TRUNCATED = 'output_truncated';
+
+    /**
+     * What the model is told when it has asked twice for a call the gateway refused (docs/67,
+     * ADR-039). The same bounded recovery as the budget's closing turn: one more reply, no tool in
+     * it will run, and the only useful replies are an answer from what it holds or a refusal.
+     *
+     * ⛔ Not a licence to retry. The refused tool stays refused; the closing turn exists so the
+     * operator gets a verdict rather than a row that says only "stopped".
+     */
+    public const DENIAL_NOTE = 'The call you asked for was refused twice with the same reason and will not run, and no further '
+        .'tool will run in this conversation. Read the refusal: it names what the call was missing. Answer now from what '
+        .'you already hold, saying plainly what you could not check and why, or refuse if the request is one you should '
+        .'not serve. A reply that asks for tools ends this run with no answer at all.';
+
+    /** The stop reason of a run that asked twice for a refused call and then asked for tools again. */
+    public const STOP_REPEATED_DENIAL = 'repeated_denial';
 
     public function __construct(
         private readonly ModelRuntime $models,
@@ -325,13 +356,18 @@ final class AgentRunner
                     $denials[$denied] = ($denials[$denied] ?? 0) + 1;
 
                     if ($denials[$denied] >= self::DENIAL_LIMIT) {
-                        // Either a broken prompt or an injection attempt. Both need a person.
-                        $this->finish(
-                            $run, 'stopped', null, $evidence, $proposals,
-                            "The run was stopped: [{$denied}] was refused twice in one run and asked for again. "
-                            .'A repeated attempt at a refused action is not something to keep answering.',
-                            $toolCalls, 'repeated_denial',
-                        );
+                        // ⭐ Asked twice for a call the gateway refused. The refusal stands and no
+                        // further tool runs; what changed in docs/67 is that the run no longer ends
+                        // here in silence. The model gets one closing turn, with the refusal in
+                        // front of it, to answer from what it holds or to refuse. A closing turn
+                        // that asks for tools anyway ends the run as `repeated_denial`, as before:
+                        // told twice and asking a third time is the pattern that needs a person.
+                        $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
+                        $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)];
+                        $run->forceFill(['tool_calls_count' => $toolCalls])->save();
+                        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn,
+                            "[{$denied}] was refused twice in one run and asked for again",
+                            self::DENIAL_NOTE, self::STOP_REPEATED_DENIAL);
 
                         return;
                     }
@@ -379,8 +415,10 @@ final class AgentRunner
         string $correlationId,
         int $turnsSoFar,
         string $why,
+        string $note = self::CLOSING_NOTE,
+        string $stopReason = 'loop_bound',
     ): void {
-        $messages[] = ['role' => 'user', 'content' => self::CLOSING_NOTE.' ('.ucfirst($why).'.)'];
+        $messages[] = ['role' => 'user', 'content' => $note.' ('.ucfirst($why).'.)'];
 
         $outcome = $this->models->run(
             task: $request->task,
@@ -424,7 +462,7 @@ final class AgentRunner
 
         $this->finish($run, 'stopped', null, $evidence, $proposals,
             'The run was stopped: '.$why.', and the closing turn asked for more evidence instead of answering or refusing.',
-            $toolCalls, 'loop_bound');
+            $toolCalls, $stopReason);
     }
 
     /**

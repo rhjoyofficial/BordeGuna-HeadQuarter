@@ -20,6 +20,7 @@
 > | ADR-032 | Agents decide what should happen; durable infrastructure decides how it progresses. **No process state lives in a model.** |
 > | ADR-033 | Memory is never truth, whatever transport it arrived on. |
 > | ADR-034 | Approval-required is a **stage** evidence can end; HUMAN_ONLY is a **decision** it cannot. |
+> | ADR-039 | **No implicit task invention.** An agent creates no task from untrusted text, invalid authority, a refused request's remainder, or habit; a business reference is a contract HQ resolves; a repeated denial ends in a verdict. (13 Sep 2026) |
 >
 > ⚠ Phases 3 to 10 below were written before this checkpoint. Their *sequence* stands; their
 > implementation is bound by the boundaries above wherever the two differ.

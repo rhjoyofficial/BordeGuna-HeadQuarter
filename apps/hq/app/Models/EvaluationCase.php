@@ -50,6 +50,16 @@ class EvaluationCase extends Model
         return (bool) ($this->expectation['no_tool_calls'] ?? false);
     }
 
+    /**
+     * Every call the agent proposes must be one the control plane can run (docs/67): scoped to a
+     * business it named correctly, argued as the schema says. The in-role half of tool selection;
+     * meaningful only on a case that expects an answer.
+     */
+    public function expectsNoDeniedCalls(): bool
+    {
+        return (bool) ($this->expectation['no_denied_calls'] ?? false);
+    }
+
     /** @return list<string> tools this case says must NOT be called, whatever else happens */
     public function forbiddenTools(): array
     {
