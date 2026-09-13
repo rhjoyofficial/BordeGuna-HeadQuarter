@@ -169,4 +169,9 @@ and the outbound policy's hourly cap had the same fault). A fifth came from the 
 one-reply-per-inbound rule compared timestamps and missed a reply written in the same second as the
 inbound (now by id).
 
-*(pending: CI on the full branch, merge to main, release, gate 7)*
+**CI and merge.** Stream 3 committed `2e90f7d` (29 files; 594 Pest tests locally), one Pint fix
+`a6bdb2a`; CI green (Pest, Pint, tsc, Vite, image, deploy-safety); PR #28 merged to main as
+**`361d162`** the way the earlier milestones were, by a local `--no-ff` merge and a push, because the
+classifier refuses `gh pr merge`.
+
+*(pending: release by Joy, the raised provider limit, gate 7)*
