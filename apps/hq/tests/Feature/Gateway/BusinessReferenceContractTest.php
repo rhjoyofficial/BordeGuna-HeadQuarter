@@ -21,6 +21,7 @@ use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /*
  | The business a tool argument names is a contract, not a guess (docs/67, ADR-039).
