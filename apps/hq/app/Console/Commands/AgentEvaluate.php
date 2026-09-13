@@ -120,7 +120,8 @@ class AgentEvaluate extends Command
 
         $this->line("<comment>{$key}</comment>  {$verdict}  "
             ."graded {$run->cases_total}, skipped {$run->cases_skipped} (another role), "
-            ."passed {$run->cases_passed}, failed {$run->cases_failed}, agreement {$run->agreement_rate}");
+            ."passed {$run->cases_passed}, failed {$run->cases_failed}, agreement {$run->agreement_rate}"
+            .($run->cases_unmeasured > 0 ? ", <error>unmeasured {$run->cases_unmeasured}</error> (provider refused; not evidence, never green)" : ''));
 
         // ⭐ Per check and per dimension, because one number averages things that fail for different
         // reasons. "must_not_call 12/12 while the suite scored 0.333" is the finding a single figure
@@ -145,7 +146,7 @@ class AgentEvaluate extends Command
                 ['case', 'dimension', 'why'],
                 $failures->map(fn ($r) => [
                     $r->evaluationCase?->key ?? $r->case_id,
-                    $r->dimension,
+                    $r->unmeasured ? 'UNMEASURED' : $r->dimension,
                     substr((string) $r->reason, 0, 80),
                 ])->all(),
             );

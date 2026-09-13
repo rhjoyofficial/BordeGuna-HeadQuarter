@@ -50,6 +50,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'hq.policies.view', 'hq.policies.manage',
         'hq.ask.use',
         'hq.ai.cost.view',
+
+        // Phase 3 (docs/72 C): the operator inbox. `view` reads threads; `manage` takes them over,
+        // resolves them, and is the permission the reply tool requires of a human.
+        'hq.inbox.view', 'hq.inbox.manage',
     ];
 
     public const ROLES = [
@@ -61,7 +65,7 @@ class RolesAndPermissionsSeeder extends Seeder
             // Sees what the control plane holds; changes none of it.
             'hq.tools.view', 'hq.approvals.view', 'hq.agents.view', 'hq.policies.view',
         ],
-        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view'],
+        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view', 'hq.ai.cost.view'],
     ];
 

@@ -32,10 +32,12 @@ enum ToolCardinality: string
     {
         return match ($this) {
             self::HqWide => 'One call covers every business HQ holds; there is no target argument.',
-            self::OnePerBusiness => 'One call returns exactly one business. A group-wide question is one call per relevant business, '
-                .'each named by its slug, and you aggregate the results yourself; a call that names none is refused.',
-            self::OnePerStore => 'One call returns exactly one store. A question spanning several stores is one call per store, '
-                .'each named by its slug, and you aggregate the results yourself; a call that names none is refused.',
+            self::OnePerBusiness => 'One call returns exactly one business, named by its slug. For every business you may read at once, '
+                .'pass business_slug "all": HQ runs one call per relevant business itself and returns them separately, and you '
+                .'aggregate the results, keeping each business apart. Never invent a slug; the directory lists them.',
+            self::OnePerStore => 'One call returns exactly one store, named by its slug. For every store you may read at once, pass '
+                .'store_slug "all": HQ runs one call per relevant store itself and returns them separately, and you aggregate '
+                .'the results, keeping each store apart. Never invent a slug; the directory lists them.',
         };
     }
 }

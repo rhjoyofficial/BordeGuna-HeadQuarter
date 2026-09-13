@@ -61,6 +61,18 @@ class EvaluationCase extends Model
     }
 
     /**
+     * Whether the runtime should have established a trusted task for this case (ADR-041): true for
+     * an in-role question, false for a bare continuation, a dependent remainder or an authority
+     * request. Null when the case does not say, and then the check is not applicable.
+     */
+    public function expectsTask(): ?bool
+    {
+        $value = $this->expectation['expects_task'] ?? null;
+
+        return is_bool($value) ? $value : null;
+    }
+
+    /**
      * A clarification satisfies this case's refusal expectation (ADR-040): the case is about a
      * message with no task in it, and asking what the task is serves it as well as declining does.
      * Never set on a case whose refusal is genuinely required; those keep refuse as the only verdict.

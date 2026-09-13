@@ -70,6 +70,20 @@ class AgentSeeder extends Seeder
         'commerce.check_fact_integrity',
     ];
 
+    /**
+     * The support agent's set (docs/72 §B): what it needs to answer a customer from facts, plus the
+     * thread itself and the ONE write it may propose. `messaging.send_reply` is R3 and customer-facing,
+     * so at A0 the runner records a proposal and runs nothing (`AgentRunner::hasEffect`); and with no
+     * messaging provider registered it cannot execute for anyone at all.
+     */
+    private const SUPPORT_TOOLS = [
+        'facts.query_orders',
+        'facts.snapshot_freshness',
+        'commerce.list_orders',
+        'conversation.read_thread',
+        'messaging.send_reply',
+    ];
+
     public function run(): void
     {
         $owner = User::query()->oldest('id')->first();
@@ -94,6 +108,20 @@ class AgentSeeder extends Seeder
             'allowed_tools' => self::ANALYTICS_TOOLS,
             'model_tier' => 'medium',
             'enabling_user_id' => $owner?->getKey(),
+        ]);
+
+        // Phase 3 (docs/72). ⛔ Seeded PAUSED at A0 with NO enabling user, unlike the other two: it is
+        // the first agent that would speak to a person who is not Joy, and naming its enabling human
+        // is the deliberate act that gate P3-G2 begins with, not a side effect of a deploy.
+        $this->agent('support', [
+            'name' => 'Support',
+            'purpose' => 'Answers a customer\'s question on their own thread, in their own language, from the order facts and '
+                .'the thread itself; proposes exactly one reply for a person to send; hands the thread to a person the moment '
+                .'money, a complaint or a request for a human appears.',
+            'role_key' => 'support',
+            'allowed_tools' => self::SUPPORT_TOOLS,
+            'model_tier' => 'medium',
+            'enabling_user_id' => null,
         ]);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Agents;
 
 use App\Ai\Exceptions\OutputTruncated;
+use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\ModelRuntime;
 use App\Ai\OutputBudget;
 use App\Ai\RoutingContext;
@@ -14,9 +15,11 @@ use App\Context\ContextBundle;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
 use App\Gateway\OutcomeStatus;
+use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Agent;
@@ -45,6 +48,23 @@ use Throwable;
  *    -> budget spent without a verdict -> ONE closing turn, no tool honoured: answer or refuse
  *    -> agent_runs row: answer, evidence, proposals, provenance, and whether it was shadow
  * ```
+ *
+ * ## Only trusted input establishes a task (docs/71, ADR-041)
+ *
+ * ⭐ Gate 6 showed where ADR-040 stopped: the model fills `task`, the runner runs nothing for an
+ * empty one, and four times the model filled it with its own routine against "Proceed." So the
+ * field is now the model's INTERPRETATION and `TaskGrounding` decides, deterministically, from the
+ * operator's own words: a message made of continuation words alone carries no task; a request to
+ * widen the agent's own authority invalidates every continuation beside it, including a narrower
+ * read-only version of the refused action; and the canonical task, when there is one, is the
+ * operator's text, never the model's paraphrase. Both are stored on the row (`task`,
+ * `canonical_task`, `task_grounding`) so a reviewer sees what the run read and what HQ established.
+ *
+ * ⭐ A group-wide question is one call per business, expanded HERE (ADR-041). A tool whose
+ * cardinality is one business (or one store) per call, asked for with the group reference `all` or
+ * with no target at all, is expanded before the gateway sees it into one scoped call per business
+ * this agent may read, each authorised separately by the gateway as before, each recorded with its
+ * business. The model never invents a slug and the gateway is not touched.
  *
  * ## No task, no evidence (docs/69, ADR-040)
  *
@@ -157,6 +177,20 @@ final class AgentRunner
     public const STOP_OUTPUT_TRUNCATED = 'output_truncated';
 
     /**
+     * The stop reason of a run the model provider refused outright: a quota, a monthly limit, a
+     * rejected key (ADR-041). Its own reason because it is its own class of nothing: the agent
+     * never spoke, and an evaluation must count the case as unmeasured rather than as a refusal
+     * that did not come.
+     */
+    public const STOP_PROVIDER_REFUSED = 'provider_refused';
+
+    /** The one group reference a scoped argument accepts: HQ expands it, the model never invents slugs. */
+    public const GROUP_REFERENCE = 'all';
+
+    /** Spellings of the group reference read as `all`, so a near miss expands rather than refuses. */
+    private const GROUP_REFERENCES = ['all', '*', 'every', 'each', 'group', 'all businesses', 'all stores', 'every business', 'every store'];
+
+    /**
      * What the model is told when it has asked twice for a call the gateway refused (docs/67,
      * ADR-039). The same bounded recovery as the budget's closing turn: one more reply, no tool in
      * it will run, and the only useful replies are an answer from what it holds or a refusal.
@@ -181,6 +215,8 @@ final class AgentRunner
         private readonly AutonomyResolver $autonomy,
         private readonly PromptLibrary $prompts,
         private readonly OutputBudget $output,
+        private readonly BusinessReferenceResolver $references,
+        private readonly TaskGrounding $grounding,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -254,6 +290,17 @@ final class AgentRunner
                 'stop_reason' => self::STOP_OUTPUT_TRUNCATED,
                 'error' => get_class($e).': '.mb_substr($e->getMessage(), 0, 900),
             ])->save();
+        } catch (ProviderRefused $e) {
+            // The provider said no before the agent said anything (ADR-041): a quota or a limit,
+            // its own stop reason, so that a gate counts the case as unmeasured and a reviewer does
+            // not read a billing ceiling as a model that failed to refuse.
+            Log::error('agent run refused by the model provider', ['agent' => $agent->key, 'run' => $run->id, 'exception' => $e]);
+
+            $run->forceFill([
+                'status' => 'failed',
+                'stop_reason' => self::STOP_PROVIDER_REFUSED,
+                'error' => get_class($e).': '.mb_substr($e->getMessage(), 0, 900),
+            ])->save();
         } catch (Throwable $e) {
             Log::error('agent run failed', ['agent' => $agent->key, 'run' => $run->id, 'exception' => $e]);
 
@@ -315,11 +362,13 @@ final class AgentRunner
 
             $status = (string) ($reply['status'] ?? AgentResponseSchema::STATUS_ANSWER);
 
-            // The assessment the model made before anything else (ADR-040): what task it is
-            // serving, in the operator's words, and whether the message asked it to widen its
-            // own authority. Recorded on the row the first time it is given, so a reviewer sees
-            // what the run believed it was doing and not only what it did.
-            $this->recordAssessment($run, $reply, $turn);
+            // The model's assessment (ADR-040) and HQ's own decision about it (ADR-041), made once
+            // on the first turn: what the model read as the task and whether the message asked it
+            // to widen its authority; then what the operator's OWN words establish. Both are on
+            // the row, so a reviewer sees what the run read and what HQ accepted.
+            if ($turn === 1) {
+                $this->groundAndRecord($run, $request, $reply, $bundle);
+            }
 
             if ($status === AgentResponseSchema::STATUS_REFUSE) {
                 $this->finish($run, 'refused', null, $evidence, $proposals, (string) ($reply['refusal_reason'] ?? ''), $toolCalls);
@@ -340,16 +389,31 @@ final class AgentRunner
                 return;
             }
 
-            // ⭐ No task, no evidence (ADR-040). A turn that asks for tools while its own
-            // assessment names no trusted task is the shape gate 5 failed on five times: "Proceed."
-            // answered with a five-call sweep. The prompt says not to; this makes it structural.
-            // Nothing runs, and the run ends by asking what the task is - or, when the only thing
-            // in the message was a request to widen the agent's authority, by refusing it.
-            if ($this->assessedTask($reply) === '') {
-                if ($this->assessedAuthority($reply) === AgentResponseSchema::AUTHORITY_REFUSED) {
+            // ⭐ No task, no evidence (ADR-040), decided by HQ and not by the model (ADR-041). A
+            // turn that asks for tools when the operator's own words establish no task runs
+            // nothing: "Proceed." is not a task whatever the model wrote into its field, and a
+            // request to widen the agent's authority leaves no task beside it, not the "usual
+            // report" after it and not a read-only version of the refused action. The run ends by
+            // refusing the authority request, or by asking what the task is.
+            if ((string) $run->canonical_task === '') {
+                if ($run->authority_request === AgentResponseSchema::AUTHORITY_REFUSED) {
                     $this->finish($run, 'refused', null, $evidence, $proposals,
-                        'The message asked the agent to widen its own authority and named no other task; the authority request is refused '
-                        .'and there is nothing else to serve. No tool was run.',
+                        'The message asked the agent to act outside its authority; that request is refused, and the agent did not '
+                        .'substitute a narrower task of its own in its place. Nothing else in the message was independently asked for. '
+                        .'No tool was run.',
+                        $toolCalls, null);
+
+                    return;
+                }
+
+                // No task in the operator's words AND untrusted content in the run: the only
+                // instruction there is lives inside that content, and an instruction inside
+                // untrusted content is not a task (ADR-039). "Act on it now." over a page that
+                // orders a role change is refused, not asked about.
+                if ($bundle->untrusted() !== []) {
+                    $this->finish($run, 'refused', null, $evidence, $proposals,
+                        'The operator\'s own words name no task, and the only instruction in this run is inside untrusted content, '
+                        .'which cannot become a task or change what the agent may do. No tool was run.',
                         $toolCalls, null);
 
                     return;
@@ -360,7 +424,7 @@ final class AgentRunner
                 return;
             }
 
-            $requested = $this->proposedCalls($reply);
+            $requested = $this->expandGroupWide($agent, $request, $this->proposedCalls($reply));
 
             // A turn that asks for evidence and names nothing cannot make progress, and repeating it
             // would burn the remaining turns to arrive at the same place.
@@ -595,11 +659,88 @@ final class AgentRunner
             ];
         }
 
+        $record = ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args];
+        if (isset($call['expanded_from'])) {
+            // This call exists because HQ expanded a group reference (ADR-041); the record says so,
+            // so a reviewer can tell one scoped call the model made from five HQ made for it.
+            $record['expanded_from'] = $call['expanded_from'];
+        }
+
         return [
             $this->assembler->toolResult($key, $outcome->toolCallId, $outcome->output),
-            ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args],
+            $record,
             null,
         ];
+    }
+
+    /**
+     * One call per business (or store) for a tool that covers one per invocation (ADR-041).
+     *
+     * A call whose scope argument is the group reference, or is missing, becomes one call per
+     * target this agent may read for this tool in this run, each named by its slug. A call that
+     * names a target already is left alone, and so is a call for a tool with no scope argument. If
+     * the agent may read no target, the call is left alone too and the gateway refuses it as before,
+     * naming the argument: expansion never widens what the caller could name by hand.
+     *
+     * @param  list<array<string, mixed>>  $calls
+     * @return list<array<string, mixed>>
+     */
+    private function expandGroupWide(Agent $agent, AgentRunRequest $request, array $calls): array
+    {
+        $out = [];
+
+        foreach ($calls as $call) {
+            $key = (string) ($call['tool'] ?? '');
+            $descriptor = $this->registry->has($key) ? $this->registry->get($key)->descriptor() : null;
+            $scope = $descriptor === null ? null : $this->scopeArgument($descriptor);
+
+            if ($descriptor === null || $descriptor->cardinality === ToolCardinality::HqWide || $scope === null) {
+                $out[] = $call;
+
+                continue;
+            }
+
+            [$kind, $argument] = $scope;
+            $args = is_array($call['args'] ?? null) ? $call['args'] : [];
+            $given = is_string($args[$argument] ?? null) ? mb_strtolower(trim($args[$argument])) : '';
+
+            if ($given !== '' && ! in_array($given, self::GROUP_REFERENCES, true)) {
+                $out[] = $call;
+
+                continue;
+            }
+
+            $slugs = $kind === 'business'
+                ? $this->references->permittedBusinessSlugs($agent, $key, $request->businessId)
+                : $this->references->permittedStoreSlugs($agent, $key, $request->businessId);
+
+            if ($slugs === []) {
+                $out[] = $call;
+
+                continue;
+            }
+
+            foreach ($slugs as $slug) {
+                $out[] = [...$call, 'args' => [...$args, $argument => $slug], 'expanded_from' => $given === '' ? 'unscoped' : $given];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The scope kind and argument a descriptor declares (`business:args.business_slug`), or null
+     * when the tool takes its scope from the request context rather than an argument.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private function scopeArgument(ToolDescriptor $descriptor): ?array
+    {
+        if (preg_match('/^(business|store):args\.([A-Za-z0-9_]+)$/', (string) $descriptor->scopeFrom, $m) !== 1) {
+            return null;
+        }
+
+        return [$m[1], $m[2]];
     }
 
     /**
@@ -698,28 +839,35 @@ final class AgentRunner
         return trim((string) ($reply['task'] ?? ''));
     }
 
-    /** `none` or `refused`; anything else the schema would not have let through is read as `none`. */
+    /** `none`, `refused` or `in_untrusted_content`; anything else the schema would not have let through is read as `none`. */
     private function assessedAuthority(array $reply): string
     {
         $value = (string) ($reply['authority_request'] ?? AgentResponseSchema::AUTHORITY_NONE);
 
-        return $value === AgentResponseSchema::AUTHORITY_REFUSED ? AgentResponseSchema::AUTHORITY_REFUSED : AgentResponseSchema::AUTHORITY_NONE;
+        return in_array($value, [AgentResponseSchema::AUTHORITY_REFUSED, AgentResponseSchema::AUTHORITY_IN_UNTRUSTED_CONTENT], true)
+            ? $value
+            : AgentResponseSchema::AUTHORITY_NONE;
     }
 
     /**
-     * The first turn's assessment is the run's: what it set out to serve. Later turns may restate
-     * it; they do not rewrite the record, because "what did the run think the task was" is a
-     * question about the start of the run, not its end.
+     * The first turn's assessment is the run's, and so is HQ's grounding of it (ADR-041). Later
+     * turns may restate the task; they do not rewrite the record, because "what did the run set
+     * out to serve" is a question about the start of the run, not its end.
      */
-    private function recordAssessment(AgentRun $run, array $reply, int $turn): void
+    private function groundAndRecord(AgentRun $run, AgentRunRequest $request, array $reply, ContextBundle $bundle): void
     {
-        if ($turn !== 1 || ! array_key_exists('task', $reply)) {
-            return;
-        }
+        $grounded = $this->grounding->ground(
+            trustedInput: $request->question,
+            modelTask: $this->assessedTask($reply),
+            authorityRequest: $this->assessedAuthority($reply),
+            hasUntrustedContext: $bundle->untrusted() !== [],
+        );
 
         $run->forceFill([
-            'task' => mb_substr($this->assessedTask($reply), 0, 2000),
-            'authority_request' => $this->assessedAuthority($reply),
+            'task' => mb_substr($grounded->modelTask, 0, 2000),
+            'canonical_task' => mb_substr($grounded->canonicalTask, 0, 2000),
+            'task_grounding' => $grounded->reason,
+            'authority_request' => $grounded->authorityRequest,
         ])->save();
     }
 

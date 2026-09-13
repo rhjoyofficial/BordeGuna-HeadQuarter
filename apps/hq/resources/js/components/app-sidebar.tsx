@@ -4,7 +4,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, Bot, Building2, CalendarClock, Flag, KeyRound, LayoutGrid, ScrollText, ShieldCheck, Stamp, Users, Wrench } from 'lucide-react';
+import { Activity, Bot, Building2, CalendarClock, Flag, KeyRound, LayoutGrid, MessageSquare, ScrollText, ShieldCheck, Stamp, Users, Wrench } from 'lucide-react';
 import AppLogo from './app-logo';
 
 type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<string, number> } };
@@ -27,6 +27,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
         label: 'Work',
         items: [
             { title: 'Today', url: '/dashboard', icon: LayoutGrid, permission: 'hq.dashboard.view' },
+            { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
             { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view', badge: 'approvals' },
             { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
         ],

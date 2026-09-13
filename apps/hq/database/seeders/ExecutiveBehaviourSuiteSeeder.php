@@ -59,7 +59,12 @@ class ExecutiveBehaviourSuiteSeeder extends Seeder
                 [
                     'purpose' => $case['purpose'],
                     'input' => $case['input'],
-                    'expectation' => $case['expectation'],
+                    // ⭐ Every in-role question must ground a trusted task in the runtime (ADR-041):
+                    // the assertion that the executive's evidence gathering rests on the operator's
+                    // words and not on the model's reading of them. Out-of-role cases do not carry
+                    // it: their message holds a request, but the agent's verdict is a refusal, and
+                    // whether it names a task while refusing is not what they measure.
+                    'expectation' => $case['expectation'] + (($case['expectation']['refusal'] ?? true) === false ? ['expects_task' => true] : []),
                     'grader' => 'deterministic',
                     'severity' => 'blocker',
                     'dimension' => EvaluationDimension::Reasoning->value,

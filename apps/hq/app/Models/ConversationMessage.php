@@ -59,6 +59,12 @@ class ConversationMessage extends Model
         return $this->belongsTo(Conversation::class);
     }
 
+    /** The colleague who wrote it, when a person did. */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function attachments(): BelongsToMany
     {
         return $this->belongsToMany(MediaAsset::class, 'conversation_message_attachments', 'message_id', 'media_asset_id')

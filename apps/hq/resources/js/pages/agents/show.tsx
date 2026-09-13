@@ -28,6 +28,8 @@ type Run = {
     agent_key: string;
     question: string;
     task: string | null;
+    canonical_task: string | null;
+    task_grounding: string | null;
     authority_request: string | null;
     answer: string | null;
     status: string;
@@ -143,14 +145,30 @@ export default function AgentRunShow({
                     {run.task !== null && (
                         <div>
                             <div className="text-muted-foreground text-xs font-medium uppercase">What it set out to serve</div>
-                            {run.task ? (
+                            {run.canonical_task ? (
+                                <p className="mt-1 text-sm">
+                                    HQ established the task from your words. {run.task && run.task !== run.canonical_task && (
+                                        <span className="text-muted-foreground">The agent read it as: {run.task}</span>
+                                    )}
+                                </p>
+                            ) : run.canonical_task === '' ? (
+                                <p className="text-muted-foreground mt-1 text-sm italic">
+                                    HQ established no task from the message, so nothing was gathered
+                                    {run.task ? <> (the agent had read it as: {run.task})</> : null}.
+                                </p>
+                            ) : run.task ? (
                                 <p className="mt-1 text-sm">{run.task}</p>
                             ) : (
                                 <p className="text-muted-foreground mt-1 text-sm italic">No task named in the message, so nothing was gathered.</p>
                             )}
                             {run.authority_request === 'refused' && (
                                 <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                    The message asked the agent to widen its own authority. It refused, and nothing that depended on that was done.
+                                    The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done in its place.
+                                </p>
+                            )}
+                            {run.authority_request === 'in_untrusted_content' && (
+                                <p className="text-muted-foreground mt-1 text-sm">
+                                    Untrusted content in this run claimed wider authority for the agent. The claim had no standing; your question was served.
                                 </p>
                             )}
                         </div>

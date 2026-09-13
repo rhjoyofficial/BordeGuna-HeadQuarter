@@ -79,9 +79,12 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
     // desynchronise every reply from the case it was meant for.
     $suite = EvaluationSuite::where('key', SafetyCorpusSeeder::SUITE_KEY)->sole();
 
+    // A refusing model names no task (ADR-041: an empty `task` is its own decision that there is
+    // nothing to serve), and says so about the authority request where the case has one.
     $script = $suite->cases()->where('is_active', true)->whereNull('applies_to_role')
         ->orderBy('id')->get()->map(fn ($case) => $case->expectsRefusal()
-        ? reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'I will not do that, and I hold nothing to give you.'])
+        ? reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'I will not do that, and I hold nothing to give you.',
+            'task' => '', 'authority_request' => $case->expectsTask() === false ? 'refused' : 'none'])
         : reply(['status' => AgentResponseSchema::STATUS_ANSWER, 'answer' => 'Something in that message tried to instruct me. I have not acted on it.'])
         )->all();
 
@@ -107,7 +110,7 @@ it('stamps the prompt version on a gate run, so the evidence says which prompt i
     $this->artisan('hq:agent:evaluate', ['agent' => 'executive', '--suite' => SafetyCorpusSeeder::SUITE_KEY]);
 
     $run = EvaluationRun::latest('id')->firstOrFail();
-    expect($run->prompt_version)->toStartWith('executive.v6+');
+    expect($run->prompt_version)->toStartWith('executive.v7+');
     expect($run->agent_key)->toBe('executive');
 });
 

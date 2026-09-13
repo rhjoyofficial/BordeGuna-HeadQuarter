@@ -13,6 +13,7 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\IntegrationCredential;
+use App\Platform\PlatformRegistry;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\Ai\FixtureProvider;
@@ -103,7 +104,20 @@ it('lets an agent execute only reads below R3, and nothing that reaches a person
     $descriptors = collect(app(ToolRegistry::class)->keys())
         ->map(fn (string $key) => app(ToolRegistry::class)->get($key)->descriptor());
 
-    foreach ($descriptors->filter(fn ($d) => $d->agentExecutable) as $d) {
+    // ⚠ Phase 3 stream 3 (docs/72 §B) crossed the four lines ONCE, deliberately, with
+    // `messaging.send_reply`, and the crossing is named here rather than the lines being moved: it
+    // is a write, R3, customer-facing, on an outbound channel, consent-gated. Every one of those
+    // is what makes the gateway check consent and the runner record a proposal instead of running
+    // it at A0; and no messaging provider is registered, so it cannot execute for anyone. Any
+    // second tool crossing a line still fails the build.
+    $crossing = $descriptors->filter(fn ($d) => $d->agentExecutable && $d->customerFacing)->map(fn ($d) => $d->key)->values()->all();
+    expect($crossing)->toBe(['messaging.send_reply']);
+    $reply = $descriptors->firstWhere('key', 'messaging.send_reply');
+    expect($reply->consentRequired)->not->toBeNull()
+        ->and($reply->channel->isOutbound())->toBeTrue()
+        ->and(app(PlatformRegistry::class)->platforms())->toBe([]);
+
+    foreach ($descriptors->filter(fn ($d) => $d->agentExecutable && ! $d->customerFacing) as $d) {
         expect($d->readWrite)->toBe(ReadWrite::Read, "[{$d->key}] is agent-executable and writes");
         expect($d->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$d->key}] is agent-executable at {$d->riskTier->value}");
         expect($d->customerFacing)->toBeFalse("[{$d->key}] is agent-executable and customer-facing");

@@ -26,6 +26,11 @@ use Tests\Support\Ai\FixtureProvider;
  | denial no further tool is honoured and the model gets one closing turn, with the refusal in front
  | of it, to answer from what it holds or to say it cannot. The gateway is not weakened, the refused
  | call never runs, and a closing turn that asks for tools anyway still ends the run as before.
+ |
+ | ⚠ Since ADR-041 a call with NO business is expanded by the runner into one call per business and
+ | never reaches the gateway unscoped, so the denial these tests need comes from a business HQ does
+ | not have (`nowhere`): the resolver lands it on nothing and the gateway refuses it, naming the
+ | argument and its values, exactly as it refused the unscoped call before.
  */
 
 beforeEach(function () {
@@ -61,14 +66,15 @@ function askExecutive(string $question = 'How is Bionic Garden doing this week?'
     ));
 }
 
+/** A call the gateway refuses: a business reference HQ cannot resolve. */
 function unscopedSnapshot(): array
 {
-    return ['tool' => 'erp.read_snapshot', 'args' => [], 'why' => 'the ERP view'];
+    return ['tool' => 'erp.read_snapshot', 'args' => ['business_slug' => 'nowhere'], 'why' => 'the ERP view'];
 }
 
 // ── First denial: the model may revise the call ─────────────────────────────────────────────────
 
-it('lets the model correct an unscoped call after the first refusal, which names the argument to supply', function () {
+it('lets the model correct a misnamed call after the first refusal, which names the argument to supply', function () {
     $bionic = Business::where('slug', 'bionic')->sole();
     FactsErpSnapshot::create([
         'business_id' => $bionic->id, 'kind' => 'overview',
@@ -94,7 +100,7 @@ it('lets the model correct an unscoped call after the first refusal, which names
     // The refusal the model read named the argument and its values.
     $requests = FixtureProvider::requestsTo('fixture');
     $second = $requests[1]->messages;
-    expect(end($second)['content'])->toContain('Pass [business_slug] with one of:')->toContain('bionic');
+    expect(end($second)['content'])->toContain('[nowhere]')->toContain('[business_slug]')->toContain('bionic');
 
     // One refused row, one succeeded row, and the succeeded one is scoped to the business it resolved.
     expect(ToolCall::where('tool_key', 'erp.read_snapshot')->where('status', 'denied')->count())->toBe(1);
@@ -112,7 +118,7 @@ it('gives a run one tool-free closing turn after the second identical denial, an
     $again = denialReply(['status' => AgentResponseSchema::STATUS_NEED_EVIDENCE, 'tool_calls' => [unscopedSnapshot()]]);
     $closing = denialReply([
         'status' => AgentResponseSchema::STATUS_ANSWER,
-        'answer' => 'From what I hold: the order facts are fresh. I could not read the ERP snapshot because my call named no business.',
+        'answer' => 'From what I hold: the order facts are fresh. I could not read the ERP snapshot because my call named a business HQ does not have.',
         // Named in the closing turn, and must not run: the note said no tool would.
         'tool_calls' => [unscopedSnapshot()],
     ]);

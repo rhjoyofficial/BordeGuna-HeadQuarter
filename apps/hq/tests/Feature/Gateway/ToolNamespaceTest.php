@@ -43,6 +43,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         // by name, so renaming one silently empties an agent's tool list rather than failing.
         'facts.query_orders', 'facts.snapshot_freshness', 'erp.read_snapshot', 'erp.run_report',
         'commerce.list_orders', 'hq.list_approvals', 'hq.list_jobs', 'hq.recent_events',
+        // Phase 3 stream 3 (docs/72 §B): the support agent's thread read and its one proposal-only write.
+        'conversation.read_thread', 'messaging.send_reply',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

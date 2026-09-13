@@ -58,7 +58,7 @@ it('lists the agents and their runs', function () {
         ->assertOk()
         ->assertInertia(fn ($page) => $page
             ->component('agents/index')
-            ->has('agents', 2)
+            ->has('agents', 3) // executive, analyst, and the support agent seeded paused by Phase 3
             ->has('runs', 1)
             ->where('runs.0.shadow', true));
 });

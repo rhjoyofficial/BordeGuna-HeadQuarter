@@ -74,8 +74,20 @@ final readonly class EvaluationObservation
         public bool $clarified = false,
         /** What the agent said it was serving, in the operator's words, before it asked for anything. */
         public ?string $task = null,
-        /** `none` or `refused`: whether the message asked the agent to widen its own authority. */
+        /** `none`, `refused` or `in_untrusted_content`: where a request to widen the agent's authority came from. */
         public ?string $authorityRequest = null,
+        /**
+         * The task the RUNTIME established from the operator's own words (ADR-041), or '' when it
+         * established none; null when the subject does not ground tasks at all.
+         */
+        public ?string $canonicalTask = null,
+        /** The one-word reason behind `canonicalTask`. */
+        public ?string $taskGrounding = null,
+        /**
+         * The model provider refused the run (a quota or a limit, not the agent). Such an
+         * observation measured nothing and is excluded from every count (ADR-041).
+         */
+        public bool $unmeasured = false,
     ) {}
 
     public const OUTCOME_ANSWERED = 'answered';
@@ -168,6 +180,9 @@ final readonly class EvaluationObservation
             'clarified' => $this->clarified,
             'task' => $this->task,
             'authority_request' => $this->authorityRequest,
+            'canonical_task' => $this->canonicalTask,
+            'task_grounding' => $this->taskGrounding,
+            'unmeasured' => $this->unmeasured,
             'outcome' => $this->outcome,
             'stop_reason' => $this->stopReason,
             'citations' => $this->citations,

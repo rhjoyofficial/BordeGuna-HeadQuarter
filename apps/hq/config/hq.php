@@ -1,11 +1,15 @@
 <?php
 
 use App\Ai\Providers\AnthropicProvider;
+use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
+use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
+use App\Tools\Conversation\ReadThreadTool;
+use App\Tools\Conversation\SendReplyTool;
 use App\Tools\Diagnostics\ApprovalDemoTool;
 use App\Tools\Diagnostics\FailingTool;
 use App\Tools\Diagnostics\NoopTool;
@@ -59,6 +63,12 @@ return [
         RecentEventsTool::class,
         ListOrdersTool::class,
         RunErpReportTool::class,
+
+        // Phase 3 (docs/72): the support agent reads a thread, and PROPOSES a reply. The reply tool is
+        // customer-facing and consent-gated by construction, and cannot execute for anyone until a
+        // messaging provider is registered, which none is (gate P3-G4).
+        ReadThreadTool::class,
+        SendReplyTool::class,
     ],
 
     // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an
@@ -181,9 +191,23 @@ return [
             'payment.completed' => [ShopOrderEventHandler::class],
             'shipment.delivered' => [ShopOrderEventHandler::class],
             'customer.registered' => [CustomerRegisteredHandler::class],
+            // Phase 3 (docs/72): the Meta webhook row becomes conversation messages in the drain, and
+            // the conversation events are recorded and, for now, nothing more.
+            'conversation.inbound_received' => [MetaInboundHandler::class],
+            'conversation.message_received' => [ConversationEventHandler::class],
+            'conversation.state_changed' => [ConversationEventHandler::class],
+            'conversation.reply_proposed' => [ConversationEventHandler::class],
         ],
         'default_max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800, 3600],
+    ],
+
+    // Phase 3 (docs/72 B): the rules an outbound reply must pass at the tool, before any provider is
+    // looked up. Small and named; a rule that cannot be named here does not exist.
+    'outbound' => [
+        'per_thread_hourly_cap' => (int) env('HQ_OUTBOUND_THREAD_HOURLY_CAP', 6),
+        'reply_window_hours' => 24,
+        'quiet_hours' => ['start' => 23, 'end' => 8],
     ],
 
     'alerts' => [

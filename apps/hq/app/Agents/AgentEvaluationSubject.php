@@ -111,6 +111,12 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             clarified: $run->status === 'clarified',
             task: $run->task,
             authorityRequest: $run->authority_request,
+            // The runtime's own decision about the task (ADR-041), apart from the model's.
+            canonicalTask: $run->canonical_task,
+            taskGrounding: $run->task_grounding,
+            // A provider refusal measured nothing about the agent; the grader and the runner are
+            // told so rather than left to read a quota as a refusal that never came.
+            unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,
         );
     }
 
