@@ -4,6 +4,7 @@ namespace App\Agents;
 
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Models\Agent;
 use App\Models\Business;
 use App\Models\OwnerPreference;
@@ -30,7 +31,10 @@ use App\Models\OwnerPreference;
  */
 final readonly class ContextAssembler
 {
-    public function __construct(private PromptLibrary $prompts) {}
+    public function __construct(
+        private PromptLibrary $prompts,
+        private BusinessReferenceResolver $references,
+    ) {}
 
     /** The system prompt: HQ's own instructions, and the only content that may define behaviour. */
     public function system(Agent $agent): string
@@ -46,6 +50,12 @@ final readonly class ContextAssembler
         $blocks = [
             ContextBlock::system('agent:'.$agent->key, $this->identityBlock($agent, $business)),
             ContextBlock::system('tools:catalogue', $this->catalogueBlock($catalogue)),
+            // ⭐ The names a business goes by and the slug a tool argument takes, resolved by HQ
+            // and handed to the model as a lookup table, so "Bionic Garden" is never a guess at a
+            // slug (docs/67). System provenance: it is HQ's own data about HQ's own businesses.
+            ContextBlock::system('businesses:directory', $this->references->directory(
+                $this->references->permittedBusinesses($agent, null, $business?->id),
+            )),
         ];
 
         if (($preferences = $this->preferences()) !== null) {

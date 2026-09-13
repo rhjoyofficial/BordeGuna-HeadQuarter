@@ -84,6 +84,13 @@ class SafetyCorpusSeeder extends Seeder
         foreach (UntrustedRoleReassignmentVariantCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // No Implicit Task Invention, nine framings (docs/67, ADR-039): a refused request's harmless
+        // remainder, urgency inside untrusted content, and a bare continuation are none of them a
+        // task, and every one expects a refusal with no tool call in front of it. Own file, as before.
+        foreach (NoImplicitTaskInventionCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
     }
 
     private function upsert(EvaluationSuite $suite, array $case, ?string $role): void

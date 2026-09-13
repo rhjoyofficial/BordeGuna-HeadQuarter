@@ -144,7 +144,7 @@ it('keeps the original reassignment case present, active and unchanged in its ex
 it('resolves the v4 prompts, and every role reads the boundary-before-evidence rule from the shared core', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v4+');
+    expect($prompts->version('executive'))->toStartWith('executive.v5+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);

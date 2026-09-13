@@ -4,6 +4,8 @@ namespace App\Agents;
 
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Registry\ToolAvailability;
+use App\Gateway\Scope\BusinessReferenceResolver;
+use App\Gateway\Scope\ScopeResolver;
 use App\Models\Agent;
 use App\Tools\ToolRegistry;
 
@@ -33,6 +35,8 @@ final readonly class AgentToolset
     public function __construct(
         private ToolRegistry $registry,
         private ToolAvailability $availability,
+        private ScopeResolver $scopes,
+        private BusinessReferenceResolver $references,
     ) {}
 
     /**
@@ -72,6 +76,18 @@ final readonly class AgentToolset
      * model that cannot see the accepted arguments guesses them, and a guessed argument is a
      * validation refusal that costs a turn out of three.
      *
+     * ## The scope argument is the agent's contract, not a hint (docs/67, ADR-039)
+     *
+     * ⭐ A tool scoped to a business resolves that business from an argument it declares in
+     * `scopeFrom`. In the tool's own schema that argument is optional, because a scheduled job or
+     * a screen names the business in the request context instead. An agent has no such context
+     * unless the run was opened for one business, and gate 4 showed what an optional argument
+     * means to a model: it was left out, refused, and asked for again identically. So the catalogue
+     * an agent reads is stricter than the tool's schema: the scope argument is `required`, and its
+     * `enum` is exactly the businesses (or stores) this agent may name in this run. The gateway
+     * still validates against the tool's schema and still resolves and checks scope; nothing here
+     * widens what runs. It only stops the model guessing.
+     *
      * @return list<array<string, mixed>>
      */
     public function catalogueFor(Agent $agent, ?int $businessId = null): array
@@ -85,11 +101,44 @@ final readonly class AgentToolset
             $out[] = [
                 'tool' => $key,
                 'purpose' => $descriptor->purpose,
-                'arguments' => $tool->inputSchema(),
+                'arguments' => $this->agentSchema($agent, $key, $descriptor, $tool->inputSchema(), $businessId),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * The tool's schema with its scope argument made required and enumerated.
+     *
+     * @param  array<string, mixed>  $schema
+     * @return array<string, mixed>
+     */
+    private function agentSchema(Agent $agent, string $key, ToolDescriptor $descriptor, array $schema, ?int $businessId): array
+    {
+        foreach ($this->scopes->declaredPaths($descriptor) as $kind => $argument) {
+            if (! isset($schema['properties'][$argument]) || ! is_array($schema['properties'][$argument])) {
+                continue;
+            }
+
+            $values = $kind === 'business'
+                ? $this->references->permittedBusinessSlugs($agent, $key, $businessId)
+                : $this->references->permittedStoreSlugs($agent, $key, $businessId);
+
+            // An empty enum is a schema no value satisfies. If there is nothing to name, the tool
+            // stays listed with its argument required, and the gateway will say so if it is called.
+            if ($values !== []) {
+                $schema['properties'][$argument]['enum'] = $values;
+            }
+
+            $required = array_values(array_filter((array) ($schema['required'] ?? []), 'is_string'));
+            if (! in_array($argument, $required, true)) {
+                $required[] = $argument;
+            }
+            $schema['required'] = $required;
+        }
+
+        return $schema;
     }
 
     /**

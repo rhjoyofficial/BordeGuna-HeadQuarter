@@ -20,11 +20,24 @@ use App\Models\Store;
  * matters for the business-scope check and for the credential account reference.
  *
  * Nothing here is free text from a model: `scopeFrom` is a fixed path declared by the tool's own
- * class, and the value at that path is a slug looked up against a real row. An unknown slug resolves
- * to nothing and the call is refused, rather than silently widening to "all businesses".
+ * class, and the value at that path is a reference looked up against a real row. An unknown
+ * reference resolves to nothing and the call is refused, rather than silently widening to "all
+ * businesses".
+ *
+ * ## The value is a reference, not only a slug (docs/67, ADR-039)
+ *
+ * ⭐ Gate 4 refused `erp.read_snapshot` twelve times for naming no business, and the refusal said
+ * "neither the call nor its arguments named one" without saying WHICH argument or what it takes.
+ * Two changes. The value at the declared path is resolved by `BusinessReferenceResolver`, so a
+ * store slug, a brand name or a display name lands on the business it means instead of on
+ * "which HQ does not have". And every refusal names the argument and lists the values it accepts,
+ * so a caller told no is told what yes looks like. Resolving a name is not authorisation: whether
+ * the caller may act on the business it named is still `ToolGateway::checkScope()`'s decision.
  */
 final class ScopeResolver
 {
+    public function __construct(private readonly BusinessReferenceResolver $references) {}
+
     public function resolve(ToolDescriptor $descriptor, ToolRequest $request, array $args): ResolvedScope
     {
         $storeId = $request->storeId;
@@ -50,16 +63,21 @@ final class ScopeResolver
         }
 
         // 2. The declared argument path, for the parts the request did not carry.
-        foreach ($this->declaredPaths($descriptor) as $kind => $path) {
+        $paths = $this->declaredPaths($descriptor);
+
+        foreach ($paths as $kind => $path) {
             $value = data_get($args, $path);
             if (! is_string($value) || $value === '') {
                 continue;
             }
 
             if ($kind === 'store' && $storeId === null) {
-                $store = Store::where('slug', $value)->first();
+                $store = $this->references->store($value);
                 if ($store === null) {
-                    return ResolvedScope::missing("[{$descriptor->key}] was given store [{$value}], which HQ does not have.");
+                    return ResolvedScope::missing(
+                        "[{$descriptor->key}] was given store [{$value}], which HQ does not have. "
+                        ."[{$path}] takes one of: ".$this->list($this->references->activeStoreSlugs()).'.',
+                    );
                 }
                 $storeId = $store->id;
                 $storeSlug = $store->slug;
@@ -70,32 +88,59 @@ final class ScopeResolver
             }
 
             if ($kind === 'business' && $businessId === null) {
-                $business = Business::where('slug', $value)->first();
+                $business = $this->references->business($value);
                 if ($business === null) {
-                    return ResolvedScope::missing("[{$descriptor->key}] was given business [{$value}], which HQ does not have.");
+                    return ResolvedScope::missing(
+                        "[{$descriptor->key}] was given business [{$value}], which HQ does not have. "
+                        ."[{$path}] takes one of: ".$this->list($this->references->activeBusinessSlugs()).'.',
+                    );
                 }
                 $businessId = $business->id;
                 $businessSlug = $business->slug;
             }
         }
 
-        // 3. A scoped tool must have ended up with a target.
+        // 3. A scoped tool must have ended up with a target, and a refusal says which argument
+        //    would have supplied one and what it accepts.
         if ($descriptor->requiresBusinessContext() && $businessId === null && $storeId === null) {
             return ResolvedScope::missing(
-                "[{$descriptor->key}] is scoped to a {$descriptor->scope->value} and neither the call nor its arguments named one.",
+                "[{$descriptor->key}] is scoped to a {$descriptor->scope->value} and neither the call nor its arguments named one."
+                .$this->howToName($paths),
             );
         }
 
         return new ResolvedScope($businessId, $businessSlug, $storeId, $storeSlug);
     }
 
+    /** The sentence that turns "you named none" into "name one like this". */
+    private function howToName(array $paths): string
+    {
+        if (isset($paths['business'])) {
+            return " Pass [{$paths['business']}] with one of: ".$this->list($this->references->activeBusinessSlugs()).'.';
+        }
+        if (isset($paths['store'])) {
+            return " Pass [{$paths['store']}] with one of: ".$this->list($this->references->activeStoreSlugs()).'.';
+        }
+
+        return ' The call must carry a business or store context.';
+    }
+
+    /** @param  list<string>  $values */
+    private function list(array $values): string
+    {
+        return $values === [] ? '(none is active)' : implode(', ', $values);
+    }
+
     /**
      * `scopeFrom` accepts one or two declarations, for example
      * `store:args.store_slug` or `business:args.business_slug`.
      *
+     * Public because the agent catalogue reads it too: the argument a tool resolves its scope from
+     * is the argument the catalogue marks required and enumerates (docs/67).
+     *
      * @return array<string, string> kind => argument path
      */
-    private function declaredPaths(ToolDescriptor $descriptor): array
+    public function declaredPaths(ToolDescriptor $descriptor): array
     {
         if ($descriptor->scopeFrom === null || $descriptor->scopeFrom === '') {
             return [];
