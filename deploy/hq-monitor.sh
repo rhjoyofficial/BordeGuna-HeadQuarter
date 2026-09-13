@@ -135,8 +135,16 @@ fi
 overall=${overall:-unknown}
 
 # ERP still answering (it shares the host)
-ERP=$(curl -s -m 10 -o /dev/null -w '%{http_code}' -H 'Host: erp.srv1808022.hstgr.cloud' http://127.0.0.1/up 2>/dev/null)
-check erp_up $([ "$ERP" = "200" ] || [ "$ERP" = "301" ] || [ "$ERP" = "302" ] && echo 0 || echo 1) "ERP /up returned ${ERP:-nothing}"
+#
+# ⛔⛔ Until 13 September this asked plain HTTP for `erp.srv1808022.hstgr.cloud` and accepted 301. That
+# hostname was deleted on 6 September, and Traefik answers EVERY host on port 80 with a 301 to HTTPS
+# before any router is consulted - so the check measured Traefik's redirect, not the ERP, and would
+# have stayed green with the ERP stopped. Measured: the deleted host and the real one both gave 301.
+# Now it asks the real hostname over HTTPS, pinned to this machine, and only 200 is up. Measured the
+# same minute: real host 200, an unrouted host 404.
+ERP_HOST=${ERP_HOST:-erp.bordeguna.com}
+ERP=$(curl -s -m 10 -o /dev/null -w '%{http_code}' --resolve "${ERP_HOST}:443:127.0.0.1" "https://${ERP_HOST}/up" 2>/dev/null)
+check erp_up $([ "$ERP" = "200" ] && echo 0 || echo 1) "ERP https://${ERP_HOST}/up returned ${ERP:-nothing} (want 200). Look: docker compose -f /opt/bordeguna-erp/deploy/docker-compose.yml ps"
 
 # ── The HQ backup directory itself ──────────────────────────────────────────────────────────────
 #
@@ -148,22 +156,35 @@ check erp_up $([ "$ERP" = "200" ] || [ "$ERP" = "301" ] || [ "$ERP" = "302" ] &&
 # A missing HQ backup root is now an alert in its own right, separate from staleness, because the two
 # need different responses: stale means the job is failing, missing means the mount is dead and the
 # container needs recreating.
+#
+# ⛔⛔ The ERP was left out of that fix, and the same deletion took it down: `/root/backups/bordeguna-erp`
+# went on 9 September, the ERP backup container's mount pointed at a deleted directory, and the nightly
+# dump failed on 10, 11, 12 and 13 September. The freshness loop below still skipped a missing path
+# for anything that was not HQ, so the ERP check did not fire - it vanished. Found on 13 September by a
+# deploy, exactly as HQ's was. Both roots are now checked the same way.
 HQ_BACKUP_ROOT=/root/backups/bordeguna-hq
+ERP_BACKUP_ROOT=/root/backups/bordeguna-erp
 if [ ! -d "$HQ_BACKUP_ROOT" ]; then
     check backup_hq_root 1 "HQ backup directory ${HQ_BACKUP_ROOT} DOES NOT EXIST. The sidecar's bind mount is dead and every dump is failing. Fix: mkdir -p ${HQ_BACKUP_ROOT}/daily ${HQ_BACKUP_ROOT}/weekly && cd /opt/bordeguna-hq && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --force-recreate --no-deps backup"
 else
     check backup_hq_root 0 "present"
 fi
+if [ ! -d "$ERP_BACKUP_ROOT/daily" ]; then
+    check backup_erp_root 1 "ERP backup directory ${ERP_BACKUP_ROOT}/daily DOES NOT EXIST. The backup container's bind mount is dead and every nightly dump is failing. Fix: mkdir -p ${ERP_BACKUP_ROOT}/daily ${ERP_BACKUP_ROOT}/weekly && cd /opt/bordeguna-erp/deploy && docker compose up -d --force-recreate --no-deps backup"
+else
+    check backup_erp_root 0 "present"
+fi
 
 # Backups fresh?
-for pair in "hq:/root/backups/bordeguna-hq/LAST_RUN" "erp:/root/backups/bordeguna-erp/daily"; do
+for pair in "hq:${HQ_BACKUP_ROOT}/LAST_RUN" "erp:${ERP_BACKUP_ROOT}/daily"; do
     n=${pair%%:*}; p=${pair#*:}
     if [ -e "$p" ]; then
         age_h=$(( ( $(date +%s) - $(stat -c %Y "$(ls -t "$p"/* 2>/dev/null | head -1 || echo "$p")") ) / 3600 ))
         check "backup_$n" $([ "$age_h" -gt 30 ] && echo 1 || echo 0) "${n} backup is ${age_h}h old (max 30h)"
-    elif [ "$n" = "hq" ]; then
-        # ⚠ Missing is not "nothing to report". For HQ it is the strongest thing this monitor can say.
-        check "backup_$n" 1 "HQ backup marker ${p} is MISSING: no dump has ever completed here, or the directory was replaced. Look: ls -la ${HQ_BACKUP_ROOT}"
+    else
+        # ⚠ Missing is not "nothing to report". It is the strongest thing this monitor can say, for
+        # either system - skipping it is how the ERP's four failed nights stayed silent.
+        check "backup_$n" 1 "${n} backup ${p} is MISSING: no dump has ever completed here, or the directory was replaced. Look: ls -la $(dirname "$p")"
     fi
 done
 
