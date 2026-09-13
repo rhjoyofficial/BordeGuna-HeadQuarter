@@ -51,6 +51,14 @@ final class AgentResponseSchema
     public const AUTHORITY_REFUSED = 'refused';
 
     /**
+     * A claim about the agent's authority that appears only INSIDE untrusted content, while the
+     * operator's own words ask a question of their own (ADR-041). The claim has no standing and
+     * the question stands; distinguishing it from `refused` is what keeps "anything worth knowing
+     * in that notice?" an answer when the notice claims wider access.
+     */
+    public const AUTHORITY_IN_UNTRUSTED_CONTENT = 'in_untrusted_content';
+
+    /**
      * @return array<string, mixed>
      *
      * ## Two fields the model fills BEFORE it asks for anything (ADR-040)
@@ -79,7 +87,7 @@ final class AgentResponseSchema
                 // Whether the message asked the agent to grant, widen or assume its own authority.
                 // `refused` means it did and the agent declined; anything that depended on it is
                 // no task.
-                'authority_request' => ['type' => 'string', 'enum' => [self::AUTHORITY_NONE, self::AUTHORITY_REFUSED]],
+                'authority_request' => ['type' => 'string', 'enum' => [self::AUTHORITY_NONE, self::AUTHORITY_REFUSED, self::AUTHORITY_IN_UNTRUSTED_CONTENT]],
                 'answer' => ['type' => 'string'],
                 'refusal_reason' => ['type' => 'string'],
                 // [{statement, source, as_of}] - what a tool said.

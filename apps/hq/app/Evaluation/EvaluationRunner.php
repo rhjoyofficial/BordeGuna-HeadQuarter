@@ -81,6 +81,7 @@ final readonly class EvaluationRunner
 
         $passed = 0;
         $failed = 0;
+        $unmeasured = 0;
         $blockerFailed = false;
         $byDimension = [];
         $byCheck = [];
@@ -89,12 +90,41 @@ final readonly class EvaluationRunner
         foreach ($cases as $case) {
             $observation = $subject->run($case);
             $grader = $this->graderFor($case);
-            $result = $grader->grade($case, $observation);
 
             // Denormalised from the case at write time (ADR-030). A result must stay readable as
             // evidence after its case is re-tagged, or the stored history describes a run that
             // never happened.
             $dimension = (string) ($case->dimension ?: EvaluationDimension::ToolSelection->value);
+
+            // ⭐ A provider refusal measured nothing (ADR-041). Gate 6 lost its last three cases to
+            // the model provider's monthly limit, and the grader read each as "expected a refusal
+            // and got none". That is a quota, not the agent. The result is recorded, marked
+            // unmeasured, counted apart, and kept out of every pass/fail number; and because a
+            // required case that was never measured is not a case that passed, a run holding one
+            // can never be green.
+            if ($observation->unmeasured) {
+                $unmeasured++;
+                EvaluationResult::create([
+                    'run_id' => $run->id,
+                    'case_id' => $case->id,
+                    'passed' => false,
+                    'unmeasured' => true,
+                    'score' => null,
+                    'grader' => $grader->key(),
+                    'dimension' => $dimension,
+                    'checks' => array_fill_keys(DeterministicGrader::CHECKS, GradeResult::NOT_APPLICABLE),
+                    'expected' => $case->expectation,
+                    'actual' => $observation->toArray(),
+                    'reason' => 'unmeasured: the model provider refused the run ('.($observation->stopReason ?? 'provider_refused').'); this is not evidence about the agent',
+                    'latency_ms' => $observation->latencyMs,
+                    'ai_run_id' => $observation->aiRunId,
+                    'context_provenance' => $observation->contextProvenance,
+                ]);
+
+                continue;
+            }
+
+            $result = $grader->grade($case, $observation);
 
             EvaluationResult::create([
                 'run_id' => $run->id,
@@ -147,12 +177,14 @@ final readonly class EvaluationRunner
             }
         }
 
-        $total = max(1, $cases->count());
+        // The rate is over what was MEASURED; an unmeasured case is in neither half of it.
+        $total = max(1, $cases->count() - $unmeasured);
         $rate = round($passed / $total, 3);
         $threshold = $suite->pass_threshold;
 
         $status = match (true) {
             $blockerFailed => 'failed',
+            $unmeasured > 0 => 'failed',
             $threshold !== null => $rate >= $threshold ? 'passed' : 'failed',
             default => $failed === 0 ? 'passed' : 'failed',
         };
@@ -160,6 +192,7 @@ final readonly class EvaluationRunner
         $run->forceFill([
             'cases_passed' => $passed,
             'cases_failed' => $failed,
+            'cases_unmeasured' => $unmeasured,
             'agreement_rate' => $rate,
             // ⭐ The per-dimension evidence an autonomy grant can require (ADR-030). The overall
             // rate is kept because it is still the right number for "did this whole suite pass";
@@ -174,7 +207,7 @@ final readonly class EvaluationRunner
 
         $this->auditor->record('evaluation.run_completed', $run, after: [
             'suite' => $suite->key, 'status' => $status, 'agreement_rate' => $rate,
-            'passed' => $passed, 'failed' => $failed, 'skipped' => $skipped,
+            'passed' => $passed, 'failed' => $failed, 'skipped' => $skipped, 'unmeasured' => $unmeasured,
             'blocker_failed' => $blockerFailed, 'role' => $role,
             'dimension_rates' => $this->rates($byDimension), 'check_rates' => $this->rates($byCheck),
             'family_rates' => $this->rates($byFamily),
@@ -227,9 +260,11 @@ final readonly class EvaluationRunner
             return null;
         }
 
+        // An unmeasured result is not a failure, so it is not a regression either.
         $nowFailing = EvaluationResult::query()
             ->where('run_id', $run->id)
             ->where('passed', false)
+            ->where('unmeasured', false)
             ->whereIn('case_id', $previousPassed)
             ->pluck('case_id')
             ->all();

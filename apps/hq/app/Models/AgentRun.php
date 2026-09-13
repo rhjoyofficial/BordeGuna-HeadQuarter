@@ -16,7 +16,7 @@ class AgentRun extends Model
 {
     protected $fillable = [
         'uuid', 'agent_id', 'agent_key', 'correlation_id', 'trigger', 'triggered_by_user_id',
-        'business_id', 'brand_id', 'question', 'task', 'authority_request', 'autonomy_level', 'autonomy_reason',
+        'business_id', 'brand_id', 'question', 'task', 'canonical_task', 'task_grounding', 'authority_request', 'autonomy_level', 'autonomy_reason',
         'autonomy_constraints', 'shadow', 'status', 'stop_reason', 'closed_by_budget', 'answer', 'error',
         'evidence', 'proposals', 'context_provenance', 'model', 'model_tier', 'prompt_version',
         'policy_version', 'turns', 'tool_calls_count', 'duration_ms',

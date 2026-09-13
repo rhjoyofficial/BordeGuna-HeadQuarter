@@ -137,8 +137,12 @@ final readonly class AgentToolset
 
             // An empty enum is a schema no value satisfies. If there is nothing to name, the tool
             // stays listed with its argument required, and the gateway will say so if it is called.
+            // ⭐ `all` is the one group reference (ADR-041): HQ expands it into one call per permitted
+            // target itself, so a group-wide question never has to be one call with no business.
             if ($values !== []) {
-                $schema['properties'][$argument]['enum'] = $values;
+                $schema['properties'][$argument]['enum'] = $descriptor->cardinality === ToolCardinality::HqWide
+                    ? $values
+                    : [...$values, AgentRunner::GROUP_REFERENCE];
             }
 
             $required = array_values(array_filter((array) ($schema['required'] ?? []), 'is_string'));

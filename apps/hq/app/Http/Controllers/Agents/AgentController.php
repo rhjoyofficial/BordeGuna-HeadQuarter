@@ -219,6 +219,8 @@ final class AgentController extends Controller
             'agent_key' => $run->agent_key,
             'question' => $run->question,
             'task' => $run->task,
+            'canonical_task' => $run->canonical_task,
+            'task_grounding' => $run->task_grounding,
             'authority_request' => $run->authority_request,
             'answer' => $run->answer,
             'status' => $run->status,
