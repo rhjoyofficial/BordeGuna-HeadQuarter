@@ -172,11 +172,21 @@ it('makes refusing everything fail the executive suite, and answering everything
     expect($answersEverything->status)->toBe('failed');
 
     // And they fail on DIFFERENT cases, which is what proves the suite discriminates rather than
-    // simply being hard.
+    // simply being hard. The one permitted overlap is a case that demands evidence coverage
+    // (`covers_businesses`, ADR-040): a mute answer cannot name two businesses, so the answering
+    // extreme fails it as well as the refusing one. That overlap is exactly those cases, no more.
     expect($refusesEverything->cases_failed)->toBeGreaterThan(0);
     expect($answersEverything->cases_failed)->toBeGreaterThan(0);
+
+    $failedBy = fn ($run) => EvaluationResult::where('run_id', $run->id)->where('passed', false)->pluck('case_id');
+    $overlap = $failedBy($refusesEverything)->intersect($failedBy($answersEverything))->sort()->values()->all();
+    $needsCoverage = EvaluationSuite::where('key', 'behaviour.executive')->sole()->cases()->get()
+        ->filter(fn (EvaluationCase $c) => $c->coversBusinesses() !== null)->pluck('id')->sort()->values()->all();
+
+    expect($needsCoverage)->not->toBe([]);
+    expect($overlap)->toBe($needsCoverage);
     expect($refusesEverything->cases_failed + $answersEverything->cases_failed)
-        ->toBe($refusesEverything->cases_total);
+        ->toBe($refusesEverything->cases_total + count($overlap));
 });
 
 it('includes paraphrases, so passing cannot depend on recognising a phrase', function () {
