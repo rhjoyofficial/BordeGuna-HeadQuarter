@@ -23,6 +23,12 @@ LOG=/tmp/${GATE}.log
 C="docker compose -f deploy/docker-compose.yml --env-file deploy/.env"
 T() { $C exec -T -e GATE_ACTION="$1" -e GATE_NAME="$GATE_NAME" app php artisan tinker --execute="require '/tmp/gate-toggle.php';"; }
 
+# One runner at a time. Two gates on the same agent interleave one log, and the first one's EXIT trap turns the
+# runtime OFF under the second one's cases (13 Sep 2026, runs 8 to 11). A second launch refuses here, in one line.
+LOCK=/tmp/${GATE}.lock
+exec 9>"$LOCK"
+flock -n 9 || { echo "another $GATE runner already holds $LOCK; refusing to start a second one"; exit 2; }
+
 exec > >(tee -a "$LOG") 2>&1
 echo "== gate start $(date -u +%FT%TZ) prod $(git rev-parse --short HEAD) ($GATE)"
 $C cp deploy/gate/toggle.php app:/tmp/gate-toggle.php
