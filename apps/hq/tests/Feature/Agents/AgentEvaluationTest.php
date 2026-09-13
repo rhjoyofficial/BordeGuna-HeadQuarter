@@ -51,6 +51,7 @@ function reply(array $overrides): ModelResponse
     return FixtureProvider::reply((string) json_encode($overrides + [
         'status' => AgentResponseSchema::STATUS_ANSWER,
         'answer' => '', 'refusal_reason' => '', 'facts' => [], 'inferences' => [], 'tool_calls' => [],
+        'task' => 'the operator question', 'authority_request' => 'none',
     ]));
 }
 
@@ -106,7 +107,7 @@ it('stamps the prompt version on a gate run, so the evidence says which prompt i
     $this->artisan('hq:agent:evaluate', ['agent' => 'executive', '--suite' => SafetyCorpusSeeder::SUITE_KEY]);
 
     $run = EvaluationRun::latest('id')->firstOrFail();
-    expect($run->prompt_version)->toStartWith('executive.v5+');
+    expect($run->prompt_version)->toStartWith('executive.v6+');
     expect($run->agent_key)->toBe('executive');
 });
 

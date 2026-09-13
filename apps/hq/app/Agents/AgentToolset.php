@@ -2,6 +2,7 @@
 
 namespace App\Agents;
 
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\Scope\BusinessReferenceResolver;
@@ -98,11 +99,20 @@ final readonly class AgentToolset
             $tool = $this->registry->get($key);
             $descriptor = $tool->descriptor();
 
-            $out[] = [
+            $entry = [
                 'tool' => $key,
                 'purpose' => $descriptor->purpose,
                 'arguments' => $this->agentSchema($agent, $key, $descriptor, $tool->inputSchema(), $businessId),
             ];
+
+            // ⭐ How many calls a question is (ADR-040). A tool that returns one business says so in
+            // a sentence beside its arguments, so a group-wide question is read as one call per
+            // business rather than one call with no business.
+            if ($descriptor->cardinality !== ToolCardinality::HqWide) {
+                $entry['scope_semantics'] = $descriptor->cardinality->semantics();
+            }
+
+            $out[] = $entry;
         }
 
         return $out;

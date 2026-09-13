@@ -87,7 +87,7 @@ final class AgentController extends Controller
             'runs' => $this->readable($request)->where('agent_key', $a->key)->count(),
             'awaiting_review' => $this->readable($request)->where('agent_key', $a->key)
                 ->where('shadow', true)->whereNull('reviewed_at')
-                ->whereIn('status', ['answered', 'refused', 'stopped'])->count(),
+                ->whereIn('status', ['answered', 'refused', 'clarified', 'stopped'])->count(),
         ]);
 
         $filter = (string) $request->query('filter', 'all');
@@ -218,6 +218,8 @@ final class AgentController extends Controller
             'uuid' => $run->uuid,
             'agent_key' => $run->agent_key,
             'question' => $run->question,
+            'task' => $run->task,
+            'authority_request' => $run->authority_request,
             'answer' => $run->answer,
             'status' => $run->status,
             'stop_reason' => $run->stop_reason,

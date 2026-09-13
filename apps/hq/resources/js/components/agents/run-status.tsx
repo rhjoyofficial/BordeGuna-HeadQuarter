@@ -6,6 +6,7 @@ export function runStatus(run: { status: string; stop_reason: string | null; sha
     const why = run.stop_reason ? `, ${humanKey(run.stop_reason).toLowerCase()}` : '';
     if (run.status === 'failed') return { tone: 'danger', label: `failed${why}` };
     if (run.status === 'refused') return { tone: 'warn', label: 'refused' };
+    if (run.status === 'clarified') return { tone: 'info', label: 'asked what the task is' };
     if (run.status === 'stopped') return { tone: 'warn', label: `stopped${why}` };
     if (run.status === 'answered') return run.shadow ? { tone: 'pending', label: 'answered in shadow' } : { tone: 'ok', label: 'answered' };
     if (run.status === 'running') return { tone: 'info', label: 'running' };

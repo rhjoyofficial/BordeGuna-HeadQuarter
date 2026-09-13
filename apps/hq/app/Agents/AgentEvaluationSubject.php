@@ -106,6 +106,11 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // How it ended, so the grader can refuse to pass silence (docs/62 §C, closed in docs/65).
             outcome: (string) $run->status,
             stopReason: $run->stop_reason,
+            // The third verdict and the assessment behind it (ADR-040): what the run said it was
+            // serving, and whether the message asked it to widen its own authority.
+            clarified: $run->status === 'clarified',
+            task: $run->task,
+            authorityRequest: $run->authority_request,
         );
     }
 

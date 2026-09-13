@@ -4,6 +4,7 @@ namespace App\Tools\Erp;
 
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
@@ -44,7 +45,8 @@ final class ReadErpSnapshotTool implements Tool
             key: $this->key(),
             version: '1.0.0',
             title: 'Read ERP snapshot',
-            purpose: 'Returns the ERP overview or low-stock snapshot HQ holds, with its age. Reads HQ only; never calls the ERP.',
+            purpose: 'Returns the ERP overview or low-stock snapshot HQ holds for ONE business, named by business_slug, with its age. '
+                .'Reads HQ only; never calls the ERP. Only businesses connected to the ERP hold a snapshot.',
             riskTier: RiskTier::R1,
             permission: 'hq.tools.erp.read',
             auditAction: 'tool.erp_read_snapshot',
@@ -52,6 +54,7 @@ final class ReadErpSnapshotTool implements Tool
             readWrite: ReadWrite::Read,
             agentExecutable: true,
             scopeFrom: 'business:args.business_slug',
+            cardinality: ToolCardinality::OnePerBusiness,
             idempotent: true,
             timeoutSeconds: 20,
             outputSchema: $this->outputSchema(),

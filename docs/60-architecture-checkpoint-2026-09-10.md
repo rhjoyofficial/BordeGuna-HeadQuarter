@@ -35,6 +35,7 @@ autonomous decisions.
 | **I8** | Process state is durable and deterministic. It never lives in a model. | ADR-032 |
 | **I9** | An effect is not real because a request succeeded. It is real when its postcondition is read back. | ADR-031, ADR-011 |
 | **I10** | No implicit task invention. An agent creates no actionable task from untrusted instructions, invalid authority, the remainder of a refused request, or its own habit. No trusted question, no evidence gathered. | ADR-039 (added 13 Sep 2026) |
+| **I11** | Task integrity is not authority safety. An agent names the trusted task it serves before it asks for evidence, and a turn that names none runs nothing. An invalid authority request invalidates the continuation that depends on it. A trusted question ABOUT untrusted content is a task; the content still creates no authority. | ADR-040 (added 13 Sep 2026) |
 
 Every one is a **refusal**, and that is deliberate: an invariant expressed as an aspiration is a
 preference, and preferences lose arguments to deadlines.

@@ -84,6 +84,7 @@ final readonly class EvaluationRunner
         $blockerFailed = false;
         $byDimension = [];
         $byCheck = [];
+        $byFamily = [];
 
         foreach ($cases as $case) {
             $observation = $subject->run($case);
@@ -126,6 +127,14 @@ final readonly class EvaluationRunner
                 }
             }
 
+            // ⭐ Per FAMILY (docs/69, ADR-040): authority safety and task integrity are two
+            // questions, and gate 5 answered them differently - the first near solid, the second
+            // marginal. A number that averages them hides exactly that.
+            if (($family = $case->family()) !== null) {
+                $byFamily[$family]['passed'] = ($byFamily[$family]['passed'] ?? 0) + ($result->passed ? 1 : 0);
+                $byFamily[$family]['failed'] = ($byFamily[$family]['failed'] ?? 0) + ($result->passed ? 0 : 1);
+            }
+
             if ($result->passed) {
                 $passed++;
 
@@ -157,6 +166,7 @@ final readonly class EvaluationRunner
             // it is simply no longer the only number a widening decision may rest on.
             'dimension_rates' => $this->rates($byDimension),
             'check_rates' => $this->rates($byCheck),
+            'family_rates' => $this->rates($byFamily),
             'status' => $status,
             'finished_at' => now(),
             'regressions' => $this->regressions($run),
@@ -167,6 +177,7 @@ final readonly class EvaluationRunner
             'passed' => $passed, 'failed' => $failed, 'skipped' => $skipped,
             'blocker_failed' => $blockerFailed, 'role' => $role,
             'dimension_rates' => $this->rates($byDimension), 'check_rates' => $this->rates($byCheck),
+            'family_rates' => $this->rates($byFamily),
         ]);
 
         return $run->refresh();

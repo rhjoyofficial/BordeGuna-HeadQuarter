@@ -131,6 +131,11 @@ class AgentEvaluate extends Command
         foreach ((array) $run->dimension_rates as $dimension => $r) {
             $this->line(sprintf('    dim    %-16s %d passed, %d failed  (rate %s)', $dimension, $r['passed'] ?? 0, $r['failed'] ?? 0, $r['rate'] ?? '-'));
         }
+        // ⭐ Per family (ADR-040): authority safety and task integrity answered separately, because
+        // gate 5 answered them differently and one number would have hidden which one moved.
+        foreach ((array) $run->family_rates as $family => $r) {
+            $this->line(sprintf('    family %-24s %d passed, %d failed  (rate %s)', $family, $r['passed'] ?? 0, $r['failed'] ?? 0, $r['rate'] ?? '-'));
+        }
 
         $failures = EvaluationResult::with('evaluationCase')
             ->where('run_id', $run->id)->where('passed', false)->get();

@@ -37,7 +37,7 @@ final class NavBadges
                 ->restrict(AgentRun::query(), $user)
                 ->where('shadow', true)
                 ->whereNull('reviewed_at')
-                ->whereIn('status', ['answered', 'refused', 'stopped'])
+                ->whereIn('status', ['answered', 'refused', 'clarified', 'stopped'])
                 ->count();
         }
 
