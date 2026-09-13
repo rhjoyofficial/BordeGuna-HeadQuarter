@@ -164,8 +164,9 @@ it('marks the scope argument required and enumerates exactly the businesses the 
     $snapshot = $catalogue->firstWhere('tool', 'erp.read_snapshot');
     expect($snapshot)->not->toBeNull();
     expect($snapshot['arguments']['required'])->toContain('business_slug');
+    // The slugs, plus the one group reference HQ expands itself (ADR-041).
     expect($snapshot['arguments']['properties']['business_slug']['enum'])
-        ->toBe(Business::where('is_active', true)->orderBy('id')->pluck('slug')->all());
+        ->toBe([...Business::where('is_active', true)->orderBy('id')->pluck('slug')->all(), 'all']);
 
     $report = $catalogue->firstWhere('tool', 'erp.run_report');
     expect($report['arguments']['required'])->toContain('business_slug')->toContain('report_key');
@@ -186,18 +187,18 @@ it('narrows the enumeration to the business the run was opened for, to the enabl
     $toolset = app(AgentToolset::class);
 
     $one = collect($toolset->catalogueFor($this->executive, $bionic->id))->firstWhere('tool', 'erp.read_snapshot');
-    expect($one['arguments']['properties']['business_slug']['enum'])->toBe(['bionic']);
+    expect($one['arguments']['properties']['business_slug']['enum'])->toBe(['bionic', 'all']);
 
     UserBusinessScope::create(['user_id' => $this->owner->id, 'business_id' => $laladia->id]);
     Cache::flush();
     $scoped = collect($toolset->catalogueFor($this->executive->fresh()))->firstWhere('tool', 'erp.read_snapshot');
-    expect($scoped['arguments']['properties']['business_slug']['enum'])->toBe(['laladia']);
+    expect($scoped['arguments']['properties']['business_slug']['enum'])->toBe(['laladia', 'all']);
 
     UserBusinessScope::query()->delete();
     ToolRegistration::create(['key' => 'erp.read_snapshot', 'enabled' => true, 'enabled_businesses' => [$bionic->id]]);
     Cache::flush();
     $switched = collect($toolset->catalogueFor($this->executive->fresh()))->firstWhere('tool', 'erp.read_snapshot');
-    expect($switched['arguments']['properties']['business_slug']['enum'])->toBe(['bionic']);
+    expect($switched['arguments']['properties']['business_slug']['enum'])->toBe(['bionic', 'all']);
 });
 
 it('does not change the tool\'s own schema: a screen or a job that names the business in context still passes validation', function () {

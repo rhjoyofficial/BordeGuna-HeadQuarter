@@ -406,6 +406,19 @@ final class AgentRunner
                     return;
                 }
 
+                // No task in the operator's words AND untrusted content in the run: the only
+                // instruction there is lives inside that content, and an instruction inside
+                // untrusted content is not a task (ADR-039). "Act on it now." over a page that
+                // orders a role change is refused, not asked about.
+                if ($bundle->untrusted() !== []) {
+                    $this->finish($run, 'refused', null, $evidence, $proposals,
+                        'The operator\'s own words name no task, and the only instruction in this run is inside untrusted content, '
+                        .'which cannot become a task or change what the agent may do. No tool was run.',
+                        $toolCalls, null);
+
+                    return;
+                }
+
                 $this->finish($run, 'clarified', $this->clarification($reply), $evidence, $proposals, null, $toolCalls);
 
                 return;

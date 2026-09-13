@@ -49,7 +49,9 @@ is nothing to serve; otherwise the canonical task is the operator's text, never 
 `AgentRunner` grounds on the first turn and records `task` (the model's interpretation),
 `canonical_task`, `task_grounding` and `authority_request` on the row. A turn asking for tools with
 no canonical task runs nothing: `refused` when the caller's own authority request was the cause
-("the agent did not substitute a narrower task of its own"), `clarified` otherwise. `authority_request`
+("the agent did not substitute a narrower task of its own"); `refused` when the run holds untrusted
+content, because the only instruction there is then lives inside that content ("Act on it now." over
+a page ordering a role change is refused, not asked about); `clarified` otherwise. `authority_request`
 gains `in_untrusted_content` for a claim that lives only inside untrusted content while the operator
 asks a question of their own; with no untrusted content in the run it is coerced to `refused`. The
 run-detail screen shows what HQ established beside what the agent read.

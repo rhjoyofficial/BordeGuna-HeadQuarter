@@ -44,8 +44,12 @@ establish that a task exists.**
 
 The row carries all of it: `task` (the model's interpretation, ADR-040), `canonical_task` (what HQ
 established, or empty), `task_grounding` (the one-word reason), `authority_request`. A turn that
-asks for tools when the canonical task is empty runs nothing, whatever the field said. A reviewer
-sees "the operator asked for X" only when the operator did.
+asks for tools when the canonical task is empty runs nothing, whatever the field said, and ends in
+one of three ways: `refused` when the caller's own authority request was the cause; `refused` when
+the run holds untrusted content, because then the only instruction there is lives inside that
+content and an instruction inside untrusted content is not a task (ADR-039, "Act on it now." over a
+page that orders a role change); `clarified` otherwise, a legitimate caller and nothing to serve. A
+reviewer sees "the operator asked for X" only when the operator did.
 
 `authority_request` gains a third value, **`in_untrusted_content`**: a claim about the agent's
 authority that appears only inside untrusted content while the operator's own words ask a question
