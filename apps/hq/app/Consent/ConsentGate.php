@@ -5,6 +5,7 @@ namespace App\Consent;
 use App\Gateway\Descriptor\ConsentRequirement;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\ToolRequest;
+use App\Models\Conversation;
 
 /**
  * The gateway's consent check (ADR-021).
@@ -55,6 +56,20 @@ final readonly class ConsentGate
     private function subject(ConsentRequirement $requirement, array $args): ?int
     {
         $path = $requirement->subjectFrom;
+
+        // `conversation:args.conversation_uuid`: the thread knows who it is about and the caller
+        // need not (docs/72). A reply tool names the thread; the person is read from the row, never
+        // from an id the model could have typed.
+        if (str_starts_with($path, 'conversation:args.')) {
+            $uuid = data_get($args, substr($path, 18));
+            if (! is_string($uuid) || $uuid === '') {
+                return null;
+            }
+            $customerId = Conversation::query()->where('uuid', $uuid)->value('customer_id');
+
+            return $customerId === null ? null : (int) $customerId;
+        }
+
         if (! str_starts_with($path, 'args.')) {
             return null;
         }

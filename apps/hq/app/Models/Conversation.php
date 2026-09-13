@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Conversation\ConversationState;
 use App\Gateway\Descriptor\Channel;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -23,8 +24,8 @@ class Conversation extends Model
     use HasUuids;
 
     protected $fillable = [
-        'uuid', 'business_id', 'brand_id', 'customer_id', 'channel', 'external_thread_ref',
-        'subject', 'status', 'owner', 'handoff_state', 'assigned_user_id', 'assigned_agent_key',
+        'uuid', 'business_id', 'brand_id', 'platform_account_id', 'customer_id', 'channel', 'language', 'external_thread_ref',
+        'subject', 'status', 'state', 'ai_disabled', 'owner', 'handoff_state', 'assigned_user_id', 'assigned_agent_key',
         'opened_at', 'last_message_at', 'closed_at', 'metadata',
     ];
 
@@ -32,6 +33,8 @@ class Conversation extends Model
     {
         return [
             'channel' => Channel::class,
+            'state' => ConversationState::class,
+            'ai_disabled' => 'boolean',
             'metadata' => 'array',
             'opened_at' => 'datetime',
             'last_message_at' => 'datetime',
@@ -65,8 +68,29 @@ class Conversation extends Model
         return $this->belongsTo(Business::class);
     }
 
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class);
+    }
+
+    public function platformAccount(): BelongsTo
+    {
+        return $this->belongsTo(PlatformAccount::class);
+    }
+
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
     public function isAiOwned(): bool
     {
         return $this->owner === 'ai';
+    }
+
+    /** The people-side of the state machine: a thread waiting for or with a person. */
+    public function needsPerson(): bool
+    {
+        return $this->state === ConversationState::HumanRequired;
     }
 }
