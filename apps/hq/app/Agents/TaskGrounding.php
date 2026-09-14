@@ -64,7 +64,11 @@ final class TaskGrounding
         'going', 'know', 'think', 'see', 'come', 'take', 'put', 'run', 'set',
     ];
 
-    public function ground(string $trustedInput, string $modelTask, string $authorityRequest, bool $hasUntrustedContext): GroundedTask
+    /**
+     * @param  SecurityIntentSignal|null  $signal  the runtime's own reading of the trusted text (ADR-042); null only in
+     *                                             callers that have no detector, which the runner never is
+     */
+    public function ground(string $trustedInput, string $modelTask, string $authorityRequest, bool $hasUntrustedContext, ?SecurityIntentSignal $signal = null): GroundedTask
     {
         $trusted = trim($trustedInput);
         $interpretation = trim($modelTask);
@@ -79,27 +83,39 @@ final class TaskGrounding
         if (! in_array($authority, [AgentResponseSchema::AUTHORITY_NONE, AgentResponseSchema::AUTHORITY_REFUSED, AgentResponseSchema::AUTHORITY_IN_UNTRUSTED_CONTENT], true)) {
             $authority = AgentResponseSchema::AUTHORITY_NONE;
         }
+        $source = $authority === AgentResponseSchema::AUTHORITY_REFUSED ? GroundedTask::SOURCE_MODEL : GroundedTask::SOURCE_NONE;
+
+        // ⭐ ADR-042: the runtime's detector speaks first, and the model's field cannot lower what it
+        // said. Gate 7's three failures all carried an approval skip, a checks skip or a stated
+        // clearance exceeded in the operator's own words, and the model wrote `none` beside each.
+        // The security state is the runtime's from here on: monotonic, recorded, never the model's
+        // to clear. The model's field stays on the row as what it read.
+        if ($signal !== null && $signal->detected()) {
+            $authority = AgentResponseSchema::AUTHORITY_REFUSED;
+            $source = GroundedTask::SOURCE_RUNTIME;
+        }
 
         $trustedWords = $this->contentWords($trusted);
 
-        if ($trustedWords === []) {
-            return new GroundedTask('', $interpretation, $authority, self::NO_TASK_IN_TRUSTED_INPUT);
+        if ($trustedWords === [] && $authority !== AgentResponseSchema::AUTHORITY_REFUSED) {
+            return new GroundedTask('', $interpretation, $authority, self::NO_TASK_IN_TRUSTED_INPUT, $source, $signal);
         }
 
         // ⭐ The dependency rule, made structural: the trusted caller asked the agent to widen its
-        // own authority, so nothing else in the same message survives the refusal. Not the "usual
-        // report" after it, and not a narrower, read-only version of the refused action.
+        // own authority, skip a control or act past a stated limit, so nothing else in the same
+        // message survives the refusal. Not the "usual report" after it, and not a narrower,
+        // read-only version of the refused action.
         if ($authority === AgentResponseSchema::AUTHORITY_REFUSED) {
-            return new GroundedTask('', $interpretation, $authority, self::DEPENDENT_ON_REFUSED_AUTHORITY);
+            return new GroundedTask('', $interpretation, $authority, self::DEPENDENT_ON_REFUSED_AUTHORITY, $source, $signal);
         }
 
         if ($interpretation === '') {
-            return new GroundedTask('', $interpretation, $authority, self::MODEL_NAMED_NONE);
+            return new GroundedTask('', $interpretation, $authority, self::MODEL_NAMED_NONE, $source, $signal);
         }
 
         // The canonical task is the operator's words, not the model's. The interpretation is kept
         // beside it as what the run understood; the authority is the message.
-        return new GroundedTask($trusted, $interpretation, $authority, self::GROUNDED);
+        return new GroundedTask($trusted, $interpretation, $authority, self::GROUNDED, $source, $signal);
     }
 
     /**

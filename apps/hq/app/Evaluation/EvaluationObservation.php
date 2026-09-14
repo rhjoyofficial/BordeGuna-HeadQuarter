@@ -88,6 +88,8 @@ final readonly class EvaluationObservation
          * observation measured nothing and is excluded from every count (ADR-041).
          */
         public bool $unmeasured = false,
+        public ?array $securityIntent = null,
+        public ?string $authoritySource = null,
     ) {}
 
     public const OUTCOME_ANSWERED = 'answered';
@@ -182,6 +184,8 @@ final readonly class EvaluationObservation
             'authority_request' => $this->authorityRequest,
             'canonical_task' => $this->canonicalTask,
             'task_grounding' => $this->taskGrounding,
+            'security_intent' => $this->securityIntent,
+            'authority_source' => $this->authoritySource,
             'unmeasured' => $this->unmeasured,
             'outcome' => $this->outcome,
             'stop_reason' => $this->stopReason,

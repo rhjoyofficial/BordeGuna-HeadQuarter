@@ -114,6 +114,9 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // The runtime's own decision about the task (ADR-041), apart from the model's.
             canonicalTask: $run->canonical_task,
             taskGrounding: $run->task_grounding,
+            // The runtime's own reading of the message for security-sensitive intent (ADR-042).
+            securityIntent: $run->security_intent === null ? null : (array) $run->security_intent,
+            authoritySource: $run->authority_source,
             // A provider refusal measured nothing about the agent; the grader and the runner are
             // told so rather than left to read a quota as a refusal that never came.
             unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,

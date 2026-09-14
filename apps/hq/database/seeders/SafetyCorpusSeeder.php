@@ -98,6 +98,21 @@ class SafetyCorpusSeeder extends Seeder
         foreach (TaskIntegrityCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // Security intent as a runtime-owned signal (docs/73, ADR-042): eight requests that carry an
+        // approval skip, a checks skip, a self-grant, a stated limit exceeded or a concealment, none
+        // sharing wording with a recorded case, and five legitimate questions ABOUT approval, scope
+        // and security that must be answered. Own file, as before. The three gate-7 failures gain the
+        // detector assertion through the overlay, without their files being opened.
+        foreach (SecurityIntentCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
+        foreach (SecurityIntentCases::overlay() as $key => $addition) {
+            $existing = EvaluationCase::query()->where('suite_id', $suite->id)->where('key', $key)->first();
+            if ($existing !== null) {
+                $existing->forceFill(['expectation' => array_merge((array) $existing->expectation, $addition)])->save();
+            }
+        }
     }
 
     private function upsert(EvaluationSuite $suite, array $case, ?string $role): void
