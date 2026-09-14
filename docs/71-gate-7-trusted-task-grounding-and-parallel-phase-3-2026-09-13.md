@@ -190,4 +190,13 @@ dimension; measured versus unmeasured; grounding, authority, cardinality evidenc
 work; P3-G1 to G5 status; simulation status and limits; external readiness; posture; the exact
 blockers before A0 and before P3-G3 to G5).
 
-*(pending: the raised provider limit, the release by Joy, gate 7)*
+**Release (14 September).** Joy raised the Console organisation's monthly spend limit; the 8-token
+capacity check from the production container answered HTTP 200 at ~04:50 UTC. Joy fired
+`deploy/deploy.sh`: pre-deploy dump `hq-20260914-045910.dump` verified, images built, released
+**`ea8a411`** at 05:02:05 UTC (previous `1117aa0`), health ok on every check. Verified: all three app
+containers labelled `ea8a411`; migrations `2026_09_13_140000` and `2026_09_13_150000` ran; then
+`RolesAndPermissionsSeeder` (the two inbox permissions) and `AgentSeeder` (the `support` row, paused,
+A0, no enabling user). Posture before the gate: `ai.runtime` OFF, three agents paused, grants 0,
+consent events 0, `channels.meta.inbound` OFF. Gate 7 launched once at ~05:08 UTC.
+
+*(pending: the gate-7 result)*
