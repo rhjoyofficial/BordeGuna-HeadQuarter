@@ -84,11 +84,15 @@ it('ingests a first message into a thread for the page\'s business and brand, a 
         ->and($customer->attributes['arrived_via'])->toBe('messenger')
         ->and($conversation->participants()->where('participant_type', 'customer')->where('customer_id', $customer->id)->exists())->toBeTrue();
 
-    // Writing to us is consent to be answered here, for the window, and to nothing else.
+    // Writing to us is consent to be answered here, for the window, and to nothing else. Asked at an
+    // instant inside the fixture's window, not at now(): the window is 24 hours from the message,
+    // and the message is dated, so "now" walked out of it the day after this was written.
     $ledger = app(ConsentLedger::class);
-    expect($ledger->permits($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service)->permitted)->toBeTrue()
-        ->and($ledger->permits($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Marketing)->permitted)->toBeFalse()
-        ->and($ledger->permits($customer->id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service)->permitted)->toBeFalse();
+    $inWindow = CarbonImmutable::parse('2026-09-13T10:05:00+06:00');
+    expect($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow)->permitted)->toBeTrue()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Marketing, $inWindow)->permitted)->toBeFalse()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service, $inWindow)->permitted)->toBeFalse()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow->addHours(25))->permitted)->toBeFalse();
 
     $event = DomainEvent::where('type', 'conversation.message_received')->sole();
     expect($event->aggregate_id)->toBe($conversation->uuid)

@@ -30,6 +30,8 @@ type Run = {
     task: string | null;
     canonical_task: string | null;
     task_grounding: string | null;
+    authority_source?: string | null;
+    security_intent?: { version?: string; classes?: string[]; evidence?: { class: string; clause: string }[]; error?: string | null } | null;
     authority_request: string | null;
     answer: string | null;
     status: string;
@@ -164,6 +166,13 @@ export default function AgentRunShow({
                             {run.authority_request === 'refused' && (
                                 <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
                                     The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done in its place.
+                                </p>
+                            )}
+                            {run.authority_source === 'runtime' && (
+                                <p className="text-muted-foreground mt-1 text-xs">
+                                    HQ&apos;s own detector{run.security_intent?.version ? ` (${run.security_intent.version})` : ''} read the message as security-sensitive
+                                    {run.security_intent?.classes?.length ? `: ${run.security_intent.classes.map((c) => c.replace(/_/g, ' ')).join(', ')}` : ''}. The agent cannot lower that
+                                    reading; its own field said {run.security_intent?.error ? 'nothing usable (the detector failed and failed closed)' : 'what it read'}.
                                 </p>
                             )}
                             {run.authority_request === 'in_untrusted_content' && (

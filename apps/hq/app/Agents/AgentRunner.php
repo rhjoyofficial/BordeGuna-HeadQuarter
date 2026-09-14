@@ -217,6 +217,7 @@ final class AgentRunner
         private readonly OutputBudget $output,
         private readonly BusinessReferenceResolver $references,
         private readonly TaskGrounding $grounding,
+        private readonly SecurityIntent $securityIntent,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -367,7 +368,18 @@ final class AgentRunner
             // to widen its authority; then what the operator's OWN words establish. Both are on
             // the row, so a reviewer sees what the run read and what HQ accepted.
             if ($turn === 1) {
-                $this->groundAndRecord($run, $request, $reply, $bundle);
+                $grounded = $this->groundAndRecord($run, $request, $reply, $bundle);
+
+                // ⛔ ADR-042, monotonic: a message the runtime found security-sensitive ends refused
+                // whatever the model's verdict was. An answer or a question back may EXPLAIN (the
+                // model's words are kept in the reason) but cannot clear the condition, and no tool
+                // runs on the way: the run ends here, before any evidence is gathered.
+                if ($grounded->runtimeFlagged() && $status !== AgentResponseSchema::STATUS_REFUSE) {
+                    $this->finish($run, 'refused', null, $evidence, $proposals,
+                        $this->securityRefusal($grounded, $reply), $toolCalls, null);
+
+                    return;
+                }
             }
 
             if ($status === AgentResponseSchema::STATUS_REFUSE) {
@@ -854,13 +866,19 @@ final class AgentRunner
      * turns may restate the task; they do not rewrite the record, because "what did the run set
      * out to serve" is a question about the start of the run, not its end.
      */
-    private function groundAndRecord(AgentRun $run, AgentRunRequest $request, array $reply, ContextBundle $bundle): void
+    private function groundAndRecord(AgentRun $run, AgentRunRequest $request, array $reply, ContextBundle $bundle): GroundedTask
     {
+        // ⭐ ADR-042: the runtime reads the trusted text for security-sensitive intent BEFORE the
+        // model's field is consulted, and what it finds the model cannot lower. The signal is on
+        // the row with its version and the clauses it matched, beside the model's own reading.
+        $signal = $this->securityIntent->detect($request->question);
+
         $grounded = $this->grounding->ground(
             trustedInput: $request->question,
             modelTask: $this->assessedTask($reply),
             authorityRequest: $this->assessedAuthority($reply),
             hasUntrustedContext: $bundle->untrusted() !== [],
+            signal: $signal,
         );
 
         $run->forceFill([
@@ -868,7 +886,33 @@ final class AgentRunner
             'canonical_task' => mb_substr($grounded->canonicalTask, 0, 2000),
             'task_grounding' => $grounded->reason,
             'authority_request' => $grounded->authorityRequest,
+            'security_intent' => $signal->toArray(),
+            'authority_source' => $grounded->authoritySource,
         ])->save();
+
+        return $grounded;
+    }
+
+    /**
+     * The refusal the runtime writes when its own detector found the message security-sensitive
+     * (ADR-042): what it found, in words, then the model's own explanation where it gave one, so the
+     * operator reads both. The model's text explains; it does not decide.
+     */
+    private function securityRefusal(GroundedTask $grounded, array $reply): string
+    {
+        $classes = $grounded->securityIntent?->classes ?? [];
+        $labels = array_map(static fn (string $c) => str_replace('_', ' ', $c), $classes);
+        $found = $labels === [] ? 'a request the runtime could not classify safely' : implode(', ', $labels);
+
+        $note = trim((string) ($reply['answer'] ?? ''));
+        if ($note === '') {
+            $note = trim((string) ($reply['refusal_reason'] ?? ''));
+        }
+
+        return 'HQ read this message as security-sensitive ('.$found.') and refused it as a whole: the agent did not substitute '
+            .'a narrower or read-only version of the request, and no tool was run. '
+            .'An alternative may be asked for on its own, as a new request.'
+            .($note !== '' ? ' The agent\'s own note: '.mb_substr($note, 0, 600) : '');
     }
 
     /**

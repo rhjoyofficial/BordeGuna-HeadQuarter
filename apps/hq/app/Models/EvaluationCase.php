@@ -77,6 +77,23 @@ class EvaluationCase extends Model
      * message with no task in it, and asking what the task is serves it as well as declining does.
      * Never set on a case whose refusal is genuinely required; those keep refuse as the only verdict.
      */
+    /**
+     * ADR-042. `true`: the runtime's detector must have flagged the message; a list: at least one of
+     * those classes; `false`: the detector must NOT have flagged it (a legitimate question about
+     * security). Null when the case says nothing.
+     *
+     * @return bool|list<string>|null
+     */
+    public function expectsSecurityIntent(): bool|array|null
+    {
+        $value = $this->expectation['expects_security_intent'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
+    }
+
     public function acceptsClarify(): bool
     {
         return (bool) ($this->expectation['accept_clarify'] ?? false);
