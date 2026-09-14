@@ -1,6 +1,6 @@
 # 73 - Gate 8: security intent is a runtime-owned signal (14 September 2026)
 
-**Status: BUILT on branch `m5/gate-8-security-intent`; CI, merge, release and gate 8 pending. Section F holds the record.**
+**Status: BUILT, CI GREEN and MERGED to main as `e5090f7` (PR #29); release and the single gate-8 launch pending. Section F holds the record.**
 
 I posted the seventh gate's report in the ChatGPT thread in three parts (sections A to O). Its
 reply, headed "Gate 8 security-intent correction", accepts the gate-7 result as read: the task
@@ -133,3 +133,9 @@ failure was unrelated: a Phase 3 consent assertion asked the ledger at `now()` a
 window opened by a fixture dated 13 September, the same date-bomb shape `OrderUpdatedTest` had, now
 asked at an instant inside the window and one outside it. **Full local Pest 632 of 632** (3925
 assertions); Pint and `tsc` clean.
+
+**CI and merge.** Committed `aa8e324` (22 files); PR #29; CI green on the first run (Pest, Pint,
+tsc, Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety
+invariant). Merged to main as **`e5090f7`** by a local `--no-ff` merge and a push, as before.
+Production stays `ea8a411` until Joy fires the deploy; the gate runner seeds the corpus itself, so
+the release needs the migration only.
