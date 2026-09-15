@@ -261,3 +261,25 @@ from 69 to 77 with `legit.%` from 5 to 8. One collision fixed before the full ru
 is done.
 
 **CI and merge (15 September).** PR #32, CI green on `398632b` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`483cd1b`** by a local `--no-ff` merge. Main now carries the gate-9 runner fix (`afeedc4`) and this milestone together, so one release ships both.
+
+**Release (15 September, 09:24 UTC).** `deploy/deploy.sh` on the VPS, fast-forward to main: pre-deploy
+dump `hq-20260915-092135` taken and verified before the checkout moved, images built, released
+**`704ef2d`** (previous `2a32ac3`), health ok on application, database, redis, queue and scheduler.
+Verified from the VPS afterwards: `git rev-parse` and the image label on app, horizon and scheduler all
+`704ef2d`; migration `2026_09_15_200000` ran as batch 18; the executive prompt stamp is
+`executive.v8+ddf7ea55`; posture inert (`ai.runtime` off, analytics, executive and support paused at
+A0, grants 0); no error in the app or horizon logs since the release. This release carries the gate-9
+runner fix (`afeedc4`) as ChatGPT's point 6 ordered; run #20 is left untouched.
+
+**Readiness after the release.** `hq:credentials:health`: ten rows, five executable, four unsupported
+by design, one incident. LaLaDia's admin token #15 is `ready`, accepted at 05:16:33 by tool call #847.
+Bionic's admin token #9 is `credential_invalid`, rejected at 05:11:38 by tool call #821, and HQ will
+not ask the shop with it again. The incident is the only thing between this release and gate 10.
+
+**Bionic's token (point 7): handed to Joy, not done by me.** The shop runs on the shared cPanel host,
+whose only route is the Terminal inside the browser, and creating a user account through browser
+automation is outside what I may do, whoever asks. LaLaDia's rotation earlier today went through that
+same Terminal; Bionic's is the identical one-line command (a service user with the Order Manager role
+and a non-expiring token named `hq-headquarter`, in `~/bionicProject`), which Joy runs and stores on
+the Credentials screen himself, so the value never passes through a chat. Gate 10 waits for it,
+because ChatGPT's order puts Bionic's credential health before the launch.

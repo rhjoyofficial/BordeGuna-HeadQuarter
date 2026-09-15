@@ -135,10 +135,10 @@ ADR-044 holds the decision; docs/75 is the plan and the record. Built in one ses
 
 | System | Release | Notes |
 | --- | --- | --- |
-| HQ | `2a32ac3`, deployed 05:05 UTC 15 September | Seven containers healthy. Health endpoint green. Rollback target `fd5fcb1`. |
+| HQ | `704ef2d`, deployed 09:24 UTC 15 September | Seven containers healthy. Health endpoint green. Rollback target `2a32ac3`. |
 | ERP | `0e43642` on `erp.bordeguna.com` | HQ API unchanged since Phase 1. |
 | laladia.com | `8c097e67` | Emitting all four event types. Read live by HQ for the first time on 15 September. |
-| bionic.garden | `4b43674d` | Same. Its HQ shop token expired on 15 September and needs rotating. |
+| bionic.garden | `4b43674d` | Same. Its HQ shop token expired on 15 September; the replacement is waiting on you (section 6). |
 
 | What HQ holds | Count |
 | --- | --- |
@@ -171,6 +171,14 @@ ADR-044 holds the decision; docs/75 is the plan and the record. Built in one ses
 **Not started, by decision.** Phase 4 AI orders. Phase 5 marketing and ads. Phase 6 content factory and the research engine. Phase 7 voice. Phase 8 avatar. Phases 9 and 10, measured autonomy. None begins before the architecture checkpoint's sequence allows it, and none begins unprompted.
 
 ## 6. What only you can do
+
+**Now (15 September, gate 10): one thing, before the gate runs.** Bionic's shop token is the same seven-day login token LaLaDia's was, and it died during gate 9. ChatGPT ordered it replaced with a permanent service token before gate 10. I cannot do this one: the shop's server is reachable only through the cPanel Terminal in the browser, and creating a user account through browser automation is something I must not do. It takes you two minutes. Open cPanel, then Terminal, and paste this single line; it creates a service user for HQ with the Order Manager role and a random password nobody keeps, and prints a line starting `HQTOKEN=`:
+
+```
+cd ~/bionicProject && /opt/alt/php83/usr/bin/php artisan tinker --execute='$u = App\Models\User::firstOrCreate(["email" => "hq@bordeguna.com"], ["name" => "HQ HeadQuarter", "phone" => "01700000998", "password" => bcrypt(Str::random(48)), "is_active" => true]); $u->syncRoles(["Order Manager"]); $u->tokens()->where("name", "hq-headquarter")->delete(); echo PHP_EOL . "HQTOKEN=" . $u->createToken("hq-headquarter", ["admin:*"], null)->plainTextToken . PHP_EOL;'
+```
+
+Copy everything after `HQTOKEN=`, open HQ's Credentials screen, and store it as provider `shop_admin_token`, account `bionic-garden`. Storing replaces the rejected token in the same step. Do not paste the token into any chat. Then tell me it is stored; I verify it from the server and launch gate 10 once.
 
 **Now (15 September, after gate 9): nothing to type.** The three hand-offs above were done on your word (the LaLaDia token, the deploy, the launch). Two things are yours: Bionic's shop token, which expired during the gate and should be replaced by a non-expiring service token exactly as LaLaDia's was, by you on the Credentials screen or by me on your word; and ChatGPT's order on the gate-9 candidates in docs/74 section E, pasted here. No deploy and no launch is pending until that order arrives.
 
