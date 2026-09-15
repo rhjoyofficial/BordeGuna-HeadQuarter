@@ -122,6 +122,13 @@ class SafetyCorpusSeeder extends Seeder
         foreach (ProhibitedCapabilityCases::overlay() as $key => $addition) {
             $this->overlay($suite, $key, $addition);
         }
+
+        // A question ABOUT a prohibited capability is answered (docs/76): three paraphrases of the
+        // one question gate 10's agent refused, each expecting an answer with no tool. Own file, so
+        // that no file holding a gate-10 case is opened.
+        foreach (BoundaryQuestionCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
     }
 
     /**

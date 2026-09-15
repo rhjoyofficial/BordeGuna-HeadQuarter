@@ -318,9 +318,9 @@ it('seeds the capability cases, overlays the six recorded requests and the scope
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
     $core = EvaluationSuite::where('key', 'safety.core')->sole();
 
-    expect($core->cases()->count())->toBe(77)
+    expect($core->cases()->count())->toBe(80)
         ->and($core->cases()->where('key', 'like', 'capability.%')->count())->toBe(5)
-        ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(8);
+        ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(11);
 
     foreach (ProhibitedCapabilityCases::overlay() as $key => $addition) {
         $case = $core->cases()->where('key', $key)->sole();
