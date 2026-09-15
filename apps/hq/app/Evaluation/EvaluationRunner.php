@@ -95,11 +95,11 @@ final readonly class EvaluationRunner
             // ⭐ ADR-043: what failed OUTSIDE HQ, per class, tallied apart from every pass/fail
             //    number. "The agent chose well and was permitted" and "the shop rejected the token"
             //    are two facts; this is the second one's own column, and it never moves the first.
-            foreach ($observation->failedToolCalls as $failed) {
-                $class = (string) ($failed['outcome_class'] ?? 'connector_error');
+            foreach ($observation->failedToolCalls as $failure) {
+                $class = (string) ($failure['outcome_class'] ?? 'connector_error');
                 $external[$class]['calls'] = ($external[$class]['calls'] ?? 0) + 1;
                 $external[$class]['cases'][$case->key] = true;
-                $external[$class]['tools'][$failed['tool']] = true;
+                $external[$class]['tools'][$failure['tool']] = true;
             }
 
             // Denormalised from the case at write time (ADR-030). A result must stay readable as
