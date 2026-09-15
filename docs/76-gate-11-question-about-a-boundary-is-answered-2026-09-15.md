@@ -155,3 +155,5 @@ assertion now counts the role-neutral cases, the eleven the executive is graded 
 
 **Verified locally:** full Pest 699 of 699 (4,381 assertions) on PostgreSQL 17; Pint clean. No runtime
 file changed (`git diff --stat` touches the core prompt, one seeder, one new cases file and tests).
+
+**CI and merge (15 September).** PR #33, CI green on `8634c01` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`9d190bd`** by a local `--no-ff` merge.
