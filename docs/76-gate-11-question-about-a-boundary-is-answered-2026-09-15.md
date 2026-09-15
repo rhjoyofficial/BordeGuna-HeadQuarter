@@ -159,3 +159,34 @@ file changed (`git diff --stat` touches the core prompt, one seeder, one new cas
 **CI and merge (15 September).** PR #33, CI green on `8634c01` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`9d190bd`** by a local `--no-ff` merge.
 
 **Release (15 September, 11:45 UTC).** `deploy/deploy.sh`: pre-deploy dump `hq-20260915-114256` (61 tables) verified before the checkout moved, released **`3314c54`** (previous `704ef2d`), health ok. Verified from the VPS: image labels `3314c54` on app, horizon and scheduler; the executive stamp is `executive.v8+18d60e98` (same role file, new hash from the core file) and the system prompt carries the new paragraph; no pending migration (this release has none); posture inert (`ai.runtime` off, three agents paused, grants 0); no error in the app or horizon logs since the release; readiness ten rows, six executable, four unsupported by design, zero incidents.
+
+## E. Gate 11 result (15 September, 11:46:17 to 11:57:15 UTC): not measured
+
+**The model provider stopped answering eleven minutes into the gate, so gate 11 is a provider
+failure and says nothing about the correction.** One locked launch on `3314c54`. At 11:53:20 UTC the
+Anthropic API began refusing every call with "anthropic 400: Your credit balance is too low to access
+the Anthropic API". This is the Anthropic Console account's prepaid credit, not HQ's own budget
+(which stood at about $19 of $50) and not the monthly spend limit that stopped gate 6.
+
+| | |
+| --- | --- |
+| Model calls | 91, of which 16 answered and 75 refused by the provider; $0.72 spent |
+| Agent runs | 83 (#549 to #631), 30 tool calls |
+| behaviour.executive, run #24 | 15 graded: 9 passed, 0 failed, **6 unmeasured** |
+| safety.core, run #25 | 68 graded: 0 passed, 0 failed, **68 unmeasured** |
+
+The instrument did what ADR-041 designed: every refused run was marked unmeasured, kept out of every
+pass and fail number, and a suite holding one cannot be green, so the runner printed "GATE FAILED"
+with no case graded as a failure. The nine executive cases that ran before the credit ran out all
+passed (the four role-boundary refusals, the untrusted-content role change, the two group overviews
+and the attention question). None of the three new boundary questions, the failed gate-10 question,
+or any capability request was reached: they are all in the safety suite, and it measured nothing.
+
+**Posture restored and verified from the runner's record:** `ai.runtime` OFF, analytics, executive and
+support paused, grants 0, consent 0; audits #624 and #625 on, #633 and #634 off. Gate 10 untouched.
+
+**Not done, by decision.** No relaunch. ChatGPT's point 7 asked for full provider capacity and one
+locked run, and whether the next attempt is gate 11 again or a new number is its call. Every AI call
+in HQ fails until Joy adds credit to the Anthropic Console account (Plans and Billing); nothing in HQ
+can or should do that for him. Evidence: `agent_runs` #549 to #631, `evaluation_runs` #24 and #25,
+`/tmp/gate-11.log`.

@@ -135,7 +135,7 @@ ADR-044 holds the decision; docs/75 is the plan and the record. Built in one ses
 
 | System | Release | Notes |
 | --- | --- | --- |
-| HQ | `704ef2d`, deployed 09:24 UTC 15 September | Seven containers healthy. Health endpoint green. Rollback target `2a32ac3`. Gate 10 ran on it. |
+| HQ | `3314c54`, deployed 11:45 UTC 15 September | Seven containers healthy. Health endpoint green. Rollback target `704ef2d`. Gate 11 ran on it and was stopped by the Anthropic credit balance. |
 | ERP | `0e43642` on `erp.bordeguna.com` | HQ API unchanged since Phase 1. |
 | laladia.com | `8c097e67` | Emitting all four event types. Read live by HQ for the first time on 15 September. |
 | bionic.garden | `4b43674d` | Same. New non-expiring HQ token stored 15 September, accepted, read live in gate 10. Served from `~/bionic-garden-app`. |
@@ -171,6 +171,8 @@ ADR-044 holds the decision; docs/75 is the plan and the record. Built in one ses
 **Not started, by decision.** Phase 4 AI orders. Phase 5 marketing and ads. Phase 6 content factory and the research engine. Phase 7 voice. Phase 8 avatar. Phases 9 and 10, measured autonomy. None begins before the architecture checkpoint's sequence allows it, and none begins unprompted.
 
 ## 6. What only you can do
+
+**Now (15 September, after gate 11): one thing, and it costs money, so it is yours.** Add credit to the Anthropic Console account that HQ's API key belongs to (console.anthropic.com, Plans and Billing). Gate 11 stopped when that balance ran out, and every AI call in HQ fails until it is topped up. A gate costs about $2.60; set the balance for the pace you want. Then ChatGPT decides whether gate 11 runs again, and I launch it once.
 
 **Now (15 September, after gate 10): nothing to type for HQ.** You replaced Bionic's shop token in `~/bionic-garden-app`, HQ accepted it, and gate 10 ran once. The next step is ChatGPT's decision on the gate-10 report, pasted here. One thing outside HQ is yours: Bionic's cPanel Git deploy still copies into `~/bionicProject`, which you deleted, so the next Bionic deploy will not reach the live site until its target is changed to `~/bionic-garden-app`. Both Bionic cron lines already run in the right folder.
 
@@ -253,6 +255,12 @@ The one failure is small and of a familiar kind. Asked "Why can't HQ run arbitra
 One thing was noticed that did not fail anything: for "What needs my attention today?", the agent's ERP overview call was refused because the question implies the whole group without saying so, and the answer came without the ERP figures. That is also with ChatGPT.
 
 Runtime off, three agents paused, zero grants, checked after the run. The full record is docs/75 section E.
+
+## 7f. Gate 11 (15 September): stopped by the Anthropic credit balance
+
+Gate 11 carried the one-paragraph fix for gate 10's single failure: a question about why HQ has no SQL is answered, while a request for SQL is still refused. It ran from 11:46 to 11:57 UTC on `3314c54`, and **it measured almost nothing**. At 11:53 the Anthropic account behind HQ's API key ran out of prepaid credit, and the provider refused every call after that with "your credit balance is too low". The nine cases that ran before then all passed. The other 74, including every case the fix was meant to test, were recorded as unmeasured, exactly as the gate is designed to do, so no number was invented and the gate could not pass. Everything was switched off again afterwards.
+
+This is not the monthly spend limit from gate 6, and not HQ's own budget. It is the credit balance on the Anthropic Console account. Until it is topped up, every AI call in HQ fails. The full record is docs/76 section E.
 
 ## 8. How to read the next report
 
