@@ -26,8 +26,41 @@ type Credential = {
     business: string | null;
     brand: string | null;
     scopes: string[] | null;
+    last_result: { at: string; ok: boolean; class: string | null; message: string | null; source: string } | null;
 };
 type Option = { id: number; name: string };
+
+/** One target and one provider: whether HQ could execute against it right now (ADR-043). Never a value. */
+type Readiness = {
+    target_kind: string;
+    target: string;
+    target_name: string;
+    provider: string;
+    account_ref: string;
+    supported: boolean;
+    state: string;
+    reason: string;
+    credential_id: number | null;
+    credential_status: string | null;
+    has_payload: boolean;
+    last_verified_at: string | null;
+    last_result: { at: string; ok: boolean; class: string | null; message: string | null; source: string } | null;
+    executable: boolean;
+    incident: boolean;
+};
+
+function readinessTone(r: Readiness): Tone {
+    if (r.incident) return 'danger';
+    if (!r.supported) return 'neutral';
+    return r.state === 'ready' ? 'ok' : 'warn';
+}
+
+/** What the provider last said, in a few words: "ok, 2 hours ago via tool call #763". */
+function lastResult(r: { last_result: Readiness['last_result'] }): string {
+    if (!r.last_result) return 'never verified';
+    const what = r.last_result.ok ? 'accepted' : humanKey(r.last_result.class ?? 'failed').toLowerCase();
+    return `${what} ${timeAgo(r.last_result.at)} via ${r.last_result.source.replace('_', ' ')}`;
+}
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Credentials', href: '/credentials' }];
 
@@ -151,7 +184,18 @@ function NewCredentialDialog({
     );
 }
 
-export default function CredentialsIndex({ credentials, businesses, brands }: { credentials: Credential[]; businesses: Option[]; brands: Option[] }) {
+export default function CredentialsIndex({
+    credentials,
+    businesses,
+    brands,
+    readiness,
+}: {
+    credentials: Credential[];
+    businesses: Option[];
+    brands: Option[];
+    readiness: Readiness[];
+}) {
+    const incidents = readiness.filter((r) => r.incident);
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.credentials.manage');
     const [creating, setCreating] = useState(false);
@@ -195,6 +239,64 @@ export default function CredentialsIndex({ credentials, businesses, brands }: { 
                     }
                 />
 
+                <section className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h2 className="text-base font-semibold">Readiness</h2>
+                            <p className="text-muted-foreground text-sm">
+                                Whether HQ could execute against each store, ERP business and the model provider right now. A store with no
+                                connector is unsupported by design, not an incident; a supported target that cannot execute is one.
+                            </p>
+                        </div>
+                        {incidents.length > 0 ? (
+                            <StatusBadge tone="danger" dot>
+                                {incidents.length} incident{incidents.length === 1 ? '' : 's'}
+                            </StatusBadge>
+                        ) : (
+                            <StatusBadge tone="ok">no incidents</StatusBadge>
+                        )}
+                    </div>
+                    <div className="bg-card overflow-x-auto rounded-xl border">
+                        <table className="w-full text-sm">
+                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <tr>
+                                    <th className="px-3 py-2 font-medium">Target</th>
+                                    <th className="px-3 py-2 font-medium">Provider</th>
+                                    <th className="px-3 py-2 font-medium">State</th>
+                                    <th className="px-3 py-2 font-medium">Credential</th>
+                                    <th className="px-3 py-2 font-medium">Last result</th>
+                                    <th className="px-3 py-2 font-medium">Why</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {readiness.map((r) => (
+                                    <tr key={`${r.target_kind}:${r.target}:${r.provider}`} className={`border-t ${!r.supported ? 'text-muted-foreground' : ''}`}>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <div className="font-medium">{r.target_name}</div>
+                                            <div className="text-muted-foreground font-mono text-xs">
+                                                {r.target_kind}:{r.target}
+                                            </div>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap">{humanKey(r.provider)}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <StatusBadge tone={readinessTone(r)} dot={r.incident}>
+                                                {humanKey(r.state).toLowerCase()}
+                                            </StatusBadge>
+                                        </td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                            {r.credential_id === null ? 'none' : `#${r.credential_id} ${r.credential_status}${r.has_payload ? '' : ' (no value)'}`}
+                                        </td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap" title={r.last_result?.message ?? ''}>
+                                            {lastResult(r)}
+                                        </td>
+                                        <td className="px-3 py-2 text-xs">{r.reason}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
                 {credentials.length === 0 ? (
                     <EmptyState
                         icon={KeyRound}
@@ -211,6 +313,7 @@ export default function CredentialsIndex({ credentials, businesses, brands }: { 
                                     <th className="px-3 py-2 font-medium">Type</th>
                                     <th className="px-3 py-2 font-medium">Status</th>
                                     <th className="px-3 py-2 font-medium">Expiry</th>
+                                    <th className="px-3 py-2 font-medium">Last result</th>
                                     <th className="px-3 py-2"></th>
                                 </tr>
                             </thead>
@@ -242,6 +345,9 @@ export default function CredentialsIndex({ credentials, businesses, brands }: { 
                                                 ) : (
                                                     <span className="text-muted-foreground text-xs">-</span>
                                                 )}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap" title={c.last_result?.message ?? ''}>
+                                                {c.status === 'active' ? lastResult(c) : <span className="text-muted-foreground">-</span>}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                                 {canManage && c.status !== 'revoked' && (

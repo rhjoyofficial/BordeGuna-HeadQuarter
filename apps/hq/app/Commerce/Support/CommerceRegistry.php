@@ -26,6 +26,9 @@ final class CommerceRegistry
 
     public const ADMIN_PROVIDER = 'shop_admin_token';
 
+    /** The adapters HQ has an implementation for. WooCommerce (Econic) and the ERP counter are future adapters (ADR-009, ADR-015). */
+    public const SUPPORTED_ADAPTERS = ['laladia', 'bionic'];
+
     public function __construct(
         private readonly ConnectorCallLogger $logger,
         private readonly CredentialVault $vault,
@@ -40,8 +43,8 @@ final class CommerceRegistry
             businessId: $store->business_id, orderPrefix: data_get($store->capabilities, 'order_prefix'),
         );
 
-        return match ($store->adapter) {
-            'laladia', 'bionic' => new LaravelShopAdapter(
+        return match (in_array($store->adapter, self::SUPPORTED_ADAPTERS, true)) {
+            true => new LaravelShopAdapter(
                 $ref,
                 // Optional rather than required: the adapter works with whichever of the two a
                 // caller declared, and refuses at the endpoint that needs the missing one.
@@ -56,7 +59,15 @@ final class CommerceRegistry
     /** @return list<string> */
     public function storesWithAdapters(): array
     {
-        return Store::whereIn('adapter', ['laladia', 'bionic'])->where('is_active', true)->pluck('slug')->all();
+        return Store::whereIn('adapter', self::SUPPORTED_ADAPTERS)->where('is_active', true)->pluck('slug')->all();
+    }
+
+    /** Whether HQ holds a connector for this store at all; a store without one is unsupported by design, not broken. */
+    public static function supports(Store|string $adapter): bool
+    {
+        $adapter = $adapter instanceof Store ? (string) $adapter->adapter : $adapter;
+
+        return in_array($adapter, self::SUPPORTED_ADAPTERS, true);
     }
 
     /**

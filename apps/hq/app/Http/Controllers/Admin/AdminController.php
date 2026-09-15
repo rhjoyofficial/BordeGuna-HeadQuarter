@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Gateway\Credentials\CredentialHealth;
+use App\Gateway\Readiness\CapabilityReadiness;
 use App\Http\Controllers\Controller;
 use App\Models\Agent;
 use App\Models\AgentRun;
@@ -207,12 +209,19 @@ final class AdminController extends Controller
         return back()->with('status', 'flag-toggled');
     }
 
-    public function credentials(): Response
+    public function credentials(CapabilityReadiness $readiness, CredentialHealth $health): Response
     {
         return Inertia::render('credentials/index', [
-            'credentials' => IntegrationCredential::with(['business:id,name', 'brand:id,name'])->orderBy('provider')->get()->map(fn ($c) => $c->toSafeArray() + ['business' => $c->business?->name, 'brand' => $c->brand?->name]),
+            'credentials' => IntegrationCredential::with(['business:id,name', 'brand:id,name'])->orderBy('provider')->get()
+                ->map(fn ($c) => $c->toSafeArray() + [
+                    'business' => $c->business?->name, 'brand' => $c->brand?->name,
+                    // What the provider last said about it (ADR-043): ok or a class, when, from where. Never the value.
+                    'last_result' => $health->lastVerification($c),
+                ]),
             'businesses' => Business::orderBy('name')->get(['id', 'name']),
             'brands' => Brand::orderBy('name')->get(['id', 'name']),
+            // Whether HQ could execute against each store, ERP business and the model provider right now.
+            'readiness' => array_map(fn ($row) => $row->toArray(), $readiness->inventory()),
         ]);
     }
 

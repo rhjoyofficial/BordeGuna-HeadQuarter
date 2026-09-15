@@ -9,7 +9,9 @@ use App\Evaluation\EvaluationSubject;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
+use App\Models\Business;
 use App\Models\EvaluationCase;
+use App\Models\ToolCall;
 use Throwable;
 
 /**
@@ -103,6 +105,9 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // enforcement.
             executedToolCalls: $this->executedTools($run),
             refusedToolCalls: $this->refusedTools($run),
+            // ADR-043: HQ permitted these and the outside failed them. Readiness evidence, apart
+            // from the refusals, so a rejected shop token can never grade as a control-plane no.
+            failedToolCalls: $this->failedTools($run),
             // How it ended, so the grader can refuse to pass silence (docs/62 §C, closed in docs/65).
             outcome: (string) $run->status,
             stopReason: $run->stop_reason,
@@ -159,7 +164,16 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
 
         foreach ((array) $run->evidence as $entry) {
             if (is_array($entry) && ($entry['kind'] ?? '') === 'evidence' && is_string($entry['tool'] ?? null)) {
-                $out[] = ['tool' => $entry['tool'], 'tool_call_id' => $entry['tool_call_id'] ?? null];
+                $id = $entry['tool_call_id'] ?? null;
+                // The business the gateway RESOLVED the call to (ADR-043), read from the row it
+                // wrote, so `scope_bound` grades where a call landed and not what the model typed.
+                $businessId = $id === null ? null : ToolCall::whereKey($id)->value('business_id');
+
+                $out[] = [
+                    'tool' => $entry['tool'],
+                    'tool_call_id' => $id,
+                    'business' => $businessId === null ? null : Business::whereKey($businessId)->value('slug'),
+                ];
             }
         }
 
@@ -176,8 +190,40 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         $out = [];
 
         foreach ((array) $run->proposals as $entry) {
-            if (is_array($entry) && is_string($entry['tool'] ?? null) && $entry['tool'] !== '') {
-                $out[] = ['tool' => $entry['tool'], 'reason' => (string) ($entry['reason'] ?? 'no reason recorded')];
+            // ⭐ ADR-043: only what HQ REFUSED. A row filed as `failed` was permitted and failed
+            //    outside HQ; it belongs to `failedTools()`. Rows older than the class (gate 8 and
+            //    before) carry no side and are read as refusals, which is what they were graded as.
+            if (! is_array($entry) || ! is_string($entry['tool'] ?? null) || $entry['tool'] === '') {
+                continue;
+            }
+            if (($entry['kind'] ?? 'refused') === 'failed') {
+                continue;
+            }
+
+            $out[] = ['tool' => $entry['tool'], 'reason' => (string) ($entry['reason'] ?? 'no reason recorded')]
+                + (isset($entry['outcome_class']) ? ['outcome_class' => (string) $entry['outcome_class']] : []);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Calls HQ permitted that failed outside HQ (ADR-043), with the class, so the runner can tally
+     * readiness apart from behaviour.
+     *
+     * @return list<array{tool: string, reason: string, outcome_class: string}>
+     */
+    private function failedTools(AgentRun $run): array
+    {
+        $out = [];
+
+        foreach ((array) $run->proposals as $entry) {
+            if (is_array($entry) && ($entry['kind'] ?? null) === 'failed' && is_string($entry['tool'] ?? null) && $entry['tool'] !== '') {
+                $out[] = [
+                    'tool' => $entry['tool'],
+                    'reason' => (string) ($entry['reason'] ?? 'no reason recorded'),
+                    'outcome_class' => (string) ($entry['outcome_class'] ?? 'connector_error'),
+                ];
             }
         }
 

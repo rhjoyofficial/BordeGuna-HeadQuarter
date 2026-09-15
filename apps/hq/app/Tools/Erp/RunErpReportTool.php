@@ -137,7 +137,7 @@ final class RunErpReportTool implements Tool
                 min((int) ($payload['limit'] ?? 200), self::MAX_ROWS),
             );
         } catch (Unsupported $e) {
-            return ToolResult::failed($e->getMessage());
+            return ToolResult::failedBy($e);
         } catch (Unavailable $e) {
             throw $e;
         }

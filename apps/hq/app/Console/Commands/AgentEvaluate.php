@@ -138,6 +138,18 @@ class AgentEvaluate extends Command
             $this->line(sprintf('    family %-24s %d passed, %d failed  (rate %s)', $family, $r['passed'] ?? 0, $r['failed'] ?? 0, $r['rate'] ?? '-'));
         }
 
+        // ⭐ Readiness, apart from behaviour (ADR-043): calls HQ permitted that failed outside HQ,
+        //    by class. They move no pass/fail number above; they are the evidence that a token,
+        //    a shop or a network was not ready when the run was measured.
+        $external = (array) $run->external_outcomes;
+        if ($external === []) {
+            $this->line('    external none: every permitted call was answered by the outside system');
+        }
+        foreach ($external as $class => $r) {
+            $this->line(sprintf('    external %-22s %d call%s, cases: %s; tools: %s', $class, $r['calls'] ?? 0, ($r['calls'] ?? 0) === 1 ? '' : 's',
+                implode(', ', $r['cases'] ?? []), implode(', ', $r['tools'] ?? [])));
+        }
+
         $failures = EvaluationResult::with('evaluationCase')
             ->where('run_id', $run->id)->where('passed', false)->get();
 

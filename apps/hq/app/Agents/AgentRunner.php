@@ -18,6 +18,7 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
+use App\Gateway\OutcomeClass;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Gateway\ToolGateway;
@@ -25,6 +26,7 @@ use App\Gateway\ToolRequest;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Business;
+use App\Models\Store;
 use App\Models\User;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Log;
@@ -218,6 +220,7 @@ final class AgentRunner
         private readonly BusinessReferenceResolver $references,
         private readonly TaskGrounding $grounding,
         private readonly SecurityIntent $securityIntent,
+        private readonly TaskScopeResolver $taskScope,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -336,6 +339,11 @@ final class AgentRunner
         $denials = [];
         $toolCalls = 0;
 
+        // The runtime's reading of which targets the task is about (ADR-043), set on turn 1 from
+        // the trusted text and read by every expansion after it. `none` until then, and `none`
+        // never widens a call.
+        $scope = TaskScope::none();
+
         for ($turn = 1; $turn <= self::MAX_TURNS; $turn++) {
             $outcome = $this->models->run(
                 task: $request->task,
@@ -369,6 +377,7 @@ final class AgentRunner
             // the row, so a reviewer sees what the run read and what HQ accepted.
             if ($turn === 1) {
                 $grounded = $this->groundAndRecord($run, $request, $reply, $bundle);
+                $scope = $grounded->scope ?? TaskScope::none();
 
                 // ⛔ ADR-042, monotonic: a message the runtime found security-sensitive ends refused
                 // whatever the model's verdict was. An answer or a question back may EXPLAIN (the
@@ -436,7 +445,7 @@ final class AgentRunner
                 return;
             }
 
-            $requested = $this->expandGroupWide($agent, $request, $this->proposedCalls($reply));
+            $requested = $this->expandGroupWide($agent, $request, $this->proposedCalls($reply), $scope);
 
             // A turn that asks for evidence and names nothing cannot make progress, and repeating it
             // would burn the remaining turns to arrive at the same place.
@@ -617,7 +626,8 @@ final class AgentRunner
         if (($refusal = $this->toolset->refusalFor($agent, $key, $request->businessId)) !== null) {
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $refusal),
-                ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null],
+                ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null,
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 $key,
             ];
         }
@@ -633,7 +643,8 @@ final class AgentRunner
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason],
+                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
+                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 null, // not a denial: the agent did the right thing by proposing it
             ];
         }
@@ -653,17 +664,34 @@ final class AgentRunner
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'approval_id' => $outcome->approvalId, 'reason' => $reason],
+                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'approval_id' => $outcome->approvalId, 'reason' => $reason,
+                    'outcome_class' => OutcomeClass::ApprovalRequired->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 null,
             ];
         }
 
         if (! $outcome->ok()) {
             $reason = $outcome->error ?? $outcome->policyReason ?? 'the call did not succeed';
+            $class = $outcome->class ?? OutcomeClass::InternalError;
+
+            // ⭐ ADR-043: two kinds, not one. HQ refusing a call is `refused`, and a grader may hold
+            //    it against the model; HQ permitting a call that the outside then failed is
+            //    `failed`, readiness evidence that says nothing about the model's choice. Gate 8
+            //    filed a rejected shop token as the first kind and graded a scoped, permitted read
+            //    as "a form the control plane refused".
+            if ($outcome->failedOutside()) {
+                return [
+                    $this->assembler->toolFailure($key, $reason, $class),
+                    ['kind' => 'failed', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
+                        'outcome_class' => $class->value, 'side' => $class->side()],
+                    null,
+                ];
+            }
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId],
+                ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
+                    'outcome_class' => $class->value, 'side' => $class->side()],
                 // Only a POLICY refusal counts toward the repeated-denial stop. A tool that failed
                 // because a shop was slow is not the model being told no, and treating it as one
                 // would end runs for a reason the model cannot do anything about.
@@ -677,6 +705,10 @@ final class AgentRunner
             // so a reviewer can tell one scoped call the model made from five HQ made for it.
             $record['expanded_from'] = $call['expanded_from'];
         }
+        if (isset($call['resolved_from'])) {
+            // And whether the TASK, not the group, decided the targets (ADR-043).
+            $record['resolved_from'] = $call['resolved_from'];
+        }
 
         return [
             $this->assembler->toolResult($key, $outcome->toolCallId, $outcome->output),
@@ -686,18 +718,24 @@ final class AgentRunner
     }
 
     /**
-     * One call per business (or store) for a tool that covers one per invocation (ADR-041).
+     * One call per business (or store) for a tool that covers one per invocation (ADR-041), bounded
+     * by what the operator's own words are about (ADR-043).
      *
-     * A call whose scope argument is the group reference, or is missing, becomes one call per
-     * target this agent may read for this tool in this run, each named by its slug. A call that
-     * names a target already is left alone, and so is a call for a tool with no scope argument. If
-     * the agent may read no target, the call is left alone too and the gateway refuses it as before,
-     * naming the argument: expansion never widens what the caller could name by hand.
+     * A call that names a target is left alone, and so is a call for a tool with no scope argument.
+     * A call whose scope argument is the group reference, or is missing, is decided by the task's
+     * scope, never by the model's omission: a GROUP task becomes one call per target this agent may
+     * read for this tool in this run; a task about one or more NAMED businesses becomes one call per
+     * named target (the named business for a business argument; its stores, or the named store, for
+     * a store argument), intersected with what the agent may read, and the record says both that HQ
+     * expanded it and that the task decided the targets; a task that names NOTHING leaves the call
+     * as it came, and the gateway refuses it naming the argument, because a guess is not a
+     * resolution. Gate 8 measured the old rule: "what has laladia.com sold" with an unnamed store
+     * became four shop calls, three of them to shops the question never mentioned.
      *
      * @param  list<array<string, mixed>>  $calls
      * @return list<array<string, mixed>>
      */
-    private function expandGroupWide(Agent $agent, AgentRunRequest $request, array $calls): array
+    private function expandGroupWide(Agent $agent, AgentRunRequest $request, array $calls, TaskScope $taskScope): array
     {
         $out = [];
 
@@ -722,9 +760,21 @@ final class AgentRunner
                 continue;
             }
 
-            $slugs = $kind === 'business'
+            // ⛔ A task about nothing in particular widens nothing. The call goes to the gateway as
+            //    it came and is refused there with the argument named (`scope_denied`).
+            if (! $taskScope->isGroup() && ! $taskScope->isTargeted()) {
+                $out[] = $call;
+
+                continue;
+            }
+
+            $permitted = $kind === 'business'
                 ? $this->references->permittedBusinessSlugs($agent, $key, $request->businessId)
                 : $this->references->permittedStoreSlugs($agent, $key, $request->businessId);
+
+            $slugs = $taskScope->isGroup()
+                ? $permitted
+                : array_values(array_intersect($this->taskTargets($taskScope, $kind), $permitted));
 
             if ($slugs === []) {
                 $out[] = $call;
@@ -733,11 +783,37 @@ final class AgentRunner
             }
 
             foreach ($slugs as $slug) {
-                $out[] = [...$call, 'args' => [...$args, $argument => $slug], 'expanded_from' => $given === '' ? 'unscoped' : $given];
+                $expanded = [...$call, 'args' => [...$args, $argument => $slug], 'expanded_from' => $given === '' ? 'unscoped' : $given];
+                if (! $taskScope->isGroup()) {
+                    $expanded['resolved_from'] = 'task';
+                }
+                $out[] = $expanded;
             }
         }
 
         return $out;
+    }
+
+    /**
+     * The slugs a targeted task supplies for one scope kind: its businesses for a business
+     * argument; for a store argument, the stores it named, or every active store of the businesses
+     * it named when it named none by store name.
+     *
+     * @return list<string>
+     */
+    private function taskTargets(TaskScope $taskScope, string $kind): array
+    {
+        if ($kind === 'business') {
+            return $taskScope->businessSlugs;
+        }
+
+        if ($taskScope->storeSlugs !== []) {
+            return $taskScope->storeSlugs;
+        }
+
+        return Store::query()->where('is_active', true)
+            ->whereIn('business_id', Business::query()->whereIn('slug', $taskScope->businessSlugs)->pluck('id'))
+            ->orderBy('id')->pluck('slug')->map(fn ($s) => (string) $s)->all();
     }
 
     /**
@@ -881,6 +957,12 @@ final class AgentRunner
             signal: $signal,
         );
 
+        // ⭐ ADR-043: which targets the operator's OWN words are about, read by the runtime before
+        //    any call is expanded, so a model that omits a target gets the operator's target and
+        //    never every business HQ holds. On the row with its version and the phrase that decided.
+        $scope = $this->taskScope->resolve($request->question, $request->businessId);
+        $grounded = $grounded->withScope($scope);
+
         $run->forceFill([
             'task' => mb_substr($grounded->modelTask, 0, 2000),
             'canonical_task' => mb_substr($grounded->canonicalTask, 0, 2000),
@@ -888,6 +970,7 @@ final class AgentRunner
             'authority_request' => $grounded->authorityRequest,
             'security_intent' => $signal->toArray(),
             'authority_source' => $grounded->authoritySource,
+            'task_scope' => $scope->toArray(),
         ])->save();
 
         return $grounded;

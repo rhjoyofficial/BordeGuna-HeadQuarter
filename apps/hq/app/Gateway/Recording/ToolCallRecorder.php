@@ -4,6 +4,7 @@ namespace App\Gateway\Recording;
 
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\FailureClass;
+use App\Gateway\OutcomeClass;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\Policy\PolicyDecision;
 use App\Gateway\Redaction\Redactor;
@@ -117,6 +118,7 @@ final class ToolCallRecorder
         ?ToolDescriptor $descriptor = null,
         bool $replayed = false,
         array $secrets = [],
+        ?OutcomeClass $class = null,
     ): ToolCall {
         $started = $call->started_at ? CarbonImmutable::parse($call->started_at) : null;
 
@@ -125,6 +127,8 @@ final class ToolCallRecorder
             'output' => $output === [] ? null : $this->redactor->redact($output, $descriptor?->redact ?? []),
             'error' => $error === null ? null : mb_substr((string) $this->redactor->scrub($error, $secrets), 0, 2000),
             'failure_class' => $failure?->value,
+            // Whose fault (ADR-043), kept beside HOW it failed: a screen and a grader read this one.
+            'outcome_class' => $class?->value,
             'replayed' => $replayed,
             'finished_at' => now(),
             'duration_ms' => $started ? (int) $started->diffInMilliseconds(now()) : null,

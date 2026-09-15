@@ -2,6 +2,7 @@
 
 namespace App\Gateway\Scope;
 
+use App\Commerce\Support\CommerceRegistry;
 use App\Models\Agent;
 use App\Models\Brand;
 use App\Models\Business;
@@ -190,9 +191,12 @@ final class BusinessReferenceResolver
         foreach ($businesses as $business) {
             $parts = ["{$business->slug}: {$business->name}"];
 
-            $stores = Store::query()->where('business_id', $business->id)->where('is_active', true)->orderBy('id')->get(['slug', 'name']);
+            $stores = Store::query()->where('business_id', $business->id)->where('is_active', true)->orderBy('id')->get(['slug', 'name', 'adapter']);
             if ($stores->isNotEmpty()) {
-                $parts[] = 'store'.($stores->count() > 1 ? 's' : '').' '.$stores->map(fn ($s) => "{$s->slug} ({$s->name})")->implode(', ');
+                // ⭐ ADR-043: a store HQ has no connector for is named as such, so the model does not
+                //    read "listed" as "readable live". Its facts still are; the shop itself is not.
+                $parts[] = 'store'.($stores->count() > 1 ? 's' : '').' '.$stores->map(fn ($s) => "{$s->slug} ({$s->name}"
+                    .(CommerceRegistry::supports((string) $s->adapter) ? '' : '; no live shop connector, facts only').')')->implode(', ');
             }
 
             $brands = Brand::query()->where('business_id', $business->id)->where('is_active', true)->orderBy('id')->get(['slug', 'name'])

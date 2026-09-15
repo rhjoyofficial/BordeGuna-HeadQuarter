@@ -105,7 +105,7 @@ abstract class PollErpTool implements Tool
             $erp = $this->registry->for($business);
             $result = $this->poll($erp);
         } catch (Unsupported $e) {
-            return ToolResult::failed($e->getMessage()); // configuration problem; retrying will not help
+            return ToolResult::failedBy($e); // configuration problem; retrying will not help
         } catch (Unavailable $e) {
             throw $e; // let the scheduler retry with backoff
         }

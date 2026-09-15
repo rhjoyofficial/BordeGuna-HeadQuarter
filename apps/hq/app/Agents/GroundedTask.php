@@ -26,7 +26,16 @@ final readonly class GroundedTask
         public string $reason,
         public string $authoritySource = self::SOURCE_NONE,
         public ?SecurityIntentSignal $securityIntent = null,
+        /** Which targets the trusted text is about (ADR-043); null when no resolver read it. */
+        public ?TaskScope $scope = null,
     ) {}
+
+    /** The same grounding with the runtime's scope reading attached. */
+    public function withScope(TaskScope $scope): self
+    {
+        return new self($this->canonicalTask, $this->modelTask, $this->authorityRequest, $this->reason,
+            $this->authoritySource, $this->securityIntent, $scope);
+    }
 
     public function hasTask(): bool
     {

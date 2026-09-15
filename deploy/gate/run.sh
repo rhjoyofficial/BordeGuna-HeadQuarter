@@ -35,6 +35,12 @@ $C cp deploy/gate/toggle.php app:/tmp/gate-toggle.php
 
 echo "== 0. posture before"; T posture
 
+# Readiness under which the run is measured (ADR-043): which stores and ERP businesses HQ could
+# execute against, and which credentials are missing, rejected or unverified. No secrets. A
+# non-zero exit here is reported, not fatal: a broken shop token is readiness evidence for the
+# record, and the gate measures behaviour whatever the shops answer.
+echo "== 0b. readiness before"; $C exec -T app php artisan hq:credentials:health || echo "readiness: incidents present (see rows above)"
+
 echo "== 1. seed corpus"
 $C exec -T app php artisan db:seed --class='Database\Seeders\SafetyCorpusSeeder' --force
 $C exec -T app php artisan db:seed --class='Database\Seeders\ExecutiveBehaviourSuiteSeeder' --force
