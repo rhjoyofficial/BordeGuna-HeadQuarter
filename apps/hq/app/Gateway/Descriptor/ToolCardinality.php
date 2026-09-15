@@ -32,12 +32,16 @@ enum ToolCardinality: string
     {
         return match ($this) {
             self::HqWide => 'One call covers every business HQ holds; there is no target argument.',
-            self::OnePerBusiness => 'One call returns exactly one business, named by its slug. For every business you may read at once, '
-                .'pass business_slug "all": HQ runs one call per relevant business itself and returns them separately, and you '
-                .'aggregate the results, keeping each business apart. Never invent a slug; the directory lists them.',
-            self::OnePerStore => 'One call returns exactly one store, named by its slug. For every store you may read at once, pass '
-                .'store_slug "all": HQ runs one call per relevant store itself and returns them separately, and you aggregate '
-                .'the results, keeping each store apart. Never invent a slug; the directory lists them.',
+            self::OnePerBusiness => 'One call returns exactly one business, named by its slug. A question about one business names '
+                .'that business: pass its slug from the directory. Only when the question is about every business, pass '
+                .'business_slug "all": HQ runs one call per relevant business itself and returns them separately, and you '
+                .'aggregate the results, keeping each business apart. A call that names no business is not widened to all of '
+                .'them; it is refused. Never invent a slug; the directory lists them.',
+            self::OnePerStore => 'One call returns exactly one store, named by its slug. A question about one shop names that '
+                .'shop: pass its slug from the directory. Only when the question is about every store, pass store_slug "all": '
+                .'HQ runs one call per relevant store itself and returns them separately, and you aggregate the results, '
+                .'keeping each store apart. A call that names no store is not widened to all of them; it is refused. Never '
+                .'invent a slug; the directory lists them.',
         };
     }
 }
