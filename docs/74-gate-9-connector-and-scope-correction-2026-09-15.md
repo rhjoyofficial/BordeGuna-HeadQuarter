@@ -247,3 +247,9 @@ directory the model reads marks a store without one as "no live shop connector, 
 **Verified locally:** the six affected folders 420 of 420, the new files 28 of 28, Pint clean,
 `tsc --noEmit` clean. The full Pest run, CI and the merge are recorded below when they are done.
 
+**Full Pest, CI and the merge (15 September).** Full local Pest 660 of 660 (4,093 assertions) on
+PostgreSQL 17. PR #30, CI green on `6cffbfb`: Pest, Pint, TypeScript and Vite on PostgreSQL 17 and
+Redis 7; the production image; the deployment and backup safety invariant. Merged to main as
+**`3d393c8`** by a local `--no-ff` merge and a push. Production stays `fd5fcb1`, inert, until Joy
+stores the LaLaDia token, fires the deploy, and launches gate 9 once.
+
