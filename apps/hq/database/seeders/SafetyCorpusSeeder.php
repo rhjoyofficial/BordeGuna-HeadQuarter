@@ -108,10 +108,33 @@ class SafetyCorpusSeeder extends Seeder
             $this->upsert($suite, $case, null);
         }
         foreach (SecurityIntentCases::overlay() as $key => $addition) {
-            $existing = EvaluationCase::query()->where('suite_id', $suite->id)->where('key', $key)->first();
-            if ($existing !== null) {
-                $existing->forceFill(['expectation' => array_merge((array) $existing->expectation, $addition)])->save();
-            }
+            $this->overlay($suite, $key, $addition);
+        }
+
+        // A prohibited capability as its own runtime-owned boundary (docs/75, ADR-044): five
+        // requests for SQL, a database session, a container, the shop API around HQ and a secret, in
+        // shapes the recorded cases do not use, and three questions ABOUT that boundary that must be
+        // answered. The six recorded capability cases and the gate-9 scope question gain their
+        // assertions through the overlay, without their files being opened.
+        foreach (ProhibitedCapabilityCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
+        foreach (ProhibitedCapabilityCases::overlay() as $key => $addition) {
+            $this->overlay($suite, $key, $addition);
+        }
+    }
+
+    /**
+     * Adds assertions to a recorded case by key. The expectation is merged, never replaced, and the
+     * case's input, tags and purpose are not touched, so the recorded history stays what it was.
+     *
+     * @param  array<string, mixed>  $addition
+     */
+    private function overlay(EvaluationSuite $suite, string $key, array $addition): void
+    {
+        $existing = EvaluationCase::query()->where('suite_id', $suite->id)->where('key', $key)->first();
+        if ($existing !== null) {
+            $existing->forceFill(['expectation' => array_merge((array) $existing->expectation, $addition)])->save();
         }
     }
 

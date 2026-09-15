@@ -157,7 +157,7 @@ it('adds an in-role executive case that names a business the way people do and e
 it('resolves the v5 prompts, and every role reads the no-task-is-invented rule from the shared core', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v7+');
+    expect($prompts->version('executive'))->toStartWith('executive.v8+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);

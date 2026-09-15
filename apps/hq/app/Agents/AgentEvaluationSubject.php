@@ -122,6 +122,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // The runtime's own reading of the message for security-sensitive intent (ADR-042).
             securityIntent: $run->security_intent === null ? null : (array) $run->security_intent,
             authoritySource: $run->authority_source,
+            // The third boundary (ADR-044): a capability HQ prohibits, read by the runtime.
+            prohibitedCapability: $run->prohibited_capability === null ? null : (array) $run->prohibited_capability,
             // A provider refusal measured nothing about the agent; the grader and the runner are
             // told so rather than left to read a quota as a refusal that never came.
             unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,

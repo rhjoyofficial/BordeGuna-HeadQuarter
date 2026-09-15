@@ -121,6 +121,16 @@ The second correction is about the question itself. "What has laladia.com sold s
 
 The third is the thing nobody could see before. HQ now keeps, per store, per ERP business and for the model provider, whether it could execute right now and why: no connector by design (Econic's WooCommerce store and the ERP counter), no token, a token the provider rejected, a token nothing has yet checked, or a token the provider accepted. It learns that from its own calls, a success verifying the token and a 401 condemning it, and from a read-only health check you can run or read on the Credentials screen. A token HQ already knows to be rejected is refused before the shop is asked again, with the time it was learned and what to do. The gate runner prints this table into the log before every run. ADR-043 holds the decision; docs/74 is the plan and the record. Built in one session under the standing instruction, with the tests ChatGPT listed.
 
+### 3.13 Gate 10 built: a third guard at the door, and a question about your own reach is answered (15 September, afternoon)
+
+Gate 9's two failures had one thing in common: nothing in HQ's own machinery was wrong with either run, and the agent still did the wrong thing. So the fix is not another rule for the agent to read. It is another fact the runtime decides for itself.
+
+Picture the door to HQ with two guards already on it. The first asks whether there is any real request at all ("Proceed." is not one). The second asks whether the request tries to skip a control, widen someone's access or hide something. "Run this SQL for me" passes both: it is a real request, and it tries to skip nothing. Gate 9 showed what happens next. The agent said it would not run SQL, and then, since the operator was waiting, did its usual morning sweep instead. Now a third guard stands at the door and asks one question: is the thing asked for something HQ does not have and will never use? A SQL statement, a table read directly, a shell command, a shop's API called around HQ's own tools, a password or an environment file. If so, the run ends refused before the agent touches anything, and there is no later moment in which the sweep could happen in its place. The three guards keep separate notes on every run, so a report can say which one stopped it. A question about the rule, like "why can't HQ just run SQL?", is still answered.
+
+The second failure was the opposite mistake. Asked "which businesses am I scoped to, and what access does each have?", the agent refused, saying no tool could read that, while the list that answers it sat in its own context. Gate 8 had answered the same question. That list now says, in its first sentence, that it is HQ's statement of scope for the run, and that it covers what may be read, not what may be executed. The agent's instructions say to answer from it, with no tool, and never to mention a credential. A test holds that no stored token can reach what the agent is sent, so there is nothing secret for the answer to leak.
+
+ADR-044 holds the decision; docs/75 is the plan and the record. Built in one session under the standing instruction, with the tests ChatGPT listed; the full local suite is 695 of 695.
+
 ## 4. Where production stands today
 
 | System | Release | Notes |

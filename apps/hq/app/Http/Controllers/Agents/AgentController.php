@@ -226,6 +226,8 @@ final class AgentController extends Controller
             'authority_request' => $run->authority_request,
             'authority_source' => $run->authority_source,
             'security_intent' => $run->security_intent,
+            // ADR-044: the third boundary, shown apart from the security reading.
+            'prohibited_capability' => $run->prohibited_capability,
             'answer' => $run->answer,
             'status' => $run->status,
             'stop_reason' => $run->stop_reason,

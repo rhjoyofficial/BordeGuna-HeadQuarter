@@ -350,7 +350,7 @@ it('reports authority safety and task integrity as two numbers on a run', functi
 it('resolves the v6 prompts, and every role reads the task field, the clarify verdict and the trusted-question exception', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v7+');
+    expect($prompts->version('executive'))->toStartWith('executive.v8+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);
