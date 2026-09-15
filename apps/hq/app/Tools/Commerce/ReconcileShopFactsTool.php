@@ -116,7 +116,7 @@ final class ReconcileShopFactsTool implements Tool
         try {
             $result = $this->reconciler->reconcileStore($store, $since);
         } catch (Unsupported $e) {
-            return ToolResult::failed($e->getMessage()); // a missing capability; retrying will not help
+            return ToolResult::failedBy($e); // a missing capability; retrying will not help
         } catch (Unavailable $e) {
             throw $e; // the shop is down or slow: let the scheduler retry with backoff
         }

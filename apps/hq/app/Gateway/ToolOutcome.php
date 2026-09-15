@@ -62,10 +62,12 @@ final readonly class ToolOutcome
             policy: $policy,
             durationMs: $durationMs,
             providerRef: $result->providerRef,
-            // A tool that ran and reported failure did so because the outside answered badly; a
-            // tool that cannot say is uncertain. Neither is HQ saying no.
+            // The tool's own classification first, when it caught the connector's exception and
+            // said whose fault it was; otherwise a tool that ran and reported failure did so
+            // because the outside answered badly, and a tool that cannot say is uncertain. Neither
+            // is HQ saying no.
             class: $status === OutcomeStatus::Uncertain ? OutcomeClass::Uncertain
-                : ($status === OutcomeStatus::Failed ? OutcomeClass::ConnectorError : null),
+                : ($status === OutcomeStatus::Failed ? ($result->class ?? OutcomeClass::ConnectorError) : null),
         );
     }
 

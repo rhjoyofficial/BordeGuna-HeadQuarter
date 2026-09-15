@@ -117,7 +117,7 @@ final class ListOrdersTool implements Tool
         try {
             $orders = $this->registry->for($store)->listRecentOrders($since, $limit);
         } catch (Unsupported $e) {
-            return ToolResult::failed($e->getMessage()); // a missing capability; a retry cannot help
+            return ToolResult::failedBy($e); // a missing capability; a retry cannot help
         } catch (Unavailable $e) {
             throw $e; // the shop is down: let the gateway classify it and the caller decide
         }

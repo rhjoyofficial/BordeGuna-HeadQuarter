@@ -705,6 +705,10 @@ final class AgentRunner
             // so a reviewer can tell one scoped call the model made from five HQ made for it.
             $record['expanded_from'] = $call['expanded_from'];
         }
+        if (isset($call['resolved_from'])) {
+            // And whether the TASK, not the group, decided the targets (ADR-043).
+            $record['resolved_from'] = $call['resolved_from'];
+        }
 
         return [
             $this->assembler->toolResult($key, $outcome->toolCallId, $outcome->output),

@@ -244,9 +244,9 @@ final class ToolGateway
         $this->recorder->complete($call, $outcome->status, output: $result->output, error: $result->error,
             failure: $outcome->failure, descriptor: $descriptor, secrets: $secrets, class: $outcome->class);
         $this->audit($request, $descriptor, $call, $outcome->status->value, $decision);
-        if ($outcome->ok()) {
-            $this->health->learnFromCall($resolution->found, null, null, 'tool_call#'.$call->id);
-        }
+        // A success verifies the credentials it opened; a failure the tool classified as the far
+        // side rejecting them condemns them; every other class leaves their record alone.
+        $this->health->learnFromCall($resolution->found, $outcome->ok() ? null : $outcome->class, $result->error, 'tool_call#'.$call->id);
 
         return new ToolOutcome(
             status: $outcome->status, output: $result->output, error: $result->error, failure: $outcome->failure,
