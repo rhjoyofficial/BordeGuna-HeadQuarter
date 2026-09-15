@@ -259,3 +259,5 @@ from 69 to 77 with `legit.%` from 5 to 8. One collision fixed before the full ru
 **Verified locally:** full Pest 695 of 695 (4,303 assertions) on PostgreSQL 17; Pint clean; `tsc
 --noEmit` clean. CI, the merge, the release, Bionic's token and the gate are recorded below as each
 is done.
+
+**CI and merge (15 September).** PR #32, CI green on `398632b` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`483cd1b`** by a local `--no-ff` merge. Main now carries the gate-9 runner fix (`afeedc4`) and this milestone together, so one release ships both.
