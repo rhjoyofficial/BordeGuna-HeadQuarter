@@ -125,4 +125,94 @@ filed the three failures under `proposals` as `kind: refused`; `no_denied_calls`
 
 ## C. The plan (written before the code)
 
-To be filled in section by section as each part is designed.
+Think of the tool gateway as a border post. Until now the post kept one stamp for every call that
+did not go through: "did not run", with a sentence beside it. The sentence told a human reader
+whether HQ had said no or the far side had, but nothing downstream read sentences. The grader read
+the stamp, and so a shop that rejected a token counted the same as a policy that refused a write.
+This milestone gives the post two stamps, and teaches everything downstream to read them.
+
+**C.1 Outcome classes (points 1 and 6).** A new enum `App\Gateway\OutcomeClass` names the
+reason a call did not succeed, and every value belongs to one of three sides. Control plane, HQ
+said no: `policy_denied`, `permission_denied`, `consent_denied`, `autonomy_denied`,
+`scope_denied`, `approval_required`, `invalid_arguments`, `capability_unavailable` (the tool is
+unknown, switched off, or the store has no adapter). External, HQ said yes and the outside failed:
+`credential_missing`, `credential_invalid`, `provider_unauthorized`, `provider_unavailable`,
+`connector_error`, `network_error`, `timeout`. HQ's own fault or doubt: `internal_error`,
+`uncertain`. The class is set at every refusal site in `ToolGateway`, derived from the thrown
+exception where a connector threw (a 401 or 403 is `provider_unauthorized`; a connection error is
+`network_error`, or `timeout` when it timed out; a 5xx is `provider_unavailable`), and it lands on
+`tool_calls.outcome_class` beside the existing `status` and `failure_class`, which are kept as
+they are. `ToolOutcome` carries it. The agent runner files a non-successful call under
+`proposals` as `kind: refused` only when the class is control-plane; an external failure is filed
+as `kind: failed`, with the class and the side on the row, and the model is told in different
+words: "HQ permitted this call; it did not succeed outside HQ", so it cannot read a broken token
+as a refusal. The evaluation subject turns only `kind: refused` rows into `refusedToolCalls`, so
+`no_denied_calls` again means what its comment says. External failures become a new
+`failedToolCalls` list on the observation and a new per-run tally, `evaluation_runs.
+external_outcomes` (calls and cases per class), printed by the evaluate command as its own block.
+A behavioural case never fails because of an external class; the tally is the readiness evidence,
+apart from the safety and behaviour numbers, which is what point 6 asks for. The run detail page
+shows the two kinds under different labels and adds the class and the error to the tool-call
+table. Old rows are not rewritten: gate 8's three rows keep `kind: refused`, and its record stands.
+
+**C.2 Task scope (points 2 and 3).** A second small runtime reader, `App\Agents\TaskScopeResolver`
+(versioned, `v1`), reads the trusted text and nothing else, and answers one question: which
+targets is this task about? Its answer, `TaskScope`, is one of four kinds. `group`: the text
+carries a group phrase ("all businesses", "every business", "each business", "all stores", "every
+store", "each store", "all shops", "every shop", "each shop", "across the group", "group-wide",
+"the whole group"). `single`: exactly one business is named, by any of the names the directory
+knows (business, store or brand, slug or display name, matched as a whole phrase after the same
+normalisation the reference resolver uses, so "laladia.com" is the LaLaDia store and "Bionic
+Garden" is Bionic). `named`: two or more businesses are named. `none`: nothing is named. A run
+opened for one business is `single` for that business before the text is read. The scope is
+stored on the run (`agent_runs.task_scope`: kind, businesses, stores, version, the phrase that
+decided it) and carried on `GroundedTask`. The expansion in `AgentRunner` now takes it: a call
+that names a target is left alone as before; a call that names none, or names the group
+reference, is expanded to every permitted target only when the scope is `group`; when the scope
+is `single` or `named` it is resolved to the task's own targets (the named business for a
+business argument; that business's stores for a store argument, or the named store when one was
+named), intersected with what the agent may read, and the record says `expanded_from: unscoped`
+and `resolved_from: task`; when the scope is `none` the call is left unscoped and the gateway
+refuses it as `scope_denied`, naming the argument, exactly as before ADR-041, because a model
+omission is not an instruction and a guess is not a resolution. The catalogue sentence changes
+with it: "all" is for a question about every business; a question about one names it. Five
+regression tests, one per shape in point 3, plus the resolver's own table of phrases.
+
+**C.3 Readiness (points 4, 5 and 7).** `App\Gateway\Readiness\CapabilityReadiness` answers, for
+one target and one provider, whether HQ could execute at all, without touching a secret:
+`unsupported` (no adapter or connector exists for this store or business, which is Econic's
+WooCommerce store and the ERP counter today, by design), `disabled` (the tool switch is off for
+the business), `credential_missing`, `credential_invalid` (expired, or the last verification
+failed with an unauthorized answer and nothing newer has been stored), `unverified` (a credential
+exists and has never been checked; executable), `ready` (verified). The gateway's credential
+pre-flight uses the same rules, so a credential HQ already knows to be rejected refuses with
+`credential_invalid` and a reason that says when it was found and what to do, before a connector
+is called; and the gateway writes back what it learns: a call that ran marks the credentials it
+opened as verified, a 401 marks them as failing, in `integration_credentials.last_verified_at`
+and a small `meta.last_verification` (time, ok, class, a message with no secret in it). A command,
+`hq:credentials:health`, lists every store and every ERP business with its providers, whether a
+credential exists, its status, when it was last verified and with what result, and whether the
+capability is executable; with `--verify` it runs the existing read-only probes and records the
+result; it exits non-zero when a capability HQ supports has no working credential, and zero when
+the only gaps are unsupported by design. The credentials screen gains the same readiness table
+and a last-verification column. The gate runner prints the health table into the gate log before
+the run, so gate 9's record carries the readiness state the run was measured under. Point 7 is
+recorded as an invariant in the ADR and as the rule that the activation runbook must pass the
+health command: safety evidence, authorization evidence and readiness are three gates, and a
+green one never stands in for a red one.
+
+**C.4 What is deliberately not done.** No credential is added or rotated by code (point 9 is
+Joy's: the LaLaDia admin token, through the credentials screen, which revokes and replaces in one
+transaction). No adapter is written for WooCommerce or the ERP counter; readiness names them
+unsupported and the health check does not count them as incidents. Gate 7 and gate 8 rows,
+results and documents are untouched. The safety corpus is untouched at 69. The executive suite
+gains one case, a single-store question by shop name, and both single-target cases gain a
+`scope_bound` expectation (every executed call of the named tool stayed inside the named
+business), so gate 9 measures point 11's "single-business/store requests remain single-target"
+directly. Nothing is activated.
+
+**C.5 Order of work.** Plan (this section) -> `OutcomeClass`, gateway, recorder, migration ->
+runner filing and the model's wording -> subject, observation, grader, runner tally, evaluate
+command -> run detail page -> `TaskScope`, resolver, runner expansion, catalogue sentence ->
+readiness, health command, gateway write-back, screen, gate runner step -> ADR-043 -> tests
+(Pest, Pint, tsc) -> docs/68 -> PR, CI, merge -> Joy: token, deploy, one gate-9 launch -> STOP.
