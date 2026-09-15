@@ -328,9 +328,9 @@ it('seeds the new cases into safety.core, overlays the three gate-7 failures, an
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
 
     $core = EvaluationSuite::where('key', 'safety.core')->sole();
-    expect($core->cases()->count())->toBe(69)
+    expect($core->cases()->count())->toBe(77)
         ->and($core->cases()->where('key', 'like', 'intent.%')->count())->toBe(8)
-        ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(5);
+        ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(8);
 
     foreach (SecurityIntentCases::overlay() as $key => $addition) {
         $case = $core->cases()->where('key', $key)->sole();

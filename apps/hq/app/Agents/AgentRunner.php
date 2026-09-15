@@ -221,6 +221,7 @@ final class AgentRunner
         private readonly TaskGrounding $grounding,
         private readonly SecurityIntent $securityIntent,
         private readonly TaskScopeResolver $taskScope,
+        private readonly ProhibitedCapability $prohibitedCapability,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -386,6 +387,17 @@ final class AgentRunner
                 if ($grounded->runtimeFlagged() && $status !== AgentResponseSchema::STATUS_REFUSE) {
                     $this->finish($run, 'refused', null, $evidence, $proposals,
                         $this->securityRefusal($grounded, $reply), $toolCalls, null);
+
+                    return;
+                }
+
+                // ⛔ ADR-044, the third boundary, and the same rule: a message asking for a capability
+                // HQ prohibits ends refused on its first turn, before any tool, whatever the model's
+                // verdict. There is therefore no later turn in which the model's routine could run in
+                // the refused request's place, which is exactly what gate 9's SQL case did.
+                if ($grounded->capabilityRefused() && $status !== AgentResponseSchema::STATUS_REFUSE) {
+                    $this->finish($run, 'refused', null, $evidence, $proposals,
+                        $this->capabilityRefusal($grounded, $reply), $toolCalls, null);
 
                     return;
                 }
@@ -949,12 +961,17 @@ final class AgentRunner
         // the row with its version and the clauses it matched, beside the model's own reading.
         $signal = $this->securityIntent->detect($request->question);
 
+        // ⭐ ADR-044: and, apart, for a capability HQ prohibits. Two detectors, two columns, two
+        //    boundaries: an approval skip is not a SQL statement, and neither is the absence of a task.
+        $capability = $this->prohibitedCapability->detect($request->question);
+
         $grounded = $this->grounding->ground(
             trustedInput: $request->question,
             modelTask: $this->assessedTask($reply),
             authorityRequest: $this->assessedAuthority($reply),
             hasUntrustedContext: $bundle->untrusted() !== [],
             signal: $signal,
+            capability: $capability,
         );
 
         // ⭐ ADR-043: which targets the operator's OWN words are about, read by the runtime before
@@ -970,6 +987,7 @@ final class AgentRunner
             'authority_request' => $grounded->authorityRequest,
             'security_intent' => $signal->toArray(),
             'authority_source' => $grounded->authoritySource,
+            'prohibited_capability' => $capability->toArray(),
             'task_scope' => $scope->toArray(),
         ])->save();
 
@@ -995,6 +1013,29 @@ final class AgentRunner
         return 'HQ read this message as security-sensitive ('.$found.') and refused it as a whole: the agent did not substitute '
             .'a narrower or read-only version of the request, and no tool was run. '
             .'An alternative may be asked for on its own, as a new request.'
+            .($note !== '' ? ' The agent\'s own note: '.mb_substr($note, 0, 600) : '');
+    }
+
+    /**
+     * The refusal the runtime writes when its own detector found a prohibited capability in the
+     * message (ADR-044): what kind, in words; that nothing was run in its place; what HQ offers
+     * instead; then the model's own note where it gave one.
+     */
+    private function capabilityRefusal(GroundedTask $grounded, array $reply): string
+    {
+        $kinds = $grounded->prohibitedCapability?->kinds ?? [];
+        $labels = array_map(static fn (string $k) => str_replace('_', ' ', $k), $kinds);
+        $found = $labels === [] ? 'a request the runtime could not classify safely' : implode(', ', $labels);
+
+        $note = trim((string) ($reply['refusal_reason'] ?? ''));
+        if ($note === '') {
+            $note = trim((string) ($reply['answer'] ?? ''));
+        }
+
+        return 'HQ read this message as asking for a capability it does not have and will not use ('.$found.'): there is no SQL, '
+            .'no direct database access, no shell, no way around the typed tools and no secret an agent can see. The request '
+            .'is refused as a whole, no tool was run, and nothing was done in its place. A question the typed tools can '
+            .'answer may be asked on its own, as a new request.'
             .($note !== '' ? ' The agent\'s own note: '.mb_substr($note, 0, 600) : '');
     }
 

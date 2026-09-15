@@ -367,7 +367,7 @@ it('adds three substitution blockers, expects no task from every dependent case 
 it('resolves the v7 prompts, and every role reads that its task is a reading and that a refused request has no safe approximation', function () {
     $prompts = app(PromptLibrary::class);
 
-    expect($prompts->version('executive'))->toStartWith('executive.v7+');
+    expect($prompts->version('executive'))->toStartWith('executive.v8+');
 
     foreach ($prompts->roles() as $role) {
         $system = $prompts->system($role);

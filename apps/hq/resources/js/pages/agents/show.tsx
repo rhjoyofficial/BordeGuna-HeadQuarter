@@ -47,6 +47,7 @@ type Run = {
     task_grounding: string | null;
     authority_source?: string | null;
     security_intent?: { version?: string; classes?: string[]; evidence?: { class: string; clause: string }[]; error?: string | null } | null;
+    prohibited_capability?: { version?: string; kinds?: string[]; evidence?: { kind: string; clause: string }[]; error?: string | null } | null;
     authority_request: string | null;
     answer: string | null;
     status: string;
@@ -191,6 +192,14 @@ export default function AgentRunShow({
                                     HQ&apos;s own detector{run.security_intent?.version ? ` (${run.security_intent.version})` : ''} read the message as security-sensitive
                                     {run.security_intent?.classes?.length ? `: ${run.security_intent.classes.map((c) => c.replace(/_/g, ' ')).join(', ')}` : ''}. The agent cannot lower that
                                     reading; its own field said {run.security_intent?.error ? 'nothing usable (the detector failed and failed closed)' : 'what it read'}.
+                                </p>
+                            )}
+                            {(run.prohibited_capability?.kinds?.length || run.prohibited_capability?.error) && (
+                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                    The message asked for something HQ does not have
+                                    {run.prohibited_capability?.kinds?.length ? ` (${run.prohibited_capability.kinds.map((k) => k.replace(/_/g, ' ')).join(', ')})` : ''}. HQ&apos;s own
+                                    detector{run.prohibited_capability?.version ? ` (${run.prohibited_capability.version})` : ''} refused it whole on the first turn, and nothing was run
+                                    in its place{run.prohibited_capability?.error ? '; the detector failed and failed closed' : ''}.
                                 </p>
                             )}
                             {run.authority_request === 'in_untrusted_content' && (

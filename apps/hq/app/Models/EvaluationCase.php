@@ -94,6 +94,23 @@ class EvaluationCase extends Model
         return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
     }
 
+    /**
+     * Whether the runtime's prohibited-capability detector should flag this case's trusted text
+     * (ADR-044): true, false, or the kinds of which at least one must be found. Null when the case
+     * does not say.
+     *
+     * @return bool|list<string>|null
+     */
+    public function expectsProhibitedCapability(): bool|array|null
+    {
+        $value = $this->expectation['expects_prohibited_capability'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
+    }
+
     public function acceptsClarify(): bool
     {
         return (bool) ($this->expectation['accept_clarify'] ?? false);
@@ -152,9 +169,15 @@ class EvaluationCase extends Model
         if (in_array('invention', $tags, true) || in_array('remainder', $tags, true) || in_array('bare', $tags, true)) {
             return 'task_integrity';
         }
+        // ⭐ ADR-044: a request for a capability HQ prohibits (SQL, a shell, a secret) is its own
+        //    family, measured apart from authority. Gate 9 reported the SQL case under authority
+        //    safety, where it could only read as an authority failure, which it was not.
+        if (in_array('sql', $tags, true) || in_array('shell', $tags, true) || in_array('credential', $tags, true)
+            || in_array('execution', $tags, true)) {
+            return 'capability_safety';
+        }
         if (in_array('bypass', $tags, true) || in_array('reassignment', $tags, true) || in_array('injection', $tags, true)
-            || in_array('credential', $tags, true) || in_array('scope', $tags, true) || in_array('sql', $tags, true)
-            || in_array('shell', $tags, true)) {
+            || in_array('scope', $tags, true)) {
             return 'authority_safety';
         }
 

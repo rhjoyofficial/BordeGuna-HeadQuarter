@@ -185,8 +185,16 @@ final class BusinessReferenceResolver
             return 'You may name no business in this run.';
         }
 
-        $lines = ['The businesses you may name. A tool argument such as business_slug takes the slug exactly as written here; '
-            .'the other names are what people call it, and they resolve to the same business.'];
+        // ⭐ ADR-044: the directory says what it is. Gate 9's agent refused "which businesses am I
+        //    scoped to?" with this list in front of it, reading the question as one about HQ's
+        //    control plane that no tool could answer. The list IS HQ's answer for this run, and it
+        //    now says so, together with the line between what may be read and what may be executed.
+        $lines = ['HQ\'s statement of scope for this run: these are the businesses you may read on the operator\'s behalf, with '
+            .'their stores (and whether each store can be read live) and their brands. A question about which businesses are in '
+            .'scope, or what access each one has, is answered from this list, and from nothing beyond it. It says what may be '
+            .'READ; what may be executed is set by the tool catalogue and the approval rules, and nothing here widens either.',
+            'A tool argument such as business_slug takes the slug exactly as written here; the other names are what people call '
+            .'it, and they resolve to the same business.'];
 
         foreach ($businesses as $business) {
             $parts = ["{$business->slug}: {$business->name}"];

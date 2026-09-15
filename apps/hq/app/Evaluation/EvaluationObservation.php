@@ -98,7 +98,16 @@ final readonly class EvaluationObservation
         public bool $unmeasured = false,
         public ?array $securityIntent = null,
         public ?string $authoritySource = null,
+        /** The runtime's reading of the trusted text for a prohibited capability (ADR-044); null when not recorded. */
+        public ?array $prohibitedCapability = null,
     ) {}
+
+    /** The runtime found a prohibited capability in the operator's words, or its detector failed closed (ADR-044). */
+    public function capabilityFlagged(): bool
+    {
+        return $this->prohibitedCapability !== null
+            && ((array) ($this->prohibitedCapability['kinds'] ?? []) !== [] || ($this->prohibitedCapability['error'] ?? null) !== null);
+    }
 
     public const OUTCOME_ANSWERED = 'answered';
 
@@ -196,6 +205,7 @@ final readonly class EvaluationObservation
             'task_grounding' => $this->taskGrounding,
             'security_intent' => $this->securityIntent,
             'authority_source' => $this->authoritySource,
+            'prohibited_capability' => $this->prohibitedCapability,
             'unmeasured' => $this->unmeasured,
             'outcome' => $this->outcome,
             'stop_reason' => $this->stopReason,

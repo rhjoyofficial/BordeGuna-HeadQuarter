@@ -42,6 +42,12 @@ final class TaskGrounding
     public const MODEL_NAMED_NONE = 'model_named_none';
 
     /**
+     * The operator asked for something, and the something is a capability HQ prohibits (ADR-044).
+     * The task EXISTS, which is why the canonical task is kept; what it asks for is refused whole.
+     */
+    public const PROHIBITED_CAPABILITY = 'prohibited_capability';
+
+    /**
      * Words that continue, permit, urge or point, and never name what is to be done. A message made
      * only of these (plus function words) contains no task, whatever the model reads into it.
      */
@@ -67,8 +73,10 @@ final class TaskGrounding
     /**
      * @param  SecurityIntentSignal|null  $signal  the runtime's own reading of the trusted text (ADR-042); null only in
      *                                             callers that have no detector, which the runner never is
+     * @param  ProhibitedCapabilitySignal|null  $capability  the runtime's reading of the same text for a prohibited
+     *                                                       capability (ADR-044); a third boundary, recorded apart
      */
-    public function ground(string $trustedInput, string $modelTask, string $authorityRequest, bool $hasUntrustedContext, ?SecurityIntentSignal $signal = null): GroundedTask
+    public function ground(string $trustedInput, string $modelTask, string $authorityRequest, bool $hasUntrustedContext, ?SecurityIntentSignal $signal = null, ?ProhibitedCapabilitySignal $capability = null): GroundedTask
     {
         $trusted = trim($trustedInput);
         $interpretation = trim($modelTask);
@@ -98,7 +106,7 @@ final class TaskGrounding
         $trustedWords = $this->contentWords($trusted);
 
         if ($trustedWords === [] && $authority !== AgentResponseSchema::AUTHORITY_REFUSED) {
-            return new GroundedTask('', $interpretation, $authority, self::NO_TASK_IN_TRUSTED_INPUT, $source, $signal);
+            return new GroundedTask('', $interpretation, $authority, self::NO_TASK_IN_TRUSTED_INPUT, $source, $signal, null, $capability);
         }
 
         // ⭐ The dependency rule, made structural: the trusted caller asked the agent to widen its
@@ -106,16 +114,26 @@ final class TaskGrounding
         // message survives the refusal. Not the "usual report" after it, and not a narrower,
         // read-only version of the refused action.
         if ($authority === AgentResponseSchema::AUTHORITY_REFUSED) {
-            return new GroundedTask('', $interpretation, $authority, self::DEPENDENT_ON_REFUSED_AUTHORITY, $source, $signal);
+            return new GroundedTask('', $interpretation, $authority, self::DEPENDENT_ON_REFUSED_AUTHORITY, $source, $signal, null, $capability);
+        }
+
+        // ⭐ ADR-044, the third boundary. "Run this SQL" is a task (the operator asked for something)
+        // with an authority state of `none` (nothing was skipped, widened or hidden), and the thing
+        // asked for is a capability HQ prohibits. Gate 9 read it as grounded and let the model's own
+        // routine run in its place. The canonical task is kept, so the record says what was asked;
+        // the reason names the boundary; and the runner refuses the run whole on its first turn,
+        // whatever the model interpreted, before any tool.
+        if ($capability !== null && $capability->detected()) {
+            return new GroundedTask($trusted, $interpretation, $authority, self::PROHIBITED_CAPABILITY, $source, $signal, null, $capability);
         }
 
         if ($interpretation === '') {
-            return new GroundedTask('', $interpretation, $authority, self::MODEL_NAMED_NONE, $source, $signal);
+            return new GroundedTask('', $interpretation, $authority, self::MODEL_NAMED_NONE, $source, $signal, null, $capability);
         }
 
         // The canonical task is the operator's words, not the model's. The interpretation is kept
         // beside it as what the run understood; the authority is the message.
-        return new GroundedTask($trusted, $interpretation, $authority, self::GROUNDED, $source, $signal);
+        return new GroundedTask($trusted, $interpretation, $authority, self::GROUNDED, $source, $signal, null, $capability);
     }
 
     /**
