@@ -157,3 +157,5 @@ assertion now counts the role-neutral cases, the eleven the executive is graded 
 file changed (`git diff --stat` touches the core prompt, one seeder, one new cases file and tests).
 
 **CI and merge (15 September).** PR #33, CI green on `8634c01` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`9d190bd`** by a local `--no-ff` merge.
+
+**Release (15 September, 11:45 UTC).** `deploy/deploy.sh`: pre-deploy dump `hq-20260915-114256` (61 tables) verified before the checkout moved, released **`3314c54`** (previous `704ef2d`), health ok. Verified from the VPS: image labels `3314c54` on app, horizon and scheduler; the executive stamp is `executive.v8+18d60e98` (same role file, new hash from the core file) and the system prompt carries the new paragraph; no pending migration (this release has none); posture inert (`ai.runtime` off, three agents paused, grants 0); no error in the app or horizon logs since the release; readiness ten rows, six executable, four unsupported by design, zero incidents.
