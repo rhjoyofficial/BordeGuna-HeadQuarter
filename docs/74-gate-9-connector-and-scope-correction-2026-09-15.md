@@ -216,3 +216,34 @@ runner filing and the model's wording -> subject, observation, grader, runner ta
 command -> run detail page -> `TaskScope`, resolver, runner expansion, catalogue sentence ->
 readiness, health command, gateway write-back, screen, gate runner step -> ADR-043 -> tests
 (Pest, Pint, tsc) -> docs/68 -> PR, CI, merge -> Joy: token, deploy, one gate-9 launch -> STOP.
+
+## D. Record
+
+**Built (15 September), on branch `m5/gate-9-connector-scope`, in the plan's order.** C.1 as
+`ca070df`: `App\Gateway\OutcomeClass` (17 classes on three sides, `fromThrowable`), carried on
+`ToolOutcome` and `ToolResult` (`failedBy`), set at every refusal site of `ToolGateway`, written to
+`tool_calls.outcome_class`; the runner files `kind: failed` for an external class with the class and
+side on the row and tells the model in `ContextAssembler::toolFailure` words; the subject splits
+`refusedToolCalls` from `failedToolCalls`; the runner tallies `evaluation_runs.external_outcomes`
+and the evaluate command prints it as an `external` block; the run page shows the two kinds under
+their own labels and the tool-call table carries the class and the error. C.2 as `c4be4c7`:
+`TaskScope` and `TaskScopeResolver` (`v1`, sixteen group phrases, whole-phrase directory match),
+`agent_runs.task_scope`, `GroundedTask::withScope`, the expansion bounded by the task's scope with
+`resolved_from: task` on the record, the catalogue sentence rewritten. Tests as `4d5d40e`:
+`TaskScopeExpansionTest` (the resolver's table, the five shapes, the group reference on a single
+task, the record) and `OutcomeClassTest` (the sides, a missing token filed as failed, a 401
+classified and remembered and refused next time before the shop is asked, a success verifying, a
+503 condemning nothing, the model's wording, the grader reading only refusals). C.3 as `14df197`:
+`ReadinessRow` and `CapabilityReadiness` (six states, `verify` through the existing read-only
+probes), `CredentialHealth` (accepted and rejected, learned from every live call in the gateway),
+the credential pre-flight refusing a known-rejected credential as `credential_invalid`,
+`hq:credentials:health` with `--verify` and `--json` and a non-zero exit on an incident, the
+Credentials screen's readiness table and last-result column, the gate runner's step 0b, the
+`scope_bound` check, the executive suite's fifteenth case (`role.single_store_question.by_shop_name`)
+and `scope_bound` on both single-target cases, ADR-043. `CapabilityReadinessTest` (five cases)
+after it. `CommerceRegistry::SUPPORTED_ADAPTERS` names the two adapters HQ has once, and the
+directory the model reads marks a store without one as "no live shop connector, facts only".
+
+**Verified locally:** the six affected folders 420 of 420, the new files 28 of 28, Pint clean,
+`tsc --noEmit` clean. The full Pest run, CI and the merge are recorded below when they are done.
+
