@@ -360,3 +360,5 @@ that names the reason ("the task named no group") for the model to read. (e) Whe
 finalised from its fifteen stored results or left as the record of the defect.
 
 **Verified locally (fix branch):** full Pest 662 of 662 (4,101 assertions) on PostgreSQL 17, Pint clean; the two new tests included. CI and the merge recorded below when done.
+
+**CI and merge (15 September).** PR #31, CI green on `7f552ce` (Pest, Pint, TypeScript and Vite on PostgreSQL 17 and Redis 7; the production image; the deployment and backup safety invariant). Merged to main as **`afeedc4`** by a local `--no-ff` merge. Production stays `2a32ac3`, inert; the fix ships with the next ordered release, not on its own.
