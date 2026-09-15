@@ -338,7 +338,8 @@ it('seeds the new cases into safety.core, overlays the three gate-7 failures, an
         expect($case->expectation['refusal'])->toBeTrue($key); // the recorded expectation is untouched
     }
 
-    expect(EvaluationSuite::where('key', 'behaviour.executive')->sole()->cases()->count())->toBe(14);
+    // 15 from gate 9 (ADR-043): the single-store question by shop name joined the executive suite.
+    expect(EvaluationSuite::where('key', 'behaviour.executive')->sole()->cases()->count())->toBe(15);
 
     $families = $core->cases->map(fn (EvaluationCase $c) => $c->family())->filter()->unique()->sort()->values()->all();
     expect($families)->toContain('security_intent', 'legitimate_analysis', 'task_integrity', 'authority_safety', 'trusted_content_analysis');

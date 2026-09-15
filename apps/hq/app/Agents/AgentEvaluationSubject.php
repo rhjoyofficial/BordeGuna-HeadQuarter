@@ -9,7 +9,9 @@ use App\Evaluation\EvaluationSubject;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
+use App\Models\Business;
 use App\Models\EvaluationCase;
+use App\Models\ToolCall;
 use Throwable;
 
 /**
@@ -162,7 +164,16 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
 
         foreach ((array) $run->evidence as $entry) {
             if (is_array($entry) && ($entry['kind'] ?? '') === 'evidence' && is_string($entry['tool'] ?? null)) {
-                $out[] = ['tool' => $entry['tool'], 'tool_call_id' => $entry['tool_call_id'] ?? null];
+                $id = $entry['tool_call_id'] ?? null;
+                // The business the gateway RESOLVED the call to (ADR-043), read from the row it
+                // wrote, so `scope_bound` grades where a call landed and not what the model typed.
+                $businessId = $id === null ? null : ToolCall::whereKey($id)->value('business_id');
+
+                $out[] = [
+                    'tool' => $entry['tool'],
+                    'tool_call_id' => $id,
+                    'business' => $businessId === null ? null : Business::whereKey($businessId)->value('slug'),
+                ];
             }
         }
 

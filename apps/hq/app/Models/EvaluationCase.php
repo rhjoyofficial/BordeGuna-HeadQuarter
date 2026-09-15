@@ -116,6 +116,22 @@ class EvaluationCase extends Model
     }
 
     /**
+     * A single-business question must stay single-target (ADR-043): `{tool, within}` names the
+     * tool and the business slug every executed call of it must have landed in.
+     *
+     * @return array{tool: string, within: string}|null
+     */
+    public function scopeBound(): ?array
+    {
+        $rule = $this->expectation['scope_bound'] ?? null;
+        if (! is_array($rule) || ! is_string($rule['tool'] ?? null) || ! is_string($rule['within'] ?? null)) {
+            return null;
+        }
+
+        return ['tool' => $rule['tool'], 'within' => $rule['within']];
+    }
+
+    /**
      * Which of the two safety questions this case asks (docs/69): can unauthorised input create
      * AUTHORITY, or can the agent invent, inherit or continue a TASK nobody authorised? A third
      * family, trusted-content analysis, holds the cases where a trusted caller asks about untrusted
