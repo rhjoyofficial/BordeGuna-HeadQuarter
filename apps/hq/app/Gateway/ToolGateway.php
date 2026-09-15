@@ -5,6 +5,7 @@ namespace App\Gateway;
 use App\Consent\ConsentGate;
 use App\Gateway\Approval\ApprovalGuard;
 use App\Gateway\Approval\ApprovalService;
+use App\Gateway\Credentials\CredentialHealth;
 use App\Gateway\Credentials\CredentialResolver;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\Descriptor\RiskTier;
@@ -75,6 +76,7 @@ final class ToolGateway
         private readonly ApprovalGuard $approvalGuard,
         private readonly Auditor $auditor,
         private readonly ConsentGate $consent,
+        private readonly CredentialHealth $health,
     ) {}
 
     public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
@@ -97,7 +99,8 @@ final class ToolGateway
         $availability = $this->availability->check($request->toolKey, $request->businessId);
         if (! $availability['available'] || $descriptor === null) {
             return $this->refuse($call, $request, OutcomeStatus::Unavailable, FailureClass::Unsupported,
-                $availability['reason'] ?? "Tool [{$request->toolKey}] has no descriptor.", $descriptor);
+                $availability['reason'] ?? "Tool [{$request->toolKey}] has no descriptor.", $descriptor,
+                class: OutcomeClass::CapabilityUnavailable);
         }
 
         $tool = $this->registry->get($request->toolKey);
@@ -106,7 +109,7 @@ final class ToolGateway
         $validation = $this->validator->validate($request->args, $tool->inputSchema());
         if (! $validation->valid) {
             return $this->refuse($call, $request, OutcomeStatus::Invalid, FailureClass::ValidationFailed,
-                $validation->message(), $descriptor);
+                $validation->message(), $descriptor, class: OutcomeClass::InvalidArguments);
         }
         $args = $validation->normalised;
         $this->recorder->recordValidatedArgs($call, $args, $descriptor);
@@ -119,10 +122,12 @@ final class ToolGateway
         //    because the Phase 1 scheduled jobs name their target in the payload (see ScopeResolver).
         $scope = $this->scopes->resolve($descriptor, $request, $args);
         if ($scope->missing) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, (string) $scope->problem, $descriptor);
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, (string) $scope->problem, $descriptor,
+                class: OutcomeClass::ScopeDenied);
         }
         if (($scopeProblem = $this->checkScope($descriptor, $request, $scope)) !== null) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $scopeProblem, $descriptor);
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $scopeProblem, $descriptor,
+                class: OutcomeClass::ScopeDenied);
         }
         // Now that the target is known, the row can say which business and store the call was for.
         // Before M2 an ERP poll recorded null for both, because its business lives in its payload.
@@ -157,7 +162,7 @@ final class ToolGateway
         $consent = $this->consent->check($descriptor, $request, $args, $scope->businessId);
         if (! $consent->permitted) {
             return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused,
-                'consent refused: '.$consent->reason, $descriptor);
+                'consent refused: '.$consent->reason, $descriptor, class: OutcomeClass::ConsentDenied);
         }
 
         // 6/7. Idempotency: a redelivered request returns its recorded result; an uncertain one is
@@ -192,8 +197,11 @@ final class ToolGateway
         //    handled here at all.
         $resolution = $this->credentials->resolve($descriptor, $request, $args, $scope);
         if (! $resolution->satisfied()) {
+            // ⭐ ADR-043: an absent or rejected credential is an EXTERNAL class, never a refusal by
+            //    HQ. The status stays `unavailable` for every reader that keyed on it; the class
+            //    says which of the two it is, and the reason says what an operator does about it.
             return $this->refuse($call, $request, OutcomeStatus::Unavailable, FailureClass::Unsupported,
-                $resolution->reason(), $descriptor);
+                $resolution->reason(), $descriptor, class: $resolution->outcomeClass());
         }
 
         // Only a call that will actually execute consumes quota. A refused one must not.
@@ -212,14 +220,21 @@ final class ToolGateway
             ]);
 
             $status = $failure === FailureClass::Uncertain ? OutcomeStatus::Uncertain : OutcomeStatus::Failed;
+            // Whose fault (ADR-043), read from the exception the connector threw: a 401 is the far
+            // side rejecting the credential, a connection error is the network, a 5xx is the
+            // provider. HQ permitted this call; none of these is HQ saying no.
+            $class = OutcomeClass::fromThrowable($e);
             $this->recorder->complete($call, $status, error: get_class($e).': '.$e->getMessage(),
-                failure: $failure, descriptor: $descriptor, secrets: $secrets);
+                failure: $failure, descriptor: $descriptor, secrets: $secrets, class: $class);
             $this->audit($request, $descriptor, $call, $status->value, $decision);
+            // What the call taught HQ about the credentials it opened: a rejected token is recorded
+            // on its row, so the next call is refused before a connector is asked again.
+            $this->health->learnFromCall($resolution->found, $class, $e->getMessage(), 'tool_call#'.$call->id);
 
             return new ToolOutcome(
                 status: $status, error: $e->getMessage(), failure: $failure, policy: $decision->outcome,
                 policyReason: $decision->reason, toolCallId: $call->id,
-                durationMs: (int) ((microtime(true) - $started) * 1000),
+                durationMs: (int) ((microtime(true) - $started) * 1000), class: $class,
             );
         }
 
@@ -227,13 +242,16 @@ final class ToolGateway
         $outcome = ToolOutcome::fromToolResult($result, $decision->outcome, $durationMs);
 
         $this->recorder->complete($call, $outcome->status, output: $result->output, error: $result->error,
-            failure: $outcome->failure, descriptor: $descriptor, secrets: $secrets);
+            failure: $outcome->failure, descriptor: $descriptor, secrets: $secrets, class: $outcome->class);
         $this->audit($request, $descriptor, $call, $outcome->status->value, $decision);
+        if ($outcome->ok()) {
+            $this->health->learnFromCall($resolution->found, null, null, 'tool_call#'.$call->id);
+        }
 
         return new ToolOutcome(
             status: $outcome->status, output: $result->output, error: $result->error, failure: $outcome->failure,
             policy: $decision->outcome, policyReason: $decision->reason, toolCallId: $call->id,
-            durationMs: $durationMs, providerRef: $result->providerRef,
+            durationMs: $durationMs, providerRef: $result->providerRef, class: $outcome->class,
         );
     }
 
@@ -303,7 +321,7 @@ final class ToolGateway
         if (! $descriptor->idempotent) {
             return $this->refuse($call, $request, OutcomeStatus::Uncertain, FailureClass::Uncertain,
                 "A previous call with this idempotency key is uncertain and [{$descriptor->key}] cannot reconcile it. A human must decide.",
-                $descriptor);
+                $descriptor, class: OutcomeClass::Uncertain);
         }
 
         return null; // idempotent and nothing to recover: executing again is safe
@@ -328,7 +346,11 @@ final class ToolGateway
         ResolvedScope $scope,
     ): ToolOutcome {
         if ($decision->outcome !== PolicyOutcome::RequireApproval) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $decision->reason, $descriptor, $decision);
+            // A permission rule and a policy rule are both HQ saying no; the class tells them apart
+            // for the screen and the grader, by the rule the engine recorded.
+            $class = str_contains(mb_strtolower($decision->rule), 'permission') ? OutcomeClass::PermissionDenied : OutcomeClass::PolicyDenied;
+
+            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $decision->reason, $descriptor, $decision, $class);
         }
 
         // An agent may PROPOSE a gated action; it may never be the thing that approves it. Parking
@@ -362,6 +384,7 @@ final class ToolGateway
             policyReason: $decision->reason,
             toolCallId: $call->id,
             approvalId: $approval->id,
+            class: OutcomeClass::ApprovalRequired,
         );
     }
 
@@ -407,8 +430,13 @@ final class ToolGateway
         string $reason,
         ?ToolDescriptor $descriptor,
         ?PolicyDecision $decision = null,
+        ?OutcomeClass $class = null,
     ): ToolOutcome {
-        $this->recorder->complete($call, $status, error: $reason, failure: $failure, descriptor: $descriptor);
+        // Every refusal names whose fault it is (ADR-043). A site that did not say is HQ's own
+        // fault by construction: an unclassified refusal must never read as the far side failing.
+        $class ??= OutcomeClass::InternalError;
+
+        $this->recorder->complete($call, $status, error: $reason, failure: $failure, descriptor: $descriptor, class: $class);
         $this->audit($request, $descriptor, $call, $status->value, $decision, $reason);
 
         return new ToolOutcome(
@@ -418,6 +446,7 @@ final class ToolGateway
             policy: $decision?->outcome ?? PolicyOutcome::Deny,
             policyReason: $decision?->reason ?? $reason,
             toolCallId: $call->id,
+            class: $class,
         );
     }
 

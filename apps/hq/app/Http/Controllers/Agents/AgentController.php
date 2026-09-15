@@ -123,7 +123,9 @@ final class AgentController extends Controller
 
         $calls = ToolCall::where('correlation_id', $run->correlation_id)
             ->orderBy('id')
-            ->get(['id', 'tool_key', 'status', 'policy_result', 'policy_reason', 'duration_ms', 'created_at']);
+            // The class and the error too (ADR-043): a reader must see "HQ refused" and "HQ
+            // permitted, the shop refused the token" as two different rows.
+            ->get(['id', 'tool_key', 'status', 'policy_result', 'policy_reason', 'failure_class', 'outcome_class', 'error', 'duration_ms', 'created_at']);
 
         $models = AiRun::where('correlation_id', $run->correlation_id)
             ->orderBy('id')

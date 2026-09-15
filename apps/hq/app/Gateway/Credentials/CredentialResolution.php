@@ -2,6 +2,8 @@
 
 namespace App\Gateway\Credentials;
 
+use App\Gateway\OutcomeClass;
+
 /**
  * The result of the credential pre-flight: which credential ids are in play, and what is missing.
  *
@@ -13,10 +15,14 @@ final readonly class CredentialResolution
     /**
      * @param  list<array{provider: string, account_ref: string, credential_id: int}>  $found
      * @param  list<string>  $missing
+     * @param  OutcomeClass|null  $class  why it is unsatisfied (ADR-043): `credential_missing` when
+     *                                    no active row with a value exists, `credential_invalid` when
+     *                                    one exists and HQ already knows it is expired or rejected
      */
     public function __construct(
         public array $found = [],
         public array $missing = [],
+        public ?OutcomeClass $class = null,
     ) {}
 
     public function satisfied(): bool
@@ -29,6 +35,12 @@ final readonly class CredentialResolution
         return implode('; ', $this->missing);
     }
 
+    /** The class a refusal carries when the pre-flight failed; missing by default. */
+    public function outcomeClass(): OutcomeClass
+    {
+        return $this->class ?? OutcomeClass::CredentialMissing;
+    }
+
     /** @return list<int> */
     public function credentialIds(): array
     {
@@ -38,6 +50,6 @@ final readonly class CredentialResolution
     /** Safe for tool_calls and audit context: ids and account refs, never a value. */
     public function toArray(): array
     {
-        return ['credentials' => $this->found, 'missing' => $this->missing];
+        return ['credentials' => $this->found, 'missing' => $this->missing, 'class' => $this->class?->value];
     }
 }

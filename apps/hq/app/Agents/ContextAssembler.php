@@ -4,6 +4,7 @@ namespace App\Agents;
 
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Gateway\OutcomeClass;
 use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Models\Agent;
 use App\Models\Business;
@@ -92,6 +93,19 @@ final readonly class ContextAssembler
     public function toolRefusal(string $toolKey, string $reason): ContextBlock
     {
         return ContextBlock::business("tool:{$toolKey}#refused", "The call to [{$toolKey}] did not run. Reason: {$reason}");
+    }
+
+    /**
+     * A call HQ permitted that failed OUTSIDE HQ (ADR-043), in words that cannot be read as a
+     * refusal: the model must not conclude it was told no, nor try the same target again by
+     * another route, nor widen to other targets to make up for it.
+     */
+    public function toolFailure(string $toolKey, string $reason, OutcomeClass $class): ContextBlock
+    {
+        return ContextBlock::business("tool:{$toolKey}#failed",
+            "HQ permitted the call to [{$toolKey}], and it did not succeed outside HQ ({$class->label()}). This is not a refusal. "
+            .'Say so in your answer, do not retry it by another route, and do not widen to other businesses or stores in its place. '
+            ."Reason: {$reason}");
     }
 
     private function identityBlock(Agent $agent, ?Business $business): string

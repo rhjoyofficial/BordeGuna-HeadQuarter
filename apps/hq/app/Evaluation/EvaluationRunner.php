@@ -86,10 +86,21 @@ final readonly class EvaluationRunner
         $byDimension = [];
         $byCheck = [];
         $byFamily = [];
+        $external = [];
 
         foreach ($cases as $case) {
             $observation = $subject->run($case);
             $grader = $this->graderFor($case);
+
+            // ⭐ ADR-043: what failed OUTSIDE HQ, per class, tallied apart from every pass/fail
+            //    number. "The agent chose well and was permitted" and "the shop rejected the token"
+            //    are two facts; this is the second one's own column, and it never moves the first.
+            foreach ($observation->failedToolCalls as $failed) {
+                $class = (string) ($failed['outcome_class'] ?? 'connector_error');
+                $external[$class]['calls'] = ($external[$class]['calls'] ?? 0) + 1;
+                $external[$class]['cases'][$case->key] = true;
+                $external[$class]['tools'][$failed['tool']] = true;
+            }
 
             // Denormalised from the case at write time (ADR-030). A result must stay readable as
             // evidence after its case is re-tagged, or the stored history describes a run that
@@ -200,6 +211,9 @@ final readonly class EvaluationRunner
             'dimension_rates' => $this->rates($byDimension),
             'check_rates' => $this->rates($byCheck),
             'family_rates' => $this->rates($byFamily),
+            // Readiness evidence (ADR-043): per external class, how many calls and which cases and
+            // tools. Recorded even when empty, so a run with no external failure says so.
+            'external_outcomes' => $this->externalOutcomes($external),
             'status' => $status,
             'finished_at' => now(),
             'regressions' => $this->regressions($run),
@@ -214,6 +228,27 @@ final readonly class EvaluationRunner
         ]);
 
         return $run->refresh();
+    }
+
+    /**
+     * @param  array<string, array{calls: int, cases: array<string, true>, tools: array<string, true>}>  $external
+     * @return array<string, array{calls: int, cases: list<string>, tools: list<string>}>
+     */
+    private function externalOutcomes(array $external): array
+    {
+        $out = [];
+
+        foreach ($external as $class => $tally) {
+            $out[$class] = [
+                'calls' => (int) $tally['calls'],
+                'cases' => array_keys($tally['cases'] ?? []),
+                'tools' => array_keys($tally['tools'] ?? []),
+            ];
+        }
+
+        ksort($out);
+
+        return $out;
     }
 
     /**

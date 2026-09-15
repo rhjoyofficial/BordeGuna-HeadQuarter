@@ -18,7 +18,22 @@ type Evidence = {
     args?: Record<string, unknown>;
 };
 
-type Proposal = { kind: string; tool?: string; reason?: string; why?: string | null; args?: Record<string, unknown> };
+type Proposal = {
+    kind: string;
+    tool?: string;
+    reason?: string;
+    why?: string | null;
+    args?: Record<string, unknown>;
+    outcome_class?: string;
+    side?: string;
+};
+
+/** Two kinds, not one (ADR-043): HQ refusing a call, and HQ permitting a call the outside then failed. */
+function proposalKind(p: Proposal): { label: string; tone: 'danger' | 'warn' | 'neutral' } {
+    if (p.kind === 'failed') return { label: 'Permitted, failed outside HQ', tone: 'warn' };
+    if (p.kind === 'proposal') return { label: 'Proposed for a human', tone: 'neutral' };
+    return { label: 'Refused by HQ', tone: 'danger' };
+}
 
 type Provenance = { id: string; provenance: string; source: string; digest: string; bytes: number; trusted: boolean };
 
@@ -63,6 +78,9 @@ type ToolCall = {
     status: string;
     policy_result: string | null;
     policy_reason: string | null;
+    failure_class: string | null;
+    outcome_class: string | null;
+    error: string | null;
     duration_ms: number | null;
 };
 
@@ -316,19 +334,28 @@ export default function AgentRunShow({
                                     <tr>
                                         <th className="px-3 py-2 font-medium">Kind</th>
                                         <th className="px-3 py-2 font-medium">Tool</th>
-                                        <th className="px-3 py-2 font-medium">Why it did not run</th>
+                                        <th className="px-3 py-2 font-medium">Class</th>
+                                        <th className="px-3 py-2 font-medium">Why it did not succeed</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {run.proposals.map((p, i) => (
-                                        <tr key={i} className="border-t">
-                                            <td className="px-3 py-2">{humanKey(p.kind)}</td>
-                                            <td className="px-3 py-2 text-xs" title={p.tool ?? ''}>
-                                                {p.tool ? humanKey(p.tool) : '-'}
-                                            </td>
-                                            <td className="px-3 py-2">{p.reason ?? p.why ?? '-'}</td>
-                                        </tr>
-                                    ))}
+                                    {run.proposals.map((p, i) => {
+                                        const kind = proposalKind(p);
+                                        return (
+                                            <tr key={i} className="border-t">
+                                                <td className="px-3 py-2 whitespace-nowrap">
+                                                    <StatusBadge tone={kind.tone}>{kind.label}</StatusBadge>
+                                                </td>
+                                                <td className="px-3 py-2 text-xs" title={p.tool ?? ''}>
+                                                    {p.tool ? humanKey(p.tool) : '-'}
+                                                </td>
+                                                <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap">
+                                                    {p.outcome_class ? humanKey(p.outcome_class).toLowerCase() : '-'}
+                                                </td>
+                                                <td className="px-3 py-2">{p.reason ?? p.why ?? '-'}</td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -356,6 +383,9 @@ export default function AgentRunShow({
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs" title={c.policy_reason ?? ''}>
                                                 {c.policy_result ? humanKey(c.policy_result).toLowerCase() : ''}
+                                            </td>
+                                            <td className="text-muted-foreground px-3 py-2 text-xs" title={c.error ?? ''}>
+                                                {c.outcome_class ? humanKey(c.outcome_class).toLowerCase() : ''}
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-right text-xs whitespace-nowrap">
                                                 {humanMillis(c.duration_ms)}

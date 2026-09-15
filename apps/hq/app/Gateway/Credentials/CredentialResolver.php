@@ -4,6 +4,7 @@ namespace App\Gateway\Credentials;
 
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ToolDescriptor;
+use App\Gateway\OutcomeClass;
 use App\Gateway\Scope\ResolvedScope;
 use App\Gateway\ToolRequest;
 use App\Models\Business;
@@ -26,7 +27,7 @@ use App\Models\Store;
  */
 final class CredentialResolver
 {
-    public function __construct(private readonly CredentialVault $vault) {}
+    public function __construct(private readonly CredentialVault $vault, private readonly CredentialHealth $health) {}
 
     /**
      * @return CredentialResolution ids and status only, never a value
@@ -35,6 +36,7 @@ final class CredentialResolver
     {
         $found = [];
         $missing = [];
+        $class = null;
 
         foreach ($descriptor->credentials as $requirement) {
             $accountRef = $this->accountRef($requirement, $request, $args, $scope);
@@ -54,9 +56,19 @@ final class CredentialResolver
                 continue;
             }
 
-            if ($credential === null || $credential->isExpired() || ! $credential->hasPayload()) {
+            // ⭐ ADR-043: a row that exists but HQ already knows is rejected is not "missing"; it is
+            //    invalid, and the reason says when that was learned and what to do. A connector is
+            //    not asked again with a token the far side refused, and the run record says why.
+            $knownInvalid = $credential !== null && $this->health->isKnownInvalid($credential);
+
+            if ($credential === null || $credential->isExpired() || ! $credential->hasPayload() || $knownInvalid) {
                 if (! $requirement->optional) {
-                    $missing[] = $this->describeMissing($requirement, $accountRef, $credential);
+                    $missing[] = $this->describeMissing($requirement, $accountRef, $credential, $knownInvalid);
+                    // Invalid outranks missing when both occur: the row that exists and fails is
+                    // the one an operator has to act on.
+                    $invalid = $credential !== null && ($credential->isExpired() || $knownInvalid);
+                    $class = $invalid || $class === OutcomeClass::CredentialInvalid
+                        ? OutcomeClass::CredentialInvalid : OutcomeClass::CredentialMissing;
                 }
 
                 continue;
@@ -65,7 +77,7 @@ final class CredentialResolver
             $found[] = ['provider' => $requirement->provider, 'account_ref' => $accountRef, 'credential_id' => $credential->id];
         }
 
-        return new CredentialResolution($found, $missing);
+        return new CredentialResolution($found, $missing, $class);
     }
 
     /**
@@ -121,9 +133,16 @@ final class CredentialResolver
         return null;
     }
 
-    private function describeMissing(CredentialRequirement $requirement, ?string $accountRef, ?IntegrationCredential $credential): string
+    private function describeMissing(CredentialRequirement $requirement, ?string $accountRef, ?IntegrationCredential $credential, bool $knownInvalid = false): string
     {
         $account = $accountRef ?? 'unresolved account';
+
+        if ($credential !== null && $knownInvalid) {
+            $last = $this->health->lastVerification($credential);
+
+            return "credential [{$requirement->provider}/{$account}] is known to be rejected by the provider since "
+                .($last['at'] ?? 'an earlier check').' ('.($last['source'] ?? 'unknown source').'); store a new one on the Credentials screen';
+        }
 
         return match (true) {
             $accountRef === null => "credential [{$requirement->provider}] could not be matched: {$requirement->accountRefFrom} resolved to nothing",

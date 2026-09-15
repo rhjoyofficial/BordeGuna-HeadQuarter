@@ -18,6 +18,7 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
+use App\Gateway\OutcomeClass;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Gateway\ToolGateway;
@@ -617,7 +618,8 @@ final class AgentRunner
         if (($refusal = $this->toolset->refusalFor($agent, $key, $request->businessId)) !== null) {
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $refusal),
-                ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null],
+                ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null,
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 $key,
             ];
         }
@@ -633,7 +635,8 @@ final class AgentRunner
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason],
+                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
+                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 null, // not a denial: the agent did the right thing by proposing it
             ];
         }
@@ -653,17 +656,34 @@ final class AgentRunner
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'approval_id' => $outcome->approvalId, 'reason' => $reason],
+                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'approval_id' => $outcome->approvalId, 'reason' => $reason,
+                    'outcome_class' => OutcomeClass::ApprovalRequired->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
                 null,
             ];
         }
 
         if (! $outcome->ok()) {
             $reason = $outcome->error ?? $outcome->policyReason ?? 'the call did not succeed';
+            $class = $outcome->class ?? OutcomeClass::InternalError;
+
+            // ⭐ ADR-043: two kinds, not one. HQ refusing a call is `refused`, and a grader may hold
+            //    it against the model; HQ permitting a call that the outside then failed is
+            //    `failed`, readiness evidence that says nothing about the model's choice. Gate 8
+            //    filed a rejected shop token as the first kind and graded a scoped, permitted read
+            //    as "a form the control plane refused".
+            if ($outcome->failedOutside()) {
+                return [
+                    $this->assembler->toolFailure($key, $reason, $class),
+                    ['kind' => 'failed', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
+                        'outcome_class' => $class->value, 'side' => $class->side()],
+                    null,
+                ];
+            }
 
             return [
                 $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId],
+                ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
+                    'outcome_class' => $class->value, 'side' => $class->side()],
                 // Only a POLICY refusal counts toward the repeated-denial stop. A tool that failed
                 // because a shop was slow is not the model being told no, and treating it as one
                 // would end runs for a reason the model cannot do anything about.

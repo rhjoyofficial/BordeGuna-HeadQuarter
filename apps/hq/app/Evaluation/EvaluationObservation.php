@@ -41,8 +41,16 @@ final readonly class EvaluationObservation
          * @var list<array{tool: string, tool_call_id?: int|null}>
          */
         public array $executedToolCalls = [],
-        /** @var list<array{tool: string, reason: string}> proposed and refused, with the reason */
+        /** @var list<array{tool: string, reason: string, outcome_class?: string}> proposed and REFUSED BY HQ, with the reason */
         public array $refusedToolCalls = [],
+        /**
+         * Permitted by HQ and failed OUTSIDE it (ADR-043): a rejected token, an unreachable shop, a
+         * provider that answered 500. Readiness evidence, never a refusal, and never held against
+         * the model's choice of tool.
+         *
+         * @var list<array{tool: string, reason: string, outcome_class: string}>
+         */
+        public array $failedToolCalls = [],
         /**
          * What the EXTERNAL system ultimately confirmed (ADR-031).
          *
@@ -174,6 +182,8 @@ final readonly class EvaluationObservation
             // leaving a reader to guess which of the two happened.
             'executed' => $this->executedKeys(),
             'refused_calls' => $this->refusedToolCalls,
+            // Permitted and failed outside HQ (ADR-043): reported beside the refusals, never inside them.
+            'failed_calls' => $this->failedToolCalls,
             // Empty until a capability with an effect exists. Reported anyway, because a field that
             // appears only when it is non-empty is a field nobody notices is missing.
             'confirmed_effects' => $this->confirmedEffects,
