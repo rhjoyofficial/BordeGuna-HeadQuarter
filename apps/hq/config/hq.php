@@ -1,6 +1,21 @@
 <?php
 
 use App\Ai\Providers\AnthropicProvider;
+use App\Observe\Alerts\Rules\AiBudgetPressure;
+use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
+use App\Observe\Alerts\Rules\CredentialExpiring;
+use App\Observe\Alerts\Rules\EventsDeadLettered;
+use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
+use App\Observe\Alerts\Rules\HorizonDown;
+use App\Observe\Alerts\Rules\HostDisk;
+use App\Observe\Alerts\Rules\HostMemory;
+use App\Observe\Alerts\Rules\ProviderCircuitOpen;
+use App\Observe\Alerts\Rules\ReadinessIncident;
+use App\Observe\Alerts\Rules\RepeatedPolicyDenials;
+use App\Observe\Alerts\Rules\SchedulerTickStale;
+use App\Observe\Alerts\Rules\ShadowPeriodStopped;
+use App\Observe\Alerts\Rules\SnapshotStale;
+use App\Observe\Alerts\Rules\WebhookSignatureFailures;
 use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
@@ -247,7 +262,21 @@ return [
         // rule says whether it is paged elsewhere already (the host monitor, the model runtime, the
         // approvals sweep), in which case its alert is recorded and shown but not sent a second time.
         'rules' => [
-            // Filled by the alert engine commit (docs/78 C.2 lists the fifteen rules still to write).
+            SchedulerTickStale::class,
+            HorizonDown::class,
+            ProviderCircuitOpen::class,
+            AiBudgetPressure::class,
+            ApprovalsPastDeadline::class,
+            RepeatedPolicyDenials::class,
+            FactIntegrityDiscrepancy::class,
+            EventsDeadLettered::class,
+            CredentialExpiring::class,
+            SnapshotStale::class,
+            ReadinessIncident::class,
+            ShadowPeriodStopped::class,
+            HostDisk::class,
+            HostMemory::class,
+            WebhookSignatureFailures::class,
         ],
 
         // A condition must be absent on this many consecutive checks before its alert resolves, so a
