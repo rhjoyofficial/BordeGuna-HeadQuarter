@@ -4,6 +4,8 @@ namespace App\Agents;
 
 use App\Context\ContextBlock;
 use App\Context\Provenance;
+use App\Conversation\Simulation\ConversationSimulator;
+use App\Conversation\Simulation\ScenarioLibrary;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationSubject;
 use App\Models\Agent;
@@ -12,6 +14,7 @@ use App\Models\AiRun;
 use App\Models\Business;
 use App\Models\EvaluationCase;
 use App\Models\ToolCall;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -72,14 +75,98 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         $input = (array) $case->input;
         $question = (string) ($input['prompt'] ?? $case->purpose);
 
+        // Gate P3-G2 (docs/77 C.4): a case that names a simulation scenario is run on the thread the
+        // real conversation core left, and only when the core left it with the agent.
+        if (is_string($input['scenario'] ?? null)) {
+            return $this->runScenario($input['scenario'], (string) ($input['brand'] ?? 'LLD'), $question);
+        }
+
+        return $this->observe(new AgentRunRequest(
+            agentKey: $this->agentKey,
+            question: $question,
+            trigger: 'evaluation',
+            businessId: $this->businessId($input),
+            extraContext: $this->context($input),
+        ));
+    }
+
+    /**
+     * Replay the scenario through the core, roll it back, and run the agent on the copy of the thread.
+     *
+     * ⛔ The core decides whether the agent is woken, never the case. A thread the core gave to a
+     * person produces an observation with no model call, and that decision is what gets graded.
+     * A scenario the core itself did not replay as written is a failure of the case, not a pass on
+     * a thread the scenario never meant.
+     */
+    private function runScenario(string $key, string $brand, string $question): EvaluationObservation
+    {
+        $scenario = ScenarioLibrary::find($key);
+
         try {
-            $run = $this->runner->run(new AgentRunRequest(
-                agentKey: $this->agentKey,
-                question: $question,
-                trigger: 'evaluation',
-                businessId: $this->businessId($input),
-                extraContext: $this->context($input),
-            ));
+            if ($scenario === null) {
+                throw new RuntimeException("No simulation scenario is keyed [{$key}].");
+            }
+            $thread = app(ConversationSimulator::class)->capture($scenario, $brand);
+            if (! $thread['core_passed']) {
+                throw new RuntimeException('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']));
+            }
+        } catch (Throwable $e) {
+            return new EvaluationObservation(
+                refused: true,
+                refusalReason: 'the scenario could not be replayed: '.$e->getMessage(),
+                outcome: EvaluationObservation::OUTCOME_FAILED,
+                stopReason: 'exception',
+            );
+        }
+
+        if (! $thread['with_agent']) {
+            return new EvaluationObservation(outcome: 'not_woken', agentWoken: false);
+        }
+
+        return $this->observe(new AgentRunRequest(
+            agentKey: $this->agentKey,
+            question: $question,
+            trigger: 'evaluation',
+            businessId: $thread['business_id'],
+            brandId: $thread['brand_id'],
+            extraContext: $this->threadContext($thread),
+        ), agentWoken: true);
+    }
+
+    /**
+     * The thread as the agent receives it: one block from HQ naming the thread, then every customer
+     * message under its own provenance, which the core recorded as untrusted.
+     *
+     * @return list<ContextBlock>
+     */
+    private function threadContext(array $thread): array
+    {
+        $blocks = [ContextBlock::system('conversation:'.$thread['conversation_uuid'], implode("\n", [
+            'The conversation core handed you this thread.',
+            'conversation_uuid: '.$thread['conversation_uuid'],
+            'business_slug: '.$thread['business_slug'],
+            'brand: '.$thread['brand_name'],
+            'state: '.$thread['state'],
+            "script of the customer's messages: ".($thread['language'] ?? 'none detected'),
+        ]))];
+
+        foreach ($thread['messages'] as $message) {
+            $blocks[] = new ContextBlock(
+                provenance: Provenance::tryFrom($message['provenance']) ?? Provenance::ThirdParty,
+                source: 'conversation:'.$thread['conversation_uuid'].'/message:'.$message['uuid'],
+                content: $message['body'] !== ''
+                    ? $message['body']
+                    : '[the customer sent '.$message['attachments'].' attachment(s) and no text]',
+            );
+        }
+
+        return $blocks;
+    }
+
+    private function observe(AgentRunRequest $request, ?bool $agentWoken = null): EvaluationObservation
+    {
+        try {
+            $run = $this->runner->run($request);
         } catch (Throwable $e) {
             // A case that could not be run is not a case that passed. Reporting it as a refusal with
             // the reason keeps it visible and lets the grader fail it on its own terms.
@@ -88,6 +175,7 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
                 refusalReason: 'the run could not be completed: '.get_class($e).': '.$e->getMessage(),
                 outcome: EvaluationObservation::OUTCOME_FAILED,
                 stopReason: 'exception',
+                agentWoken: $agentWoken,
             );
         }
 
@@ -127,6 +215,7 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // A provider refusal measured nothing about the agent; the grader and the runner are
             // told so rather than left to read a quota as a refusal that never came.
             unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,
+            agentWoken: $agentWoken,
         );
     }
 

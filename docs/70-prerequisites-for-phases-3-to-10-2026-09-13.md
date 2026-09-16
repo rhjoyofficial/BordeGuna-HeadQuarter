@@ -125,3 +125,34 @@ thresholds a grant may consume. The only spend is model calls, covered by B.
 
 Everything Joy signs up for goes into HQ as a credential through the Credentials screen (one per identity, never in
 a `.env` I write from a default), and every one is reached through the gateway.
+
+## M. Readiness, as HQ could verify it on 16 September
+
+ChatGPT's instruction of 16 September (`docs/77` §A, point 14) asks for this list to be tracked and for
+nothing to be called available until it has been checked. The table says what was actually checked, and
+how. "Not verified" means HQ has no way to see it from here; it does not mean the item is missing. Joy
+confirms those, and this table changes only when something is checked.
+
+| Item | State on 16 Sep | How it was checked |
+| --- | --- | --- |
+| **Anthropic API credit** (the key HQ uses, credential #14) | **Blocked.** The provider refuses every call: "Your credit balance is too low" | The gate's own 8-token call from inside the app container, with nothing switched on, 16 Sep. ⚠ HQ's readiness table still shows this credential as *unverified, executable*: that test does not write its result back yet |
+| Anthropic monthly spend limit | Raised on 14 Sep (gate 7 ran after it) | Gates 7 to 10 ran without the limit error |
+| Shop tokens, LaLaDia and Bionic | Ready | `hq:credentials:health`: both admin tokens and both assistant keys accepted by the shops on 15 Sep |
+| ERP token | Ready | Same table: accepted on 15 Sep 22:05 UTC by the nightly low-stock poll |
+| Econic and the ERP counter | Unsupported by design, no credential | Same table. Per Joy's 15 Sep direction, shops reach HQ through the ERP once it is ready; no new per-shop credentials are made |
+| Meta Business Verification (C2) | Not verified | Not visible from HQ |
+| Meta messaging App Review (C3) | Not verified | Not visible from HQ |
+| Meta inbound in HQ | Off | Flag `channels.meta.inbound` shipped off; `hq:shadow:open` refuses while it is on |
+| Messaging send provider | None registered | `PlatformRegistry` is empty in the release; the reply tool answers "No messaging provider is registered" |
+| WhatsApp Cloud API (C4) | Not verified | Not visible from HQ |
+| SMS masking, BTRC (C7) | Not verified | Not visible from HQ |
+| bKash, Nagad or an aggregator (D1 to D3) | Not verified | Not visible from HQ |
+| Object storage (C8) | Not configured in HQ | No storage credential in HQ's readiness table |
+| Cloudflare in front of the webhook (C9) | **Not in place** | `bordeguna.com` nameservers are `ns20/ns21.nameserveit.com`, not Cloudflare (DNS lookup, 16 Sep) |
+| Staging HQ (J4) | **Does not exist** | `staging.hq.bordeguna.com` does not resolve; no staging container on the VPS (16 Sep) |
+| VPS capacity (J1) | 2 vCPU, 7.8 GB RAM (4.6 GB available), disk 31% of 96 GB, load 0.3, 22 containers | Read on the VPS, 16 Sep. ⚠ Two cores, not four as §J assumed: the step up matters before Phase 3 takes real traffic |
+
+P3-G3 needs, at least: the Meta app in development mode with the page subscribed (C1), the app's
+webhook secret in HQ's vault, Cloudflare in front (C9), and a staging HQ (J4). HQ's vault holds no Meta
+credential, Cloudflare is not in front and no staging HQ exists; whether the Meta app itself exists is
+not visible from here. So P3-G3 does not start in this milestone, which is also ChatGPT's instruction.

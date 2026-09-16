@@ -10,8 +10,13 @@
  *   bypass   the api.anthropic.com bypass test (docs/54): one 8-token call with the vault's key, from inside the
  *            container, so "bad key" is separated from "bad code" before HQ's own code is asked to work.
  *            The key is opened in a vault scope and never printed.
- *   on       ai.runtime ON + executive ACTIVE, each audited with a reason naming the gate
- *   off      executive PAUSED + ai.runtime OFF, each audited
+ *   on       ai.runtime ON + the gate's agent ACTIVE, each audited with a reason naming the gate
+ *   off      the gate's agent PAUSED + ai.runtime OFF, each audited
+ *   shadow   the agents with an open A0 shadow period (docs/77), so run.sh can refuse before touching anything
+ *
+ * GATE_AGENT names the agent the gate measures: `executive` (the default, gates 1 to 11) or `support` (P3-G2,
+ * docs/77 C.4). `on` refuses an agent that names no enabling user: naming one is a person's decision, never a
+ * gate's side effect.
  *
  * ⛔ Nothing here creates an autonomy grant, lifts a ceiling, or leaves anything on: `run.sh` calls `off` from an
  * EXIT trap, so the posture is restored whether the gate passes, fails or crashes.
@@ -25,15 +30,18 @@ use App\Models\AutonomyGrant;
 use App\Models\ConsentEvent;
 use App\Models\EvaluationSuite;
 use App\Models\FeatureFlag;
+use App\Models\ShadowPeriod;
 use App\Support\Audit\Auditor;
 use App\Support\Features\Features;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 
 $action = getenv('GATE_ACTION') ?: 'posture';
 $gate = getenv('GATE_NAME') ?: 'Gate 4 (docs/66)';
 $auditor = app(Auditor::class);
 $flag = FeatureFlag::where('key', 'ai.runtime')->orderBy('id')->firstOrFail();
-$executive = Agent::where('key', 'executive')->firstOrFail();
+$agentKey = getenv('GATE_AGENT') ?: 'executive';
+$executive = Agent::where('key', $agentKey)->firstOrFail();
 
 $posture = function () use ($flag) {
     app(Features::class)->forget();
@@ -46,13 +54,33 @@ $posture = function () use ($flag) {
         'agents' => Agent::orderBy('key')->get(['key', 'status', 'max_autonomy_level', 'enabling_user_id'])->toArray(),
         'grants' => AutonomyGrant::count(),
         'consent_events' => ConsentEvent::count(),
-        'cases' => ['safety.core' => $cases('safety.core'), 'behaviour.executive' => $cases('behaviour.executive')],
+        'cases' => ['safety.core' => $cases('safety.core'), 'behaviour.executive' => $cases('behaviour.executive'), 'behaviour.support' => $cases('behaviour.support')],
         'last_audit_id' => AuditLog::max('id'),
     ], JSON_PRETTY_PRINT), PHP_EOL;
 };
 
+// ⛔ docs/77 C.2: a gate and an open A0 shadow period cannot share the switches. `off` pauses the
+// executive and turns the runtime off, which would end the shadow without a record, so neither `on`
+// nor `off` runs while a period is open; `shadow` lets run.sh refuse before anything is touched.
+$openPeriods = class_exists(ShadowPeriod::class) && Schema::hasTable('shadow_periods')
+    ? ShadowPeriod::query()->where('status', 'open')->pluck('agent_key')->all()
+    : [];
+if (in_array($action, ['on', 'off'], true) && $openPeriods !== []) {
+    echo "REFUSED: a shadow period is open for ".implode(', ', $openPeriods).'; close it with hq:shadow:close before a gate touches the switches.', PHP_EOL;
+
+    return;
+}
+
 switch ($action) {
+    case 'shadow':
+        echo json_encode(['open_shadow_periods' => $openPeriods]), PHP_EOL;
+        break;
+
     case 'on':
+        if ($executive->enabling_user_id === null) {
+            echo "REFUSED: [{$agentKey}] names no enabling user; a person sets one before a gate can run it.", PHP_EOL;
+            break;
+        }
         $before = ['enabled' => (bool) $flag->enabled];
         $flag->enabled = true;
         $flag->save();
@@ -64,9 +92,9 @@ switch ($action) {
         $executive->status = 'active';
         $executive->save();
         $a2 = $auditor->recordSystem('agent.status_changed', $executive, $before, ['status' => 'active'],
-            "{$gate}: executive set active for the evaluation run only, enabling user unchanged; paused again immediately after.");
+            "{$gate}: {$agentKey} set active for the evaluation run only, enabling user unchanged; paused again immediately after.");
 
-        echo "audits: flag on #{$a1->id}, executive active #{$a2->id}", PHP_EOL;
+        echo "audits: flag on #{$a1->id}, {$agentKey} active #{$a2->id}", PHP_EOL;
         $posture();
         break;
 
@@ -75,7 +103,7 @@ switch ($action) {
         $executive->status = 'paused';
         $executive->save();
         $a1 = $auditor->recordSystem('agent.status_changed', $executive, $before, ['status' => 'paused'],
-            "{$gate} complete: executive paused again immediately after the evaluation run.");
+            "{$gate} complete: {$agentKey} paused again immediately after the evaluation run.");
 
         $before = ['enabled' => (bool) $flag->enabled];
         $flag->enabled = false;
@@ -84,7 +112,7 @@ switch ($action) {
         $a2 = $auditor->recordSystem('feature_flag.toggled', $flag, $before, ['enabled' => false],
             "{$gate} complete: ai.runtime turned OFF immediately after the evaluation run; activation is a separate decision.");
 
-        echo "audits: executive paused #{$a1->id}, flag off #{$a2->id}", PHP_EOL;
+        echo "audits: {$agentKey} paused #{$a1->id}, flag off #{$a2->id}", PHP_EOL;
         $posture();
         break;
 

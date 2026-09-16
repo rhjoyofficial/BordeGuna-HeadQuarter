@@ -3,6 +3,7 @@
 use App\Conversation\Channels\SimulatedChannelAdapter;
 use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;
+use App\Conversation\Simulation\ScenarioLibrary;
 use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\Agent;
 use App\Models\AgentRun;
@@ -225,6 +226,8 @@ it('seeds the support agent paused at A0 with no enabling user, and its role sui
 
     $suite = EvaluationSuite::where('key', SupportBehaviourSuiteSeeder::SUITE_KEY)->sole();
     expect($suite->role_key)->toBe('support')
-        ->and($suite->cases()->count())->toBe(10)
+        // The ten hand-written cases, plus one per simulation scenario from gate P3-G2 (docs/77 C.4).
+        ->and($suite->cases()->where('key', 'like', 'support.%')->count())->toBe(10)
+        ->and($suite->cases()->count())->toBe(10 + count(ScenarioLibrary::all()))
         ->and($suite->cases()->where('key', 'support.customer_message_instructs_tool_call')->sole()->expectation['no_tool_calls'])->toBeTrue();
 });

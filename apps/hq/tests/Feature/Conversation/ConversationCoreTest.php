@@ -22,6 +22,7 @@ use App\Models\PlatformAccount;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 
 /*
@@ -221,5 +222,66 @@ it('exposes the simulation as a command that fails on any mismatch and refuses t
     $this->artisan('hq:conversation:simulate', ['--brand' => 'LLD', '--only' => 'injection.system_notice', '--json' => true])
         ->expectsOutputToContain('"passed": 1')
         ->assertSuccessful();
+    expect(Conversation::count())->toBe(0);
+});
+
+/*
+ | P3-G1 (docs/77 C.3): the evidence ChatGPT listed on 16 September, checked on every scenario.
+ */
+
+it('checks the audit, business-scope and timezone invariants on every scenario', function () {
+    $this->seed(AgentSeeder::class);
+
+    $results = collect(app(ConversationSimulator::class)->replay(ScenarioLibrary::all(), 'LLD'))->keyBy('key');
+
+    foreach ($results as $key => $result) {
+        expect($result->observed['audited'])->toBe($result->observed['transitions'], "{$key}: every state change is audited")
+            ->and($result->observed['business_scoped'])->not->toBeFalse("{$key}: nothing lands in another business");
+    }
+    // The handoff scenarios really did move, so the audit invariant is not vacuous.
+    expect($results['resolved_then_customer_returns.agent_active']->observed['transitions'])->toBe(3)
+        ->and($results['angry.complaint']->observed['business_scoped'])->toBeTrue()
+        ->and($results['unknown_page']->observed['business_scoped'])->toBeNull()
+        // +06:00 in, the same instant out in UTC.
+        ->and($results['timezone.dhaka_offset']->observed['received_at'])->toBe('2026-09-16T08:30:00Z')
+        // Only a scenario that stamped its own time records one, so replays compare equal.
+        ->and($results['order_status.bangla']->observed['received_at'])->toBeNull();
+});
+
+it('fails a scenario whose state change left no audit row, or whose customer landed in another business', function () {
+    $this->seed(AgentSeeder::class);
+    $other = Brand::where('code', '!=', 'LLD')->whereNot('business_id', Brand::where('code', 'LLD')->value('business_id'))->firstOrFail();
+
+    // An audit write that silently does nothing: the invariant must notice.
+    AuditLog::creating(fn (AuditLog $log) => $log->action !== 'conversation.state_changed');
+    $scenario = collect(ScenarioLibrary::all())->firstWhere('key', 'angry.complaint');
+    $result = app(ConversationSimulator::class)->replay([$scenario], 'LLD')[0];
+    expect($result->passed)->toBeFalse()
+        ->and(implode('; ', $result->mismatches))->toContain('invariant audited: 1 state change(s) but 0 audit row(s)');
+
+    // A customer written into another business: the scope invariant must notice.
+    Customer::creating(fn (Customer $customer) => $customer->business_id = $other->business_id);
+    $scenario = collect(ScenarioLibrary::all())->firstWhere('key', 'order_status.english');
+    $result = app(ConversationSimulator::class)->replay([$scenario], 'LLD')[0];
+    expect($result->passed)->toBeFalse()
+        ->and(implode('; ', $result->mismatches))->toContain('invariant business_scoped');
+});
+
+it('replays the library twice with identical observations and reports that nothing was left behind', function () {
+    $this->seed(AgentSeeder::class);
+
+    // One JSON write holds both answers; a console expectation only credits one substring per write.
+    expect(Artisan::call('hq:conversation:simulate', ['--brand' => 'LLD', '--repeat' => 2, '--json' => true]))->toBe(0);
+    $report = json_decode(Artisan::output(), true);
+    expect($report['deterministic'])->toBeTrue()
+        ->and($report['trace']['clean'])->toBeTrue()
+        ->and($report['trace']['before'])->toBe($report['trace']['after'])
+        ->and($report['passed'])->toBe($report['scenarios']);
+
+    $this->artisan('hq:conversation:simulate', ['--brand' => 'LLD', '--repeat' => 2])
+        ->expectsOutputToContain('2 replays, identical observations.')
+        ->expectsOutputToContain('trace: none')
+        ->assertSuccessful();
+    $this->artisan('hq:conversation:simulate', ['--brand' => 'LLD', '--repeat' => 2, '--keep' => true])->assertFailed();
     expect(Conversation::count())->toBe(0);
 });

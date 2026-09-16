@@ -131,6 +131,16 @@ The second failure was the opposite mistake. Asked "which businesses am I scoped
 
 ADR-044 holds the decision; docs/75 is the plan and the record. Built in one session under the standing instruction, with the tests ChatGPT listed; the full local suite is 695 of 695.
 
+### 3.14 A longer milestone: gate 11 again, the shadow week, and the first two Phase 3 gates (16 September)
+
+Gate 11's second attempt keeps its name, because the first attempt measured nothing: the provider ran out of credit eleven minutes in, and nothing in the code has changed since. ChatGPT's instruction of 16 September goes further than any before it. If the fresh gate 11 passes completely, the Executive may be switched on at A0 for a seven-day shadow week, in the same milestone; and Phase 3's first two gates run in parallel.
+
+The shadow week is now a thing HQ records rather than a phrase in a document. Think of a probation period with a written file. The file opens with one command, and only if the database itself shows that the latest gate passed with nothing unmeasured, on the exact instructions the agent runs with today, with no grants, every other agent off and no customer channel on. The command switches two things on and writes the file, all under your name. Twice a day, at nine and five Dhaka time, HQ asks the agent three questions you would ask yourself (what needs attention today, how did the group do yesterday, how current is the data). The answers are held back for you to review, as every shadow answer is. Every hour HQ checks the week's safety conditions: nothing written, nothing sent, no permission or grant touched, no tool above the agent's read level, no other agent working. If one breaks, HQ switches everything off at once and writes why. After seven days it switches off by itself, and the file says plainly that the week is evidence, not a promotion. Each finished day is saved as its own page of numbers: runs and verdicts, tool calls and their outcomes, refusals, cost, what you reviewed. ADR-045 holds the decision.
+
+P3-G1 is the conversation core's exam, and it needs no model. The practice conversations now also check, every time, that each hand-over to a person left an audit line, that nothing lands in another business, and that a message stamped in Dhaka time is stored as the same moment in UTC. The whole set is replayed twice and must come out identical, and HQ counts thirteen tables before and after to prove nothing was left behind. Locally: every scenario passes, both replays match, no trace.
+
+P3-G2 is the support agent's exam, and it does need a model. The practice conversations now say what the support agent should do when the core hands it the thread: answer with exactly one proposed reply, or hand over, in the customer's own script. Seven new conversations cover a greeting, Bangla order and price questions, romanised Bangla with typos, mixed script, a returning customer, and someone claiming the owner allowed them to see other people's orders. When the core gives the thread to a person, the agent is never asked, and that costs nothing. The support exam runs through the same gate runner as the Executive's, and it cannot run while a shadow week is open, so neither can switch the other off.
+
 ## 4. Where production stands today
 
 | System | Release | Notes |
@@ -172,7 +182,13 @@ ADR-044 holds the decision; docs/75 is the plan and the record. Built in one ses
 
 ## 6. What only you can do
 
-**Now (15 September, after gate 11): one thing, and it costs money, so it is yours.** Add credit to the Anthropic Console account that HQ's API key belongs to (console.anthropic.com, Plans and Billing). Gate 11 stopped when that balance ran out, and every AI call in HQ fails until it is topped up. A gate costs about $2.60; set the balance for the pace you want. Then ChatGPT decides whether gate 11 runs again, and I launch it once.
+**Now (16 September, ChatGPT's longer milestone, docs/77): three things, all yours.**
+
+1. **Credit.** The Anthropic Console account behind HQ's key is still empty: HQ's own test call on 16 September was refused with "credit balance is too low". Nothing in this milestone moves until it is topped up. A gate costs about $2.60, the support gate about the same again, and a seven-day Executive shadow (six questions a day) an estimated $3 to $8 over the week, judged from what gate runs cost. Tell me roughly how much you added, because ChatGPT asked that "sufficient credit" be confirmed before the launch and the API does not report a balance.
+2. **Your word on switching the Executive on.** ChatGPT has authorised it on one condition: gate 11, run again under the same name, must pass completely with nothing unmeasured. Your standing rule is that switching anything on is your decision as well. If you say yes, then on a full pass I open the seven-day shadow period with one audited command in your name; if gate 11 does not pass, nothing is switched on either way.
+3. **Your word on the support agent's enabling person.** Gate P3-G2 runs the support agent on the simulated conversations only (no customer, no send). An agent borrows a person's authority, and naming that person for the support agent was designed to be your own act. If you say yes, it is you, and I set it before the support gate.
+
+**Earlier (15 September, after gate 11): one thing, and it costs money, so it is yours.** Add credit to the Anthropic Console account that HQ's API key belongs to (console.anthropic.com, Plans and Billing). Gate 11 stopped when that balance ran out, and every AI call in HQ fails until it is topped up. A gate costs about $2.60; set the balance for the pace you want. Then ChatGPT decides whether gate 11 runs again, and I launch it once.
 
 **Now (15 September, after gate 10): nothing to type for HQ.** You replaced Bionic's shop token in `~/bionic-garden-app`, HQ accepted it, and gate 10 ran once. The next step is ChatGPT's decision on the gate-10 report, pasted here. One thing outside HQ is yours: Bionic's cPanel Git deploy still copies into `~/bionicProject`, which you deleted, so the next Bionic deploy will not reach the live site until its target is changed to `~/bionic-garden-app`. Both Bionic cron lines already run in the right folder.
 

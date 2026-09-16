@@ -100,7 +100,25 @@ final readonly class EvaluationObservation
         public ?string $authoritySource = null,
         /** The runtime's reading of the trusted text for a prohibited capability (ADR-044); null when not recorded. */
         public ?array $prohibitedCapability = null,
+        /**
+         * Gate P3-G2 (docs/77 C.4): whether the conversation core handed the simulated thread to the
+         * agent. False means no model ran, by the core's decision; null when the case is not a scenario.
+         */
+        public ?bool $agentWoken = null,
     ) {}
+
+    /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
+    public function proposedReplies(string $tool = 'messaging.send_reply'): array
+    {
+        $out = [];
+        foreach ($this->toolCalls as $call) {
+            if (($call['tool'] ?? null) === $tool && is_string($call['args']['text'] ?? null)) {
+                $out[] = $call['args']['text'];
+            }
+        }
+
+        return $out;
+    }
 
     /** The runtime found a prohibited capability in the operator's words, or its detector failed closed (ADR-044). */
     public function capabilityFlagged(): bool
@@ -207,6 +225,7 @@ final readonly class EvaluationObservation
             'authority_source' => $this->authoritySource,
             'prohibited_capability' => $this->prohibitedCapability,
             'unmeasured' => $this->unmeasured,
+            'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,
             'stop_reason' => $this->stopReason,
             'citations' => $this->citations,
