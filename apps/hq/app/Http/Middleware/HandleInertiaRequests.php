@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Features\Features;
 use App\Support\Navigation\NavBadges;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -54,7 +55,14 @@ class HandleInertiaRequests extends Middleware
             ],
             // What is waiting, as counts next to the sidebar items. A closure, so a request that
             // does not render the shell does not pay for three counts it will not show.
-            'nav' => fn () => ['badges' => app(NavBadges::class)->for($request->user())],
+            // `features` carries the switches that decide whether a navigation item exists at all.
+            'nav' => fn () => [
+                'badges' => app(NavBadges::class)->for($request->user()),
+                'features' => [
+                    'ask_hq' => app(Features::class)->enabled('ask_hq'),
+                    'scheduler_nl' => app(Features::class)->enabled('scheduler.nl'),
+                ],
+            ],
         ]);
     }
 }

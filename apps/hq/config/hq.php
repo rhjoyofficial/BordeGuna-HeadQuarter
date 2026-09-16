@@ -225,6 +225,12 @@ return [
         'quiet_hours' => ['start' => 23, 'end' => 8],
     ],
 
+    // docs/78 B.3: the agents Ask HQ puts an operator's question to. The support agent answers
+    // customers and is not one of them; widening this list is a decision, not a setting.
+    'ask' => [
+        'agents' => ['executive', 'analytics'],
+    ],
+
     // docs/77 C.2: the agents an A0 shadow period may be opened for. ChatGPT's instruction of
     // 16 September names the Executive only; widening this list is a decision, not a setting.
     'shadow' => [

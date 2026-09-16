@@ -243,8 +243,9 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
 }
 
 export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginated<Job>; tools: string[]; filters: { state: string } }) {
-    const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
+    const { auth, nav } = usePage<{ auth: { permissions: string[] }; nav?: { features?: Record<string, boolean> } }>().props;
     const canManage = auth.permissions.includes('hq.jobs.manage');
+    const inWords = canManage && (nav?.features?.scheduler_nl ?? false);
     const [creating, setCreating] = useState(false);
 
     return (
@@ -256,9 +257,16 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                     description="Work HQ does on its own clock: polls, syncs and checks, each running one tool through the gateway. Pause a job to stop it without losing it."
                     actions={
                         canManage ? (
-                            <Button onClick={() => setCreating(true)}>
-                                <Plus className="size-4" aria-hidden /> New job
-                            </Button>
+                            <>
+                                {inWords && (
+                                    <Button variant="outline" asChild>
+                                        <Link href="/scheduler/nl">Describe a job</Link>
+                                    </Button>
+                                )}
+                                <Button onClick={() => setCreating(true)}>
+                                    <Plus className="size-4" aria-hidden /> New job
+                                </Button>
+                            </>
                         ) : undefined
                     }
                 >

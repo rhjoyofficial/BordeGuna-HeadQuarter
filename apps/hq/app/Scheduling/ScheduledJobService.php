@@ -35,6 +35,11 @@ final class ScheduledJobService
 
     public function create(array $attributes, ?User $owner, string $createdFrom = 'ui'): ScheduledJob
     {
+        // The reason belongs to the audit row, not to the job: outside production a model refuses an
+        // attribute it would otherwise silently discard.
+        $reason = $attributes['reason'] ?? null;
+        unset($attributes['reason']);
+
         $kind = JobKind::from($attributes['kind']);
         $toolKey = $attributes['tool_key'];
         if (! $this->tools->has($toolKey)) {
@@ -68,7 +73,46 @@ final class ScheduledJobService
         $job->next_run_at = $this->calculator->next($job);
         $job->save();
 
-        $this->auditor->record('scheduled_job.created', $job, after: $job->toArray(), reason: $attributes['reason'] ?? null);
+        $this->auditor->record('scheduled_job.created', $job, after: $job->toArray(), reason: $reason);
+
+        return $job;
+    }
+
+    /**
+     * A person approves a job that waits for approval (docs/48 L.5): a job that runs an R3 or higher
+     * tool is created pending and the tick does not run it until this. Its next slot is computed from
+     * now, so an approval never releases a backlog of slots that passed while it waited.
+     */
+    public function approve(ScheduledJob $job, User $approver, ?string $reason = null): ScheduledJob
+    {
+        if ($job->approval_state !== ApprovalState::Pending) {
+            throw new LogicException("Only a job waiting for approval can be approved; this one is {$job->approval_state->value}.");
+        }
+
+        $before = $job->toArray();
+        $job->approval_state = ApprovalState::Approved;
+        if ($job->state === JobState::Active) {
+            $job->next_run_at = $this->calculator->next($job);
+        }
+        $job->save();
+        $this->auditor->record('scheduled_job.approved', $job, before: $before, after: $job->toArray(), reason: $reason, actorUserId: $approver->getKey());
+
+        return $job;
+    }
+
+    /** A person refuses a job that waits for approval. It never runs; the row stays as the record. */
+    public function reject(ScheduledJob $job, User $approver, ?string $reason = null): ScheduledJob
+    {
+        if ($job->approval_state !== ApprovalState::Pending) {
+            throw new LogicException("Only a job waiting for approval can be rejected; this one is {$job->approval_state->value}.");
+        }
+
+        $before = $job->toArray();
+        $job->approval_state = ApprovalState::Rejected;
+        $job->state = JobState::Cancelled;
+        $job->next_run_at = null;
+        $job->save();
+        $this->auditor->record('scheduled_job.rejected', $job, before: $before, after: $job->toArray(), reason: $reason, actorUserId: $approver->getKey());
 
         return $job;
     }
@@ -121,6 +165,10 @@ final class ScheduledJobService
     {
         if ($job->state === JobState::Cancelled) {
             throw new LogicException('A cancelled job cannot be run.');
+        }
+        // docs/48 L.5: running a job by hand must not be a way round its approval.
+        if ($job->approval_state !== ApprovalState::Approved) {
+            throw new LogicException("This job is not approved ({$job->approval_state->value}), so it cannot be run.");
         }
         $run = $this->claimSlot($job, CarbonImmutable::now('UTC')->startOfSecond(), 'run_now');
         if ($run === null) {
