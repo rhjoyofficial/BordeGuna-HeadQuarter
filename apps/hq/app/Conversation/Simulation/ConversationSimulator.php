@@ -2,11 +2,14 @@
 
 namespace App\Conversation\Simulation;
 
+use App\Context\Provenance;
 use App\Conversation\Channels\SimulatedChannelAdapter;
 use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;
 use App\Conversation\HandoffStateMachine;
+use App\Conversation\SupportContext;
 use App\Gateway\Descriptor\Channel;
+use App\Memory\MemoryStore;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
@@ -57,6 +60,8 @@ final class ConversationSimulator
     public function __construct(
         private readonly ConversationService $conversations,
         private readonly HandoffStateMachine $states,
+        private readonly SupportContext $support,
+        private readonly MemoryStore $memory,
     ) {}
 
     /**
@@ -102,9 +107,14 @@ final class ConversationSimulator
      * survives. `with_agent` is the core's own decision: the thread is the agent's only in `ai_active`
      * or `ai_resumed`, exactly as production would wake it.
      *
+     * The `context` is what the support agent is given, built by `SupportContext` while the thread
+     * still exists (HQ's header, the customer's facts, labelled memory, the untrusted messages), as
+     * plain data that survives the rollback.
+     *
      * @return array{scenario: string, core_passed: bool, core_mismatches: list<string>, with_agent: bool, state: ?string,
      *     conversation_uuid: ?string, business_id: ?int, business_slug: ?string, brand_id: ?int, brand_name: ?string,
-     *     language: ?string, messages: list<array{uuid: string, body: string, provenance: string, attachments: int}>}
+     *     language: ?string, messages: list<array{uuid: string, body: string, provenance: string, attachments: int}>,
+     *     context: list<array{provenance: string, source: string, content: string, metadata: array<string, mixed>}>}
      */
     public function capture(Scenario $scenario, string $brandCode): array
     {
@@ -142,6 +152,7 @@ final class ConversationSimulator
                         'provenance' => $m->provenance->value,
                         'attachments' => count((array) data_get($m->metadata, 'attachments', [])),
                     ])->values()->all(),
+                'context' => $conversation === null ? [] : SupportContext::asData($this->support->blocksFor($conversation)),
             ];
 
             DB::rollBack();
@@ -290,6 +301,16 @@ final class ConversationSimulator
         ]);
         if (isset($given['identity'])) {
             CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => $given['identity'], 'confidence' => 1.0]);
+        }
+
+        // What a person remembered about them earlier (docs/78 B.1): `memory` => [{key, value} | {episode}].
+        foreach ((array) ($scenario->given['memory'] ?? []) as $item) {
+            $scope = ['customer_id' => $customer->id, 'business_id' => $brand->business_id];
+            if (isset($item['key'])) {
+                $this->memory->remember((string) $item['key'], ['text' => (string) $item['value']], Provenance::Business, $scope, ['source_ref' => 'simulation', 'data_class' => 'personal']);
+            } elseif (isset($item['episode'])) {
+                $this->memory->recordEpisode((string) $item['episode'], Provenance::Business, $scope, ['source_ref' => 'simulation', 'data_class' => 'personal', 'occurred_at' => now()]);
+            }
         }
     }
 

@@ -33,6 +33,25 @@ type Message = {
 
 type Proposal = { run_id: number; text: string; why: string | null; at: string | null };
 
+/** A fact a person remembered about the customer (docs/78 B.1): shown with its kind, source and date, never as truth. */
+type Remembered = {
+    id: number;
+    kind: 'structured' | 'episodic';
+    key: string | null;
+    text: string;
+    provenance: string;
+    source: string | null;
+    at: string | null;
+    closable: boolean;
+};
+
+const MEMORY_KEY_LABELS: Record<string, string> = {
+    delivery_notes: 'Delivery notes',
+    preferred_language: 'Preferred language',
+    preferred_contact_time: 'Preferred contact time',
+    about: 'About this person',
+};
+
 type Outcome = { status: string; error: string | null } | null;
 
 type Dialog = { kind: 'resolve' | 'close' | 'discard'; run?: number } | null;
@@ -64,6 +83,9 @@ export default function InboxShow({
     thread,
     messages,
     proposals,
+    memory,
+    memory_keys,
+    can_remember,
     assignees,
     agent,
     can,
@@ -71,6 +93,9 @@ export default function InboxShow({
     thread: Thread;
     messages: Message[];
     proposals: Proposal[];
+    memory: Remembered[];
+    memory_keys: string[];
+    can_remember: boolean;
     assignees: { id: number; email: string }[];
     agent: AgentStatus;
     can: { manage: boolean };
@@ -81,6 +106,9 @@ export default function InboxShow({
     const [text, setText] = useState('');
     const [keepAsNote, setKeepAsNote] = useState(true);
     const [note, setNote] = useState('');
+    const [memKind, setMemKind] = useState<'structured' | 'episodic'>('structured');
+    const [memKey, setMemKey] = useState<string>(memory_keys[0] ?? 'about');
+    const [memText, setMemText] = useState('');
     const [assignTo, setAssignTo] = useState<string>(assignees[0]?.id.toString() ?? '');
     const [editing, setEditing] = useState<Record<number, string>>({});
 
@@ -293,6 +321,93 @@ export default function InboxShow({
                     </div>
 
                     <aside className="flex flex-col gap-6">
+                        {thread.customer_id !== null && (
+                            <section className="bg-card rounded-xl border p-4">
+                                <SectionHeader title="Remembered about this customer" />
+                                <p className="text-muted-foreground mt-1 text-xs">
+                                    What a colleague chose to remember. Memory is not truth: the order facts win when they disagree, and the agent
+                                    is told the same.
+                                </p>
+                                {memory.length === 0 ? (
+                                    <p className="text-muted-foreground mt-3 text-sm">Nothing remembered yet.</p>
+                                ) : (
+                                    <ul className="mt-3 flex flex-col gap-2">
+                                        {memory.map((m) => (
+                                            <li key={m.id} className="rounded-md border p-2 text-sm">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        {m.kind === 'structured' && (
+                                                            <span className="font-medium">{MEMORY_KEY_LABELS[m.key ?? ''] ?? m.key}: </span>
+                                                        )}
+                                                        <span>{m.text}</span>
+                                                    </div>
+                                                    {can.manage && m.closable && (
+                                                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => post(`memory/${m.id}/forget`)}>
+                                                            Forget
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                <div className="text-muted-foreground mt-1 text-xs">
+                                                    {m.kind === 'structured' ? 'fact' : 'episode'} · {m.provenance}
+                                                    {m.source ? ` · ${m.source}` : ''}
+                                                    {m.at ? ` · ${timeAgo(m.at)}` : ''}
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                {can.manage && can_remember && (
+                                    <div className="mt-3 flex flex-col gap-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            <NativeSelect value={memKind} onChange={(e) => setMemKind(e.target.value as 'structured' | 'episodic')}>
+                                                <option value="structured">A fact (replaces the previous one for its key)</option>
+                                                <option value="episodic">Something that happened (kept as it was)</option>
+                                            </NativeSelect>
+                                            {memKind === 'structured' && (
+                                                <NativeSelect value={memKey} onChange={(e) => setMemKey(e.target.value)}>
+                                                    {memory_keys.map((k) => (
+                                                        <option key={k} value={k}>
+                                                            {MEMORY_KEY_LABELS[k] ?? k}
+                                                        </option>
+                                                    ))}
+                                                </NativeSelect>
+                                            )}
+                                        </div>
+                                        <textarea
+                                            className="bg-background w-full rounded-md border p-2 text-sm"
+                                            rows={2}
+                                            placeholder={memKind === 'structured' ? 'The fact, in a few words' : 'What happened, in a sentence'}
+                                            value={memText}
+                                            onChange={(e) => setMemText(e.target.value)}
+                                        />
+                                        {errors.kind && <p className="text-destructive text-xs">{errors.kind}</p>}
+                                        {errors.value && <p className="text-destructive text-xs">{errors.value}</p>}
+                                        {errors.content && <p className="text-destructive text-xs">{errors.content}</p>}
+                                        <div>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={busy || memText.trim() === ''}
+                                                onClick={() =>
+                                                    post(
+                                                        'remember',
+                                                        memKind === 'structured'
+                                                            ? { kind: 'structured', key: memKey, value: memText }
+                                                            : { kind: 'episodic', content: memText },
+                                                        () => setMemText(''),
+                                                    )
+                                                }
+                                            >
+                                                Remember
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                                {can.manage && !can_remember && (
+                                    <p className="text-muted-foreground mt-3 text-xs">A fact is remembered once the thread is resolved or closed.</p>
+                                )}
+                            </section>
+                        )}
                         <section className="bg-card rounded-xl border p-4">
                             <SectionHeader title="Customer" />
                             {thread.customer ? (

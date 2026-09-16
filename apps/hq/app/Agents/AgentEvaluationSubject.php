@@ -6,6 +6,7 @@ use App\Context\ContextBlock;
 use App\Context\Provenance;
 use App\Conversation\Simulation\ConversationSimulator;
 use App\Conversation\Simulation\ScenarioLibrary;
+use App\Conversation\SupportContext;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationSubject;
 use App\Models\Agent;
@@ -129,38 +130,10 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             trigger: 'evaluation',
             businessId: $thread['business_id'],
             brandId: $thread['brand_id'],
-            extraContext: $this->threadContext($thread),
+            // Built by SupportContext while the thread existed (docs/78 B.1): header, customer facts,
+            // labelled memory, untrusted messages, the same blocks the real wake-up will hand over.
+            extraContext: SupportContext::fromData($thread['context']),
         ), agentWoken: true);
-    }
-
-    /**
-     * The thread as the agent receives it: one block from HQ naming the thread, then every customer
-     * message under its own provenance, which the core recorded as untrusted.
-     *
-     * @return list<ContextBlock>
-     */
-    private function threadContext(array $thread): array
-    {
-        $blocks = [ContextBlock::system('conversation:'.$thread['conversation_uuid'], implode("\n", [
-            'The conversation core handed you this thread.',
-            'conversation_uuid: '.$thread['conversation_uuid'],
-            'business_slug: '.$thread['business_slug'],
-            'brand: '.$thread['brand_name'],
-            'state: '.$thread['state'],
-            "script of the customer's messages: ".($thread['language'] ?? 'none detected'),
-        ]))];
-
-        foreach ($thread['messages'] as $message) {
-            $blocks[] = new ContextBlock(
-                provenance: Provenance::tryFrom($message['provenance']) ?? Provenance::ThirdParty,
-                source: 'conversation:'.$thread['conversation_uuid'].'/message:'.$message['uuid'],
-                content: $message['body'] !== ''
-                    ? $message['body']
-                    : '[the customer sent '.$message['attachments'].' attachment(s) and no text]',
-            );
-        }
-
-        return $blocks;
     }
 
     private function observe(AgentRunRequest $request, ?bool $agentWoken = null): EvaluationObservation

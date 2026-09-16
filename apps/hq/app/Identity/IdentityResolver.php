@@ -191,6 +191,18 @@ final class IdentityResolver
             $moved = CustomerIdentity::where('customer_id', $absorbed->id)->pluck('id')->all();
             CustomerIdentity::where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
             DB::table('facts_orders')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
+            // Memory is keyed to the unified customer (docs/09), so what a colleague remembered about
+            // the absorbed row follows the person; a live structured value that now collides with the
+            // kept customer's value for the same key is closed, the kept one wins (docs/78 B.1).
+            $memories = DB::table('memories')->where('customer_id', $absorbed->id)->count();
+            foreach (DB::table('memories')->where('customer_id', $absorbed->id)->where('kind', 'structured')->whereNull('valid_to')->get(['id', 'key', 'business_id', 'agent_key']) as $row) {
+                $collides = DB::table('memories')->where('customer_id', $kept->id)->where('kind', 'structured')->whereNull('valid_to')
+                    ->where('key', $row->key)->where('business_id', $row->business_id)->where('agent_key', $row->agent_key)->exists();
+                if ($collides) {
+                    DB::table('memories')->where('id', $row->id)->update(['valid_to' => now()]);
+                }
+            }
+            DB::table('memories')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
             $absorbed->forceFill(['merged_into_id' => $kept->id])->save();
             $kept->forceFill([
                 'orders_count' => DB::table('facts_orders')->where('customer_id', $kept->id)->count(),
@@ -200,7 +212,7 @@ final class IdentityResolver
             ])->save();
             CustomerMerge::create(['kept_id' => $kept->id, 'absorbed_id' => $absorbed->id, 'reason' => $reason, 'merged_by' => $byUserId, 'moved_identity_ids' => $moved]);
             CustomerMergeCandidate::where(fn ($q) => $q->where('customer_id', $absorbed->id)->orWhere('candidate_id', $absorbed->id))->update(['status' => 'merged', 'decided_by' => $byUserId, 'decided_at' => now()]);
-            $this->auditor->record('customer.merged', $kept, after: ['absorbed_id' => $absorbed->id, 'moved_identities' => count($moved)], reason: $reason, actorUserId: $byUserId);
+            $this->auditor->record('customer.merged', $kept, after: ['absorbed_id' => $absorbed->id, 'moved_identities' => count($moved), 'moved_memories' => $memories], reason: $reason, actorUserId: $byUserId);
         });
     }
 }
