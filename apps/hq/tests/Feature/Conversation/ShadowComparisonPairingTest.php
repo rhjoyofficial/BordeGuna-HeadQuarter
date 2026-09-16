@@ -188,6 +188,9 @@ it('records a proposal nothing answered within a day as unmeasured, once', funct
     expect($comparisons->sweepUnmeasured())->toBe(1)
         ->and($comparisons->sweepUnmeasured())->toBe(0);
 
+    // The scheduled command runs the same sweep and finds nothing more to write.
+    $this->artisan('hq:conversation:compare-sweep')->expectsOutputToContain('0 unmeasured comparison(s) recorded.')->assertSuccessful();
+
     $row = ShadowComparison::where('agent_run_id', $stale->id)->sole();
     expect($row->verdict)->toBe('unmeasured')
         ->and($row->external_digest)->toBeNull()
