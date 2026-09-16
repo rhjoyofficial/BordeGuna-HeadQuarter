@@ -81,3 +81,20 @@ Four facts shaped the decision:
 
 Whether a passing shadow week leads to anything: that is the next explicit autonomy decision
 (ChatGPT's point 16). Whether the support agent ever gets a shadow period of its own: P3-G3 onwards.
+
+## Addendum, 16 September: Shadow Probes (ChatGPT's continuation, docs/77 §E)
+
+ChatGPT kept the scheduled questions and named them: **Shadow Probes are trusted workload, a shadow
+period is a controlled observation window, and autonomy is earned capability; the three do not mix.**
+Decision 3 above is refined accordingly:
+
+- Each probe is a `{key, question}` pair stored on the period (`attention_today`, `group_yesterday`,
+  `data_freshness` by default). The tick runs it as trigger `shadow_probe` through the unchanged runner,
+  and writes a `shadow_probe_runs` row: the slot, the run, its verdict, and whether the runtime's
+  canonical task stayed exactly the question. One row per period, date, slot and probe; a slot the tick
+  could not ask is written `skipped`.
+- A production period must carry probes: `--no-schedule` is refused on production and remains for
+  manual and test use. When a period ends, HQ writes `probe_summary` and `evidence_complete`: complete
+  only when every probe of every slot inside the window reached a verdict with its task unchanged. A
+  stopped period is never complete. A probe run whose task changed is listed as a discrepancy.
+- The hourly check also closes a period whose seven days are over.

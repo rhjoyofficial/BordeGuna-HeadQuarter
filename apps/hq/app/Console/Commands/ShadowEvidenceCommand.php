@@ -12,8 +12,9 @@ use Illuminate\Console\Command;
  *
  * - no option: today's numbers so far for every open period, printed, nothing stored;
  * - `--store`: snapshot every complete day not stored yet (the scheduler runs this after midnight);
- * - `--check`: the A0 safety conditions for today so far; any violation STOPS the period at once
- *   (the scheduler runs this every hour, and `hq:shadow:tick` runs it before asking anything).
+ * - `--check`: closes a period whose seven days are over; otherwise the A0 safety conditions for today
+ *   so far, and any violation STOPS the period at once (the scheduler runs this every hour, and
+ *   `hq:shadow:tick` runs the same checks before asking anything).
  *
  * `--period=` reads one period, open or not, instead of every open one.
  */
@@ -53,6 +54,11 @@ class ShadowEvidenceCommand extends Command
             $violations = $period->isOpen() ? $evidence->violations($period, $from, $to) : ((array) $period->violations);
 
             if ($this->option('check')) {
+                if ($evidence->closeIfOver($period, $periods)) {
+                    $this->line("period #{$period->id}: seven days over, closed.");
+
+                    continue;
+                }
                 if ($violations !== [] && $period->isOpen()) {
                     $periods->stop($period, $violations, 'An A0 safety condition broke: '.implode('; ', array_map(fn ($v) => "{$v['condition']}: {$v['detail']}", $violations)));
                     $this->error("period #{$period->id} STOPPED: ".count($violations).' violation(s).');
@@ -69,7 +75,8 @@ class ShadowEvidenceCommand extends Command
             $this->line($this->option('json')
                 ? json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                 : "period #{$period->id} {$period->agent_key} {$period->status}: ".$out['metrics']['runs']['total'].' run(s) today, '
-                    .count($violations).' violation(s), $'.$out['metrics']['cost_usd'].', '.$out['metrics']['review']['unreviewed'].' unreviewed.');
+                    .count($violations).' violation(s), $'.$out['metrics']['cost_usd'].', '.$out['metrics']['review']['unreviewed'].' unreviewed, probes '
+                    .$out['metrics']['probes']['evidence'].' of '.$out['metrics']['probes']['expected'].' so far today.');
         }
 
         return $status;

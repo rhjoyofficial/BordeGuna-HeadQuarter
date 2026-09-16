@@ -2,13 +2,12 @@
 
 namespace App\Ai;
 
+use App\Ai\Providers\AnthropicCheck;
 use App\Ai\Providers\AnthropicProvider;
 use App\Gateway\Credentials\CredentialHealth;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeClass;
-use App\Models\AiModel;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /**
@@ -21,7 +20,8 @@ use Throwable;
  * (429, 5xx, 529) and a network failure say nothing about the key at all. Only a 200 verifies it.
  *
  * ⚠ It spends a fraction of a cent, so it runs only when asked: the gate runner's bypass step and
- * `hq:credentials:health --verify-model`. It does not pass through the model runtime, because its
+ * `hq:credentials:health --verify-model`. The request itself is `AnthropicCheck`, in the driver layer
+ * where provider endpoints live. It does not pass through the model runtime, because its
  * job is to tell "the provider cannot be reached with this key" apart from "HQ's code is wrong", and
  * it does not need `ai.runtime` on, because it asks nothing of any agent. The key is opened in a vault
  * scope and never printed.
@@ -33,6 +33,7 @@ final class ProviderCheck
     public function __construct(
         private readonly CredentialVault $vault,
         private readonly CredentialHealth $health,
+        private readonly AnthropicCheck $check,
     ) {}
 
     /**
@@ -45,29 +46,17 @@ final class ProviderCheck
             return ['http' => null, 'id' => null, 'usage' => null, 'error' => 'no active model provider credential is stored', 'class' => OutcomeClass::CredentialMissing->value];
         }
 
-        $model = AiModel::query()->where('tier', 'low')->where('is_active', true)->orderBy('priority')->value('model_id');
-
         try {
-            $response = $this->vault->openForAccounts(
-                [[AnthropicProvider::CREDENTIAL_PROVIDER, AnthropicProvider::ACCOUNT_REF]],
-                fn () => Http::withHeaders([
-                    'x-api-key' => $this->vault->secret(AnthropicProvider::CREDENTIAL_PROVIDER, AnthropicProvider::ACCOUNT_REF),
-                    'anthropic-version' => '2023-06-01',
-                    'content-type' => 'application/json',
-                ])->timeout(60)->post('https://api.anthropic.com/v1/messages', [
-                    'model' => $model,
-                    'max_tokens' => 8,
-                    'messages' => [['role' => 'user', 'content' => 'Reply with the single word ok.']],
-                ]),
-            );
+            $response = $this->check->send();
         } catch (ConnectionException $e) {
             $this->health->recordProviderState($credential, OutcomeClass::NetworkError, class_basename($e).': '.$e->getMessage(), $source);
 
             return ['http' => null, 'id' => null, 'usage' => null, 'error' => $e->getMessage(), 'class' => OutcomeClass::NetworkError->value];
         } catch (Throwable $e) {
-            $this->health->recordProviderState($credential, OutcomeClass::ConnectorError, class_basename($e).': '.$e->getMessage(), $source);
+            // Class only, as the driver does: a client exception can embed the request, and the request carries the key.
+            $this->health->recordProviderState($credential, OutcomeClass::ConnectorError, get_class($e), $source);
 
-            return ['http' => null, 'id' => null, 'usage' => null, 'error' => $e->getMessage(), 'class' => OutcomeClass::ConnectorError->value];
+            return ['http' => null, 'id' => null, 'usage' => null, 'error' => get_class($e), 'class' => OutcomeClass::ConnectorError->value];
         }
 
         $status = $response->status();

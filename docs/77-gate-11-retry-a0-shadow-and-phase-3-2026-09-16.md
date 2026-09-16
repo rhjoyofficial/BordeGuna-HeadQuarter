@@ -550,3 +550,41 @@ review, Joy's yes, release (backup first), then `hq:shadow:open`. The report say
 8. **Not touched:** prompts, `AgentRunner`, the detectors, `TaskGrounding`, the gateway's decisions,
    cardinality. The executive stamp must stay `executive.v8+18d60e98`; the test run says so.
 9. Tests for each of the above, CI, merge. Released only with the rest, after gate 11 attempt 2.
+
+## F. Record of the continuation build
+
+**Built (16 September), on branch `m5/shadow-probes-and-provider-readiness`, in E.1's order.**
+
+- **Readiness** (`0d9e45c`): `OutcomeClass::ProviderBlockedByCredit`; `CredentialHealth::recordProviderState()`
+  (records without condemning); `ReadinessRow` states `verified`, `credential_unverified`,
+  `provider_blocked_by_credit`, `provider_unauthorized`, `provider_unavailable`, `connector_error` beside
+  the four that were there, with `wouldAttempt()` and `verified()` as separate facts and `incident()` for
+  every supported row a person must act on; `CapabilityReadiness::verifyModel()`;
+  `App\Ai\ProviderCheck` (classification and recording) calling `App\Ai\Providers\AnthropicCheck`
+  (the request, in the driver layer, because an M4 invariant allows a provider endpoint nowhere else;
+  the first draft put the URL in `app/Ai` and that test caught it); `hq:credentials:health --verify-model`
+  and "would attempt" and "verified" columns; the gate toggle's `bypass` records through the same class,
+  and its JSON still opens with `"http"`; the Credentials screen shows the two columns. A generic
+  exception is recorded by class only, as the driver does, because it can embed the request.
+  `CapabilityReadinessTest`: 15 tests, including each HTTP answer's state, a network failure, the
+  bypass through the gate toggle, and that nothing is sent without the flag.
+- **Shadow Probes**: `shadow_probe_runs` and the period's `probes_required`, `evidence_complete` and
+  `probe_summary` (the shadow migration was not yet released, so it was extended in place);
+  `ShadowProbes` (definitions, one ask per slot, slot arithmetic, the completeness count, the daily
+  block); `ShadowProbeRun`; the tick asks through it with trigger `shadow_probe` and records a slot it
+  could not ask as skipped; `--no-schedule` refused on production; the close writes the probe summary
+  and completeness, and a stop is never complete; the hourly check closes a period whose days are over;
+  the daily evidence gains `probes`, `verified_effects` and probe task mismatches among the
+  discrepancies. `ShadowPeriodTest`: 29 tests, including a full simulated week (14 slots, 42 probes,
+  complete), a week with one slot skipped (39 of 42, the missing slot named), a probe whose task changed,
+  and the production refusal.
+- **Unchanged, checked**: prompts, `AgentRunner`, the detectors, `TaskGrounding`, the gateway's
+  decisions. `AiSafetyPostureTest` passes.
+
+**A local mistake, recorded.** While preparing the test database I ran `php artisan migrate:fresh
+--env=testing`. There is no `.env.testing`, so the command used `.env` and reset the local development
+database `hq` on Joy's PC. Production was not involved. No local Postgres backup existed. The database
+was reseeded with the project's production-safe seeders, the model tiers, the agents and the suites;
+users are never seeded, so Joy's local HQ login has to be created again (`php artisan hq:user:create`),
+and anything else that existed only in that local database is gone. Pest's `RefreshDatabase` migrates
+`hq_test` by itself; nothing needs `--env=testing`.

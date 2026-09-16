@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Agents\Shadow\ShadowPeriods;
+use App\Agents\Shadow\ShadowProbes;
 use App\Models\Agent;
 use App\Models\User;
 use Illuminate\Console\Command;
@@ -23,8 +24,8 @@ class ShadowOpen extends Command
         {agent : the agent to shadow (this milestone: executive)}
         {--reason= : why, in words, and on whose decision}
         {--by= : email of the HQ user whose decision this is}
-        {--question=* : a question the scheduler asks during the period (repeatable); three defaults when none}
-        {--no-schedule : ask nothing on a schedule; only questions a person puts to the agent are run}
+        {--question=* : a Shadow Probe question (repeatable); the three default probes when none}
+        {--no-schedule : no Shadow Probes; manual and test use only, refused on production}
         {--apply : actually open it. Without it the command only reports.}';
 
     protected $description = 'Check, and with --apply open, an agent\'s seven-day A0 shadow period.';
@@ -48,10 +49,10 @@ class ShadowOpen extends Command
         $questions = (array) $this->option('question');
         $scheduled = ! $this->option('no-schedule');
         if (! $scheduled) {
-            $this->line('  scheduled questions: none (--no-schedule)');
+            $this->line('  shadow probes: none (--no-schedule)'.(app()->isProduction() ? ' - REFUSED on production' : ''));
         }
-        foreach ($scheduled ? ($questions === [] ? ShadowPeriods::DEFAULT_QUESTIONS : $questions) : [] as $q) {
-            $this->line("  question: {$q}");
+        foreach ($scheduled ? ShadowProbes::define($questions) : [] as $probe) {
+            $this->line("  shadow probe {$probe['key']}: {$probe['question']} (09:00 and 17:00 Dhaka)");
         }
 
         if (! $this->option('apply')) {
