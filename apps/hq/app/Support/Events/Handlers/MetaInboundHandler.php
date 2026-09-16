@@ -2,6 +2,9 @@
 
 namespace App\Support\Events\Handlers;
 
+use App\Conversation\Channels\InboundChannelAdapter;
+use App\Conversation\Channels\MetaCommentNormaliser;
+use App\Conversation\Channels\MetaInstagramNormaliser;
 use App\Conversation\Channels\MetaMessengerNormaliser;
 use App\Conversation\ConversationService;
 use App\Models\DomainEvent;
@@ -9,6 +12,10 @@ use App\Support\Events\EventHandler;
 
 /**
  * `conversation.inbound_received` from the Meta webhook: normalise, then ingest each message.
+ *
+ * Three normalisers read the same document (docs/78 B.1): a Page's Messenger, an Instagram account's
+ * DMs, and comments on a Page's posts. Each is pure and yields nothing for a shape that is not its
+ * own, so one event is handed to all three and the channel-neutral core sees only `InboundMessage`s.
  *
  * Runs in the event drain, never in the request: the webhook answered 202 the moment the row was
  * written, and Meta's redelivery is harmless because the controller dedupes on the body digest and
@@ -18,18 +25,27 @@ use App\Support\Events\EventHandler;
  */
 final class MetaInboundHandler implements EventHandler
 {
+    /** @var list<InboundChannelAdapter> */
+    private readonly array $normalisers;
+
     public function __construct(
-        private readonly MetaMessengerNormaliser $normaliser,
+        MetaMessengerNormaliser $messenger,
+        MetaInstagramNormaliser $instagram,
+        MetaCommentNormaliser $comments,
         private readonly ConversationService $conversations,
-    ) {}
+    ) {
+        $this->normalisers = [$messenger, $instagram, $comments];
+    }
 
     public function handle(DomainEvent $event): void
     {
         $payload = (array) $event->payload;
         unset($payload['_digest'], $payload['_correlation_id']);
 
-        foreach ($this->normaliser->normalise($payload) as $message) {
-            $this->conversations->ingest($message);
+        foreach ($this->normalisers as $normaliser) {
+            foreach ($normaliser->normalise($payload) as $message) {
+                $this->conversations->ingest($message);
+            }
         }
     }
 }

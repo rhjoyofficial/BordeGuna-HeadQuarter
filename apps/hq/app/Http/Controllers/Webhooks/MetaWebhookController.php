@@ -33,6 +33,9 @@ final class MetaWebhookController extends Controller
 
     public const ACCOUNT_REF = 'meta';
 
+    /** The webhook envelope's `object` and the platform its `entry[].id` names. */
+    public const PLATFORM_FOR_OBJECT = ['page' => 'facebook_page', 'instagram' => 'instagram_account'];
+
     public function __construct(
         private readonly EventRecorder $events,
         private readonly CredentialVault $vault,
@@ -84,13 +87,16 @@ final class MetaWebhookController extends Controller
         }
 
         $body = json_decode($raw, true);
-        if (! is_array($body) || ($body['object'] ?? null) !== 'page' || ! is_array($body['entry'] ?? null)) {
-            return response()->json(['error' => 'malformed envelope: expected {object: page, entry: [...]}'], 422);
+        $object = is_array($body) ? ($body['object'] ?? null) : null;
+        if (! is_array($body) || ! isset(self::PLATFORM_FOR_OBJECT[$object]) || ! is_array($body['entry'] ?? null)) {
+            return response()->json(['error' => 'malformed envelope: expected {object: page|instagram, entry: [...]}'], 422);
         }
 
         $digest = hash('sha256', $raw);
         $pageId = is_array($body['entry'][0] ?? null) ? (string) ($body['entry'][0]['id'] ?? '') : '';
-        $businessId = $pageId === '' ? null : PlatformAccount::query()->where('platform', 'facebook_page')->where('account_ref', $pageId)->with('brand:id,business_id')->first()?->brand?->business_id;
+        // A Page's Messenger and its comments arrive under the Page; an Instagram account's DMs under
+        // the account (docs/78 B.1). Either is a `platform_accounts` row HQ holds, or the event dead-letters.
+        $businessId = $pageId === '' ? null : PlatformAccount::query()->where('platform', self::PLATFORM_FOR_OBJECT[$object])->where('account_ref', $pageId)->with('brand:id,business_id')->first()?->brand?->business_id;
 
         $event = $this->events->record(
             type: 'conversation.inbound_received',

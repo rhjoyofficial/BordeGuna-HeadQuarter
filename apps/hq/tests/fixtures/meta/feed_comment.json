@@ -1,0 +1,8 @@
+{"object":"page","entry":[{"id":"100085015853889","time":1757757900,"changes":[
+ {"field":"feed","value":{"item":"comment","verb":"add","comment_id":"100085015853889_9001_7001","post_id":"100085015853889_9001","parent_id":"100085015853889_9001","created_time":1757757900,"from":{"id":"2233440000000001","name":"Rina Akter"},"message":"দাম কত? ঢাকায় ডেলিভারি হয়?"}},
+ {"field":"feed","value":{"item":"comment","verb":"add","comment_id":"100085015853889_9001_7002","post_id":"100085015853889_9001","parent_id":"100085015853889_9001_7001","created_time":1757757960,"from":{"id":"100085015853889","name":"LaLaDia"},"message":"our own reply under the comment"}},
+ {"field":"feed","value":{"item":"comment","verb":"edited","comment_id":"100085015853889_9001_7001","post_id":"100085015853889_9001","created_time":1757757970,"from":{"id":"2233440000000001","name":"Rina Akter"},"message":"দাম কত? ঢাকায় ডেলিভারি হয়? (edited)"}},
+ {"field":"feed","value":{"item":"reaction","verb":"add","post_id":"100085015853889_9001","created_time":1757757980,"from":{"id":"2233440000000002"},"reaction_type":"like"}},
+ {"field":"feed","value":{"item":"comment","verb":"add","comment_id":"100085015853889_9001_7003","post_id":"100085015853889_9001","parent_id":"100085015853889_9001_7002","created_time":1757758000,"from":{"id":"2233440000000001","name":"Rina Akter"},"message":"ok, order dibo"}},
+ {"field":"feed","value":{"item":"comment","verb":"add","comment_id":"100085015853889_9002_7004","post_id":"100085015853889_9002","created_time":1757758100,"from":{"id":"2233440000000003"},"message":"nice","photo":"https://scontent.example/comment-photo.jpg"}}
+]}]}

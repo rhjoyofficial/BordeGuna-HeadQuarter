@@ -217,6 +217,23 @@ final class ScenarioLibrary
                 agent: ['outcome' => 'hand_over', 'no_tool_calls' => true],
             ),
             new Scenario(
+                key: 'instagram.dm',
+                purpose: 'A Bangla DM on the Instagram account: its own account, its own identity channel (IGSID), the same core, a person while the agent is paused.',
+                turns: [['from' => 'sim-ig-1', 'text' => 'ইলিশ আচার ৫০০ গ্রামের দাম কত?', 'channel' => 'instagram']],
+                expect: ['state' => ConversationState::HumanRequired, 'language' => 'bn', 'stranger' => true, 'threads' => 1, 'customers' => 1],
+                tags: ['instagram', 'bangla'],
+            ),
+            new Scenario(
+                key: 'facebook.comment',
+                purpose: 'Two comments by one person on one post are one thread; the commenter is a customer under their Page-scoped id, named from the comment; a person answers while the agent is paused.',
+                turns: [
+                    ['from' => 'sim-fb-1', 'text' => 'দাম কত? ঢাকায় ডেলিভারি হয়?', 'channel' => 'comment', 'post' => 'sim-post-9', 'name' => 'Rina Akter'],
+                    ['from' => 'sim-fb-1', 'text' => 'ok, order dibo', 'channel' => 'comment', 'post' => 'sim-post-9', 'name' => 'Rina Akter'],
+                ],
+                expect: ['state' => ConversationState::HumanRequired, 'threads' => 1, 'customers' => 1, 'messages' => 2],
+                tags: ['comment', 'identity'],
+            ),
+            new Scenario(
                 key: 'second_inbound_while_waiting',
                 purpose: 'The agent answered and is waiting; the customer writes again before anything else happens. That is a person\'s.',
                 turns: [

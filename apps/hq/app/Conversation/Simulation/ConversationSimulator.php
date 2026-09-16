@@ -57,6 +57,9 @@ final class ConversationSimulator
 {
     public const PAGES = ['sim-page' => 'Simulated Page', 'sim-page-2' => 'Simulated Page 2'];
 
+    /** The simulated Instagram account (platform `instagram_account`), for turns on that channel. */
+    public const INSTAGRAM = 'sim-ig';
+
     public function __construct(
         private readonly ConversationService $conversations,
         private readonly HandoffStateMachine $states,
@@ -171,7 +174,6 @@ final class ConversationSimulator
         $this->seedGiven($scenario, $brand);
 
         $before = $this->counts();
-        $adapter = new SimulatedChannelAdapter(Channel::Messenger);
         $conversation = null;
         $lastMessage = null;
         $refused = null;
@@ -190,9 +192,15 @@ final class ConversationSimulator
             }
 
             $stampedAt = isset($turn['at']);
-            $payload = ['page' => $turn['page'] ?? SimulatedChannelAdapter::DEFAULT_PAGE, 'messages' => [
+            // A turn arrives on Messenger unless it names another channel (docs/78 B.1): an Instagram DM
+            // on the simulated account, or a comment on a post of the page.
+            $channel = Channel::tryFrom((string) ($turn['channel'] ?? 'messenger')) ?? Channel::Messenger;
+            $adapter = new SimulatedChannelAdapter($channel);
+            $defaultAccount = $channel === Channel::Instagram ? self::INSTAGRAM : SimulatedChannelAdapter::DEFAULT_PAGE;
+            $payload = ['page' => $turn['page'] ?? $defaultAccount, 'messages' => [
                 ['from' => $turn['from'], 'text' => $turn['text'] ?? null, 'mid' => $turn['mid'] ?? "sim-{$scenario->key}-{$index}",
-                    'at' => $turn['at'] ?? now()->toIso8601String(), 'attachments' => $turn['attachments'] ?? []],
+                    'at' => $turn['at'] ?? now()->toIso8601String(), 'attachments' => $turn['attachments'] ?? [],
+                    'name' => $turn['name'] ?? null, 'post' => $turn['post'] ?? null],
             ]];
 
             foreach ($adapter->normalise($payload) as $inbound) {
@@ -269,6 +277,10 @@ final class ConversationSimulator
                 ['brand_id' => $brand->id, 'name' => $name, 'approval_status' => 'simulated', 'is_active' => true],
             );
         }
+        PlatformAccount::query()->updateOrCreate(
+            ['platform' => 'instagram_account', 'account_ref' => self::INSTAGRAM],
+            ['brand_id' => $brand->id, 'name' => 'Simulated Instagram', 'approval_status' => 'simulated', 'is_active' => true],
+        );
     }
 
     private function setAgentActive(bool $active): void

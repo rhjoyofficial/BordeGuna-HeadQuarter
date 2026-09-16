@@ -47,6 +47,7 @@ final readonly class ConversationService
     public const PLATFORM_FOR_CHANNEL = [
         'messenger' => 'facebook_page',
         'instagram' => 'instagram_account',
+        'comment' => 'facebook_page',
         'whatsapp' => 'whatsapp_number',
     ];
 
@@ -96,7 +97,10 @@ final readonly class ConversationService
             // ⚠ UTC before anything is stored or bound: a provider timestamp carrying +06:00 written
             // as-is would be read back six hours late by every UTC column.
             $receivedAt = $inbound->receivedAt->utc();
-            $customer = $this->identity->resolveChannelIdentity($inbound->channel, $inbound->senderExternalId, $business);
+            // A channel that names the sender (a comment carries `from.name`) gives a new customer a name;
+            // it is the customer's own claim about themselves, kept as a name and nothing more.
+            $profile = is_string($inbound->metadata['sender_name'] ?? null) ? ['name' => $inbound->metadata['sender_name']] : [];
+            $customer = $this->identity->resolveChannelIdentity($inbound->channel, $inbound->senderExternalId, $business, $profile);
             $agentActive = Agent::query()->where('key', self::SUPPORT_AGENT)->where('status', 'active')->exists();
 
             $conversation = $this->openOrFind($business->id, $inbound->channel, $inbound->externalThreadRef, $customer->id, [
