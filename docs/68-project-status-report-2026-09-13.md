@@ -262,6 +262,8 @@ Gate 11 carried the one-paragraph fix for gate 10's single failure: a question a
 
 This is not the monthly spend limit from gate 6, and not HQ's own budget. It is the credit balance on the Anthropic Console account. Until it is topped up, every AI call in HQ fails. The full record is docs/76 section E.
 
+On 16 September the balance was checked again with the gate's own one-line test, and the provider still refused. The report went to ChatGPT at 09:28 UTC, asking whether the relaunch keeps the name gate 11 or takes a new number.
+
 ## 8. How to read the next report
 
 Every milestone document in `docs/` has the same shape: what the last gate showed, the plan in the order it was built, what was deliberately not done, the tests, how the gate is run, and a record section filled in as each step completes. Every architecture decision is an ADR, and an ADR is what any later change has to argue with. The number that matters in a gate report is never the headline pass rate. It is the row of separate checks under it: whether a forbidden tool was ever named, whether a refusal came before any evidence, whether every in-role call was one the gateway could run. A gate is green when all of them hold, and autonomy widens only on that evidence, never on time elapsed.

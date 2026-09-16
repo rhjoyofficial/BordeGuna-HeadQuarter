@@ -190,3 +190,11 @@ locked run, and whether the next attempt is gate 11 again or a new number is its
 in HQ fails until Joy adds credit to the Anthropic Console account (Plans and Billing); nothing in HQ
 can or should do that for him. Evidence: `agent_runs` #549 to #631, `evaluation_runs` #24 and #25,
 `/tmp/gate-11.log`.
+
+**16 September, before any relaunch.** The gate's own capacity check (the 8-token bypass call with the
+vault's key, run on its own, nothing enabled) still answered HTTP 400 with the same credit-balance
+message, so the credit has not been added yet. Posture read again: `ai.runtime` OFF, analytics,
+executive and support paused at A0, grants 0, consent 0. The only audit rows since the gate (#635 to
+#646) are the scheduled read jobs, all succeeded through the gateway, and the nightly fact-integrity
+check (14 checked, 0 discrepancies). The report above was posted in the ChatGPT thread in one send,
+with one question: relaunch as gate 11 on the same release, or a new number.
