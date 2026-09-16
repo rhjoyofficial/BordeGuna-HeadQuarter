@@ -447,9 +447,92 @@ Foundation/Gateway 188, Media/Platform/Scheduler/Security/Settings 67, Observe 3
 **804 passed, 0 failed**. Pint `--test` passed; `tsc --noEmit` clean; `vite build` succeeded.
 **Local verification passed; GitHub Actions validation deferred until 1 October reset.**
 
-### C.3 Stream C: Phase 2 M6, inert
+### C.3 Stream C: Phase 2 M6, inert (branch `m6/ask-hq-and-nl-scheduling`)
 
-(Filled in when the stream completes.)
+One commit, `210b93c`. Both surfaces sit behind flags that are off everywhere (`ask_hq`,
+`scheduler.nl`), and both ask nothing while `ai.runtime` is off, which on production it is. No prompt,
+`AgentRunner`, detector, `TaskGrounding` or gateway file changed in any stream: `git diff 3314c54` over
+them is empty, and the stamps still read `executive.v8+18d60e98` and `support.v1+0f4a195b`.
+
+**Ask HQ (docs/48 K).**
+
+- `ask_conversations` and `ask_messages`, separate from the customer conversation tables on purpose
+  (trusted operator input against untrusted customer input). **Deviation from K.2:** an answer names
+  the agent run that produced it and the run's correlation id, not one `ai_run_id` and one
+  `tool_call_id`; an agent run makes several of each, and the correlation id reaches all of them, so
+  the trace docs/48 N.1 asks for runs from an `ask_messages` row to every model call, tool call and
+  connector call without a broken link.
+- `/ask`, behind `hq.ask.use` (held only by the owner and operator roles) and the flag. The only
+  write is a question: the words, an agent from `hq.ask.agents` (executive and analytics; the support
+  agent answers customers, not operators), a business, and a conversation of the person's own. A
+  test posts a tool key, arguments, tool calls, a model and an autonomy level alongside a question
+  and shows none of them has any effect, and that the controller validates exactly those four fields.
+- While the runtime is off, the question is recorded with a system line saying nothing was asked,
+  and the audit says `ask.refused`. Otherwise a queued `AnswerAskTurn` puts the question to the
+  unchanged `AgentRunner` (trigger `operator`, the asker recorded on the run) and records the answer,
+  the run, whether it was shadow, its autonomy level and its tool calls; the page labels every A0
+  answer as a proposal, not HQ's answer. The runtime switch is read again at the moment of asking.
+- **A finding, and the rule it produced.** The runner calls tools under the agent's enabling user and
+  does not narrow them to the person asking. Ask HQ therefore never lends an agent's reach: the asker
+  must be group-wide (no business rows) and must hold every permission the agent's tools require, or
+  the question is refused with the reason. Narrowing a run to the asker's own businesses is a runtime
+  change and belongs to the M6 gate, not to this surface.
+- **Not built, on purpose:** server-sent streaming (the page refreshes itself while an answer is
+  pending) and inline approval cards (at A0 no agent can act, and proposals are on the run page).
+  Both belong to the M6 gate's version of this screen.
+
+**Scheduling in words (docs/48 L).**
+
+- `JobSpecSchema` sits in the same narrow subset as the agent reply schema (only `type` and `enum`,
+  every property required, no nullable fields, the tool arguments as JSON text), because one schema
+  goes to the provider's strict mode and to `ArgumentValidator`; a test holds it there.
+- `NlJobParser` asks the low tier (task `nl_to_job_spec`) with the registered tools, the businesses
+  and the stores in the prompt, and returns a draft. It is the only class in the path that knows a
+  model exists, and nothing in the path references the gateway, the runner or a tool's `execute`; a
+  test reads the sources to prove it. No new model-to-tool path exists.
+- `JobSpecValidator` decides, without a model: the tool is registered; the arguments validate against
+  that tool's own schema; the business and store are real rows the person may use (a store becomes
+  the tool's `store_slug`, or a question when the tool takes none); the schedule parses and lies in
+  the future; the timezone is real. Everything docs/48 L.3 calls ambiguous is a question: a day of
+  the month some months lack, a time already passed, anything unresolved. An event-triggered job is a
+  question too, because nothing dispatches those jobs yet and one made now would never run. The first
+  run is computed in the job's own zone; a test crosses the November daylight-saving change in New
+  York.
+- A preview waits server-side under a one-time token, for the person who saw it (another person's
+  attempt fails and does not spend it). Confirming creates the job through
+  `ScheduledJobService::create()` with `created_from: nl` and the person's own words in
+  `nl_source_text`; a test does it with a Bangla sentence and reads the words back exactly.
+- **docs/48 L.5 made real.** A job that runs an R3 or higher tool is created pending. The scheduler
+  already skipped pending jobs; now the job page has Approve and Reject (audited, `hq.jobs.manage`),
+  approval computes the next slot from now so no backlog is released, and "run now" refuses a job
+  that is not approved, which closes a bypass that had no way to happen until a pending job could
+  exist. The form on the scheduler screen still creates every job approved, as it always has; the
+  person filling it holds the same permission that approves, and whether the form should follow L.5
+  too is a decision recorded here rather than made quietly.
+- **Fixed on the way:** `ScheduledJobService::create()` passed its audit `reason` into the model,
+  which throws outside production; the reason now goes to the audit row only.
+- The sidebar's Ask HQ item and the scheduler's "Describe a job" button appear only when their flags
+  are on (the shared `nav.features`).
+
+**The M6 gate, not run.** docs/48's gate for M6 is a real job created from a real sentence in Bangla
+and in English, previewed, approved and observed running at the right Dhaka time with its words
+kept, and an ambiguous sentence proven to ask. Every step of that is exercised here against the
+fixture provider, never against a real model; ChatGPT placed the real gate after the Executive
+shadow evidence, and switching either flag on in production is part of that decision.
+
+**Tests:** Ask HQ 8, scheduling in words 25 (a dataset of sixteen ways the validator asks instead of
+guessing).
+
+**Also in this stream:** two runbooks (`docs/runbooks/alerts-and-retention.md`,
+`docs/runbooks/ask-hq-and-scheduling-in-words.md`), and `docs/70` M now records GitHub Actions as paused
+until the 1 October reset by Joy's choice, and the Anthropic credit as not re-checked on 17 September
+(the check uses the stored key and waits for his go-ahead).
+
+**Verification, the merge gate until 1 October:** Pest, folder by folder: Agents 106,
+Ai/Auth/Autonomy/Commerce/Consent 98, Conversation 70, Erp/Evaluation 194, Identity/Facts 38,
+Foundation/Gateway 188, Media/Platform/Scheduler/Security/Settings 92, Observe/Ask 45, Dashboard/Unit 6:
+**837 passed, 0 failed**. Pint `--test` passed; `tsc --noEmit` clean; `vite build` succeeded.
+**Local verification passed; GitHub Actions validation deferred until 1 October reset.**
 
 ### C.4 Stream D: Phase 4 design
 
@@ -459,3 +542,63 @@ identity through ERP and commerce reconciliation), keep `take_order` as one busi
 behind the Capability Registry and the Tool Gateway with no agent knowing the transport (point 7),
 and sort the Commerce Platform Interface into what stays as read-side adapters and what moves behind
 the ERP capability. Nothing is implemented; no order write exists for any agent.
+
+## D. Consolidated report (point 16), 17 September
+
+Written once for the HQ thread, in the order point 16 lists. Everything below was read from the
+repository and from production on 17 September.
+
+**Consolidated report: full speed while Gate 11 waits (docs/78)**
+
+1. **Phase 3 inert.** Built and merged: customer memory in the support bundle (labelled memory, never
+   fact, ADR-033 intact); operator remember and forget on resolved threads (audited; episodes never edited); Instagram DM and Facebook comment normalisers from recorded
+   fixtures through the same InboundMessage core (flag off, no credential, no send); the HQ side of
+   the P3-G3 pairing (echo recorded as external outbound, paired with the proposal that answered the
+   same message, a person's verdict of same, better, worse or different, a daily unmeasured sweep); five
+   runbooks. Inbound content stays untrusted; nothing customer-facing is active.
+2. **P3-G1.** Local, 17 September: 33 scenarios, 33 passed, two replays identical, no residual trace
+   (identity, transitions, audited handoffs, redelivery, Dhaka and UTC, business scope, both new
+   channels). The production replay needs the invariants in main, which 3314c54 lacks, so it runs after
+   the release that follows gate 11. Not Support-agent safety evidence.
+3. **P3-G2.** Prepared, not run: behaviour.support is 10 written cases plus one per agent-active
+   scenario (Bangla, Banglish, English, mixed script, typos, order questions, complaints, handoff,
+   returning customer with memory, injection, fake owner, claimed approval, another customer's order,
+   paused and active states). It runs under GATE_AGENT=support after the release, with Joy as the
+   enabling user for the simulated run only. Support stays paused.
+4. **M7.** Built and merged. Retention: the governed policy (tool, model and connector detail 180 days
+   then daily aggregates; processed event payloads 365 days, digest kept), Dhaka days, one
+   transaction per chunk, bounded, watermarked, every pass recorded and audited, every aggregate
+   naming its pass and id range. Kept forever: the permanent classes, and any
+   detail row an agent, approval, evaluation result, conversation message or consent event points at,
+   or that shares an agent run's correlation id; a schema test fails if a new reference appears. Nothing
+   is eligible before March 2027. Alerts: fifteen rules every five minutes, deduplicated, clear after
+   two quiet checks, audited; what the host monitor, model runtime or approvals sweep already pages is
+   recorded, not re-sent. Four read-only dashboards (AI health, Cost, Control plane, Platform) and an
+   alert page, on existing permissions.
+5. **M6, inert.** Ask HQ over the unchanged AgentRunner (flag ask_hq): the only write is a question; a
+   test shows a posted tool, arguments or model do nothing; while ai.runtime is off nothing is asked.
+   Finding: the runner acts under the enabling user and does not narrow to the asker, so Ask HQ is
+   open only to group-wide operators holding every permission the agent's tools need; narrowing the run
+   itself is left to the M6 gate. Scheduling in words (flag scheduler.nl): strict JobSpec schema, low
+   tier, deterministic validator (registered tool, arguments against its schema, resolved entities,
+   future schedule, real zone, questions for ambiguity), preview under a one-time token, created_from nl
+   with the words kept. docs/48 L.5 is now real: R3+ jobs are created pending, approve and reject exist,
+   run-now refuses an unapproved job. No new model-to-tool path; a test reads the sources.
+6. **Phase 4 design.** docs/79 and ADR-046, proposed: take_order is one business capability behind
+   the ERP Sales Order capability; all seventeen items of point 6; which Commerce Platform Interface
+   pieces stay read-side adapters. Nothing implemented.
+7. **Commits and verification.** PR #35 merged 071ade1; streams merged to main by local --no-ff merges:
+   A and D 575465a, B e91ef39, C with this report (branch head 210b93c). Local suites: A 767,
+   B 804, C 837 passed, 0 failed, plus Pint, strict TypeScript and Vite. Executive stamp still executive.v8+18d60e98; no
+   prompt, runner, detector, TaskGrounding or gateway file changed since 3314c54.
+8. **CI.** Deferred: local verification passed; GitHub Actions validation deferred until the 1 October
+   reset, when CI runs on main and anything it finds is fixed first.
+9. **Anthropic capacity.** Not confirmed. Joy has not yet reported adding credit; the last bypass check
+   answered 400 (credit). A fresh check was held back by my tool's guard (it uses the stored key);
+   it waits for Joy.
+10. **Gate 11 readiness.** Unchanged and ready on 3314c54: one fresh attempt 2 once the bypass answers
+    200 with sufficient credit, zero unmeasured required, attempt 1's evidence kept.
+11. **Production posture (read 17 September).** Release 3314c54. ai.runtime off; Executive, Analytics
+    and Support paused at A0 (Support has no enabling user); grants 0; Meta inbound off; no outbound
+    provider; consent events 0; no customer cohort; no shadow period (its tables ship with the next
+    release). Nothing was activated.

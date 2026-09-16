@@ -11,6 +11,8 @@ written for Joy and for whoever helps him; the design behind each is in the numb
 | [The Executive's shadow week](shadow-week.md) | Opening, watching, stopping and closing the seven-day A0 period |
 | [Readiness and credentials](readiness.md) | Reading the readiness table, replacing a token, and what each state means |
 | [The model provider is blocked](provider-blocked.md) | Every AI call fails with a credit, key or outage message |
+| [Alerts, dashboards and retention](alerts-and-retention.md) | An alert opened, you want the dashboards, or you want to know what old records become |
+| [Ask HQ and scheduling in words](ask-hq-and-scheduling-in-words.md) | Asking an agent a question, or creating a job from a sentence (both switched off for now) |
 
 Every command below runs on the VPS, inside the app container:
 
