@@ -38,6 +38,9 @@ enum Channel: string
         return match ($this) {
             self::Messenger => 'messenger_psid',
             self::Instagram => 'instagram_igsid',
+            // A commenter's Page-scoped user id. Meta does not relate it to the same person's Messenger
+            // PSID, so a merge stays a person's decision (docs/14).
+            self::Comment => 'facebook_user',
             self::Whatsapp => 'whatsapp',
             self::Sms, self::Voice => 'phone',
             self::Email => 'email',

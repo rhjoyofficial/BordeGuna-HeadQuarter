@@ -2,19 +2,26 @@
 
 namespace App\Http\Controllers\Inbox;
 
+use App\Context\Provenance;
 use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;
 use App\Conversation\HandoffStateMachine;
 use App\Conversation\InvalidTransition;
+use App\Conversation\ShadowComparisons;
+use App\Conversation\SupportContext;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolOutcome;
 use App\Gateway\ToolRequest;
 use App\Http\Controllers\Controller;
+use App\Memory\MemoryKind;
+use App\Memory\MemoryStore;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\DecisionRecord;
+use App\Models\Memory;
+use App\Models\ShadowComparison;
 use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -123,6 +130,14 @@ final class InboxController extends Controller
             ],
             'messages' => $messages,
             'proposals' => $this->proposalsFor($conversation),
+            // What is remembered about this customer (docs/78 B.1): shown with its source and date,
+            // because memory is never truth (ADR-033) and a reader must be able to weigh it.
+            'memory' => $this->memoryFor($conversation),
+            // P3-G3's pairing (docs/78 B.1): what the agent proposed beside what actually went out.
+            'comparisons' => $this->comparisonsFor($conversation),
+            'verdicts' => ShadowComparisons::VERDICTS,
+            'memory_keys' => self::MEMORY_KEYS,
+            'can_remember' => $this->canRemember($conversation),
             'assignees' => User::query()->get(['id', 'email'])
                 ->filter(fn (User $u) => $u->can('hq.inbox.manage') && $this->businessScope->allows($u, $conversation->business_id))
                 ->map(fn (User $u) => ['id' => $u->id, 'email' => $u->email])->values(),
@@ -191,6 +206,105 @@ final class InboxController extends Controller
         }
 
         return back()->with('status', $to ? 'ai-disabled' : 'ai-enabled');
+    }
+
+    /**
+     * The structured facts a person may remember about a customer from a thread, by key. A short,
+     * fixed list on purpose: a key is a promise about what the value means, and a free key would let
+     * one operator's "notes" be another's "address".
+     */
+    public const MEMORY_KEYS = ['delivery_notes', 'preferred_language', 'preferred_contact_time', 'about'];
+
+    /**
+     * A person remembers a fact about the customer, after the thread is resolved (docs/72 §B,
+     * docs/78 B.1). Structured memory supersedes its key; an episode is never edited. Provenance is
+     * `business` (a colleague's own words), the conversation and the person are recorded on the row,
+     * and the act is audited. The agent never writes memory in Phase 3; this is the only writer.
+     */
+    public function remember(Request $request, Conversation $conversation, MemoryStore $memory): RedirectResponse
+    {
+        $this->assertReadable($request, $conversation);
+        if (! $this->canRemember($conversation)) {
+            throw ValidationException::withMessages(['kind' => 'A fact is remembered on a resolved or closed thread with a known customer.']);
+        }
+
+        $data = $request->validate([
+            'kind' => ['required', 'in:structured,episodic'],
+            'key' => ['required_if:kind,structured', 'nullable', 'string', 'in:'.implode(',', self::MEMORY_KEYS)],
+            'value' => ['required_if:kind,structured', 'nullable', 'string', 'max:500'],
+            'content' => ['required_if:kind,episodic', 'nullable', 'string', 'max:1000'],
+        ]);
+
+        $scope = ['customer_id' => $conversation->customer_id, 'business_id' => $conversation->business_id];
+        $attributes = [
+            'conversation_id' => $conversation->id,
+            'source_ref' => 'user:'.$request->user()?->getKey(),
+            'data_class' => 'personal',
+        ];
+
+        $row = $data['kind'] === 'structured'
+            ? $memory->remember((string) $data['key'], ['text' => trim((string) $data['value'])], Provenance::Business, $scope, $attributes)
+            : $memory->recordEpisode(trim((string) $data['content']), Provenance::Business, $scope, $attributes + ['occurred_at' => now()]);
+
+        $this->auditor->record('memory.remembered', $row, null,
+            ['kind' => $row->kind->value, 'key' => $row->key, 'customer_id' => $conversation->customer_id, 'conversation_id' => $conversation->id],
+            'remembered by a person on the inbox', $request->user()?->getKey());
+
+        return back()->with('status', 'remembered');
+    }
+
+    /**
+     * A person closes a structured memory: the value stops being current, the row stays (ADR-033: a
+     * store that can be made to forget silently is a store that can be made to lie). An episode
+     * cannot be closed here; deletion on a customer's request is its own command (docs/09).
+     */
+    public function forget(Request $request, Conversation $conversation, Memory $memory): RedirectResponse
+    {
+        $this->assertReadable($request, $conversation);
+        if ($memory->customer_id !== $conversation->customer_id || $memory->kind !== MemoryKind::Structured || $memory->valid_to !== null) {
+            throw ValidationException::withMessages(['memory' => 'Only a current structured memory of this customer can be closed here.']);
+        }
+
+        $memory->forceFill(['valid_to' => now()])->save();
+        $this->auditor->record('memory.closed', $memory, ['valid_to' => null], ['valid_to' => $memory->valid_to?->toIso8601String()],
+            'closed by a person on the inbox', $request->user()?->getKey());
+
+        return back()->with('status', 'forgotten');
+    }
+
+    /** A person's verdict on one pairing of a proposal with what was actually sent (P3-G3). */
+    public function verdict(Request $request, Conversation $conversation, ShadowComparison $comparison, ShadowComparisons $comparisons): RedirectResponse
+    {
+        $this->assertReadable($request, $conversation);
+        if ($comparison->conversation_id !== $conversation->id || $comparison->verdict === 'unmeasured') {
+            throw ValidationException::withMessages(['verdict' => 'That comparison is not on this thread, or nothing was sent to compare.']);
+        }
+        $data = $request->validate(['verdict' => ['required', 'in:'.implode(',', ShadowComparisons::VERDICTS)]]);
+
+        $comparisons->verdict($comparison, $data['verdict'], (int) $request->user()->getKey());
+
+        return back()->with('status', 'verdict-recorded');
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function comparisonsFor(Conversation $conversation): array
+    {
+        return ShadowComparison::query()
+            ->where('conversation_id', $conversation->id)
+            ->with(['agentRun:id,proposals,created_at', 'externalMessage:id,body,sent_at'])
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get()
+            ->map(fn (ShadowComparison $c) => [
+                'id' => $c->id,
+                'run_id' => $c->agent_run_id,
+                'proposed' => $c->agentRun === null ? null : ShadowComparisons::proposalText($c->agentRun),
+                'sent' => $c->externalMessage?->body,
+                'sent_at' => $c->externalMessage?->sent_at?->toIso8601String(),
+                'identical' => $c->external_digest !== null && $c->hq_digest === $c->external_digest,
+                'verdict' => $c->verdict,
+                'compared_at' => $c->compared_at?->toIso8601String(),
+            ])->values()->all();
     }
 
     public function note(Request $request, Conversation $conversation): RedirectResponse
@@ -296,6 +410,39 @@ final class InboxController extends Controller
     }
 
     /** ⚠ 404, not 403 (see the agent screen): a thread on a business you may not see does not exist for you. */
+    /** A fact is remembered once the thread is settled and there is a customer to remember it about. */
+    private function canRemember(Conversation $conversation): bool
+    {
+        return $conversation->customer_id !== null
+            && in_array($conversation->state, [ConversationState::HumanResolved, ConversationState::Closed], true);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function memoryFor(Conversation $conversation): array
+    {
+        if ($conversation->customer_id === null) {
+            return [];
+        }
+
+        return Memory::query()
+            ->where('customer_id', $conversation->customer_id)
+            ->where(fn ($q) => $q->where('business_id', $conversation->business_id)->orWhereNull('business_id'))
+            ->whereNull('valid_to')
+            ->orderByDesc('id')
+            ->limit(SupportContext::MEMORY_LIMIT)
+            ->get()
+            ->map(fn (Memory $m) => [
+                'id' => $m->id,
+                'kind' => $m->kind->value,
+                'key' => $m->key,
+                'text' => $m->kind === MemoryKind::Structured ? (string) (data_get($m->value, 'text') ?? json_encode($m->value)) : (string) $m->content,
+                'provenance' => $m->provenance->value,
+                'source' => $m->source_ref,
+                'at' => ($m->kind === MemoryKind::Episodic ? $m->occurred_at : $m->valid_from)?->toIso8601String(),
+                'closable' => $m->kind === MemoryKind::Structured,
+            ])->values()->all();
+    }
+
     private function assertReadable(Request $request, Conversation $conversation): void
     {
         if (! $this->readable($request)->whereKey($conversation->getKey())->exists()) {

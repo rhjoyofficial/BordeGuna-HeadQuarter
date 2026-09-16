@@ -89,6 +89,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{conversation:uuid}/note', [InboxController::class, 'note'])->middleware('permission:hq.inbox.manage')->name('note');
         Route::post('{conversation:uuid}/reply', [InboxController::class, 'reply'])->middleware('permission:hq.inbox.manage')->name('reply');
         Route::post('{conversation:uuid}/proposals/{run}/decide', [InboxController::class, 'decide'])->middleware('permission:hq.inbox.manage')->name('decide');
+        // docs/78 B.1: a person remembers a fact about the customer, or closes one. Never the agent.
+        Route::post('{conversation:uuid}/remember', [InboxController::class, 'remember'])->middleware('permission:hq.inbox.manage')->name('remember');
+        Route::post('{conversation:uuid}/memory/{memory}/forget', [InboxController::class, 'forget'])->middleware('permission:hq.inbox.manage')->name('forget');
+        // P3-G3 pairing (docs/78 B.1): a person's verdict on a proposal beside what was actually sent.
+        Route::post('{conversation:uuid}/comparisons/{comparison}/verdict', [InboxController::class, 'verdict'])->middleware('permission:hq.inbox.manage')->name('verdict');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');

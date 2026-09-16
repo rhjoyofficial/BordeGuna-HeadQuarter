@@ -24,6 +24,9 @@ Schedule::command('hq:shadow:tick --slot=evening')->dailyAt('17:00')->timezone('
 Schedule::command('hq:shadow:evidence --check')->hourly()->withoutOverlapping(10)->runInBackground();
 Schedule::command('hq:shadow:evidence --store')->dailyAt('00:15')->timezone('Asia/Dhaka')->withoutOverlapping(10)->runInBackground();
 
+// docs/78 B.1: the P3-G3 pairing's daily sweep. Writes nothing while the support agent proposes nothing.
+Schedule::command('hq:conversation:compare-sweep')->dailyAt('01:00')->timezone('Asia/Dhaka')->withoutOverlapping(10)->runInBackground();
+
 // Horizon metrics snapshots for its dashboard.
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
 

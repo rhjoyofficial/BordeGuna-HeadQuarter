@@ -46,18 +46,21 @@ final class SimulatedChannelAdapter implements InboundChannelAdapter, OutboundCh
 
             $from = $turn['from'];
             $mid = (string) ($turn['mid'] ?? "sim-{$page}-{$from}-{$index}");
+            // A comment thread is one person's comments on one post (MetaCommentNormaliser); a DM thread is the account and the sender.
+            $post = (string) ($turn['post'] ?? 'sim-post-1');
+            $threadRef = $this->channel === Channel::Comment ? "comment:{$page}:{$post}:{$from}" : "{$page}:{$from}";
 
             yield new InboundMessage(
                 channel: $this->channel,
                 platformAccountRef: $page,
-                externalThreadRef: "{$page}:{$from}",
+                externalThreadRef: $threadRef,
                 externalMessageRef: $mid,
                 senderExternalId: $from,
                 body: isset($turn['text']) ? (string) $turn['text'] : null,
                 receivedAt: isset($turn['at']) ? CarbonImmutable::parse((string) $turn['at']) : CarbonImmutable::now(),
                 digest: hash('sha256', json_encode($turn, JSON_UNESCAPED_UNICODE) ?: $mid),
                 attachments: array_values(array_filter((array) ($turn['attachments'] ?? []), 'is_array')),
-                metadata: ['simulated' => true],
+                metadata: array_filter(['simulated' => true, 'post_id' => $this->channel === Channel::Comment ? $post : null, 'sender_name' => $turn['name'] ?? null]),
             );
         }
     }
