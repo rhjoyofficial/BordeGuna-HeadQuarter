@@ -581,6 +581,16 @@ review, Joy's yes, release (backup first), then `hq:shadow:open`. The report say
 - **Unchanged, checked**: prompts, `AgentRunner`, the detectors, `TaskGrounding`, the gateway's
   decisions. `AiSafetyPostureTest` passes.
 
+**Verification, and why the PR is not merged yet.** PR #35 was opened on `67cbe14`, and GitHub refused
+to start its CI jobs: "The job was not started because recent account payments have failed or your
+spending limit needs to be increased" (GitHub Actions billing, the same account that ran PR #34's CI an
+hour earlier). The same checks were run on Joy's PC instead, folder by folder so Windows' memory limit
+would not kill them: Pest 750 of 750 across every test folder (the Facts folder needs the Identity
+folder's shared helper and passes with it), Pint clean, `tsc --noEmit` clean, `vite build` clean. The
+deployment-safety suite cannot run on Windows (it needs Unix file modes) and guards `deploy/deploy.sh`,
+which this branch does not change. By the standing rule the merge waits for green CI, so PR #35 stays
+open until Joy restores GitHub Actions billing; nothing here can be released before gate 11 in any case.
+
 **A local mistake, recorded.** While preparing the test database I ran `php artisan migrate:fresh
 --env=testing`. There is no `.env.testing`, so the command used `.env` and reset the local development
 database `hq` on Joy's PC. Production was not involved. No local Postgres backup existed. The database
