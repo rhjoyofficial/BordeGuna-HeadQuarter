@@ -2,6 +2,7 @@
 
 namespace App\Gateway\Readiness;
 
+use App\Ai\ProviderCheck;
 use App\Ai\Providers\AnthropicProvider;
 use App\Commerce\Support\CommerceRegistry;
 use App\Erp\ErpRegistry;
@@ -25,13 +26,17 @@ use Throwable;
  * from what its own calls have taught it, for every store and every ERP business and the model
  * provider. Never a value: ids, statuses, times, classes.
  *
- * Six states. `unsupported`: HQ has no connector for the target (the Econic WooCommerce store, the
- * ERP counter), which is by design and never an incident. `disabled`: the tool switch is off for
- * the business. `credential_missing`: no active row with a value. `credential_invalid`: expired, or
- * rejected by the provider on the last verification or the last live call, and nothing newer
- * stored. `unverified`: a credential exists and nothing has yet accepted or rejected it; HQ would
- * attempt the call. `ready`: the provider accepted it. An incident is a supported target that is
- * not executable, and that is what the health command's exit code says.
+ * Ten states (docs/77 E.1, from ChatGPT's list of 16 September). `unsupported`: HQ has no connector
+ * for the target (the Econic WooCommerce store, the ERP counter), which is by design and never an
+ * incident. `disabled`: the tool switch is off for the business. `credential_missing`: no active row
+ * with a value. `credential_invalid`: expired, or rejected on authentication by the provider on the
+ * last verification or the last live call, and nothing newer stored. `credential_unverified`: a
+ * credential exists and nothing has yet accepted or rejected it. `provider_blocked_by_credit`: the
+ * provider refused because the account has no credit, which judges the account and not the key.
+ * `provider_unauthorized`: the provider refused a permission the key lacks, not condemned.
+ * `provider_unavailable` and `connector_error`: the last check could not get a usable answer, which
+ * says nothing about the credential. `verified`: the provider accepted it. An incident is a supported
+ * target a person must act on, and that is what the health command's exit code says.
  */
 final class CapabilityReadiness
 {
@@ -41,6 +46,7 @@ final class CapabilityReadiness
         private readonly ToolAvailability $availability,
         private readonly CommerceRegistry $commerce,
         private readonly ErpRegistry $erp,
+        private readonly ProviderCheck $providerCheck,
     ) {}
 
     /** @return list<ReadinessRow> */
@@ -84,8 +90,8 @@ final class CapabilityReadiness
 
     /**
      * Run the cheap read-only probe for one row and record what the provider said on the
-     * credential, then read the row again. The model provider is not probed here: the gate's own
-     * `hq:ai:probe` covers it, and a probe that spends money belongs to a command that says so.
+     * credential, then read the row again. The model provider is not probed here: a probe that
+     * spends money belongs to a flag that says so (`verifyModel`, `--verify-model`).
      */
     public function verify(ReadinessRow $row): ReadinessRow
     {
@@ -111,6 +117,21 @@ final class CapabilityReadiness
         } else {
             $this->health->recordFailed($credential, $class ?? OutcomeClass::ConnectorError, $message, 'health_check');
         }
+
+        return $this->row($row->targetKind, $row->target, $row->targetName, $row->provider, $row->accountRef, true, null, null);
+    }
+
+    /**
+     * The model provider's own check (docs/77 E.1): one 8-token call with the vault's key, recorded on
+     * the credential as the class the provider's answer deserves, then the row read again.
+     */
+    public function verifyModel(ReadinessRow $row): ReadinessRow
+    {
+        if ($row->targetKind !== 'hq' || $row->credentialId === null) {
+            return $row;
+        }
+
+        $this->providerCheck->run();
 
         return $this->row($row->targetKind, $row->target, $row->targetName, $row->provider, $row->accountRef, true, null, null);
     }
@@ -162,15 +183,30 @@ final class CapabilityReadiness
                 'rejected by the provider at '.($last['at'] ?? '?').' ('.($last['source'] ?? '?').'); store a new one on the Credentials screen', ...$base);
         }
 
-        if ($last !== null && $last['ok']) {
-            return new ReadinessRow($kind, $target, $name, $provider, $accountRef, true, ReadinessRow::READY,
+        if ($last === null) {
+            return new ReadinessRow($kind, $target, $name, $provider, $accountRef, true, ReadinessRow::CREDENTIAL_UNVERIFIED,
+                'a credential is stored and nothing has verified it yet; HQ would attempt the call, and nothing says it would succeed', ...$base);
+        }
+
+        if ($last['ok']) {
+            return new ReadinessRow($kind, $target, $name, $provider, $accountRef, true, ReadinessRow::VERIFIED,
                 'accepted by the provider at '.$last['at'].' ('.$last['source'].')', ...$base);
         }
 
-        return new ReadinessRow($kind, $target, $name, $provider, $accountRef, true, ReadinessRow::UNVERIFIED,
-            $last === null ? 'a credential is stored and nothing has verified it yet; HQ would attempt the call'
-                : 'last check at '.$last['at'].' ended '.($last['class'] ?? 'failed').' ('.$last['source'].'), which says nothing about the credential; HQ would attempt the call',
-            ...$base);
+        // The provider answered, and not with an authentication rejection (that one condemned the row above).
+        $class = (string) ($last['class'] ?? 'failed');
+        [$state, $why] = match ($class) {
+            OutcomeClass::ProviderBlockedByCredit->value => [ReadinessRow::PROVIDER_BLOCKED_BY_CREDIT,
+                'the provider refused at '.$last['at'].' because the account has no credit ('.$last['source'].'); the credential itself is not judged. Add credit to the provider account'],
+            OutcomeClass::ProviderUnauthorized->value => [ReadinessRow::PROVIDER_UNAUTHORIZED,
+                'the provider refused a permission at '.$last['at'].' ('.$last['source'].'); the credential is not condemned. Check what the key is allowed to do'],
+            OutcomeClass::ProviderUnavailable->value, OutcomeClass::NetworkError->value, OutcomeClass::Timeout->value => [ReadinessRow::PROVIDER_UNAVAILABLE,
+                'last check at '.$last['at'].' ended '.$class.' ('.$last['source'].'), which says nothing about the credential; HQ would attempt the call'],
+            default => [ReadinessRow::CONNECTOR_ERROR,
+                'last check at '.$last['at'].' ended '.$class.' ('.$last['source'].'), which says nothing about the credential; HQ would attempt the call'],
+        };
+
+        return new ReadinessRow($kind, $target, $name, $provider, $accountRef, true, $state, $why, ...$base);
     }
 
     /** @return array{0: bool, 1: OutcomeClass|null, 2: string|null} */

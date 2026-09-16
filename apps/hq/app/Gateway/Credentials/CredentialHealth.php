@@ -64,6 +64,18 @@ final class CredentialHealth
     }
 
     /**
+     * The provider answered something that says nothing against the credential itself: the account
+     * has no credit, the key lacks a permission, the provider was down (docs/77 E.1). Recorded as that
+     * class and never condemning the row, because "the account is out of money" and "the secret is
+     * wrong" are fixed by different people in different places.
+     */
+    public function recordProviderState(IntegrationCredential $credential, OutcomeClass $class, ?string $message, string $source): void
+    {
+        $this->write($credential, ok: false, class: $class->value,
+            message: $message === null ? null : mb_substr($message, 0, 300), source: $source);
+    }
+
+    /**
      * What a live call taught HQ about the credentials it opened (ADR-043): a success verifies
      * them all; an authorization failure condemns them all, because the gateway cannot tell which
      * of two headers the far side rejected and a false "still fine" is the worse error.

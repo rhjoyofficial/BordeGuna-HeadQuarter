@@ -9,7 +9,8 @@
  *   posture  read the AI posture from the database: flag row AND Features, agents, grants, consent, case counts
  *   bypass   the api.anthropic.com bypass test (docs/54): one 8-token call with the vault's key, from inside the
  *            container, so "bad key" is separated from "bad code" before HQ's own code is asked to work.
- *            The key is opened in a vault scope and never printed.
+ *            The key is opened in a vault scope and never printed. Since docs/77 E.1 the answer is also recorded
+ *            as the credential's health (App\Ai\ProviderCheck), so a credit refusal shows on the readiness table.
  *   on       ai.runtime ON + the gate's agent ACTIVE, each audited with a reason naming the gate
  *   off      the gate's agent PAUSED + ai.runtime OFF, each audited
  *   shadow   the agents with an open A0 shadow period (docs/77), so run.sh can refuse before touching anything
@@ -22,9 +23,8 @@
  * EXIT trap, so the posture is restored whether the gate passes, fails or crashes.
  */
 
-use App\Gateway\Credentials\CredentialVault;
+use App\Ai\ProviderCheck;
 use App\Models\Agent;
-use App\Models\AiModel;
 use App\Models\AuditLog;
 use App\Models\AutonomyGrant;
 use App\Models\ConsentEvent;
@@ -33,7 +33,6 @@ use App\Models\FeatureFlag;
 use App\Models\ShadowPeriod;
 use App\Support\Audit\Auditor;
 use App\Support\Features\Features;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 $action = getenv('GATE_ACTION') ?: 'posture';
@@ -117,25 +116,10 @@ switch ($action) {
         break;
 
     case 'bypass':
-        $vault = app(CredentialVault::class);
-        $model = AiModel::where('tier', 'low')->where('is_active', true)->orderBy('priority')->value('model_id');
-
-        $response = $vault->openForAccounts([['anthropic_api_key', 'hq']], fn () => Http::withHeaders([
-            'x-api-key' => $vault->secret('anthropic_api_key', 'hq'),
-            'anthropic-version' => '2023-06-01',
-            'content-type' => 'application/json',
-        ])->timeout(60)->post('https://api.anthropic.com/v1/messages', [
-            'model' => $model,
-            'max_tokens' => 8,
-            'messages' => [['role' => 'user', 'content' => 'Reply with the single word ok.']],
-        ]));
-
-        echo json_encode([
-            'http' => $response->status(),
-            'id' => $response->json('id'),
-            'usage' => $response->json('usage'),
-            'error' => $response->json('error.message'),
-        ]), PHP_EOL;
+        // docs/77 E.1: the same call as before, now recorded on the credential as what the answer
+        // means (accepted, invalid key, no credit, no permission, provider down). The JSON still
+        // opens with "http", which is what run.sh reads.
+        echo json_encode(app(ProviderCheck::class)->run('gate_bypass')), PHP_EOL;
         break;
 
     default:

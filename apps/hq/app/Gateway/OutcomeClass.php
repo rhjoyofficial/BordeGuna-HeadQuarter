@@ -36,6 +36,8 @@ enum OutcomeClass: string
     case CredentialInvalid = 'credential_invalid';
     case ProviderUnauthorized = 'provider_unauthorized';
     case ProviderUnavailable = 'provider_unavailable';
+    /** The provider answered, and refused because the account behind the credential has no funds (docs/77 E.1). */
+    case ProviderBlockedByCredit = 'provider_blocked_by_credit';
     case ConnectorError = 'connector_error';
     case NetworkError = 'network_error';
     case Timeout = 'timeout';
@@ -56,7 +58,7 @@ enum OutcomeClass: string
             self::PolicyDenied, self::PermissionDenied, self::ConsentDenied, self::AutonomyDenied, self::ScopeDenied,
             self::ApprovalRequired, self::InvalidArguments, self::CapabilityUnavailable => self::SIDE_CONTROL_PLANE,
             self::CredentialMissing, self::CredentialInvalid, self::ProviderUnauthorized, self::ProviderUnavailable,
-            self::ConnectorError, self::NetworkError, self::Timeout => self::SIDE_EXTERNAL,
+            self::ProviderBlockedByCredit, self::ConnectorError, self::NetworkError, self::Timeout => self::SIDE_EXTERNAL,
             self::InternalError, self::Uncertain => self::SIDE_HQ,
         };
     }
@@ -89,6 +91,7 @@ enum OutcomeClass: string
             self::CredentialInvalid => 'credential known to be rejected',
             self::ProviderUnauthorized => 'the outside system rejected the credential',
             self::ProviderUnavailable => 'the outside system was unavailable',
+            self::ProviderBlockedByCredit => 'the provider account has no credit',
             self::ConnectorError => 'the outside system answered with an error',
             self::NetworkError => 'the outside system could not be reached',
             self::Timeout => 'the outside system did not answer in time',

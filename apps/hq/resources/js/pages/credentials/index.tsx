@@ -30,7 +30,10 @@ type Credential = {
 };
 type Option = { id: number; name: string };
 
-/** One target and one provider: whether HQ could execute against it right now (ADR-043). Never a value. */
+/**
+ * One target and one provider (ADR-043, docs/77 E.1): whether HQ would send a call, and separately whether
+ * the provider last accepted the credential. Never a value.
+ */
 type Readiness = {
     target_kind: string;
     target: string;
@@ -45,14 +48,15 @@ type Readiness = {
     has_payload: boolean;
     last_verified_at: string | null;
     last_result: { at: string; ok: boolean; class: string | null; message: string | null; source: string } | null;
-    executable: boolean;
+    would_attempt: boolean;
+    verified: boolean;
     incident: boolean;
 };
 
 function readinessTone(r: Readiness): Tone {
     if (r.incident) return 'danger';
     if (!r.supported) return 'neutral';
-    return r.state === 'ready' ? 'ok' : 'warn';
+    return r.verified ? 'ok' : 'warn';
 }
 
 /** What the provider last said, in a few words: "ok, 2 hours ago via tool call #763". */
@@ -244,8 +248,9 @@ export default function CredentialsIndex({
                         <div>
                             <h2 className="text-base font-semibold">Readiness</h2>
                             <p className="text-muted-foreground text-sm">
-                                Whether HQ could execute against each store, ERP business and the model provider right now. A store with no
-                                connector is unsupported by design, not an incident; a supported target that cannot execute is one.
+                                For each store, ERP business and the model provider: whether HQ would send a call, and whether the provider
+                                last accepted the credential. Those are two facts: an unverified key, or an account with no credit, would still
+                                be tried and would not work. A store with no connector is unsupported by design, not an incident.
                             </p>
                         </div>
                         {incidents.length > 0 ? (
@@ -263,6 +268,8 @@ export default function CredentialsIndex({
                                     <th className="px-3 py-2 font-medium">Target</th>
                                     <th className="px-3 py-2 font-medium">Provider</th>
                                     <th className="px-3 py-2 font-medium">State</th>
+                                    <th className="px-3 py-2 font-medium">Would attempt</th>
+                                    <th className="px-3 py-2 font-medium">Verified</th>
                                     <th className="px-3 py-2 font-medium">Credential</th>
                                     <th className="px-3 py-2 font-medium">Last result</th>
                                     <th className="px-3 py-2 font-medium">Why</th>
@@ -283,6 +290,8 @@ export default function CredentialsIndex({
                                                 {humanKey(r.state).toLowerCase()}
                                             </StatusBadge>
                                         </td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap">{r.supported ? (r.would_attempt ? 'yes' : 'no') : '-'}</td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap">{r.supported ? (r.verified ? 'yes' : 'no') : '-'}</td>
                                         <td className="px-3 py-2 text-xs whitespace-nowrap">
                                             {r.credential_id === null ? 'none' : `#${r.credential_id} ${r.credential_status}${r.has_payload ? '' : ' (no value)'}`}
                                         </td>
