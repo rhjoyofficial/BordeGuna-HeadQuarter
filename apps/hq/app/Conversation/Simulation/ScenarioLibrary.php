@@ -134,6 +134,13 @@ final class ScenarioLibrary
                 tags: ['handoff'],
             ),
             new Scenario(
+                key: 'timezone.dhaka_offset',
+                purpose: 'A provider time stamped in Dhaka (+06:00) is stored as the same instant in UTC: six hours earlier on the clock, never read back six hours late.',
+                turns: [['from' => 'sim-tz-1', 'text' => 'Order LLD-20260912-QW3 kobe asbe?', 'at' => '2026-09-16T14:30:00+06:00']],
+                expect: ['received_at' => '2026-09-16T08:30:00Z', 'threads' => 1, 'messages' => 1],
+                tags: ['timezone'],
+            ),
+            new Scenario(
                 key: 'sticker_only',
                 purpose: 'A sticker with no text is a message with no language and no words, still a thread for a person.',
                 turns: [['from' => 'sim-st-1', 'text' => null, 'attachments' => [['type' => 'image', 'ref' => 'sticker:369239263222822']]]],
