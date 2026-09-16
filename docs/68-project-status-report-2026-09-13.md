@@ -166,7 +166,7 @@ P3-G2 is the support agent's exam, and it does need a model. The practice conver
 | Autonomy grants / consent events | 0 / 0 |
 | Active credentials, non-secret readiness visible on the Credentials screen | 8 |
 | Audit rows, append-only | 623 |
-| Continuous integration | 695 tests, 4,303 assertions, green on main |
+| Continuous integration | 736 tests, 4,703 assertions, green on main `b7b4e7c` (16 September; the shadow period and Phase 3 gates G1 and G2 are merged, not released) |
 
 **AI posture, read from the database after gate 10:** runtime OFF. Executive paused at A0. Analytics paused at A0. Support paused at A0 with no enabling user. Zero autonomy grants. Zero consent events. No customer-facing or outbound capability exists. No shadow period has begun.
 

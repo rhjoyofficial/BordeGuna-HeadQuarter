@@ -365,6 +365,13 @@ person is named. Report. Stop at the next explicit capability gate.
   (support `support.v1+0f4a195b`), and no runtime, gateway, detector or grounding file was touched.**
 - **Stream 5**: `docs/70` §M, the readiness table as it could be verified on 16 September.
 
+**Verified and merged (16 September).** Locally, the changed test files all pass (shadow 25, P3-G2 9,
+conversation folder 44 with the new P3-G1 tests); the local full run was stopped by Windows at 618 passed
+and 0 failed when the machine ran out of memory, so the full suite is CI's. PR #34, CI green on
+`1cbef42`: Pest 736 passed (4,703 assertions) on PostgreSQL 17 and Redis 7, Pint, TypeScript, Vite, the
+production image, and the deployment and backup safety invariant. Merged to main as **`b7b4e7c`** by a
+local `--no-ff` merge. **Not released**: production stays `3314c54` for gate 11 attempt 2.
+
 **Observed, not built.** HQ's readiness table lists the Anthropic key (credential #14) as *unverified,
 executable* while the provider refuses every call for lack of credit, because the gate's bypass test
 does not write its result back. ChatGPT's point 13 keeps readiness apart from behaviour; recording the
