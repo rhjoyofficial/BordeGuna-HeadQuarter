@@ -301,9 +301,151 @@ Settings 67, Dashboard/Unit 6: **767 passed, 0 failed**. Pint `--test` passed; `
 `vite build` succeeded. **Local verification passed; GitHub Actions validation deferred until
 1 October reset.**
 
-### C.2 Stream B: Phase 2 M7
+### C.2 Stream B: Phase 2 M7 (branch `m7/retention-alerts-dashboards`)
 
-(Filled in when the stream completes.)
+**Retention, done (`c5a3f21`).** `App\Observe\Retention`:
+
+- `RetentionPolicy` names exactly three detail tables (`tool_calls`, `ai_runs`, `connector_calls`,
+  180 days each) and the event payloads (365 days), read from `hq.retention` with no environment
+  override and pinned by a test. The permanent classes (`audit_logs`, `decision_records`, agent runs,
+  approvals, grants, evaluation, shadow, consent, customer merges) and the tables whose retention is a
+  separate personal-data decision nobody has taken (conversations, messages, attachments, memories)
+  cannot be named: the policy throws for any other table, and a configuration key for one does
+  nothing.
+- **What is kept forever inside the detail tables.** Agent detail is the evidence autonomy decisions
+  rest on, so retention prunes only unattended detail. A tool call is kept when it has an agent, a
+  model run or an approval, when an approval, a conversation message or a consent event points at it,
+  when it shares an agent run's correlation id, or when it never finished (`started`, `uncertain`,
+  `awaiting_approval`). A model run is kept when it has an agent, is still pending, or when an
+  evaluation result, an approval, a conversation message or a kept tool call points at it, or it
+  shares an agent run's correlation id. A connector call is kept when it is `uncertain` or shares an
+  idempotency key with a kept tool call. A test reads the live schema and fails if a new column ever
+  points at a detail row without a matching keep condition.
+- `RetentionRunner` works in Asia/Dhaka calendar days: a row is eligible only when its whole day is
+  older than the window. Each chunk selects eligible ids under a row lock, rolls them up into
+  `daily_aggregates` and deletes exactly those ids in one transaction, and throws (rolling both back)
+  if the counts differ. An aggregate row is one pass's contribution for one day, table and grouping,
+  with the sums, the id range and the pass id, so it is always distinguishable from the detail it
+  replaced and traceable to the pass that wrote it. `retention_watermarks` records each fully drained
+  day; the next pass starts after it. Bounds: 500 rows per transaction, 50,000 rows and 31 days per
+  table, 600 seconds per pass; a pass that reaches one says which. One pass at a time (a cache lock);
+  a pass whose process died is marked `abandoned` by the next. Every pass is a `retention_runs` row
+  with the policy it applied and an audit row (`retention.completed` or `retention.failed`).
+- Processed events past 365 days keep a digest in place of the payload (`_retention`: policy, pass,
+  time, sha256 and size of the original, its top-level key names, and the `_store` and
+  `_correlation_id` routing values); dead, failed and pending events keep their payload, and
+  `hq:events:replay` refuses a digest. A partial index holds exactly the payloads still eligible.
+- `hq:retention:plan` shows what a pass would do and writes nothing; `hq:retention:run` runs nightly
+  at 08:15 Dhaka, an hour after the 01:00 UTC backup, so every removed row is still in the previous
+  dump. Production's oldest detail rows are from 6 September 2026 (connector calls; tool and model
+  calls from 8 September), so nothing is eligible before March 2027 (event payloads: September
+  2027); until then each pass records that it found nothing. `ai_runs` stores its times without a
+  zone; production pins both the application and the database session to UTC (read on 16 September),
+  so the Dhaka day bounds compare correctly on every table.
+- Tests: 9, 184 assertions (policy pins, schema guard, plan writes nothing, lineage, day boundary at
+  Dhaka midnight, bounded days, idempotent reruns, cost and token sums, connector keys, event digest
+  and replay refusal, one pass at a time, abandoned passes).
+
+**Alerts, as designed before the code.** The `alerts` table is in the same migration. The design:
+
+- `hq:alerts:check` every five minutes over a rule list in `hq.alerts.rules`. A rule returns its
+  current conditions, or null when it cannot tell (an unreadable host file), in which case its open
+  alerts are left alone. One open row per fingerprint; `occurrences` counts checks; a condition must
+  be absent on two consecutive checks before its alert resolves; an alert HQ pages is sent again once
+  after 24 hours. Opening and resolving are audited; messages go through two new `Notifier` methods
+  (in-app always, Telegram where configured), never with a secret or customer data.
+- **Already paged elsewhere, so recorded but not sent again** (`paged_by`): the host monitor
+  (`deploy/hq-monitor.sh`, root cron every five minutes, verified installed on 16 September) pages
+  RAM, disk, the scheduler, Horizon, the database, Redis and both backups on state change; the model
+  runtime sends the budget warning once a month per scope; the approvals sweep sends each overdue
+  approval. Backups are not visible from the application container at all, so they stay with the
+  host monitor.
+- The fifteen rules: scheduler tick stale (over 180 s; host monitor); Horizon down (host monitor);
+  provider circuit open; AI budget at 80 and 100 percent (model runtime); approvals past their
+  deadline (approvals sweep); repeated policy denials for one agent (3 in 60 minutes, or a run
+  stopped for repeated denials); fact-integrity discrepancy (the latest succeeded
+  `commerce.check_fact_integrity` output, the daily 03:30 job); events dead-lettered in the last 7
+  days (production's six known dead events are from 7 September and do not re-alert); a credential
+  expiring within 14 days or expired while active; an ERP snapshot not polled for 26 hours (the polls
+  are daily at 04:00 and 04:05 Dhaka, so the tool's two-hour label would alert all day); a readiness
+  incident (`CapabilityReadiness::incidents()`, including `provider_blocked_by_credit`); a shadow
+  period stopped in the last 7 days with no newer period for the agent; disk over 80 percent (90
+  critical; host monitor); available memory under 1 GB (host monitor); webhook signature failures
+  (10 in two hours, counted by the two webhook controllers).
+
+**Dashboards, as designed before the code.** Four read-only pages per `docs/48` N.3, each over a 24-hour,
+7-day or 30-day window (always inside the 180-day detail window, so they read detail rows, not
+aggregates), gated by permissions that already exist, so no production seeding is needed: AI health
+(`hq.agents.view`), Cost (`hq.ai.cost.view`), Control plane (`hq.tools.view`), Platform
+(`hq.horizon.view`), plus an alerts page (`hq.audit.view`), all under a sidebar "Observe" group.
+
+**Alerts, done (`b4be821`).** `App\Observe\Alerts`, checked every five minutes by `hq:alerts:check`:
+
+- `AlertEngine` keeps one open alert per fingerprint (rule key plus subject), counts each sighting,
+  resolves an alert once its condition has been absent on two consecutive checks, sends an open
+  alert again when it gets more severe or once a day while it stays open, and audits every opening
+  and resolution (`alert.opened`, `alert.resolved`). A rule that throws, or answers "cannot tell"
+  (a host file it cannot read, Redis it cannot ask), is skipped for that check, so its open alerts
+  are neither counted nor cleared; the log names the rule and the exception class, never the message.
+- Messages go through three new `Notifier` methods (`alertRaised`, `alertStillOpen`,
+  `alertResolved`): in-app always, Telegram where configured. A condition another component already
+  pages carries `paged_by` and is recorded and shown without a second message: the host monitor
+  (`deploy/hq-monitor.sh`, verified installed as a five-minute root cron on 16 September) for the
+  scheduler tick, Horizon, disk and memory; the model runtime for the budget; the approvals sweep for
+  overdue approvals. Backups are not visible from the application container at all and stay with
+  the host monitor.
+- The fifteen rules, as designed above: scheduler tick stale; Horizon down or paused; provider
+  circuit open; AI budget at 80 and 100 percent; approvals past their deadline; repeated policy
+  denials; the latest fact-integrity result; dead letters from the last seven days; credentials
+  expiring within 14 days or expired while active; ERP snapshots not polled for 26 hours; readiness
+  incidents (a credit block says credit and "the key itself is not judged"); a shadow period stopped
+  in the last seven days with no newer period; disk; memory; webhook signature bursts, counted per
+  hour in the cache by both webhook controllers. Disk and memory are read through `HostProbe`, so a
+  test never depends on the machine it runs on.
+- A blank HQ opens exactly one alert, `readiness.incident:hq:hq:anthropic_api_key`, because it has
+  no model provider key; that is the only thing on such a system a person must act on.
+- Tests: 19 (engine lifecycle, paging elsewhere, unknown and failing rules, re-notification, every
+  rule against controlled state, the webhook counter through the real shop webhook).
+
+**Dashboards, done (`af2c713`).** Four read-only pages per `docs/48` N.3 and the alert record, under
+a sidebar "Observe" group, each behind a permission that already exists so no role needs reseeding:
+`/observe/ai-health` (`hq.agents.view`), `/observe/cost` (`hq.ai.cost.view`),
+`/observe/control-plane` (`hq.tools.view`), `/observe/platform` (`hq.horizon.view`) and
+`/observe/alerts` (`hq.audit.view`, with a nav badge counting only what HQ itself sends). The pages
+read a 24-hour, 7-day or 30-day window, always inside the 180-day detail window, and read rows inside
+the viewer's business scope. Cost buckets days in Dhaka over `ai_runs`' zone-less UTC times, and
+every query bound is taken in UTC. What each page shows:
+
+- AI health: how runs ended per agent, model calls and tool calls that did not succeed (with whose
+  fault), model latency p50 and p95 per tier, policy refusals by policy, why the runtime stopped
+  runs, approvals waiting and overdue, shadow runs waiting to be read, open repeated-denial alerts.
+- Cost: spend by Dhaka day, provider and model, agent, business and cost source; per model call, per
+  agent run and per conversation (per briefing is shown as none, because no briefing exists yet: it
+  needs the model and comes after the gates); the month's budget, share and pace; degraded calls.
+- Control plane: tool calls by risk tier and by caller, policy outcomes, approval decision times
+  (median and 95th percentile), tools switched off, feature flags, agents and ceilings, active grants,
+  open shadow periods.
+- Platform: Horizon supervisors and queue workload, scheduler tick age, events waiting and dead,
+  model provider circuits, connector calls in the last day, readiness, credentials expiring within
+  30 days, the latest integrity result, ERP snapshots with their age, host disk and memory, the last
+  retention pass and the watermarks, open alerts by severity.
+- Tests: 9, 320 assertions (routes and gates, which roles open which page, every panel against seeded
+  rows, the business scope, the window).
+
+**Deviation from the plan.** B.2 named `docs/25` for the dashboards; the pages follow `docs/48` N.3,
+which is the Phase 2 design ChatGPT named ("described by the existing Phase 2 design"). `docs/25`'s
+"Business impact" dashboard needs assisted orders, which do not exist until Phase 4, and its host
+panel is folded into Platform.
+
+**Found on the way.** `ScheduledJobService::create()` reads a `reason` attribute for its audit row but
+also passes it into the model, which throws outside production (discarded attributes are refused
+there). No caller passes one today; Stream C does, so it is fixed there.
+
+**Verification, the merge gate until 1 October:** Pest, folder by folder: Agents 106,
+Ai/Auth/Autonomy/Commerce/Consent 98, Conversation 70, Erp/Evaluation 194, Identity/Facts 38,
+Foundation/Gateway 188, Media/Platform/Scheduler/Security/Settings 67, Observe 37, Dashboard/Unit 6:
+**804 passed, 0 failed**. Pint `--test` passed; `tsc --noEmit` clean; `vite build` succeeded.
+**Local verification passed; GitHub Actions validation deferred until 1 October reset.**
 
 ### C.3 Stream C: Phase 2 M6, inert
 

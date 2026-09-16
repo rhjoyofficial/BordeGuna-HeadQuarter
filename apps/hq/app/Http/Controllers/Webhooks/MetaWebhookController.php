@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Gateway\Credentials\CredentialVault;
 use App\Http\Controllers\Controller;
 use App\Models\PlatformAccount;
+use App\Observe\Alerts\WebhookSignatureFailures;
 use App\Support\Events\EventRecorder;
 use App\Support\Features\Features;
 use Illuminate\Http\JsonResponse;
@@ -82,6 +83,7 @@ final class MetaWebhookController extends Controller
         $expected = 'sha256='.hash_hmac('sha256', $raw, $secret);
         if ($given === '' || ! hash_equals($expected, $given)) {
             Log::warning('meta webhook signature mismatch', ['ip' => $request->ip()]);
+            app(WebhookSignatureFailures::class)->record('meta');
 
             return response()->json(['error' => 'invalid signature'], 401);
         }

@@ -2,6 +2,7 @@
 
 namespace App\Support\Notifications;
 
+use App\Models\Alert;
 use App\Models\Approval;
 use App\Models\User;
 
@@ -109,6 +110,42 @@ final class Notifier
             "Execution was refused and nothing was repaired.\n{$reason}\n"
             .'A mismatch cannot happen through the application, so the row was changed underneath it. Investigate before approving anything else.',
             ['approval_id' => $approval->id],
+        );
+    }
+
+    /**
+     * A condition HQ's alert engine found (docs/78 B.2). Sent once when it opens; the alert page holds
+     * the record, and the same condition staying true is counted there rather than sent again.
+     */
+    public function alertRaised(Alert $alert): void
+    {
+        $this->dispatch(
+            'HQ alert ('.$alert->severity."): {$alert->subject}",
+            $alert->body."\nOpen HQ > Observe > Alerts for the record. HQ says so again when it clears.",
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint],
+        );
+    }
+
+    /** Sent at most once per renotify period, or at once when the condition got more severe. */
+    public function alertStillOpen(Alert $alert, bool $worse): void
+    {
+        $since = $alert->first_seen_at->timezone(config('hq.timezone'))->format('D j M H:i T');
+
+        $this->dispatch(
+            ($worse ? 'HQ alert now '.$alert->severity : 'HQ alert still open').": {$alert->subject}",
+            $alert->body."\nFirst seen {$since}; seen on {$alert->occurrences} checks.",
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint, 'worse' => $worse],
+        );
+    }
+
+    public function alertResolved(Alert $alert): void
+    {
+        $minutes = (int) $alert->first_seen_at->diffInMinutes($alert->resolved_at ?? now());
+
+        $this->dispatch(
+            "HQ alert cleared: {$alert->subject}",
+            "The condition has not been seen on the last {$alert->clear_checks} checks. It was open for {$minutes} minutes.",
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint],
         );
     }
 

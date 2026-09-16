@@ -1,6 +1,21 @@
 <?php
 
 use App\Ai\Providers\AnthropicProvider;
+use App\Observe\Alerts\Rules\AiBudgetPressure;
+use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
+use App\Observe\Alerts\Rules\CredentialExpiring;
+use App\Observe\Alerts\Rules\EventsDeadLettered;
+use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
+use App\Observe\Alerts\Rules\HorizonDown;
+use App\Observe\Alerts\Rules\HostDisk;
+use App\Observe\Alerts\Rules\HostMemory;
+use App\Observe\Alerts\Rules\ProviderCircuitOpen;
+use App\Observe\Alerts\Rules\ReadinessIncident;
+use App\Observe\Alerts\Rules\RepeatedPolicyDenials;
+use App\Observe\Alerts\Rules\SchedulerTickStale;
+use App\Observe\Alerts\Rules\ShadowPeriodStopped;
+use App\Observe\Alerts\Rules\SnapshotStale;
+use App\Observe\Alerts\Rules\WebhookSignatureFailures;
 use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
@@ -216,8 +231,74 @@ return [
         'agents' => ['executive'],
     ],
 
+    // docs/78 B.2, decision V.7 (docs/48): the governed retention policy. Deliberately NOT read from the
+    // environment: a production that quietly kept less than the decision says would be the policy lying
+    // about itself, so changing a number is a deploy somebody reviews, and a test pins these values.
+    //
+    // ⛔ Only the three detail tables and the event payloads are named, and naming anything else does
+    // nothing: `RetentionPolicy` knows these four keys and no others. audit_logs, decision_records, the
+    // evaluation, shadow, agent-run, approval and consent tables are kept forever by not being here.
+    'retention' => [
+        'version' => 'retention.v1',
+        'detail_keep_days' => [
+            'tool_calls' => 180,
+            'ai_runs' => 180,
+            'connector_calls' => 180,
+        ],
+        'event_payload_keep_days' => 365,
+        // The bounds of one pass: rows per transaction, rows per table, days per table, and wall time.
+        // A pass that reaches a bound stops cleanly between transactions and the next pass continues.
+        'batch_size' => 500,
+        'max_rows_per_table' => 50000,
+        'max_days_per_table' => 31,
+        'max_seconds' => 600,
+    ],
+
     'alerts' => [
         'telegram_bot_token' => env('ALERT_TELEGRAM_BOT_TOKEN'),
         'telegram_chat_id' => env('ALERT_TELEGRAM_CHAT_ID'),
+
+        // docs/48 N.5 and docs/25: the conditions HQ checks every five minutes (`hq:alerts:check`). Each
+        // rule says whether it is paged elsewhere already (the host monitor, the model runtime, the
+        // approvals sweep), in which case its alert is recorded and shown but not sent a second time.
+        'rules' => [
+            SchedulerTickStale::class,
+            HorizonDown::class,
+            ProviderCircuitOpen::class,
+            AiBudgetPressure::class,
+            ApprovalsPastDeadline::class,
+            RepeatedPolicyDenials::class,
+            FactIntegrityDiscrepancy::class,
+            EventsDeadLettered::class,
+            CredentialExpiring::class,
+            SnapshotStale::class,
+            ReadinessIncident::class,
+            ShadowPeriodStopped::class,
+            HostDisk::class,
+            HostMemory::class,
+            WebhookSignatureFailures::class,
+        ],
+
+        // A condition must be absent on this many consecutive checks before its alert resolves, so a
+        // value hovering at a threshold is one alert, not one per check.
+        'resolve_after_clear_checks' => 2,
+        // An open alert HQ pages is sent again, once, after this long.
+        'renotify_after_hours' => 24,
+
+        'thresholds' => [
+            'repeated_denials' => ['count' => 3, 'window_minutes' => 60],
+            'dead_letters_window_days' => 7,
+            'credential_expiry_days' => 14,
+            // The ERP polls are DAILY (04:00 and 04:05 Dhaka), so a snapshot is up to a day old by
+            // design. The alert is for a poll that did not land: a day plus two hours of grace.
+            // `facts.snapshot_freshness` keeps its own two-hour label, which is about how an answer
+            // describes its data, not about whether a job failed.
+            'snapshot_stale_after_hours' => 26,
+            'shadow_stopped_window_days' => 7,
+            'disk_warning_percent' => 80,
+            'disk_critical_percent' => 90,
+            'memory_min_available_mb' => 1024,
+            'webhook_signature_failures' => ['count' => 10, 'window_hours' => 2],
+        ],
     ],
 ];

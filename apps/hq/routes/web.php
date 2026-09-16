@@ -6,6 +6,7 @@ use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
+use App\Http\Controllers\Observe\ObserveController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
@@ -94,6 +95,16 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{conversation:uuid}/memory/{memory}/forget', [InboxController::class, 'forget'])->middleware('permission:hq.inbox.manage')->name('forget');
         // P3-G3 pairing (docs/78 B.1): a person's verdict on a proposal beside what was actually sent.
         Route::post('{conversation:uuid}/comparisons/{comparison}/verdict', [InboxController::class, 'verdict'])->middleware('permission:hq.inbox.manage')->name('verdict');
+    });
+
+    // Phase 2 M7 (docs/48 N.3 and N.5, docs/78 B.2): the four dashboards and the alert record. Read-only,
+    // each behind a permission that already exists, so no role needs reseeding for them.
+    Route::prefix('observe')->name('observe.')->group(function () {
+        Route::get('alerts', [ObserveController::class, 'alerts'])->middleware('permission:hq.audit.view')->name('alerts');
+        Route::get('ai-health', [ObserveController::class, 'aiHealth'])->middleware('permission:hq.agents.view')->name('ai-health');
+        Route::get('cost', [ObserveController::class, 'cost'])->middleware('permission:hq.ai.cost.view')->name('cost');
+        Route::get('control-plane', [ObserveController::class, 'controlPlane'])->middleware('permission:hq.tools.view')->name('control-plane');
+        Route::get('platform', [ObserveController::class, 'platform'])->middleware('permission:hq.horizon.view')->name('platform');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');

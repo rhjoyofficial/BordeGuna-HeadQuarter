@@ -4,7 +4,26 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, Bot, Building2, CalendarClock, Flag, KeyRound, LayoutGrid, MessageSquare, ScrollText, ShieldCheck, Stamp, Users, Wrench } from 'lucide-react';
+import {
+    Activity,
+    Bell,
+    Bot,
+    Building2,
+    CalendarClock,
+    Coins,
+    Flag,
+    HeartPulse,
+    KeyRound,
+    LayoutGrid,
+    MessageSquare,
+    ScrollText,
+    Server,
+    ShieldCheck,
+    SlidersHorizontal,
+    Stamp,
+    Users,
+    Wrench,
+} from 'lucide-react';
 import AppLogo from './app-logo';
 
 type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<string, number> } };
@@ -17,7 +36,7 @@ type GatedItem = NavItem & { permission?: string; badge?: string; external?: boo
  *   Work        what needs a person today
  *   Operations  the things HQ watches and runs
  *   Control     what HQ is allowed to do, and the switches
- *   Observe     the record
+ *   Observe     the record: alerts, the four dashboards (docs/48 N.3), the audit log, the queues
  *
  * A badge names the key in `nav.badges` the middleware shares; the count is computed inside the same
  * visibility scope the screen uses, so the sidebar never says more than the page would.
@@ -51,6 +70,11 @@ const sections: { label: string; items: GatedItem[] }[] = [
     {
         label: 'Observe',
         items: [
+            { title: 'Alerts', url: '/observe/alerts', icon: Bell, permission: 'hq.audit.view', badge: 'alerts' },
+            { title: 'AI health', url: '/observe/ai-health', icon: HeartPulse, permission: 'hq.agents.view' },
+            { title: 'Cost', url: '/observe/cost', icon: Coins, permission: 'hq.ai.cost.view' },
+            { title: 'Control plane', url: '/observe/control-plane', icon: SlidersHorizontal, permission: 'hq.tools.view' },
+            { title: 'Platform', url: '/observe/platform', icon: Server, permission: 'hq.horizon.view' },
             { title: 'Audit log', url: '/audit', icon: ScrollText, permission: 'hq.audit.view' },
             { title: 'Queues (Horizon)', url: '/horizon', icon: Activity, permission: 'hq.horizon.view', external: true },
         ],

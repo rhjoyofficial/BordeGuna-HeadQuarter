@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Gateway\Credentials\CredentialVault;
 use App\Http\Controllers\Controller;
 use App\Models\Store;
+use App\Observe\Alerts\WebhookSignatureFailures;
 use App\Support\Events\EventRecorder;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -57,6 +58,7 @@ final class ShopWebhookController extends Controller
         $expected = hash_hmac('sha256', $raw, $secret);
         if ($given === '' || ! hash_equals($expected, $given)) {
             Log::warning('shop webhook signature mismatch', ['store' => $store, 'ip' => $request->ip()]);
+            app(WebhookSignatureFailures::class)->record('shop');
 
             return response()->json(['error' => 'invalid signature'], 401);
         }

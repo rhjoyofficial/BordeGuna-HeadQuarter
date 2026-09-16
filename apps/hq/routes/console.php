@@ -27,6 +27,15 @@ Schedule::command('hq:shadow:evidence --store')->dailyAt('00:15')->timezone('Asi
 // docs/78 B.1: the P3-G3 pairing's daily sweep. Writes nothing while the support agent proposes nothing.
 Schedule::command('hq:conversation:compare-sweep')->dailyAt('01:00')->timezone('Asia/Dhaka')->withoutOverlapping(10)->runInBackground();
 
+// docs/78 B.2: the alert rules. Reads only; opens, counts and resolves alerts, and sends the ones no
+// other component already pages.
+Schedule::command('hq:alerts:check')->everyFiveMinutes()->withoutOverlapping(10)->runInBackground();
+
+// docs/78 B.2: retention, nightly at 08:15 Dhaka (02:15 UTC), an hour after the 01:00 UTC backup, so
+// every row a pass removes is still in the previous night's dump. Nothing is old enough to be touched
+// before March 2027; until then each pass records that it found nothing.
+Schedule::command('hq:retention:run')->dailyAt('08:15')->timezone('Asia/Dhaka')->withoutOverlapping(30)->runInBackground();
+
 // Horizon metrics snapshots for its dashboard.
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
 
