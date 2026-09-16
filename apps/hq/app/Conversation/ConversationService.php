@@ -8,6 +8,7 @@ use App\Consent\ConsentPurpose;
 use App\Consent\ConsentState;
 use App\Context\Provenance;
 use App\Conversation\Channels\InboundMessage;
+use App\Conversation\Channels\OutboundEcho;
 use App\Gateway\Descriptor\Channel;
 use App\Identity\IdentityResolver;
 use App\Models\Agent;
@@ -273,6 +274,42 @@ final readonly class ConversationService
             'provenance' => $attributes['provenance']
                 ?? ($authorType === 'agent' ? Provenance::Generated->value : Provenance::Business->value),
             'sent_at' => $attributes['sent_at'] ?? now(),
+        ]);
+    }
+
+    /**
+     * Something the Page sent that HQ did not (the n8n bot's reply, as the provider echoed it), on
+     * the open thread it belongs to; null when HQ holds no such thread, because an echo with no
+     * customer message before it has nothing to be compared with (docs/78 B.1). Idempotent on the
+     * provider's message id. Author `external`, provenance `generated`: a bot's words, not trusted.
+     */
+    public function recordExternalOutbound(OutboundEcho $echo): ?ConversationMessage
+    {
+        $existing = ConversationMessage::query()
+            ->where('channel', $echo->channel->value)
+            ->where('external_message_ref', $echo->externalMessageRef)
+            ->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $conversation = Conversation::query()
+            ->where('channel', $echo->channel->value)
+            ->where('external_thread_ref', $echo->externalThreadRef)
+            ->where('status', '!=', 'closed')
+            ->latest('id')
+            ->first();
+        if ($conversation === null) {
+            return null;
+        }
+
+        return $this->recordOutbound($conversation, (string) ($echo->body ?? ''), [
+            'author_type' => 'external',
+            'provenance' => Provenance::Generated->value,
+            'external_message_ref' => $echo->externalMessageRef,
+            'status' => 'sent',
+            'sent_at' => $echo->sentAt->utc(),
+            'metadata' => array_filter(['digest' => $echo->digest, 'attachments' => $echo->attachments, 'sent_by' => 'external'], static fn ($v) => $v !== null && $v !== []),
         ]);
     }
 

@@ -7,6 +7,7 @@ use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;
 use App\Conversation\HandoffStateMachine;
 use App\Conversation\InvalidTransition;
+use App\Conversation\ShadowComparisons;
 use App\Conversation\SupportContext;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolOutcome;
@@ -20,6 +21,7 @@ use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\DecisionRecord;
 use App\Models\Memory;
+use App\Models\ShadowComparison;
 use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -131,6 +133,9 @@ final class InboxController extends Controller
             // What is remembered about this customer (docs/78 B.1): shown with its source and date,
             // because memory is never truth (ADR-033) and a reader must be able to weigh it.
             'memory' => $this->memoryFor($conversation),
+            // P3-G3's pairing (docs/78 B.1): what the agent proposed beside what actually went out.
+            'comparisons' => $this->comparisonsFor($conversation),
+            'verdicts' => ShadowComparisons::VERDICTS,
             'memory_keys' => self::MEMORY_KEYS,
             'can_remember' => $this->canRemember($conversation),
             'assignees' => User::query()->get(['id', 'email'])
@@ -265,6 +270,41 @@ final class InboxController extends Controller
             'closed by a person on the inbox', $request->user()?->getKey());
 
         return back()->with('status', 'forgotten');
+    }
+
+    /** A person's verdict on one pairing of a proposal with what was actually sent (P3-G3). */
+    public function verdict(Request $request, Conversation $conversation, ShadowComparison $comparison, ShadowComparisons $comparisons): RedirectResponse
+    {
+        $this->assertReadable($request, $conversation);
+        if ($comparison->conversation_id !== $conversation->id || $comparison->verdict === 'unmeasured') {
+            throw ValidationException::withMessages(['verdict' => 'That comparison is not on this thread, or nothing was sent to compare.']);
+        }
+        $data = $request->validate(['verdict' => ['required', 'in:'.implode(',', ShadowComparisons::VERDICTS)]]);
+
+        $comparisons->verdict($comparison, $data['verdict'], (int) $request->user()->getKey());
+
+        return back()->with('status', 'verdict-recorded');
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function comparisonsFor(Conversation $conversation): array
+    {
+        return ShadowComparison::query()
+            ->where('conversation_id', $conversation->id)
+            ->with(['agentRun:id,proposals,created_at', 'externalMessage:id,body,sent_at'])
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get()
+            ->map(fn (ShadowComparison $c) => [
+                'id' => $c->id,
+                'run_id' => $c->agent_run_id,
+                'proposed' => $c->agentRun === null ? null : ShadowComparisons::proposalText($c->agentRun),
+                'sent' => $c->externalMessage?->body,
+                'sent_at' => $c->externalMessage?->sent_at?->toIso8601String(),
+                'identical' => $c->external_digest !== null && $c->hq_digest === $c->external_digest,
+                'verdict' => $c->verdict,
+                'compared_at' => $c->compared_at?->toIso8601String(),
+            ])->values()->all();
     }
 
     public function note(Request $request, Conversation $conversation): RedirectResponse

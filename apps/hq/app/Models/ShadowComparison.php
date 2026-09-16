@@ -13,11 +13,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ShadowComparison extends Model
 {
-    protected $fillable = ['conversation_id', 'hq_message_id', 'external_message_ref', 'hq_digest', 'external_digest', 'compared_at', 'verdict'];
+    protected $fillable = ['conversation_id', 'agent_run_id', 'hq_message_id', 'external_message_ref', 'external_message_id', 'hq_digest', 'external_digest', 'compared_at', 'verdict', 'verdict_by', 'verdict_at'];
 
     protected function casts(): array
     {
-        return ['compared_at' => 'datetime'];
+        return ['compared_at' => 'datetime', 'verdict_at' => 'datetime'];
+    }
+
+    public function agentRun(): BelongsTo
+    {
+        return $this->belongsTo(AgentRun::class);
+    }
+
+    public function externalMessage(): BelongsTo
+    {
+        return $this->belongsTo(ConversationMessage::class, 'external_message_id');
     }
 
     public function conversation(): BelongsTo

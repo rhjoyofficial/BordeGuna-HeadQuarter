@@ -45,6 +45,18 @@ type Remembered = {
     closable: boolean;
 };
 
+/** P3-G3: a proposal the agent made beside what the n8n bot (or a person) actually sent, for a person to judge. */
+type Comparison = {
+    id: number;
+    run_id: number | null;
+    proposed: string | null;
+    sent: string | null;
+    sent_at: string | null;
+    identical: boolean;
+    verdict: string | null;
+    compared_at: string | null;
+};
+
 const MEMORY_KEY_LABELS: Record<string, string> = {
     delivery_notes: 'Delivery notes',
     preferred_language: 'Preferred language',
@@ -86,6 +98,8 @@ export default function InboxShow({
     memory,
     memory_keys,
     can_remember,
+    comparisons,
+    verdicts,
     assignees,
     agent,
     can,
@@ -96,6 +110,8 @@ export default function InboxShow({
     memory: Remembered[];
     memory_keys: string[];
     can_remember: boolean;
+    comparisons: Comparison[];
+    verdicts: string[];
     assignees: { id: number; email: string }[];
     agent: AgentStatus;
     can: { manage: boolean };
@@ -270,6 +286,53 @@ export default function InboxShow({
                                                     <Button size="sm" variant="outline" disabled={busy} onClick={() => setDialog({ kind: 'discard', run: p.run_id })}>
                                                         Discard
                                                     </Button>
+                                                </div>
+                                            )}
+                                        </article>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
+
+                        {comparisons.length > 0 && (
+                            <section>
+                                <SectionHeader title="Shadow comparison" aside={<span className="text-muted-foreground text-xs">what the agent proposed, beside what was sent</span>} />
+                                <div className="mt-3 flex flex-col gap-3">
+                                    {comparisons.map((c) => (
+                                        <article key={c.id} className="rounded-xl border p-4">
+                                            <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
+                                                {c.run_id !== null && (
+                                                    <Link href={`/agents/runs/${c.run_id}`} className="hover:underline">
+                                                        proposal, run #{c.run_id}
+                                                    </Link>
+                                                )}
+                                                {c.sent_at && <span>sent {timeAgo(c.sent_at)}</span>}
+                                                {c.identical && <span>identical text</span>}
+                                                {c.verdict && <StatusBadge tone={c.verdict === 'unmeasured' ? 'neutral' : 'ok'}>{c.verdict}</StatusBadge>}
+                                            </div>
+                                            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                                                <div>
+                                                    <div className="text-muted-foreground text-xs">the agent proposed</div>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{c.proposed ?? '(the run no longer holds a proposal)'}</p>
+                                                </div>
+                                                <div>
+                                                    <div className="text-muted-foreground text-xs">what was actually sent</div>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{c.sent ?? (c.verdict === 'unmeasured' ? '(nothing was sent within a day)' : '(no text)')}</p>
+                                                </div>
+                                            </div>
+                                            {can.manage && c.verdict !== 'unmeasured' && (
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {verdicts.map((v) => (
+                                                        <Button
+                                                            key={v}
+                                                            size="sm"
+                                                            variant={c.verdict === v ? 'default' : 'outline'}
+                                                            disabled={busy}
+                                                            onClick={() => post(`comparisons/${c.id}/verdict`, { verdict: v })}
+                                                        >
+                                                            {v}
+                                                        </Button>
+                                                    ))}
                                                 </div>
                                             )}
                                         </article>

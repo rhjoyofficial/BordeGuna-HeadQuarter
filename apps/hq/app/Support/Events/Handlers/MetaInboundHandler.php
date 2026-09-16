@@ -7,6 +7,7 @@ use App\Conversation\Channels\MetaCommentNormaliser;
 use App\Conversation\Channels\MetaInstagramNormaliser;
 use App\Conversation\Channels\MetaMessengerNormaliser;
 use App\Conversation\ConversationService;
+use App\Conversation\ShadowComparisons;
 use App\Models\DomainEvent;
 use App\Support\Events\EventHandler;
 
@@ -33,9 +34,13 @@ final class MetaInboundHandler implements EventHandler
         MetaInstagramNormaliser $instagram,
         MetaCommentNormaliser $comments,
         private readonly ConversationService $conversations,
+        private readonly ShadowComparisons $comparisons,
     ) {
         $this->normalisers = [$messenger, $instagram, $comments];
+        $this->messenger = $messenger;
     }
+
+    private readonly MetaMessengerNormaliser $messenger;
 
     public function handle(DomainEvent $event): void
     {
@@ -45,6 +50,15 @@ final class MetaInboundHandler implements EventHandler
         foreach ($this->normalisers as $normaliser) {
             foreach ($normaliser->normalise($payload) as $message) {
                 $this->conversations->ingest($message);
+            }
+        }
+
+        // What the Page itself sent (P3-G3 pairing, docs/78 B.1): recorded on the thread as an
+        // external outbound and paired with the proposal that answered the same customer message.
+        foreach ($this->messenger->echoes($payload) as $echo) {
+            $recorded = $this->conversations->recordExternalOutbound($echo);
+            if ($recorded !== null && $recorded->wasRecentlyCreated) {
+                $this->comparisons->pair($recorded);
             }
         }
     }
