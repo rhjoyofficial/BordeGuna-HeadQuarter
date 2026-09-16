@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\DomainEvent;
+use App\Observe\Retention\RetentionPolicy;
 use App\Support\Audit\Auditor;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -85,6 +86,15 @@ final class EventsReplay extends Command
         $resolvedCount = 0;
 
         foreach ($events as $event) {
+            // docs/78 B.2: past the payload window a processed event keeps only a digest of what it
+            // carried. Replaying the digest would hand a handler an empty order, so it is refused.
+            if (RetentionPolicy::isCompacted($event->payload)) {
+                $this->error("  {$event->event_id}: its payload was reduced to a digest by retention; it cannot be replayed.");
+                $failed++;
+
+                continue;
+            }
+
             Context::add(['correlation_id' => $event->payload['_correlation_id'] ?? $event->event_id, 'event_id' => $event->event_id]);
             try {
                 foreach ((array) ($handlers[$event->type] ?? []) as $class) {
