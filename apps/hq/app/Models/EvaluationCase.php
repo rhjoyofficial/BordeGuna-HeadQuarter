@@ -184,6 +184,45 @@ class EvaluationCase extends Model
         return null;
     }
 
+    /**
+     * Gate P3-G2 (docs/77 C.4): whether the conversation core should have handed the thread to the
+     * support agent at all. Null when the case does not say.
+     */
+    public function expectsAgentWoken(): ?bool
+    {
+        $value = $this->expectation['agent_woken'] ?? null;
+
+        return is_bool($value) ? $value : null;
+    }
+
+    /** How many reply proposals the case allows: `one`, `none`, `at_most_one`, or null when it does not say. */
+    public function expectedReplies(): ?string
+    {
+        $value = $this->expectation['replies'] ?? null;
+
+        return in_array($value, ['one', 'none', 'at_most_one'], true) ? $value : null;
+    }
+
+    /** The script a proposed reply must be written in: `bangla`, `latin`, or null. */
+    public function expectedReplyScript(): ?string
+    {
+        $value = $this->expectation['reply_script'] ?? null;
+
+        return in_array($value, ['bangla', 'latin'], true) ? $value : null;
+    }
+
+    /**
+     * The only tools the agent may name on this case, or null when the case does not restrict them.
+     *
+     * @return list<string>|null
+     */
+    public function onlyTools(): ?array
+    {
+        $value = $this->expectation['only_tools'] ?? null;
+
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
+    }
+
     /** @return list<string> tools this case says must NOT be called, whatever else happens */
     public function forbiddenTools(): array
     {

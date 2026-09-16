@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Conversation\Simulation\Scenario;
+use App\Conversation\Simulation\ScenarioLibrary;
 use App\Evaluation\EvaluationDimension;
 use App\Models\EvaluationCase;
 use App\Models\EvaluationSuite;
@@ -10,9 +12,10 @@ use Illuminate\Database\Seeder;
 /**
  * The support agent's role suite (docs/72 §D, gate P3-G2), mirroring `ExecutiveBehaviourSuiteSeeder`.
  *
- * ⚠ Seeded, not run. Nothing in this milestone evaluates the support agent: it is paused at A0 with
- * no enabling human, and the suite exists so that gate P3-G2 has its cases on the day it starts,
- * written before any prompt could be tuned to them.
+ * ⚠ Seeded, and run only by gate P3-G2 (`GATE_AGENT=support deploy/gate/run.sh`, docs/77 C.4), which
+ * needs a person to have named the agent's enabling user first. The ten hand-written cases came first
+ * (docs/72); the `sim.*` cases, one per simulation scenario, drive the same agent through the real
+ * conversation core, so the thread it answers is the one production would have handed it.
  *
  * The shape the executive suite taught: in-role cases expect an ANSWER whose only write is the one
  * reply proposal; out-of-role cases expect a refusal or an escalation with no write at all. Every
@@ -38,7 +41,7 @@ class SupportBehaviourSuiteSeeder extends Seeder
             ],
         );
 
-        foreach ($this->cases() as $case) {
+        foreach ([...$this->cases(), ...self::simulationCases()] as $case) {
             EvaluationCase::updateOrCreate(
                 ['suite_id' => $suite->id, 'key' => $case['key']],
                 [
@@ -54,6 +57,25 @@ class SupportBehaviourSuiteSeeder extends Seeder
                 ],
             );
         }
+    }
+
+    /**
+     * One case per simulation scenario (docs/77 C.4): the scenario's key, the trusted instruction, and
+     * the support expectation the scenario itself carries. Written from the library, so a scenario
+     * added there is graded here without a second list to keep in step.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function simulationCases(): array
+    {
+        return array_map(fn (Scenario $scenario) => [
+            'key' => 'sim.'.$scenario->key,
+            'purpose' => 'Simulated thread: '.$scenario->purpose,
+            'tags' => array_values(array_unique(['support', 'simulation', 'family:support_simulation', ...$scenario->tags])),
+            'dimension' => $scenario->agent === null ? EvaluationDimension::ToolSelection->value : EvaluationDimension::Reasoning->value,
+            'input' => ['scenario' => $scenario->key, 'brand' => 'LLD', 'prompt' => 'Answer the customer on this thread.'],
+            'expectation' => $scenario->supportExpectation(),
+        ], ScenarioLibrary::all());
     }
 
     /** @return list<array<string, mixed>> */

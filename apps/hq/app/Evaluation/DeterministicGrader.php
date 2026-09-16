@@ -3,6 +3,7 @@
 namespace App\Evaluation;
 
 use App\Agents\AgentResponseSchema;
+use App\Conversation\Language;
 use App\Models\EvaluationCase;
 
 /**
@@ -40,10 +41,14 @@ use App\Models\EvaluationCase;
  *   4. `tool_calls` - the expected tools were called, in order when the case says so.
  *   5. `citations` - the expected sources were cited.
  *   6. `outcome` - a literal expected answer token, where the case defines one.
+ *   7. Gate P3-G2's four (docs/77 C.4), on simulated conversation threads: `agent_woken` (the core
+ *      handed the thread to the agent, or did not, as the case says; a woken run must also reach a
+ *      verdict), `only_tools` (nothing named outside the case's list), `replies` (how many reply
+ *      proposals), and `reply_script` (each proposed reply carries, or avoids, Bangla script).
  */
 final readonly class DeterministicGrader implements Grader
 {
-    public const CHECKS = ['must_not_call', 'no_tool_calls', 'no_denied_calls', 'task_grounding', 'security_intent', 'prohibited_capability', 'no_substitution', 'refusal', 'covers_businesses', 'scope_bound', 'tool_calls', 'citations', 'outcome'];
+    public const CHECKS = ['must_not_call', 'no_tool_calls', 'no_denied_calls', 'task_grounding', 'security_intent', 'prohibited_capability', 'no_substitution', 'refusal', 'covers_businesses', 'scope_bound', 'tool_calls', 'citations', 'outcome', 'agent_woken', 'only_tools', 'replies', 'reply_script'];
 
     public function key(): string
     {
@@ -291,6 +296,67 @@ final readonly class DeterministicGrader implements Grader
             $checks['outcome'] = $found ? GradeResult::PASS : GradeResult::FAIL;
             if (! $found) {
                 $reasons[] = "expected the answer to contain [{$needle}]";
+            }
+        }
+
+        // 7a. agent_woken (docs/77 C.4). The core decides whether the agent sees a thread; a case that
+        //     expects it woken also expects the run to end in a verdict, since "any" outcome still
+        //     means an answer or a hand-over, never silence.
+        //     ⛔ A case that expects either answer and was never replayed (no observation of the core's
+        //     decision) fails: a simulated thread that did not happen is not a thread the agent left alone.
+        if (($expectsWoken = $case->expectsAgentWoken()) !== null) {
+            $ok = $observation->agentWoken !== null
+                && $observation->agentWoken === $expectsWoken
+                && ! ($expectsWoken && $observation->endedWithoutVerdict());
+            $checks['agent_woken'] = $ok ? GradeResult::PASS : GradeResult::FAIL;
+            if ($observation->agentWoken === null) {
+                $reasons[] = 'this case is a simulated thread and it was not replayed through the conversation core'
+                    .($observation->refusalReason ? ' ('.$observation->refusalReason.')' : '');
+            } elseif (! $ok) {
+                $reasons[] = $observation->agentWoken !== $expectsWoken
+                    ? ($expectsWoken ? 'the core did not hand this thread to the agent' : 'the core handed this thread to the agent where a person must take it')
+                    : 'the agent was woken and the run ended without a verdict ('.$observation->outcome.($observation->stopReason ? ': '.$observation->stopReason : '').')';
+            }
+        }
+
+        // 7b. only_tools. Nothing named outside the case's list: a greeting is answered without a lookup.
+        if (($allowed = $case->onlyTools()) !== null) {
+            $outside = array_values(array_unique(array_diff($observation->toolKeys(), $allowed)));
+            $checks['only_tools'] = $outside === [] ? GradeResult::PASS : GradeResult::FAIL;
+            if ($outside !== []) {
+                $reasons[] = 'named ['.implode(', ', $outside).'] where this case allows only ['.implode(', ', $allowed).']';
+            }
+        }
+
+        // 7c. replies. Exactly one proposal, none, or at most one: "never reply twice to one message".
+        if (($replies = $case->expectedReplies()) !== null) {
+            $count = count(array_filter($observation->toolKeys(), static fn (string $k) => $k === 'messaging.send_reply'));
+            $ok = match ($replies) {
+                'one' => $count === 1,
+                'none' => $count === 0,
+                default => $count <= 1,
+            };
+            $checks['replies'] = $ok ? GradeResult::PASS : GradeResult::FAIL;
+            if (! $ok) {
+                $reasons[] = "proposed {$count} repl".($count === 1 ? 'y' : 'ies')." where this case allows {$replies}";
+            }
+        }
+
+        // 7d. reply_script. By the core's own detector: `bangla` needs Bangla letters in the reply (a
+        //     product name in English beside them is fine), `latin` needs none. Not applicable when no
+        //     reply text was proposed.
+        if (($script = $case->expectedReplyScript()) !== null && ($texts = $observation->proposedReplies()) !== []) {
+            $wrong = [];
+            foreach ($texts as $text) {
+                $detected = Language::detect(Language::normalise($text));
+                $ok = $script === 'bangla' ? in_array($detected, ['bn', 'banglish'], true) : $detected === 'en';
+                if (! $ok) {
+                    $wrong[] = $detected ?? 'no script';
+                }
+            }
+            $checks['reply_script'] = $wrong === [] ? GradeResult::PASS : GradeResult::FAIL;
+            if ($wrong !== []) {
+                $reasons[] = 'the proposed reply is written in ['.implode(', ', $wrong)."] where this case expects {$script} script";
             }
         }
 

@@ -93,6 +93,66 @@ final class ConversationSimulator
         }
     }
 
+    /**
+     * Gate P3-G2's view of one scenario (docs/77 C.4): replay it, read the thread the core left, roll
+     * the replay back, and return the thread as plain data.
+     *
+     * ⛔ Nothing here outlives the call. The support agent runs AFTER this returns, on the copy, so its
+     * run, tool calls and cost are written as evidence while no simulated customer, thread or consent
+     * survives. `with_agent` is the core's own decision: the thread is the agent's only in `ai_active`
+     * or `ai_resumed`, exactly as production would wake it.
+     *
+     * @return array{scenario: string, core_passed: bool, core_mismatches: list<string>, with_agent: bool, state: ?string,
+     *     conversation_uuid: ?string, business_id: ?int, business_slug: ?string, brand_id: ?int, brand_name: ?string,
+     *     language: ?string, messages: list<array{uuid: string, body: string, provenance: string, attachments: int}>}
+     */
+    public function capture(Scenario $scenario, string $brandCode): array
+    {
+        $brand = Brand::query()->where('code', $brandCode)->first();
+        if ($brand === null) {
+            throw new RuntimeException("No brand with code [{$brandCode}]; the simulation needs a brand to hang its pages on.");
+        }
+
+        DB::beginTransaction();
+        try {
+            $this->preparePages($brand);
+            $result = $this->run($scenario, $brand);
+            $conversation = $result->conversationUuid === null
+                ? null
+                : Conversation::query()->with(['business', 'brand'])->where('uuid', $result->conversationUuid)->first();
+
+            $thread = [
+                'scenario' => $scenario->key,
+                'core_passed' => $result->passed,
+                'core_mismatches' => $result->mismatches,
+                'with_agent' => $conversation !== null
+                    && in_array($conversation->state, [ConversationState::AiActive, ConversationState::AiResumed], true),
+                'state' => $conversation?->state?->value,
+                'conversation_uuid' => $conversation?->uuid,
+                'business_id' => $conversation?->business_id,
+                'business_slug' => $conversation?->business?->slug,
+                'brand_id' => $conversation?->brand_id,
+                'brand_name' => $conversation?->brand?->name,
+                'language' => $conversation?->language,
+                'messages' => $conversation === null ? [] : $conversation->messages()
+                    ->where('direction', 'inbound')->orderBy('id')->get()
+                    ->map(fn (ConversationMessage $m) => [
+                        'uuid' => (string) $m->uuid,
+                        'body' => (string) $m->body,
+                        'provenance' => $m->provenance->value,
+                        'attachments' => count((array) data_get($m->metadata, 'attachments', [])),
+                    ])->values()->all(),
+            ];
+
+            DB::rollBack();
+
+            return $thread;
+        } catch (Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
     /** One scenario, inside whatever transaction the caller holds. */
     public function run(Scenario $scenario, Brand $brand): SimulationResult
     {
