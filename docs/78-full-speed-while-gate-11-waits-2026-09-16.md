@@ -236,4 +236,84 @@ merge. On 1 October CI runs on main and anything it finds is fixed before any fu
 
 ## C. Record
 
-(Filled in as each stream completes.)
+### C.1 Stream A: Phase 3 inert expansion (branch `p3/inert-expansion`)
+
+Five commits, each one of the B.1 items, none touching a prompt, `AgentRunner`, the detectors, the
+gateway's decisions or the readiness logic. The stamps, read from `PromptLibrary` after the last
+commit: `executive.v8+18d60e98` and `support.v1+0f4a195b`, the same as the release gate 11 attempt 2
+will run on (`3314c54`); `git diff 3314c54` over the prompts and the runner is empty.
+
+1. **`3c4ff8d` customer memory and remember/forget.** `App\Conversation\SupportContext` builds the
+   support agent's bundle in one place: HQ's header (system), the customer as HQ's own tables know
+   them with their five most recent order facts (business), a system line introducing memory as
+   possibly stale and never a fact to act on, up to twenty memory blocks each with the memory's own
+   provenance, then every customer message untrusted. `ConversationSimulator::capture()` returns the
+   same blocks, and the P3-G2 subject hands them to the agent, so the gate measures the bundle the
+   real wake-up will use. The inbox gained "Remembered about this customer": a manager may record
+   one of four structured keys (delivery notes, preferred language, preferred contact time, about)
+   or an episodic note, only on a thread that is resolved or closed and has a customer, provenance
+   `business`, audited `memory.remembered`; "forget" closes a structured value (`memory.closed`)
+   and never deletes, and an episode is never closed. A customer merge now carries memory to the
+   kept customer, closing an absorbed live value that collides with one the kept customer holds.
+   Nothing the agent infers is written anywhere (ADR-033 unchanged).
+2. **`fc221e9` Instagram DM and Facebook comment normalisers.** Both pure, from recorded payload
+   shapes kept as fixtures (`tests/fixtures/meta/instagram_text.json`, `feed_comment.json`).
+   Instagram messaging events become `Channel::Instagram` messages (identity channel
+   `instagram_igsid`), dropping echoes and read receipts. Feed events become `Channel::Comment`
+   messages for added comments by people other than the Page, one thread per person per post
+   (`comment:<page>:<post>:<person>`, identity channel `facebook_user`), carrying the post, the parent
+   comment and the commenter's name. The webhook controller routes by `object` (`page`, `instagram`)
+   to the account HQ holds, or the event dead-letters. Same core, flag off, no credential, no send
+   path. Two scenarios (`instagram.dm`, `facebook.comment`) put both channels into P3-G1.
+3. **`fbad36b` the HQ side of the P3-G3 pairing.** The Messenger normaliser yields the Page's own
+   echoes separately (`OutboundEcho`); `ConversationService::recordExternalOutbound()` records one on
+   its open thread once, as an `external` outbound with provenance `generated`, and nowhere when there
+   is no thread. `ShadowComparisons::pair()` pairs it with the most recent unpaired support-agent
+   proposal that answered the same customer message, storing digests and references only.
+   **Deviation from B.1:** the verdict words are `same`, `better`, `worse` and `different`, not
+   `same`, `close`, `different`. The comparison exists to decide whether the agent may replace the
+   bot, and "close" says nothing about which side a person preferred; the four words do, and they
+   still leave `different` for "neither better nor worse". The verdict is a person's, on the thread
+   page, audited. A daily sweep (`hq:conversation:compare-sweep`, 01:00 Dhaka) records a proposal that
+   nothing answered within a day as `unmeasured`, once.
+4. **`a011f67` Stream D** (below, C.4), committed on this branch because it is documentation only.
+5. **`832a760` schedule, one scenario, runbooks.** The sweep is scheduled; the scenario
+   `customer_scope.someone_elses_order` joins the P3-G2 set (a customer asking about another
+   customer's order); `docs/runbooks/` holds the inbox, the P3-G2 gate, the shadow week, the readiness
+   table and what to do when the provider is blocked, with a README index.
+
+**P3-G1 evidence, local, 16 September:** `hq:conversation:simulate --repeat=2` against the local
+database: 33 scenarios, 33 passed, 0 failed, rolled back; 2 replays with identical observations;
+trace none, every table holding the rows it held before. The production replay (Joy permitted it)
+needs the invariants this code carries, which `3314c54` does not have, so it runs after the release
+that follows gate 11 (docs/77 §E order), not before.
+
+**P3-G2 preparation:** `behaviour.support` is the ten written cases plus one `sim.*` case per
+agent-active scenario, now including memory, customer scope and the two new channels' refusal to
+wake the agent where the core hands the thread to a person. It runs only under
+`GATE=p3-g2 GATE_AGENT=support` after the release and after Joy is set as the support agent's
+enabling user; the support agent stays paused.
+
+**Verification, the merge gate until 1 October:** Pest, the whole suite folder by folder (the PC's
+memory cannot hold one run): Agents 106, Ai/Auth/Autonomy/Commerce/Consent 98, Conversation 70,
+Erp/Evaluation 194, Identity/Facts 38, Foundation/Gateway 188, Media/Platform/Scheduler/Security/
+Settings 67, Dashboard/Unit 6: **767 passed, 0 failed**. Pint `--test` passed; `tsc --noEmit` clean;
+`vite build` succeeded. **Local verification passed; GitHub Actions validation deferred until
+1 October reset.**
+
+### C.2 Stream B: Phase 2 M7
+
+(Filled in when the stream completes.)
+
+### C.3 Stream C: Phase 2 M6, inert
+
+(Filled in when the stream completes.)
+
+### C.4 Stream D: Phase 4 design
+
+`docs/79` (the ERP Sales Order capability) and ADR-046 (the ERP Sales Order is the canonical order
+write), both **proposed**, commit `a011f67`. They cover all seventeen items of point 6 (product
+identity through ERP and commerce reconciliation), keep `take_order` as one business capability
+behind the Capability Registry and the Tool Gateway with no agent knowing the transport (point 7),
+and sort the Commerce Platform Interface into what stays as read-side adapters and what moves behind
+the ERP capability. Nothing is implemented; no order write exists for any agent.
