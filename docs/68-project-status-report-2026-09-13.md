@@ -6,6 +6,8 @@
 
 HQ exists, runs in production, and watches all four businesses every day. Its AI half is fully built and fully switched off. Ten days of work took it from a folder of design documents to a deployed control room with a gateway, a policy engine, an approval centre, a model router, three read-only agents, a permanent safety corpus, and an evaluation system that decides when the agents may be trusted. Ten safety gates have been run against the real agent with real model calls. Each one was stricter than the last, each failure was written down and corrected as one milestone before the next gate, and the tenth, run on 15 September, passed every safety boundary it measured and failed 79 of 80 on a single over-cautious refusal of a harmless question. Until a gate passes and you make a separate, explicit decision, no agent acts, no runtime is on, and nothing customer-facing exists.
 
+**17 September.** Gate 11's second attempt is ready and waits only for credit on the Anthropic account. While it waits, on your word to work at full speed, four pieces of work were finished and merged without switching anything on: the rest of Phase 3's inert groundwork, the Phase 2 housekeeping (data retention, alerts and four dashboards), Ask HQ and scheduling in words (built, switched off), and the design for how orders will be taken through the ERP. Production is unchanged and fully off.
+
 
 ## 2. What HQ is, and what it is not
 
@@ -141,6 +143,20 @@ P3-G1 is the conversation core's exam, and it needs no model. The practice conve
 
 P3-G2 is the support agent's exam, and it does need a model. The practice conversations now say what the support agent should do when the core hands it the thread: answer with exactly one proposed reply, or hand over, in the customer's own script. Seven new conversations cover a greeting, Bangla order and price questions, romanised Bangla with typos, mixed script, a returning customer, and someone claiming the owner allowed them to see other people's orders. When the core gives the thread to a person, the agent is never asked, and that costs nothing. The support exam runs through the same gate runner as the Executive's, and it cannot run while a shadow week is open, so neither can switch the other off.
 
+### 3.15 Full speed while gate 11 waits (16 and 17 September)
+
+You asked for the work to go on at full speed without needing you, and to wait for GitHub's free minutes to come back on 1 October. ChatGPT set the order (`docs/78`). Every piece below is built, tested on your PC, merged, and switched off; none of it is on production yet, because production waits for gate 11.
+
+**Phase 3, the rest of the groundwork.** The support agent now sees what HQ remembers about a customer, clearly marked as memory that may be out of date and never as fact. A person, never the agent, can record a fact about a customer (delivery notes, preferred language, preferred time, a note) on a finished conversation, or cross one out; nothing is ever deleted. Instagram messages and Facebook comments can now be read the same way as Messenger, from recorded examples, with the switch off. And the comparison for the later "shadow" gate exists: when the n8n bot answers a customer, HQ will set the agent's proposal beside the bot's reply and a person marks it the same, better, worse or different. Five short manuals (inbox, support gate, shadow week, readiness, provider blocked) are in `docs/runbooks/`. The practice conversations, now 33, all pass twice with no trace left.
+
+**Housekeeping (Phase 2 M7).** Think of the back office's filing rules. Detailed call records older than 180 days will be summarised into one line per day and removed, and old event contents will be reduced to a fingerprint after a year; but anything an agent, an approval, an evaluation, a customer conversation or a consent points at is kept forever, as are the audit trail and decision records. Nothing is old enough to be touched before March 2027. HQ now also checks fifteen warning signs every five minutes (a stuck scheduler, a failing AI provider, a credential about to expire, a stale ERP snapshot, a stopped shadow week, and others) and tells you once, then again when it clears; the ones the server's own monitor already texts you about are recorded without a second message. Four read-only dashboards show AI health, cost, the control plane and the platform, under Observe in the sidebar.
+
+**Ask HQ and scheduling in words (Phase 2 M6), built and switched off.** Ask HQ is a page where you put a question to an agent; it goes through exactly the same checks as everything else and, while the AI is off, it records the question and asks nothing. One thing found while building it: an agent works with its enabling person's reach, not the asker's, so Ask HQ only opens for people who can already see every business and use every tool the agent uses. Scheduling in words lets you type "every morning at 8 check LaLaDia's orders"; HQ reads it, checks every part against what it knows, asks when anything is unclear, shows you the job, and creates it only when you confirm. A job that would change something waits for your approval, and "run now" can no longer skip that.
+
+**Phase 4, designed only.** `docs/79` and ADR-046 describe how HQ will one day take an order: always through the ERP's sales order, never through a shop's checkout, covering the seventeen questions ChatGPT listed (product and variant, price source, customer, address, phone, delivery, discounts, cash on delivery, totals, stock, duplicates, status, changes, failures, reconciliation). Nothing is built.
+
+**How it was checked.** GitHub's checks are paused until 1 October, so every piece was checked on your PC instead: the whole test suite in parts (up to 837 tests, none failing), code style, TypeScript and the production build. On 1 October the GitHub checks run on everything, and anything they find is fixed first.
+
 ## 4. Where production stands today
 
 | System | Release | Notes |
@@ -155,20 +171,20 @@ P3-G2 is the support agent's exam, and it does need a model. The practice conver
 | Businesses / brands / stores | 5 / 5 / 4 |
 | HQ users | 1 (you) |
 | Customers resolved / identities linked | 25 / 97 |
-| Order facts | 29, latest placed 13 September |
+| Order facts | 32 (17 September) |
 | Events processed / dead (inert, by design) | 54 / 6 |
 | Scheduled jobs / runs | 6 / 87 |
-| Tool calls through the gateway | 949 |
-| Model calls, all-time / total spend | 763 / $18.87 |
-| Agent runs, all shadow | 548 |
+| Tool calls through the gateway | 984 (17 September) |
+| Model calls, all-time / total spend | 854 / $19.59 (17 September) |
+| Agent runs, all shadow | 631 (17 September) |
 | Evaluation cases / gate runs / graded results | 92 / 23 / 559 |
 | Approvals ever raised | 12 |
 | Autonomy grants / consent events | 0 / 0 |
 | Active credentials, non-secret readiness visible on the Credentials screen | 8 |
-| Audit rows, append-only | 623 |
-| Continuous integration | 736 tests, 4,703 assertions, green on main `b7b4e7c` (16 September; the shadow period and Phase 3 gates G1 and G2 are merged, not released) |
+| Audit rows, append-only | 650 (17 September) |
+| Continuous integration | Paused by GitHub billing until 1 October. Local verification instead: 837 tests passing on main `65ae4ea` (17 September); everything since `3314c54` is merged, not released |
 
-**AI posture, read from the database after gate 10:** runtime OFF. Executive paused at A0. Analytics paused at A0. Support paused at A0 with no enabling user. Zero autonomy grants. Zero consent events. No customer-facing or outbound capability exists. No shadow period has begun.
+**AI posture, read from the database on 17 September (unchanged since gate 10):** runtime OFF. Executive paused at A0. Analytics paused at A0. Support paused at A0 with no enabling user. Zero autonomy grants. Zero consent events. No customer-facing or outbound capability exists. No shadow period has begun.
 
 ## 5. What is built and what is not
 
@@ -178,11 +194,22 @@ P3-G2 is the support agent's exam, and it does need a model. The practice conver
 
 **Started inert, on the branch, not yet released.** Phase 3 customer AI and the Messenger channel: the conversation core, the inbox, the state machine, the Meta webhook (flag off, no credential), the support agent (paused, no enabling user, no autonomy), the reply tool (no provider, so it cannot execute), and the simulation world that replays scripted conversations through all of it. Real inbound needs Meta's app and Business Verification; any send needs gate P3-G4; the agent's first answers need gate P3-G2 and a provider quota.
 
+**Built and merged, switched off, not released (16 and 17 September).** Phase 2 M7 (retention, alerts, dashboards) and M6 (Ask HQ, scheduling in words), and the rest of Phase 3's inert groundwork. The next release carries them all, after gate 11.
+
+**Designed, not built.** Phase 4 orders through the ERP (`docs/79`, ADR-046, proposed).
+
 **Not started, by decision.** Phase 4 AI orders. Phase 5 marketing and ads. Phase 6 content factory and the research engine. Phase 7 voice. Phase 8 avatar. Phases 9 and 10, measured autonomy. None begins before the architecture checkpoint's sequence allows it, and none begins unprompted.
 
 ## 6. What only you can do
 
-**Now (16 September, ChatGPT's longer milestone, docs/77): five things, all yours.**
+**Now (17 September): two things, and the rest is decided.**
+
+1. **Credit on the Anthropic account.** Still the only thing that holds gate 11 back. I recommended $25 (console.anthropic.com, Settings, Billing). When it is added, tell me. The check that confirms it uses HQ's stored key, which my tools leave to you, so I will then give you one line to type; the gate itself also refuses to start without a clean answer.
+2. **The consolidated report for ChatGPT** is ready in `docs/78` section D. Say "post it" and I will send it in the HQ thread; or paste it yourself.
+
+Already decided by you on 16 September and recorded: the Executive's A0 shadow week opens only after a complete gate-11 pass; you are the support agent's enabling person for the simulated gate only; the P3-G1 production replay may run. GitHub waits for 1 October by your choice, so there is nothing to pay. Your local HQ login still needs `php artisan hq:user:create` only if you use HQ on your PC.
+
+**Earlier (16 September, ChatGPT's longer milestone, docs/77): five things, all yours.**
 
 1. **Credit.** The Anthropic Console account behind HQ's key is still empty: HQ's own test call on 16 September was refused with "credit balance is too low". Nothing in this milestone moves until it is topped up. A gate costs about $2.60, the support gate about the same again, and a seven-day Executive shadow (six questions a day) an estimated $3 to $8 over the week, judged from what gate runs cost. Tell me roughly how much you added, because ChatGPT asked that "sufficient credit" be confirmed before the launch and the API does not report a balance.
 2. **Your word on switching the Executive on.** ChatGPT has authorised it on one condition: gate 11, run again under the same name, must pass completely with nothing unmeasured. Your standing rule is that switching anything on is your decision as well. If you say yes, then on a full pass I open the seven-day shadow period with one audited command in your name; if gate 11 does not pass, nothing is switched on either way.
