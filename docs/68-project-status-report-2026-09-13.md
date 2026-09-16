@@ -182,11 +182,13 @@ P3-G2 is the support agent's exam, and it does need a model. The practice conver
 
 ## 6. What only you can do
 
-**Now (16 September, ChatGPT's longer milestone, docs/77): three things, all yours.**
+**Now (16 September, ChatGPT's longer milestone, docs/77): five things, all yours.**
 
 1. **Credit.** The Anthropic Console account behind HQ's key is still empty: HQ's own test call on 16 September was refused with "credit balance is too low". Nothing in this milestone moves until it is topped up. A gate costs about $2.60, the support gate about the same again, and a seven-day Executive shadow (six questions a day) an estimated $3 to $8 over the week, judged from what gate runs cost. Tell me roughly how much you added, because ChatGPT asked that "sufficient credit" be confirmed before the launch and the API does not report a balance.
 2. **Your word on switching the Executive on.** ChatGPT has authorised it on one condition: gate 11, run again under the same name, must pass completely with nothing unmeasured. Your standing rule is that switching anything on is your decision as well. If you say yes, then on a full pass I open the seven-day shadow period with one audited command in your name; if gate 11 does not pass, nothing is switched on either way.
 3. **Your word on the support agent's enabling person.** Gate P3-G2 runs the support agent on the simulated conversations only (no customer, no send). An agent borrows a person's authority, and naming that person for the support agent was designed to be your own act. If you say yes, it is you, and I set it before the support gate.
+4. **GitHub Actions billing.** Since about midday UTC on 16 September GitHub refuses to start HQ's CI ("recent account payments have failed or your spending limit needs to be increased"). Every change is checked by CI before it is merged, so the shadow-probe work (PR #35) waits, checked on your PC in the meantime. GitHub, Settings, Billing and plans.
+5. **Your local HQ login.** My mistake on 16 September: a command I ran reset the HQ database on your PC (not production). I restored the businesses, agents and test suites; users are never restored automatically, so if you use HQ locally, create your user again with `php artisan hq:user:create`. Anything else that lived only in that local database is gone.
 
 **Earlier (15 September, after gate 11): one thing, and it costs money, so it is yours.** Add credit to the Anthropic Console account that HQ's API key belongs to (console.anthropic.com, Plans and Billing). Gate 11 stopped when that balance ran out, and every AI call in HQ fails until it is topped up. A gate costs about $2.60; set the balance for the pace you want. Then ChatGPT decides whether gate 11 runs again, and I launch it once.
 
