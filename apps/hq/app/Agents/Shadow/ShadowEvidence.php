@@ -30,7 +30,8 @@ use Illuminate\Support\Facades\DB;
  * - `unnecessary_tool_calls`: calls made in a run that did not end answered (nothing used them), plus
  *   the second and later calls with the same tool and arguments in one run;
  * - `discrepancies`: runs a person reviewed as `edited` or `rejected` (the reviewer saw something other
- *   than what was expected), runs that failed, and every violation.
+ *   than what was expected), runs that failed, probe runs whose canonical task is not the probe's
+ *   question, and every violation.
  *
  * ⛔ **Violations are the point 8 list, checked for the whole window, whoever caused them.** A
  * violation is a fact that makes the period's evidence untrustworthy, so the check does not ask
@@ -45,7 +46,27 @@ final class ShadowEvidence
         'permission', 'role', 'user', 'autonomy', 'agent.', 'credential', 'audit', 'feature_flag', 'consent', 'policy', 'tool.toggle',
     ];
 
-    public function __construct(private readonly ToolGateway $gateway) {}
+    public function __construct(
+        private readonly ToolGateway $gateway,
+        private readonly ShadowProbes $probes,
+    ) {}
+
+    /**
+     * Close a period whose seven days are over (docs/77 E.1: the hourly check does this too, so the
+     * end does not wait for the next probe slot), and snapshot its last days. True when it closed.
+     */
+    public function closeIfOver(ShadowPeriod $period, ShadowPeriods $periods, ?CarbonImmutable $now = null): bool
+    {
+        $now ??= CarbonImmutable::now();
+        if (! $period->isOpen() || $now < $period->planned_end_at) {
+            return false;
+        }
+
+        $periods->close($period, 'The planned seven days have passed. The shadow period is evidence, not a promotion; the next autonomy decision is an explicit one.');
+        $this->store($period->fresh(), $now);
+
+        return true;
+    }
 
     /**
      * The day's numbers for the period's agent.
@@ -95,6 +116,7 @@ final class ShadowEvidence
                 'total' => $runs->count(),
                 'by_status' => $runs->countBy('status')->sortKeys()->all(),
                 'by_trigger' => $runs->countBy('trigger')->sortKeys()->all(),
+                'probes' => $runs->filter(fn ($r) => ShadowProbes::isProbe($r))->count(),
                 'shadow' => $runs->where('shadow', true)->count(),
             ],
             // 1-2. The canonical trusted task and the model's reading of it.
@@ -138,9 +160,14 @@ final class ShadowEvidence
                 'unreviewed' => $runs->where('shadow', true)->whereNull('reviewed_at')->count(),
                 'by_verdict' => $runs->whereNotNull('review_verdict')->countBy('review_verdict')->sortKeys()->all(),
             ],
+            // Verification and postconditions: nothing the agent may call has an effect to verify.
+            'verified_effects' => ['count' => 0, 'note' => 'no capability with an effect exists at A0; there is nothing to confirm'],
+            // The scheduled Shadow Probes of the day (docs/77 E.1).
+            'probes' => $this->probes->dayBlock($period, $from, $to),
             // 16. Discrepancies, as defined above (violations sit in their own column beside these metrics).
             'discrepancies' => $runs
-                ->filter(fn ($r) => in_array($r->review_verdict, ['edited', 'rejected'], true) || $r->status === 'failed')
+                ->filter(fn ($r) => in_array($r->review_verdict, ['edited', 'rejected'], true) || $r->status === 'failed'
+                    || (ShadowProbes::isProbe($r) && trim((string) $r->canonical_task) !== trim((string) $r->question)))
                 ->map(fn ($r) => ['run_id' => $r->id, 'status' => $r->status, 'verdict' => $r->review_verdict, 'note' => mb_substr((string) $r->review_note, 0, 200)])
                 ->values()->all(),
         ];

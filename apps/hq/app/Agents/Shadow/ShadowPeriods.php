@@ -16,6 +16,7 @@ use App\Models\ShadowPeriod;
 use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
 use App\Support\Features\Features;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -43,19 +44,13 @@ final class ShadowPeriods
 
     public const DAYS = 7;
 
-    /** The questions a period asks when its opener names none (docs/77 C.2.6). */
-    public const DEFAULT_QUESTIONS = [
-        'What needs my attention today?',
-        'How did the group do yesterday?',
-        'How current is the data you are working from?',
-    ];
-
     public function __construct(
         private readonly Auditor $auditor,
         private readonly Features $features,
         private readonly PromptLibrary $prompts,
         private readonly ToolGateway $gateway,
         private readonly PlatformRegistry $platforms,
+        private readonly ShadowProbes $probes,
     ) {}
 
     /**
@@ -155,8 +150,9 @@ final class ShadowPeriods
     /**
      * Open the period: runtime on, agent active, record written, all three audited, in one transaction.
      *
-     * `$scheduled = false` opens it with no questions of its own, so the only runs are the ones a
-     * person asks for (docs/77 C.2.6 is a design choice ChatGPT may strike).
+     * `$scheduled = false` opens it with no Shadow Probes, so the only runs are the ones a person asks
+     * for. ChatGPT kept the probes (docs/77 E.1) and made them mandatory on production: there this is
+     * refused, because a production week with no evidence workload is not a shadow period.
      *
      * @param  list<string>  $questions
      */
@@ -170,13 +166,15 @@ final class ShadowPeriods
             throw new RuntimeException('A shadow period opens for a stated reason; none was given.');
         }
 
-        $questions = $scheduled
-            ? array_values(array_filter(array_map('trim', $questions === [] ? self::DEFAULT_QUESTIONS : $questions)))
-            : [];
+        if (! $scheduled && app()->isProduction()) {
+            throw new RuntimeException('A production shadow period requires its scheduled Shadow Probes; --no-schedule is for manual and test use only (docs/77 E.1).');
+        }
+
+        $probes = $scheduled ? ShadowProbes::define($questions) : [];
         $agent = Agent::query()->where('key', $agentKey)->firstOrFail();
         $role = (string) ($agent->role_key ?: $agent->key);
 
-        $period = DB::transaction(function () use ($agent, $role, $reason, $questions, $actorUserId, $actorLabel) {
+        $period = DB::transaction(function () use ($agent, $role, $reason, $probes, $scheduled, $actorUserId, $actorLabel) {
             $flag = $this->runtimeFlag();
             $flag->forceFill(['enabled' => true])->save();
             $this->audit('feature_flag.toggled', $flag, ['enabled' => false], ['enabled' => true],
@@ -203,11 +201,12 @@ final class ShadowPeriods
                     'suites' => $this->evidenceFor($agent),
                 ],
                 'allowed_tools' => array_values((array) $agent->allowed_tools),
-                'questions' => $questions,
+                'questions' => $probes,
+                'probes_required' => $scheduled,
             ]);
 
             $this->audit('shadow_period.opened', $period, null,
-                ['agent_key' => $agent->key, 'level' => 'a0', 'planned_end_at' => $period->planned_end_at->toIso8601String(), 'questions' => count($questions)],
+                ['agent_key' => $agent->key, 'level' => 'a0', 'planned_end_at' => $period->planned_end_at->toIso8601String(), 'probes' => array_column($probes, 'key'), 'probes_required' => $scheduled],
                 $reason, $actorUserId);
 
             return $period;
@@ -302,11 +301,20 @@ final class ShadowPeriods
             $this->audit('agent.status_changed', $agent, ['status' => $before], ['status' => 'paused'],
                 "Shadow period #{$period->id} {$status}: [{$agent->key}] paused. {$reason}", $actorUserId);
 
+            // docs/77 E.1: a period is complete only with its probe evidence; a stopped one never is.
+            $summary = $this->probes->summary($period, CarbonImmutable::now());
+            $complete = $status === ShadowPeriod::STATUS_STOPPED ? false : $summary['complete'];
+            $reason .= $summary['required']
+                ? " Probe evidence: {$summary['evidence']} of {$summary['expected']}".($complete ? ', complete.' : ', NOT complete.')
+                : ' No scheduled probes were required.';
+
             $period->forceFill([
                 'status' => $status,
                 'closed_at' => now(),
                 'end_reason' => $reason,
                 'violations' => $violations,
+                'probe_summary' => $summary,
+                'evidence_complete' => $complete,
             ])->save();
 
             if (! ShadowPeriod::anyOpen()) {

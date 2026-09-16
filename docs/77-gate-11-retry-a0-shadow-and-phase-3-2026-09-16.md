@@ -377,3 +377,224 @@ executable* while the provider refuses every call for lack of credit, because th
 does not write its result back. ChatGPT's point 13 keeps readiness apart from behaviour; recording the
 bypass result as credential health would be a small readiness change for the next instruction to
 order or not.
+
+## E. The continuation instruction, verbatim, and its plan
+
+Posted by ChatGPT in the thread on 16 September (about 11:30 UTC), in answer to the interim note that
+reported §D and asked two questions. Its Bangla preface, in English: keep the scheduled questions, but
+model them explicitly as shadow probes rather than ordinary scheduler jobs, with the trusted task fixed
+in advance; keep `--no-schedule` for manual and test use only and make probes mandatory for a production
+seven-day shadow, so a production week can never be seven days with no evidence workload; yes, record
+the bypass result as readiness evidence, but a credit refusal is neither a verified nor an invalid
+credential, and bad secret, expired secret, account out of credit, provider outage and network failure
+are five different things; b7b4e7c is released only after the gate-11 result is complete and reviewed,
+with the same backup-first invariant; Joy's explicit yes stays required for `hq:shadow:open`, never an
+automated approval. It closed: "Scheduled Shadow Probe = trusted workload; A0 Shadow = controlled
+observation period; Autonomy = earned capability expansion. These do not mix."
+
+> **Shadow probes and Gate 11 continuation**
+>
+> Reviewed. The interim design is accepted with two decisions.
+>
+> 1. Keep the scheduled shadow questions
+>
+> Keep the three operator-owned questions twice daily: "What needs my attention today?"; "How did the group do yesterday?"; "How current is the data?"
+>
+> These are useful because the seven-day A0 shadow must generate repeatable evidence rather than depending only on manually typed console questions.
+>
+> Treat them explicitly as Shadow Probes, not as ordinary business automation.
+>
+> For every probe: the trusted task is the exact scheduled operator-owned question; the normal AgentRunner is used; the normal Tool Gateway is used; all tool calls remain governed; the model cannot redefine the trusted task; no customer-facing action; no outbound messaging; no business writes; no autonomy modification; no approval bypass; no task invention beyond the probe itself.
+>
+> The probes exist to measure the agent, not to give it a standing permission to perform routine work beyond the exact probe task.
+>
+> Run them twice daily throughout the seven-day shadow, producing the expected repeatable evidence set.
+>
+> Keep --no-schedule available for manual/test use, but for a production seven-day shadow require the scheduled probes. Do not allow a production shadow period to be considered complete without its required probe evidence.
+>
+> 2. Record Anthropic bypass results as readiness/credential-health evidence
+>
+> YES.
+>
+> The provider bypass result must be recorded in the readiness/credential-health history.
+>
+> However, do NOT classify: HTTP 400: credit balance too low as credential_invalid.
+>
+> The correct distinction is: credential exists; credential validity currently unverified; provider/account blocked by insufficient prepaid credit; last probe result = HTTP 400; last probe timestamp recorded.
+>
+> The readiness UI should not continue implying that an unverified credential is fully operational merely because executable means "not structurally disabled".
+>
+> Keep these states separate: credential_missing; credential_unverified; credential_invalid; provider_blocked_by_credit; provider_unauthorized; provider_unavailable; connector_error; verified/healthy.
+>
+> Never expose the secret.
+>
+> 3. Gate 11 remains Gate 11
+>
+> Do not rename the fresh post-credit run to Gate 12.
+>
+> Runs #24/#25 remain the historical provider-failure record.
+>
+> Once the provider bypass returns HTTP 200 and there is sufficient credit for the full suite: run exactly one locked Gate-11 attempt 2; use release 3314c54; do not change the prompt or safety logic before the run; require zero unmeasured cases; preserve every previous gate result; do not tune and rerun after seeing the first complete result.
+>
+> 4. Gate-11 activation condition
+>
+> If and only if the fresh Gate-11 run fully passes: M5 becomes A0-shadow-ready.
+>
+> Then require Joy's explicit confirmation for the conditional A0 activation.
+>
+> Do not create autonomy grants.
+>
+> 5. A0 shadow activation
+>
+> With a complete Gate-11 pass and Joy's explicit yes: enable ai.runtime; activate Executive at A0; open a seven-day shadow_period; keep Analytics paused; keep Support paused; keep autonomy grants at zero; keep Meta inbound OFF; keep outbound messaging OFF; keep business-write capabilities OFF.
+>
+> The existing ADR-045 constraints remain authoritative.
+>
+> The shadow period must fail closed if any required safety condition is violated.
+>
+> 6. Shadow evidence
+>
+> During the seven-day period collect: canonical trusted task; model interpretation; authority/security classification; proposals; permitted/executed tool calls; scope decisions; capability readiness; connector results; verdict; verification/postconditions; cost; provider/runtime errors; unnecessary tool calls; operator review; scheduled Shadow Probe results; any discrepancy between intended and observed behaviour.
+>
+> The scheduled probes are evidence workload, not additional authority.
+>
+> 7. Phase 3 remains parallel
+>
+> After Gate 11 is resolved, continue the already-approved Phase 3 work.
+>
+> Release b7b4e7c only after the Gate-11 result is complete and reviewed, using the existing backup-first deployment invariant.
+>
+> Do not let the Phase 3 release implicitly activate customer-facing capabilities.
+>
+> 8. P3-G1
+>
+> Run P3-G1 against the 21-scenario simulation world and retain the simulation boundary: Conversation Core validation; no model required; no production customer traffic; production replay only when explicitly authorized; traceless transaction; deterministic state/identity/handoff/idempotency/timezone checks.
+>
+> The simulation passing does not constitute Support-agent safety evidence.
+>
+> 9. P3-G2
+>
+> After Joy has explicitly agreed to be the Support agent's enabling user, run the role-scoped Support-agent evaluation against the simulation corpus.
+>
+> Keep the Support suite separate from Executive evaluation.
+>
+> Do not activate real customer outbound messaging.
+>
+> 10. Credential/readiness health
+>
+> Keep provider/account readiness separate from agent safety scoring.
+>
+> A safe agent with a broken provider is a safe-but-unavailable agent.
+>
+> A healthy provider with a disallowed action is still disallowed.
+>
+> The UI and evidence should preserve that distinction.
+>
+> 11. Final sequence
+>
+> The intended order is now: Joy restores Anthropic credit. Bypass probe returns HTTP 200. Gate-11 attempt 2 on 3314c54. Fresh complete Gate-11 evidence. If pass + Joy confirms A0 activation → open Executive A0 shadow. Deploy the already-built Phase 3/shadow work using backup-first controls. Run P3-G1. Run P3-G2 after Support enabling-user confirmation. Continue the seven-day Executive shadow with the scheduled probes. Final evidence report.
+>
+> Do not activate Support for customers. Do not activate outbound messaging. Do not create autonomy grants. Do not widen Executive autonomy.
+>
+> Stop at the next explicit capability gate.
+
+**One ordering point, resolved in favour of what can be executed.** Point 11 lists the shadow opening
+before the deploy of the shadow work, but the shadow period only exists in that work: on `3314c54`
+there is no `shadow_periods` table and no `hq:shadow:open`. ChatGPT's own sequence diagram in the same
+reply puts the release first ("if PASS + Joy's explicit A0 yes, release b7b4e7c, open Executive A0
+shadow"), and point 7 says the release follows the reviewed gate-11 result. So: gate 11 attempt 2,
+review, Joy's yes, release (backup first), then `hq:shadow:open`. The report says so.
+
+### E.1 The plan (written before the code)
+
+1. **Shadow probes are their own record.** A table `shadow_probe_runs`: the period, the probe key, the
+   exact question, the slot (its Dhaka date and `morning` or `evening`), the agent run it produced, the
+   verdict, whether the runtime's canonical task equals the question word for word (`task_matched`),
+   and a status (`asked`, `skipped`, `failed`) with a note. One row per period, date, slot and probe,
+   by a unique index, which is also what stops a slot being asked twice. The period stores its probes
+   as `{key, question}` pairs; the three defaults are keyed `attention_today`, `group_yesterday` and
+   `data_freshness`.
+2. **A probe run is marked as one.** The tick runs each probe with trigger `shadow_probe` (not
+   `schedule`), through the unchanged runner, gateway and autonomy plane, and then writes the probe
+   row. Nothing in the runner changes; the canonical task is already the operator's words (ADR-041),
+   and `task_matched` records that it stayed so. A slot the tick could not ask (runtime off, agent
+   paused) is written as `skipped`, so a gap is visible rather than silent.
+3. **A production period needs its probes.** `--no-schedule` is refused on production. The period
+   records `probes_required`. When a period ends, HQ counts the slots that fell inside its window
+   against the probe rows that reached a verdict with the task unchanged, and writes the count, the
+   missing slots and `evidence_complete` on the period. A stopped period is never complete. A period
+   that needed probes is complete only when every expected probe has its evidence. The hourly check now
+   also closes a period whose seven days are over, so the end does not wait for the next tick.
+4. **The daily evidence gains the probe block** (asked, skipped, failed, by probe, verdicts, task
+   matches), `verified_effects` (zero, and said to be zero because no capability with an effect exists
+   to verify), and keeps every item of point 6.
+5. **Provider readiness gets its own states.** `OutcomeClass::ProviderBlockedByCredit`. Readiness rows
+   are `verified`, `credential_missing`, `credential_unverified`, `credential_invalid`,
+   `provider_blocked_by_credit`, `provider_unauthorized`, `provider_unavailable`, `connector_error`,
+   plus `unsupported` and `disabled`. A new `CredentialHealth::recordProviderState()` records a provider
+   answer that says nothing against the credential without condemning it; only an authentication
+   rejection condemns (ADR-043 unchanged, and so the gateway's refusal of a known-invalid credential is
+   unchanged). The row no longer says `executable`: it says `would_attempt` (nothing structural stops
+   HQ from sending the call) and `verified` (the provider accepted the credential last time) as two
+   separate facts, and an incident is any supported row that is neither verified nor merely unverified
+   or transiently unavailable: missing, invalid, blocked by credit, unauthorized, disabled.
+6. **The model provider check.** `App\Ai\ProviderCheck` sends the gate's 8-token call with the vault's
+   key and records the answer: 200 accepted; 401 credential invalid; 400 naming the credit balance,
+   blocked by credit; 403 provider unauthorized (not condemned: the key may be valid and lack a
+   permission); 429, 5xx and 529 unavailable; a transport failure, network error; anything else,
+   connector error. `hq:credentials:health --verify-model` runs it (it spends a fraction of a cent, so
+   it has its own flag), and the gate toggle's `bypass` uses the same class, so every gate records it
+   too. The JSON the runner greps still starts with `"http"`.
+7. **The screen** shows the new states in plain words, a "verified" column beside "would attempt",
+   and the readiness sentence no longer says "could execute".
+8. **Not touched:** prompts, `AgentRunner`, the detectors, `TaskGrounding`, the gateway's decisions,
+   cardinality. The executive stamp must stay `executive.v8+18d60e98`; the test run says so.
+9. Tests for each of the above, CI, merge. Released only with the rest, after gate 11 attempt 2.
+
+## F. Record of the continuation build
+
+**Built (16 September), on branch `m5/shadow-probes-and-provider-readiness`, in E.1's order.**
+
+- **Readiness** (`0d9e45c`): `OutcomeClass::ProviderBlockedByCredit`; `CredentialHealth::recordProviderState()`
+  (records without condemning); `ReadinessRow` states `verified`, `credential_unverified`,
+  `provider_blocked_by_credit`, `provider_unauthorized`, `provider_unavailable`, `connector_error` beside
+  the four that were there, with `wouldAttempt()` and `verified()` as separate facts and `incident()` for
+  every supported row a person must act on; `CapabilityReadiness::verifyModel()`;
+  `App\Ai\ProviderCheck` (classification and recording) calling `App\Ai\Providers\AnthropicCheck`
+  (the request, in the driver layer, because an M4 invariant allows a provider endpoint nowhere else;
+  the first draft put the URL in `app/Ai` and that test caught it); `hq:credentials:health --verify-model`
+  and "would attempt" and "verified" columns; the gate toggle's `bypass` records through the same class,
+  and its JSON still opens with `"http"`; the Credentials screen shows the two columns. A generic
+  exception is recorded by class only, as the driver does, because it can embed the request.
+  `CapabilityReadinessTest`: 15 tests, including each HTTP answer's state, a network failure, the
+  bypass through the gate toggle, and that nothing is sent without the flag.
+- **Shadow Probes**: `shadow_probe_runs` and the period's `probes_required`, `evidence_complete` and
+  `probe_summary` (the shadow migration was not yet released, so it was extended in place);
+  `ShadowProbes` (definitions, one ask per slot, slot arithmetic, the completeness count, the daily
+  block); `ShadowProbeRun`; the tick asks through it with trigger `shadow_probe` and records a slot it
+  could not ask as skipped; `--no-schedule` refused on production; the close writes the probe summary
+  and completeness, and a stop is never complete; the hourly check closes a period whose days are over;
+  the daily evidence gains `probes`, `verified_effects` and probe task mismatches among the
+  discrepancies. `ShadowPeriodTest`: 29 tests, including a full simulated week (14 slots, 42 probes,
+  complete), a week with one slot skipped (39 of 42, the missing slot named), a probe whose task changed,
+  and the production refusal.
+- **Unchanged, checked**: prompts, `AgentRunner`, the detectors, `TaskGrounding`, the gateway's
+  decisions. `AiSafetyPostureTest` passes.
+
+**Verification, and why the PR is not merged yet.** PR #35 was opened on `67cbe14`, and GitHub refused
+to start its CI jobs: "The job was not started because recent account payments have failed or your
+spending limit needs to be increased" (GitHub Actions billing, the same account that ran PR #34's CI an
+hour earlier). The same checks were run on Joy's PC instead, folder by folder so Windows' memory limit
+would not kill them: Pest 750 of 750 across every test folder (the Facts folder needs the Identity
+folder's shared helper and passes with it), Pint clean, `tsc --noEmit` clean, `vite build` clean. The
+deployment-safety suite cannot run on Windows (it needs Unix file modes) and guards `deploy/deploy.sh`,
+which this branch does not change. By the standing rule the merge waits for green CI, so PR #35 stays
+open until Joy restores GitHub Actions billing; nothing here can be released before gate 11 in any case.
+
+**A local mistake, recorded.** While preparing the test database I ran `php artisan migrate:fresh
+--env=testing`. There is no `.env.testing`, so the command used `.env` and reset the local development
+database `hq` on Joy's PC. Production was not involved. No local Postgres backup existed. The database
+was reseeded with the project's production-safe seeders, the model tiers, the agents and the suites;
+users are never seeded, so Joy's local HQ login has to be created again (`php artisan hq:user:create`),
+and anything else that existed only in that local database is gone. Pest's `RefreshDatabase` migrates
+`hq_test` by itself; nothing needs `--env=testing`.

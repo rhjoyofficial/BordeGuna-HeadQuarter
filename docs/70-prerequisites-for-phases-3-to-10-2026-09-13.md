@@ -135,7 +135,8 @@ confirms those, and this table changes only when something is checked.
 
 | Item | State on 16 Sep | How it was checked |
 | --- | --- | --- |
-| **Anthropic API credit** (the key HQ uses, credential #14) | **Blocked.** The provider refuses every call: "Your credit balance is too low" | The gate's own 8-token call from inside the app container, with nothing switched on, 16 Sep. ⚠ HQ's readiness table still shows this credential as *unverified, executable*: that test does not write its result back yet |
+| **Anthropic API credit** (the key HQ uses, credential #14) | **Blocked.** The provider refuses every call: "Your credit balance is too low" | The gate's own 8-token call from inside the app container, with nothing switched on, 16 Sep. On the release after gate 11 the check records its answer, and the table shows this row as `provider_blocked_by_credit` (an incident) instead of *unverified, executable* (docs/77 E.1) |
+| **GitHub Actions** (CI for every HQ change) | **Blocked by billing** since about 12:00 UTC 16 Sep: "recent account payments have failed or your spending limit needs to be increased" | PR #35's jobs were refused before starting; PR #34's ran an hour earlier. Joy: GitHub, Settings, Billing and plans |
 | Anthropic monthly spend limit | Raised on 14 Sep (gate 7 ran after it) | Gates 7 to 10 ran without the limit error |
 | Shop tokens, LaLaDia and Bionic | Ready | `hq:credentials:health`: both admin tokens and both assistant keys accepted by the shops on 15 Sep |
 | ERP token | Ready | Same table: accepted on 15 Sep 22:05 UTC by the nightly low-stock poll |

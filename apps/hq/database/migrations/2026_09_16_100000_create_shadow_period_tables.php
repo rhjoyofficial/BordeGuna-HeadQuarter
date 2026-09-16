@@ -21,6 +21,11 @@ use Illuminate\Support\Facades\Schema;
  * ⛔ One open period per agent, by a partial unique index, so two activations cannot race each
  * other into two overlapping records of the same week.
  *
+ * ⭐ `shadow_probe_runs` (docs/77 E.1) is the record of each scheduled Shadow Probe: one row per
+ * period, Dhaka date, slot and probe, which is also what stops a slot being asked twice. A probe is
+ * trusted workload, not authority; the row says which question was asked, which run answered it,
+ * and whether the runtime's canonical task stayed exactly that question.
+ *
  * ⭐ `shadow_evidence_days` holds one row per COMPLETE day, written once. A day's numbers are
  * derived from `agent_runs`, `tool_calls` and `ai_runs`, which remain the ledger; the day row is the
  * snapshot that was read on the morning after, so the evidence a later autonomy decision cites is
@@ -53,8 +58,13 @@ return new class extends Migration
             $table->jsonb('evidence');
             $table->jsonb('allowed_tools');
 
-            // The operator-owned questions the scheduler asks during the period (docs/77 C.2.6).
+            // The operator-owned Shadow Probes, as [{key, question}] (docs/77 C.2.6 and E.1), and
+            // whether this period must carry their evidence to count as complete. A production
+            // period always does.
             $table->jsonb('questions');
+            $table->boolean('probes_required')->default(true);
+            $table->boolean('evidence_complete')->nullable();
+            $table->jsonb('probe_summary')->nullable();
 
             $table->text('end_reason')->nullable();
             $table->jsonb('violations')->nullable();
@@ -66,6 +76,24 @@ return new class extends Migration
         DB::statement("ALTER TABLE shadow_periods ADD CONSTRAINT shadow_periods_level_a0 CHECK (autonomy_level = 'a0')");
         DB::statement("ALTER TABLE shadow_periods ADD CONSTRAINT shadow_periods_status CHECK (status IN ('open', 'closed', 'stopped'))");
         DB::statement("CREATE UNIQUE INDEX shadow_periods_one_open_per_agent ON shadow_periods (agent_key) WHERE status = 'open'");
+
+        Schema::create('shadow_probe_runs', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('shadow_period_id')->constrained('shadow_periods')->restrictOnDelete();
+            $table->string('probe_key', 64);
+            $table->text('question');
+            // The slot in the period's timezone (Asia/Dhaka): its date and `morning` or `evening`.
+            $table->date('slot_date');
+            $table->string('slot', 16);
+            $table->foreignId('agent_run_id')->nullable()->constrained('agent_runs')->nullOnDelete();
+            $table->string('status', 16); // asked|skipped|failed
+            $table->string('verdict', 16)->nullable();
+            $table->boolean('task_matched')->nullable();
+            $table->text('note')->nullable();
+            $table->timestamps();
+
+            $table->unique(['shadow_period_id', 'slot_date', 'slot', 'probe_key']);
+        });
 
         Schema::create('shadow_evidence_days', function (Blueprint $table) {
             $table->id();
@@ -86,6 +114,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('shadow_evidence_days');
+        Schema::dropIfExists('shadow_probe_runs');
         Schema::dropIfExists('shadow_periods');
     }
 };

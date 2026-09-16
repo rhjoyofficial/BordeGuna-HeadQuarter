@@ -25,7 +25,7 @@ class ShadowPeriod extends Model
     protected $fillable = [
         'uuid', 'agent_id', 'agent_key', 'autonomy_level', 'status', 'opened_at', 'planned_end_at',
         'closed_at', 'opened_by_user_id', 'opened_by_label', 'reason', 'evidence', 'allowed_tools',
-        'questions', 'end_reason', 'violations',
+        'questions', 'probes_required', 'evidence_complete', 'probe_summary', 'end_reason', 'violations',
     ];
 
     protected function casts(): array
@@ -37,6 +37,9 @@ class ShadowPeriod extends Model
             'evidence' => 'array',
             'allowed_tools' => 'array',
             'questions' => 'array',
+            'probes_required' => 'boolean',
+            'evidence_complete' => 'boolean',
+            'probe_summary' => 'array',
             'violations' => 'array',
         ];
     }
@@ -49,6 +52,17 @@ class ShadowPeriod extends Model
     public function days(): HasMany
     {
         return $this->hasMany(ShadowEvidenceDay::class)->orderBy('day');
+    }
+
+    public function probeRuns(): HasMany
+    {
+        return $this->hasMany(ShadowProbeRun::class);
+    }
+
+    /** The Shadow Probes as [{key, question}]. */
+    public function probes(): array
+    {
+        return array_values(array_filter((array) $this->questions, fn ($p) => is_array($p) && isset($p['key'], $p['question'])));
     }
 
     public function isOpen(): bool

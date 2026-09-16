@@ -4,6 +4,7 @@ use App\Agents\AgentResponseSchema;
 use App\Agents\PromptLibrary;
 use App\Agents\Shadow\ShadowEvidence;
 use App\Agents\Shadow\ShadowPeriods;
+use App\Agents\Shadow\ShadowProbes;
 use App\Ai\ModelTier;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Models\Agent;
@@ -15,6 +16,7 @@ use App\Models\EvaluationSuite;
 use App\Models\FeatureFlag;
 use App\Models\ShadowEvidenceDay;
 use App\Models\ShadowPeriod;
+use App\Models\ShadowProbeRun;
 use App\Models\User;
 use App\Support\Features\Features;
 use Carbon\CarbonImmutable;
@@ -172,7 +174,8 @@ it('dry-runs by default and opens only with --apply, audited, widening nothing',
         ->and($period->autonomy_level)->toBe('a0')
         ->and($period->opened_by_user_id)->toBe($this->owner->id)
         ->and($period->planned_end_at->diffInDays($period->opened_at, true))->toEqual(7)
-        ->and($period->questions)->toBe(ShadowPeriods::DEFAULT_QUESTIONS)
+        ->and($period->questions)->toBe(ShadowProbes::define([]))
+        ->and($period->probes_required)->toBeTrue()
         ->and($period->evidence['suites'])->toHaveKeys(['safety.core', 'behaviour.executive'])
         ->and($period->evidence['prompt_version'])->toStartWith('executive.v8+')
         ->and(runtimeOn())->toBeTrue()
@@ -202,18 +205,26 @@ it('holds one open period per agent and only A0, in the database itself', functi
     expect(app(ShadowPeriods::class)->refusals('executive'))->toContain('A shadow period is already open for this agent.');
 });
 
-it('asks each of the period\'s questions once per slot, as shadow runs, and never twice', function () {
+it('asks each Shadow Probe once per slot, as probe runs whose task is exactly the question, and never twice', function () {
     passingGate();
-    openShadow();
+    $period = openShadow();
     FixtureProvider::script('fixture', [shadowReply(), shadowReply(), shadowReply()]);
 
     $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
     $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
 
     $runs = AgentRun::where('agent_key', 'executive')->orderBy('id')->get();
+    $probeRows = ShadowProbeRun::where('shadow_period_id', $period->id)->orderBy('id')->get();
+    expect($probeRows)->toHaveCount(3)
+        ->and($probeRows->pluck('probe_key')->all())->toBe(array_keys(ShadowProbes::DEFAULTS))
+        ->and($probeRows->pluck('status')->unique()->all())->toBe(['asked'])
+        ->and($probeRows->pluck('verdict')->unique()->all())->toBe(['answered'])
+        ->and($probeRows->pluck('task_matched')->unique()->all())->toBe([true])
+        ->and($probeRows->pluck('agent_run_id')->all())->toBe($runs->pluck('id')->all());
     expect($runs)->toHaveCount(3)
-        ->and($runs->pluck('question')->all())->toBe(ShadowPeriods::DEFAULT_QUESTIONS)
-        ->and($runs->pluck('trigger')->unique()->all())->toBe(['schedule'])
+        ->and($runs->pluck('question')->all())->toBe(array_values(ShadowProbes::DEFAULTS))
+        ->and($runs->pluck('canonical_task')->all())->toBe(array_values(ShadowProbes::DEFAULTS))
+        ->and($runs->pluck('trigger')->unique()->all())->toBe(['shadow_probe'])
         ->and($runs->pluck('shadow')->unique()->all())->toBe([true])
         ->and($runs->pluck('autonomy_level')->map->value->unique()->all())->toBe(['a0'])
         ->and($runs->pluck('triggered_by_user_id')->unique()->all())->toBe([$this->owner->id])
@@ -221,29 +232,44 @@ it('asks each of the period\'s questions once per slot, as shadow runs, and neve
         ->and(ShadowPeriod::sole()->status)->toBe('open');
 });
 
-it('opens with no scheduled questions when told to, and then the tick asks nothing', function () {
+it('opens with no Shadow Probes off production when told to, and then the tick asks nothing', function () {
     passingGate();
 
     $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--no-schedule' => true, '--reason' => 'Only Joy asks.'])
-        ->expectsOutputToContain('scheduled questions: none')
+        ->expectsOutputToContain('shadow probes: none')
         ->assertSuccessful();
-    $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
+    $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->expectsOutputToContain('no Shadow Probes')->assertSuccessful();
 
     expect(ShadowPeriod::sole()->questions)->toBe([])
+        ->and(ShadowPeriod::sole()->probes_required)->toBeFalse()
+        ->and(ShadowProbeRun::count())->toBe(0)
         ->and(ShadowPeriod::sole()->status)->toBe('open')
         ->and(AgentRun::count())->toBe(0)
         ->and(FixtureProvider::callsTo('fixture'))->toBe(0);
 });
 
-it('never switches anything on: a period whose runtime was turned off asks nothing', function () {
+it('refuses a production shadow period without its Shadow Probes', function () {
     passingGate();
-    openShadow();
+    app()->detectEnvironment(fn () => 'production');
+
+    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--no-schedule' => true, '--reason' => 'x'])
+        ->expectsOutputToContain('requires its scheduled Shadow Probes')
+        ->assertFailed();
+
+    expect(ShadowPeriod::count())->toBe(0)->and(runtimeOn())->toBeFalse();
+    app()->detectEnvironment(fn () => 'testing');
+});
+
+it('never switches anything on: a period whose runtime was turned off asks nothing and records the slot as skipped', function () {
+    passingGate();
+    $period = openShadow();
     FeatureFlag::where('key', 'ai.runtime')->update(['enabled' => false]);
     app(Features::class)->forget();
 
     $this->artisan('hq:shadow:tick', ['--slot' => 'evening'])->expectsOutputToContain('nothing asked')->assertSuccessful();
 
-    expect(AgentRun::count())->toBe(0)
+    expect(ShadowProbeRun::where('shadow_period_id', $period->id)->pluck('status')->all())->toBe(['skipped', 'skipped', 'skipped'])
+        ->and(AgentRun::count())->toBe(0)
         ->and(runtimeOn())->toBeFalse()
         ->and(ShadowPeriod::sole()->status)->toBe('open');
 });
@@ -287,7 +313,7 @@ it('counts an R4 or R5 tool the agent merely named, and a changed tool set, as v
     $evidence = app(ShadowEvidence::class);
 
     AgentRun::create(['uuid' => (string) Str::uuid(), 'agent_key' => 'executive', 'correlation_id' => (string) Str::uuid(),
-        'trigger' => 'schedule', 'question' => 'q', 'autonomy_level' => 'a0', 'status' => 'refused',
+        'trigger' => 'shadow_probe', 'question' => 'q', 'autonomy_level' => 'a0', 'status' => 'refused',
         'proposals' => [['kind' => 'refused', 'tool' => 'messaging.send_reply']]]);
     Agent::where('key', 'executive')->update(['allowed_tools' => ['facts.query_orders']]);
 
@@ -305,7 +331,9 @@ it('closes by hand: the agent paused, the runtime off, the partial day stored', 
 
     $period = ShadowPeriod::sole();
     expect($period->status)->toBe('closed')
-        ->and($period->end_reason)->toBe('Joy asked to stop.')
+        // The person's reason first, then what the probes amounted to (docs/77 E.1).
+        ->and($period->end_reason)->toStartWith('Joy asked to stop.')->toContain('Probe evidence: 0 of ')
+        ->and($period->evidence_complete)->toBeFalse()
         ->and(Agent::where('key', 'executive')->value('status'))->toBe('paused')
         ->and(runtimeOn())->toBeFalse()
         ->and(ShadowEvidenceDay::where('shadow_period_id', $period->id)->count())->toBe(1);
@@ -322,7 +350,9 @@ it('closes itself when the seven days are over, and asks nothing more', function
 
     $period = ShadowPeriod::sole();
     expect($period->status)->toBe('closed')
-        ->and($period->end_reason)->toContain('not a promotion')
+        ->and($period->end_reason)->toContain('not a promotion')->toContain('Probe evidence: 0 of 42, NOT complete')
+        ->and($period->evidence_complete)->toBeFalse()
+        ->and($period->probe_summary['expected'])->toBe(42)
         ->and(AgentRun::count())->toBe(0)
         ->and(runtimeOn())->toBeFalse()
         ->and(ShadowEvidenceDay::where('shadow_period_id', $period->id)->count())->toBe(8);
@@ -349,12 +379,99 @@ it('snapshots each complete day once, with ChatGPT\'s point 7 list', function ()
             'runs', 'task_grounding', 'canonical_task_empty', 'model_named_no_task', 'proposals', 'tool_calls',
             'outcome_classes', 'policy_results', 'scope_denied', 'task_scope', 'external_failures',
             'unnecessary_tool_calls', 'loop_bound', 'closed_by_budget', 'stop_reasons', 'model_calls',
-            'cost_usd', 'review', 'discrepancies',
+            'cost_usd', 'review', 'discrepancies', 'probes', 'verified_effects', 'security_intent_flagged', 'authority_source',
         ])
         ->and($day->metrics['runs']['total'])->toBe(3)
-        ->and($day->metrics['runs']['by_trigger'])->toBe(['schedule' => 3])
+        ->and($day->metrics['runs']['by_trigger'])->toBe(['shadow_probe' => 3])
+        // Opened at 10:00, so the 09:00 slot was before the period and the 17:00 one is the day's only slot.
+        ->and($day->metrics['probes']['expected'])->toBe(3)
+        ->and($day->metrics['probes']['asked'])->toBe(3)
+        ->and($day->metrics['probes']['evidence'])->toBe(3)
+        ->and($day->metrics['verified_effects']['count'])->toBe(0)
         ->and($day->metrics['model_calls']['total'])->toBe(3)
         ->and($day->metrics['review']['unreviewed'])->toBe(3);
+});
+
+/** Tick at every probe slot of a period opened at 10:00 Dhaka on 17 September, optionally with the runtime off for one slot. */
+function tickEverySlot(?string $offAt = null): void
+{
+    $slots = [['2026-09-17 17:00', 'evening']];
+    foreach (range(18, 23) as $d) {
+        $slots[] = ["2026-09-{$d} 09:00", 'morning'];
+        $slots[] = ["2026-09-{$d} 17:00", 'evening'];
+    }
+    $slots[] = ['2026-09-24 09:00', 'morning'];
+
+    foreach ($slots as [$at, $slot]) {
+        test()->travelTo(CarbonImmutable::parse($at, 'Asia/Dhaka'));
+        FeatureFlag::where('key', 'ai.runtime')->update(['enabled' => $at !== $offAt]);
+        app(Features::class)->forget();
+        test()->artisan('hq:shadow:tick', ['--slot' => $slot])->assertSuccessful();
+        FeatureFlag::where('key', 'ai.runtime')->update(['enabled' => true]);
+        app(Features::class)->forget();
+    }
+}
+
+it('counts a production week complete only when every probe of every slot has its evidence', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-09-17 10:00', 'Asia/Dhaka'));
+    passingGate();
+    openShadow();
+    FixtureProvider::script('fixture', array_fill(0, 42, shadowReply()));
+
+    tickEverySlot();
+
+    $this->travelTo(CarbonImmutable::parse('2026-09-24 10:30', 'Asia/Dhaka'));
+    $this->artisan('hq:shadow:evidence', ['--check' => true])->expectsOutputToContain('seven days over')->assertSuccessful();
+
+    $period = ShadowPeriod::sole();
+    expect($period->status)->toBe('closed')
+        ->and($period->evidence_complete)->toBeTrue()
+        ->and($period->probe_summary)->toMatchArray(['required' => true, 'expected' => 42, 'asked' => 42, 'evidence' => 42, 'task_mismatches' => 0, 'missing' => []])
+        ->and($period->end_reason)->toContain('Probe evidence: 42 of 42, complete.')
+        ->and(AgentRun::where('trigger', 'shadow_probe')->count())->toBe(42)
+        ->and(runtimeOn())->toBeFalse()
+        ->and(Agent::where('key', 'executive')->value('status'))->toBe('paused');
+});
+
+it('names the slot a week is missing when a tick could not ask', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-09-17 10:00', 'Asia/Dhaka'));
+    passingGate();
+    openShadow();
+    FixtureProvider::script('fixture', array_fill(0, 39, shadowReply()));
+
+    tickEverySlot(offAt: '2026-09-20 09:00');
+
+    $this->travelTo(CarbonImmutable::parse('2026-09-24 10:30', 'Asia/Dhaka'));
+    $this->artisan('hq:shadow:evidence', ['--check' => true])->assertSuccessful();
+
+    $period = ShadowPeriod::sole();
+    expect($period->evidence_complete)->toBeFalse()
+        ->and($period->probe_summary['evidence'])->toBe(39)
+        ->and($period->probe_summary['skipped'])->toBe(3)
+        ->and($period->probe_summary['missing'])->toHaveCount(3)
+        ->and($period->probe_summary['missing'][0])->toContain('2026-09-20/morning/')->toContain('skipped')
+        ->and($period->end_reason)->toContain('Probe evidence: 39 of 42, NOT complete.');
+});
+
+it('does not count a probe as evidence when its task changed, and a stopped week is never complete', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-09-17 10:00', 'Asia/Dhaka'));
+    passingGate();
+    $period = openShadow();
+    FixtureProvider::script('fixture', array_fill(0, 3, shadowReply()));
+    $this->travelTo(CarbonImmutable::parse('2026-09-17 17:00', 'Asia/Dhaka'));
+    $this->artisan('hq:shadow:tick', ['--slot' => 'evening'])->assertSuccessful();
+
+    ShadowProbeRun::where('probe_key', 'data_freshness')->update(['task_matched' => false]);
+    $summary = app(ShadowProbes::class)->summary($period->fresh(), CarbonImmutable::now()->addMinute());
+    expect($summary['evidence'])->toBe(2)
+        ->and($summary['task_mismatches'])->toBe(1)
+        ->and($summary['complete'])->toBeFalse()
+        ->and(implode(' ', $summary['missing']))->toContain('data_freshness')->toContain('task changed');
+
+    DB::table('tool_calls')->insert(['tool_key' => 'commerce.reconcile_facts', 'status' => 'succeeded', 'risk_tier' => 'r3', 'agent_key' => 'executive', 'created_at' => now()]);
+    $this->artisan('hq:shadow:evidence', ['--check' => true])->assertFailed();
+    expect(ShadowPeriod::sole()->status)->toBe('stopped')
+        ->and(ShadowPeriod::sole()->evidence_complete)->toBeFalse();
 });
 
 it('lets the gate runner see an open period and refuse to touch the switches', function () {
