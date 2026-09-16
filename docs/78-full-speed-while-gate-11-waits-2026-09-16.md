@@ -301,9 +301,83 @@ Settings 67, Dashboard/Unit 6: **767 passed, 0 failed**. Pint `--test` passed; `
 `vite build` succeeded. **Local verification passed; GitHub Actions validation deferred until
 1 October reset.**
 
-### C.2 Stream B: Phase 2 M7
+### C.2 Stream B: Phase 2 M7 (branch `m7/retention-alerts-dashboards`, in progress)
 
-(Filled in when the stream completes.)
+**Retention, done (`c5a3f21`).** `App\Observe\Retention`:
+
+- `RetentionPolicy` names exactly three detail tables (`tool_calls`, `ai_runs`, `connector_calls`,
+  180 days each) and the event payloads (365 days), read from `hq.retention` with no environment
+  override and pinned by a test. The permanent classes (`audit_logs`, `decision_records`, agent runs,
+  approvals, grants, evaluation, shadow, consent, customer merges) and the tables whose retention is a
+  separate personal-data decision nobody has taken (conversations, messages, attachments, memories)
+  cannot be named: the policy throws for any other table, and a configuration key for one does
+  nothing.
+- **What is kept forever inside the detail tables.** Agent detail is the evidence autonomy decisions
+  rest on, so retention prunes only unattended detail. A tool call is kept when it has an agent, a
+  model run or an approval, when an approval, a conversation message or a consent event points at it,
+  when it shares an agent run's correlation id, or when it never finished (`started`, `uncertain`,
+  `awaiting_approval`). A model run is kept when it has an agent, is still pending, or when an
+  evaluation result, an approval, a conversation message or a kept tool call points at it, or it
+  shares an agent run's correlation id. A connector call is kept when it is `uncertain` or shares an
+  idempotency key with a kept tool call. A test reads the live schema and fails if a new column ever
+  points at a detail row without a matching keep condition.
+- `RetentionRunner` works in Asia/Dhaka calendar days: a row is eligible only when its whole day is
+  older than the window. Each chunk selects eligible ids under a row lock, rolls them up into
+  `daily_aggregates` and deletes exactly those ids in one transaction, and throws (rolling both back)
+  if the counts differ. An aggregate row is one pass's contribution for one day, table and grouping,
+  with the sums, the id range and the pass id, so it is always distinguishable from the detail it
+  replaced and traceable to the pass that wrote it. `retention_watermarks` records each fully drained
+  day; the next pass starts after it. Bounds: 500 rows per transaction, 50,000 rows and 31 days per
+  table, 600 seconds per pass; a pass that reaches one says which. One pass at a time (a cache lock);
+  a pass whose process died is marked `abandoned` by the next. Every pass is a `retention_runs` row
+  with the policy it applied and an audit row (`retention.completed` or `retention.failed`).
+- Processed events past 365 days keep a digest in place of the payload (`_retention`: policy, pass,
+  time, sha256 and size of the original, its top-level key names, and the `_store` and
+  `_correlation_id` routing values); dead, failed and pending events keep their payload, and
+  `hq:events:replay` refuses a digest. A partial index holds exactly the payloads still eligible.
+- `hq:retention:plan` shows what a pass would do and writes nothing; `hq:retention:run` runs nightly
+  at 08:15 Dhaka, an hour after the 01:00 UTC backup, so every removed row is still in the previous
+  dump. Production's oldest detail rows are from 6 September 2026 (connector calls; tool and model
+  calls from 8 September), so nothing is eligible before March 2027 (event payloads: September
+  2027); until then each pass records that it found nothing. `ai_runs` stores its times without a
+  zone; production pins both the application and the database session to UTC (read on 16 September),
+  so the Dhaka day bounds compare correctly on every table.
+- Tests: 9, 184 assertions (policy pins, schema guard, plan writes nothing, lineage, day boundary at
+  Dhaka midnight, bounded days, idempotent reruns, cost and token sums, connector keys, event digest
+  and replay refusal, one pass at a time, abandoned passes).
+
+**Alerts, next.** The `alerts` table is in the same migration. Decided design:
+
+- `hq:alerts:check` every five minutes over a rule list in `hq.alerts.rules`. A rule returns its
+  current conditions, or null when it cannot tell (an unreadable host file), in which case its open
+  alerts are left alone. One open row per fingerprint; `occurrences` counts checks; a condition must
+  be absent on two consecutive checks before its alert resolves; an alert HQ pages is sent again once
+  after 24 hours. Opening and resolving are audited; messages go through two new `Notifier` methods
+  (in-app always, Telegram where configured), never with a secret or customer data.
+- **Already paged elsewhere, so recorded but not sent again** (`paged_by`): the host monitor
+  (`deploy/hq-monitor.sh`, root cron every five minutes, verified installed on 16 September) pages
+  RAM, disk, the scheduler, Horizon, the database, Redis and both backups on state change; the model
+  runtime sends the budget warning once a month per scope; the approvals sweep sends each overdue
+  approval. Backups are not visible from the application container at all, so they stay with the
+  host monitor.
+- The fifteen rules: scheduler tick stale (over 180 s; host monitor); Horizon down (host monitor);
+  provider circuit open; AI budget at 80 and 100 percent (model runtime); approvals past their
+  deadline (approvals sweep); repeated policy denials for one agent (3 in 60 minutes, or a run
+  stopped for repeated denials); fact-integrity discrepancy (the latest succeeded
+  `commerce.check_fact_integrity` output, the daily 03:30 job); events dead-lettered in the last 7
+  days (production's six known dead events are from 7 September and do not re-alert); a credential
+  expiring within 14 days or expired while active; an ERP snapshot not polled for 26 hours (the polls
+  are daily at 04:00 and 04:05 Dhaka, so the tool's two-hour label would alert all day); a readiness
+  incident (`CapabilityReadiness::incidents()`, including `provider_blocked_by_credit`); a shadow
+  period stopped in the last 7 days with no newer period for the agent; disk over 80 percent (90
+  critical; host monitor); available memory under 1 GB (host monitor); webhook signature failures
+  (10 in two hours, counted by the two webhook controllers).
+
+**Dashboards, after the alerts.** Four read-only pages per `docs/48` N.3, each over a 24-hour,
+7-day or 30-day window (always inside the 180-day detail window, so they read detail rows, not
+aggregates), gated by permissions that already exist, so no production seeding is needed: AI health
+(`hq.agents.view`), Cost (`hq.ai.cost.view`), Control plane (`hq.tools.view`), Platform
+(`hq.horizon.view`), plus an alerts page (`hq.audit.view`), all under a sidebar "Observe" group.
 
 ### C.3 Stream C: Phase 2 M6, inert
 
