@@ -4,6 +4,7 @@ namespace App\Support\Navigation;
 
 use App\Conversation\ConversationState;
 use App\Models\AgentRun;
+use App\Models\Alert;
 use App\Models\Approval;
 use App\Models\Conversation;
 use App\Models\JobRun;
@@ -48,6 +49,11 @@ final class NavBadges
                 ->restrict(Conversation::query(), $user)
                 ->where('state', ConversationState::HumanRequired->value)
                 ->count();
+        }
+
+        if ($user->can('hq.audit.view')) {
+            // Only what HQ itself pages; a condition the host monitor pages is on the page, not on the badge.
+            $badges['alerts'] = Alert::open()->whereNull('paged_by')->count();
         }
 
         if ($user->can('hq.jobs.view')) {

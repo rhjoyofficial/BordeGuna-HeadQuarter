@@ -48,7 +48,7 @@ final class AlertEngine
      */
     public function check(?CarbonImmutable $now = null, array $only = []): array
     {
-        $now ??= CarbonImmutable::now();
+        $now = ($now ?? CarbonImmutable::now())->utc();
         $summary = ['opened' => [], 'still_open' => [], 'cleared' => [], 'resolved' => [], 'unknown' => [], 'failed' => []];
 
         foreach ($this->rules() as $rule) {

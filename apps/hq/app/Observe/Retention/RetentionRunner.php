@@ -43,7 +43,7 @@ final class RetentionRunner
      */
     public function plan(?CarbonImmutable $now = null): array
     {
-        $now ??= CarbonImmutable::now();
+        $now = ($now ?? CarbonImmutable::now())->utc();
         $tables = [];
 
         foreach ($this->policy->detailTables() as $detail) {
@@ -80,7 +80,8 @@ final class RetentionRunner
     /** One pass. Refuses to start while another pass holds the lock. */
     public function run(?CarbonImmutable $now = null): RetentionRun
     {
-        $now ??= CarbonImmutable::now();
+        // UTC: bounds are bound as zone-less strings, and `ai_runs` keeps zone-less UTC times.
+        $now = ($now ?? CarbonImmutable::now())->utc();
         $lock = Cache::lock(self::LOCK, $this->policy->maxSeconds() + 120);
 
         if (! $lock->get()) {
