@@ -100,7 +100,17 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                     actions={
                         canManage ? (
                             <>
-                                {job.state !== 'cancelled' && (
+                                {job.approval_state === 'pending' && (
+                                    <>
+                                        <Button disabled={busy} onClick={() => act('approve')}>
+                                            Approve job
+                                        </Button>
+                                        <Button variant="outline" disabled={busy} onClick={() => act('reject')}>
+                                            Reject
+                                        </Button>
+                                    </>
+                                )}
+                                {job.state !== 'cancelled' && job.approval_state === 'approved' && (
                                     <Button variant="outline" disabled={busy} onClick={() => act('run-now')}>
                                         Run now
                                     </Button>

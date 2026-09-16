@@ -64,6 +64,21 @@ final class ScheduledJobController extends Controller
         return redirect()->route('scheduler.show', $job)->with('status', 'job-created');
     }
 
+    /** docs/48 L.5: a job that runs an R3 or higher tool waits here until a person approves it. */
+    public function approve(Request $request, ScheduledJob $job): RedirectResponse
+    {
+        $this->service->approve($job, $request->user(), $request->string('reason')->toString() ?: null);
+
+        return back()->with('status', 'job-approved');
+    }
+
+    public function reject(Request $request, ScheduledJob $job): RedirectResponse
+    {
+        $this->service->reject($job, $request->user(), $request->string('reason')->toString() ?: null);
+
+        return back()->with('status', 'job-rejected');
+    }
+
     public function pause(ScheduledJob $job): RedirectResponse
     {
         $this->service->pause($job);

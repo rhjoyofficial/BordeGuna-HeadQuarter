@@ -20,15 +20,16 @@ import {
     Server,
     ShieldCheck,
     SlidersHorizontal,
+    Sparkles,
     Stamp,
     Users,
     Wrench,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
-type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<string, number> } };
+type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<string, number>; features?: Record<string, boolean> } };
 
-type GatedItem = NavItem & { permission?: string; badge?: string; external?: boolean };
+type GatedItem = NavItem & { permission?: string; badge?: string; external?: boolean; feature?: string };
 
 /**
  * The navigation, grouped by what the operator is doing rather than by table.
@@ -46,6 +47,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
         label: 'Work',
         items: [
             { title: 'Today', url: '/dashboard', icon: LayoutGrid, permission: 'hq.dashboard.view' },
+            { title: 'Ask HQ', url: '/ask', icon: Sparkles, permission: 'hq.ask.use', feature: 'ask_hq' },
             { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
             { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view', badge: 'approvals' },
             { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
@@ -87,12 +89,14 @@ export function AppSidebar() {
     const { auth, nav } = usePage<SharedProps>().props;
     const permissions = auth?.permissions ?? [];
     const badges = nav?.badges ?? {};
+    const features = nav?.features ?? {};
 
     const visible: NavSection[] = sections
         .map((s) => ({
             label: s.label,
             items: s.items
                 .filter((item) => !item.permission || permissions.includes(item.permission))
+                .filter((item) => !item.feature || features[item.feature] === true)
                 .map((item) => ({ ...item, count: item.badge ? (badges[item.badge] ?? 0) : 0 })),
         }))
         .filter((s) => s.items.length > 0);

@@ -49,8 +49,9 @@ final class RetentionPolicy
 
     /**
      * Not governed by this policy at all. Conversation and memory retention is a personal-data decision
-     * of its own (docs/53 flagged it) that nobody has taken yet, so this pass leaves those rows alone
-     * rather than inventing a period for them. Retention's own lineage is here too: it is never pruned
+     * of its own (docs/53 flagged it) that nobody has taken yet, and Ask HQ's operator conversations
+     * point at agent runs that are kept forever, so this pass leaves those rows alone rather than
+     * inventing a period for them. Retention's own lineage is here too: it is never pruned
      * by the thing whose history it is.
      */
     public const UNGOVERNED = [
@@ -58,6 +59,8 @@ final class RetentionPolicy
         'conversation_messages',
         'conversation_message_attachments',
         'memories',
+        'ask_conversations',
+        'ask_messages',
         'retention_runs',
         'retention_watermarks',
         'daily_aggregates',

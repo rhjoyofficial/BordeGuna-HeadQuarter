@@ -4,9 +4,11 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
+use App\Http\Controllers\Ask\AskController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\ObserveController;
+use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
@@ -39,7 +41,14 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::prefix('scheduler')->name('scheduler.')->group(function () {
         Route::get('/', [ScheduledJobController::class, 'index'])->middleware('permission:hq.jobs.view')->name('index');
         Route::post('/', [ScheduledJobController::class, 'store'])->middleware('permission:hq.jobs.manage')->name('store');
+        // Phase 2 M6, inert (docs/48 L, docs/78 B.3): a job described in words, behind the flag `scheduler.nl`.
+        // Registered before `{job}` so the word `nl` is never read as a job id.
+        Route::get('nl', [NlScheduleController::class, 'create'])->middleware('permission:hq.jobs.manage')->name('nl.create');
+        Route::post('nl/preview', [NlScheduleController::class, 'preview'])->middleware(['permission:hq.jobs.manage', 'throttle:20,1'])->name('nl.preview');
+        Route::post('nl/confirm', [NlScheduleController::class, 'confirm'])->middleware('permission:hq.jobs.manage')->name('nl.confirm');
         Route::get('{job}', [ScheduledJobController::class, 'show'])->middleware('permission:hq.jobs.view')->name('show');
+        Route::post('{job}/approve', [ScheduledJobController::class, 'approve'])->middleware('permission:hq.jobs.manage')->name('approve');
+        Route::post('{job}/reject', [ScheduledJobController::class, 'reject'])->middleware('permission:hq.jobs.manage')->name('reject');
         Route::post('{job}/pause', [ScheduledJobController::class, 'pause'])->middleware('permission:hq.jobs.manage')->name('pause');
         Route::post('{job}/resume', [ScheduledJobController::class, 'resume'])->middleware('permission:hq.jobs.manage')->name('resume');
         Route::post('{job}/cancel', [ScheduledJobController::class, 'cancel'])->middleware('permission:hq.jobs.manage')->name('cancel');
@@ -74,6 +83,14 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('/', [AgentController::class, 'index'])->middleware('permission:hq.agents.view')->name('index');
         Route::get('runs/{run}', [AgentController::class, 'show'])->middleware('permission:hq.agents.view')->name('runs.show');
         Route::post('runs/{run}/review', [AgentController::class, 'review'])->middleware('permission:hq.agents.manage')->name('runs.review');
+    });
+
+    // Phase 2 M6, inert (docs/48 K, docs/78 B.3): Ask HQ, behind the flag `ask_hq`. The only write is a
+    // question; there is no route that takes a tool key, arguments or a model.
+    Route::prefix('ask')->name('ask.')->middleware('permission:hq.ask.use')->group(function () {
+        Route::get('/', [AskController::class, 'index'])->name('index');
+        Route::post('/', [AskController::class, 'store'])->middleware('throttle:20,1')->name('store');
+        Route::get('{conversation:uuid}', [AskController::class, 'show'])->name('show');
     });
 
     // Phase 3 (docs/72 C): the operator inbox and the handoff actions. Every state change is a
