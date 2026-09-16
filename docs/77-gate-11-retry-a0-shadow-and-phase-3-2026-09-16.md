@@ -305,11 +305,11 @@ does not report a balance, it only refuses when there is none.
 5. **The grader** gains two checks: `agent_woken` (the core's decision, observed, against the
    expectation) and `reply_script` (the proposed reply's script, by the same detector the core uses).
    Everything else is the existing deterministic grader.
-6. **The P3-G2 runner**, `deploy/gate/run-support.sh`, is `run.sh` for the support agent: posture
-   first, readiness, corpus and support suite seeded, bypass test, then `ai.runtime` on and support
-   active for the run only, restored by the exit trap. It refuses to start while an executive shadow
-   period is open unless it is told to leave the runtime on at the end, so the two tracks can never
-   switch each other off.
+6. **The P3-G2 runner** is `run.sh` itself with `GATE_AGENT=support` (built that way rather than as a
+   second script, so the two cannot drift): posture first, readiness, corpus and support suite seeded,
+   bypass test, then `ai.runtime` on and support active for the run only, restored by the exit trap.
+   It refuses to start while any shadow period is open, and its switch refuses an agent that names no
+   enabling user, so the two tracks can never switch each other off and a gate never names a person.
 7. **What P3-G2 needs that does not exist yet:** credit, and the support agent's enabling person
    (Joy's decision, §C). With the runtime off and no enabling user the runner stops before any call.
 8. Nothing in this stream registers a provider, turns the Meta flag on, or lets `messaging.send_reply`
@@ -330,4 +330,43 @@ person is named. Report. Stop at the next explicit capability gate.
 
 ## D. Record
 
-(Filled in as each step completes.)
+**Built (16 September), on branch `m5/gate-11-retry-shadow-p3`, in the plan's order.**
+
+- **Stream 2, the shadow period** (`b618e9b`, ADR-045): migration `2026_09_16_100000` (`shadow_periods`
+  with the A0 and status constraints and the one-open-per-agent index; `shadow_evidence_days`);
+  `ShadowPeriods` (preconditions, open, close, stop), `ShadowEvidence` (the point 7 metrics, the point 8
+  violations, the once-per-day snapshot); commands `hq:shadow:open` (dry run by default), `hq:shadow:close`,
+  `hq:shadow:evidence` (print, `--store`, `--check`), `hq:shadow:tick`; the schedule (ticks 09:00 and 17:00
+  Dhaka, check hourly, store 00:15 Dhaka); `config('hq.shadow.agents')` = executive only; the gate
+  toggle and runner guarded against an open period and made agent-aware. `hq:shadow:open --no-schedule`
+  opens a period with no questions of its own, so the activation does not depend on ChatGPT keeping
+  C.2.6. `ShadowPeriodTest`: 25 tests.
+  One defect found by the tests before any use: a violation written in the same second as the check was
+  missed, because stored times carry whole seconds; the day window now ends on the next whole second.
+- **Stream 3, P3-G1** (`78bb56d`): the simulator checks, on every scenario, that each state change has
+  its audit row and its event, that every thread and customer it created belongs to the brand's
+  business, and (for a turn that stamps its own time) that the stored time is the same instant in UTC;
+  new scenario `timezone.dhaka_offset`; `hq:conversation:simulate --repeat=N` compares every observation
+  across replays; the command counts thirteen tables and the support agent's status before and after
+  and fails on any difference. Three new tests, one of which proves the audit and scope invariants fail
+  when an audit row is suppressed or a customer lands in another business. A console-test lesson: a
+  Laravel output expectation credits only one substring per written line, so the JSON is decoded.
+  Local result: 22 scenarios (now 29), all passed, two replays identical, no trace.
+- **Stream 4, P3-G2** (`a921042`): `Scenario::agent` and `supportExpectation()`; seven new scenarios
+  with the agent active (greeting, Bangla order question, Bangla product question, romanised Bangla with
+  typos, mixed script, a known customer asking to repeat an order, a non-money claimed approval to see
+  other customers' orders); expectations on the five existing agent-active scenarios;
+  `ConversationSimulator::capture()`; `AgentEvaluationSubject` runs a `scenario` case on the captured
+  thread (HQ's header block, then each customer message under its recorded provenance) and runs no
+  model when the core gave the thread to a person; four grader checks (`agent_woken`, `only_tools`,
+  `replies`, `reply_script`); `behaviour.support` now holds the ten written cases plus one `sim.*` case
+  per scenario (29), role-scoped to support. `SupportShadowTest`: 9 tests, including each new check
+  failing when it should. **No prompt changed: the executive stamp is still `executive.v8+18d60e98`
+  (support `support.v1+0f4a195b`), and no runtime, gateway, detector or grounding file was touched.**
+- **Stream 5**: `docs/70` §M, the readiness table as it could be verified on 16 September.
+
+**Observed, not built.** HQ's readiness table lists the Anthropic key (credential #14) as *unverified,
+executable* while the provider refuses every call for lack of credit, because the gate's bypass test
+does not write its result back. ChatGPT's point 13 keeps readiness apart from behaviour; recording the
+bypass result as credential health would be a small readiness change for the next instruction to
+order or not.

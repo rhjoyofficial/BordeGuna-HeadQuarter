@@ -221,6 +221,20 @@ it('asks each of the period\'s questions once per slot, as shadow runs, and neve
         ->and(ShadowPeriod::sole()->status)->toBe('open');
 });
 
+it('opens with no scheduled questions when told to, and then the tick asks nothing', function () {
+    passingGate();
+
+    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--no-schedule' => true, '--reason' => 'Only Joy asks.'])
+        ->expectsOutputToContain('scheduled questions: none')
+        ->assertSuccessful();
+    $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
+
+    expect(ShadowPeriod::sole()->questions)->toBe([])
+        ->and(ShadowPeriod::sole()->status)->toBe('open')
+        ->and(AgentRun::count())->toBe(0)
+        ->and(FixtureProvider::callsTo('fixture'))->toBe(0);
+});
+
 it('never switches anything on: a period whose runtime was turned off asks nothing', function () {
     passingGate();
     openShadow();

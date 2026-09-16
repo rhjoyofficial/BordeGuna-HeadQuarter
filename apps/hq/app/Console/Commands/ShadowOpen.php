@@ -24,6 +24,7 @@ class ShadowOpen extends Command
         {--reason= : why, in words, and on whose decision}
         {--by= : email of the HQ user whose decision this is}
         {--question=* : a question the scheduler asks during the period (repeatable); three defaults when none}
+        {--no-schedule : ask nothing on a schedule; only questions a person puts to the agent are run}
         {--apply : actually open it. Without it the command only reports.}';
 
     protected $description = 'Check, and with --apply open, an agent\'s seven-day A0 shadow period.';
@@ -45,7 +46,11 @@ class ShadowOpen extends Command
             }
         }
         $questions = (array) $this->option('question');
-        foreach ($questions === [] ? ShadowPeriods::DEFAULT_QUESTIONS : $questions as $q) {
+        $scheduled = ! $this->option('no-schedule');
+        if (! $scheduled) {
+            $this->line('  scheduled questions: none (--no-schedule)');
+        }
+        foreach ($scheduled ? ($questions === [] ? ShadowPeriods::DEFAULT_QUESTIONS : $questions) : [] as $q) {
             $this->line("  question: {$q}");
         }
 
@@ -71,7 +76,7 @@ class ShadowOpen extends Command
         }
 
         try {
-            $period = $periods->open($key, (string) $this->option('reason'), $questions, $user?->getKey());
+            $period = $periods->open($key, (string) $this->option('reason'), $questions, $user?->getKey(), scheduled: $scheduled);
         } catch (Throwable $e) {
             $this->error($e->getMessage());
 

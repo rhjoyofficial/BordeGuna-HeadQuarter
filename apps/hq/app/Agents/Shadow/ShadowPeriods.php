@@ -155,9 +155,12 @@ final class ShadowPeriods
     /**
      * Open the period: runtime on, agent active, record written, all three audited, in one transaction.
      *
+     * `$scheduled = false` opens it with no questions of its own, so the only runs are the ones a
+     * person asks for (docs/77 C.2.6 is a design choice ChatGPT may strike).
+     *
      * @param  list<string>  $questions
      */
-    public function open(string $agentKey, string $reason, array $questions = [], ?int $actorUserId = null, string $actorLabel = 'hq:shadow:open'): ShadowPeriod
+    public function open(string $agentKey, string $reason, array $questions = [], ?int $actorUserId = null, string $actorLabel = 'hq:shadow:open', bool $scheduled = true): ShadowPeriod
     {
         $refusals = $this->refusals($agentKey);
         if ($refusals !== []) {
@@ -167,7 +170,9 @@ final class ShadowPeriods
             throw new RuntimeException('A shadow period opens for a stated reason; none was given.');
         }
 
-        $questions = array_values(array_filter(array_map('trim', $questions === [] ? self::DEFAULT_QUESTIONS : $questions)));
+        $questions = $scheduled
+            ? array_values(array_filter(array_map('trim', $questions === [] ? self::DEFAULT_QUESTIONS : $questions)))
+            : [];
         $agent = Agent::query()->where('key', $agentKey)->firstOrFail();
         $role = (string) ($agent->role_key ?: $agent->key);
 
