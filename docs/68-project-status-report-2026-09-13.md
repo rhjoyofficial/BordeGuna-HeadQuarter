@@ -155,7 +155,9 @@ You asked for the work to go on at full speed without needing you, and to wait f
 
 **Phase 4, designed only.** `docs/79` and ADR-046 describe how HQ will one day take an order: always through the ERP's sales order, never through a shop's checkout, covering the seventeen questions ChatGPT listed (product and variant, price source, customer, address, phone, delivery, discounts, cash on delivery, totals, stock, duplicates, status, changes, failures, reconciliation). Nothing is built.
 
-**How it was checked.** GitHub's checks are paused until 1 October, so every piece was checked on your PC instead: the whole test suite in parts (up to 837 tests, none failing), code style, TypeScript and the production build. On 1 October the GitHub checks run on everything, and anything they find is fixed first.
+**The last link of the paper trail.** The Phase 2 design says the phase is done when one question can be followed, record by record, from the moment it is asked to what the outside system answered. Writing that test found two gaps in what HQ wrote down about calls to the ERP and the shops: those records did not say which question they belonged to, and a successful call did not keep the answer's status. Both are now recorded, and the test follows one Ask HQ question to the agent's run, its model calls, the tool call, the ERP call and the ERP's reply. Nothing that decides anything was changed.
+
+**How it was checked.** GitHub's checks are paused until 1 October, so every piece was checked on your PC instead: the whole test suite in parts (840 tests at the end, none failing), code style, TypeScript and the production build. On 1 October the GitHub checks run on everything, and anything they find is fixed first.
 
 ## 4. Where production stands today
 
@@ -182,7 +184,7 @@ You asked for the work to go on at full speed without needing you, and to wait f
 | Autonomy grants / consent events | 0 / 0 |
 | Active credentials, non-secret readiness visible on the Credentials screen | 8 |
 | Audit rows, append-only | 650 (17 September) |
-| Continuous integration | Paused by GitHub billing until 1 October. Local verification instead: 837 tests passing on main `65ae4ea` (17 September); everything since `3314c54` is merged, not released |
+| Continuous integration | Paused by GitHub billing until 1 October. Local verification instead: 840 tests passing on main `b074744` (17 September); everything since `3314c54` is merged, not released |
 
 **AI posture, read from the database on 17 September (unchanged since gate 10):** runtime OFF. Executive paused at A0. Analytics paused at A0. Support paused at A0 with no enabling user. Zero autonomy grants. Zero consent events. No customer-facing or outbound capability exists. No shadow period has begun.
 
@@ -205,7 +207,7 @@ You asked for the work to go on at full speed without needing you, and to wait f
 **Now (17 September): two things, and the rest is decided.**
 
 1. **Credit on the Anthropic account.** Still the only thing that holds gate 11 back. I recommended $25 (console.anthropic.com, Settings, Billing). When it is added, tell me. The check that confirms it uses HQ's stored key, which my tools leave to you, so I will then give you one line to type; the gate itself also refuses to start without a clean answer.
-2. **The consolidated report for ChatGPT** is ready in `docs/78` section D. Say "post it" and I will send it in the HQ thread; or paste it yourself.
+2. **The consolidated report for ChatGPT** is ready in `docs/78` section D, with a short addendum at the end of section E (the paper-trail fix and what could come next). Say "post it" and I will send both in the HQ thread; or paste them yourself.
 
 Already decided by you on 16 September and recorded: the Executive's A0 shadow week opens only after a complete gate-11 pass; you are the support agent's enabling person for the simulated gate only; the P3-G1 production replay may run. GitHub waits for 1 October by your choice, so there is nothing to pay. Your local HQ login still needs `php artisan hq:user:create` only if you use HQ on your PC.
 
