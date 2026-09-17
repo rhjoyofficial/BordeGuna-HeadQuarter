@@ -625,3 +625,56 @@ the ERP keeps receiving its fresh per-request id. Retention keeps a connector ca
 correlation id belongs to an agent run, as it already does for tool and model calls. A test then walks
 the whole chain from an Ask HQ question: the answer row, its agent run, the run's model calls and tool
 calls, the connector call, and the ERP's 200.
+
+**Record (`bcd1500`, branch `m7/trace-link`).** Built as planned: `connector_calls.correlation_id`
+(migration `2026_09_17_200000`), written by `ConnectorCallLogger` from the context; the status of each
+HTTP response received during a recorded call, noted through the client's `ResponseReceived` event and
+written on success as well as failure, with the logger's state saved and restored around every call so
+nothing carries from one call to the next in a long-running worker; exception codes that are not
+integers (a database error's SQLSTATE) no longer reach the status column. Retention keeps a connector
+call forever when its correlation id belongs to an agent run.
+
+`TraceTest` walks the chain from an Ask HQ question: the answer row names its agent run, the run names
+the question and the person, the run's two model calls and the gateway's tool call share its
+correlation id, the ERP connector call carries it too, and the ERP's answer is recorded (200, and 503
+when the ERP fails). The page shows the same tool call to the person who asked. Two more tests pin the
+logger: a response outside a recorded call is never attributed to the next call, and a call made
+outside any gateway call carries no correlation id.
+
+**The release after gate 11 now carries five migrations:** `2026_09_16_100000` (shadow periods),
+`2026_09_16_200000` (pairing), `2026_09_16_300000` (retention, alerts, indexes), `2026_09_17_100000`
+(Ask HQ), `2026_09_17_200000` (connector correlation). All are additive.
+
+**Verification, the merge gate until 1 October:** Pest, folder by folder: Agents 106, Ai/Auth/Autonomy/Commerce/Consent 98,
+Conversation 70, Erp/Evaluation 194, Identity/Facts 38, Foundation/Gateway 188,
+Media/Platform/Scheduler/Security/Settings 92, Observe/Ask 48, Dashboard/Unit 6: **840 passed, 0 failed**.
+Pint `--test` passed; `vite build` succeeded; no TypeScript changed, and `tsc --noEmit` was clean
+on the stream C head.
+**Local verification passed; GitHub Actions validation deferred until 1 October reset.**
+
+**Proposed next, while gate 11 still waits (for ChatGPT to order or decline).**
+
+1. The rest of M7, built inert: the daily briefing's evidence bundle (typed facts and metrics with
+   source and as-of, from HQ's own read models) and the unsourced-number check (every figure in a
+   narrative must exist in the bundle, or the briefing is marked degraded), both deterministic; the
+   narration behind a flag, off; no scheduled job created. docs/48 M already specifies all of it.
+2. Phase 4 stays at design. The ERP endpoints `docs/79` F specifies are an order write, which point 6
+   defers, so nothing is built on either side until that is ordered.
+3. Nothing else is buildable without Joy or an external party: P3-G3 to G5 wait for Meta, the gates
+   wait for credit, and the release waits for gate 11.
+
+**Second message for the thread, after section D (short).**
+
+> Addendum to the consolidated report. After it, I built M7's acceptance criterion, the end-to-end
+> trace test, and it found two broken links in what the connector layer recorded: connector calls
+> carried no correlation id, and a successful call carried no HTTP status. Both are now recorded
+> (recording only; no agent, gateway or policy decision changed), agent-linked connector calls are
+> kept forever by retention, and the test walks one Ask HQ question to the agent run, its model
+> calls, the gateway's tool call, the ERP connector call and the ERP's 200 (and 503 on failure).
+> Local suite 840 passed, 0 failed; merged to main. The release after gate 11 now carries five
+> additive migrations.
+>
+> Proposed next while gate 11 waits, for you to order or decline: the rest of M7 built inert (the
+> briefing's evidence bundle and unsourced-number check, deterministic; narration behind a flag, off;
+> no scheduled job). Phase 4 stays at design, since its ERP endpoints are an order write. Nothing else
+> is buildable without Joy or an external party.
