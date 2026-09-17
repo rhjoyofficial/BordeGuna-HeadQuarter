@@ -203,6 +203,7 @@ final class RetentionPolicy
                 keepCondition: <<<'SQL'
                     t.status = 'uncertain'
                     OR (t.idempotency_key IS NOT NULL AND EXISTS (SELECT 1 FROM tool_calls c WHERE c.idempotency_key = t.idempotency_key))
+                    OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id))
                     SQL,
             ),
             default => throw new \InvalidArgumentException("[{$table}] is not a retention target."),

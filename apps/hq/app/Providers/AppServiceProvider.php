@@ -6,6 +6,7 @@ use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
 use App\Commerce\Support\CommerceRegistry;
+use App\Commerce\Support\ConnectorCallLogger;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\RubricGrader;
@@ -25,6 +26,7 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Client\Events\ResponseReceived;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
@@ -81,6 +83,10 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(Login::class, [RecordAuthenticationEvents::class, 'login']);
         Event::listen(Logout::class, [RecordAuthenticationEvents::class, 'logout']);
         Event::listen(Failed::class, [RecordAuthenticationEvents::class, 'failed']);
+
+        // docs/78 E: the external system's answer is the last link of a trace. The connector logger
+        // notes the status of each response received while it is recording a call.
+        Event::listen(ResponseReceived::class, fn (ResponseReceived $event) => ConnectorCallLogger::observe($event->response->status()));
 
         if ($this->app->isProduction()) {
             URL::forceScheme('https');
