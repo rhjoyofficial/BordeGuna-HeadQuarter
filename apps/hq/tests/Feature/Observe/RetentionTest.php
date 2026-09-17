@@ -262,7 +262,7 @@ it('keeps model calls that belong to an agent, an evaluation trail or a kept too
         ->and($aggregates['provider']->dimension)->toMatchArray(['task' => 'probe', 'provider' => 'anthropic', 'status' => 'succeeded']);
 });
 
-it('keeps an uncertain connector call and one that shares a kept tool call\'s key', function () {
+it('keeps an uncertain connector call, one that shares a kept tool call\'s key, and one made for an agent run', function () {
     $insert = fn (array $a) => DB::table('connector_calls')->insertGetId($a + [
         'connector' => 'erp', 'operation' => 'overview', 'status' => 'succeeded', 'response_status' => 200,
         'duration_ms' => 120, 'created_at' => retAt('2026-11-01 09:00'),
@@ -272,11 +272,15 @@ it('keeps an uncertain connector call and one that shares a kept tool call\'s ke
     $uncertain = $insert(['status' => 'uncertain']);
     retToolCall(['agent_key' => 'executive', 'idempotency_key' => 'k-1']);
     $keyed = $insert(['idempotency_key' => 'k-1']);
+    $agentRun = AgentRun::create(['uuid' => (string) Str::uuid(), 'agent_key' => 'executive', 'correlation_id' => (string) Str::uuid(),
+        'trigger' => 'console', 'question' => 'q', 'autonomy_level' => 'a0', 'status' => 'answered']);
+    $forAgent = $insert(['correlation_id' => $agentRun->correlation_id]);
+    $forJob = $insert(['correlation_id' => (string) Str::uuid()]);
 
     app(RetentionRunner::class)->run();
 
-    expect(DB::table('connector_calls')->where('id', $pruned)->exists())->toBeFalse()
-        ->and(DB::table('connector_calls')->whereIn('id', [$uncertain, $keyed])->count())->toBe(2)
+    expect(DB::table('connector_calls')->whereIn('id', [$pruned, $forJob])->exists())->toBeFalse()
+        ->and(DB::table('connector_calls')->whereIn('id', [$uncertain, $keyed, $forAgent])->count())->toBe(3)
         // jsonb orders keys its own way, so the grouping is compared as a map, not a sequence.
         ->and(DailyAggregate::where('source_table', 'connector_calls')->sole()->dimension)
         ->toEqual(['connector' => 'erp', 'operation' => 'overview', 'status' => 'succeeded', 'response_status' => 200]);

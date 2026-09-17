@@ -11,7 +11,7 @@ class ConnectorCall extends Model
 
     public $timestamps = false;
 
-    protected $fillable = ['connector', 'operation', 'idempotency_key', 'request_ref', 'response_status', 'provider_ref', 'duration_ms', 'status', 'error'];
+    protected $fillable = ['connector', 'operation', 'idempotency_key', 'correlation_id', 'request_ref', 'response_status', 'provider_ref', 'duration_ms', 'status', 'error'];
 
     protected function casts(): array
     {

@@ -602,3 +602,26 @@ repository and from production on 17 September.
     and Support paused at A0 (Support has no enabling user); grants 0; Meta inbound off; no outbound
     provider; consent events 0; no customer cohort; no shadow period (its tables ship with the next
     release). Nothing was activated.
+
+## E. After the report: the trace link, M7's acceptance criterion
+
+`docs/48` M7 names the end-to-end trace test as the acceptance criterion for the whole of Phase 2:
+from an `ask_messages` row to an external HTTP status, with no broken link. With Ask HQ built, the
+test can be written, and reading the chain for it found two broken links, both in what the connector
+layer records rather than in anything that decides:
+
+1. `connector_calls` holds no correlation id, so from a tool call there is no reliable way to its
+   connector calls. The gateway already scopes the run's correlation id into the context for the whole
+   tool execution (and the shop adapter already forwards it to the shop); the connector logger simply
+   never wrote it down.
+2. A successful connector call records no HTTP status; only a failure carries one, through its
+   exception code.
+
+**The plan, written before the code.** A nullable, indexed `connector_calls.correlation_id`, written by
+`ConnectorCallLogger` from the context. The logger also notes the status of every HTTP response the
+client receives while a call is being recorded (the client's own `ResponseReceived` event), and writes
+it for a success as well as a failure. Nothing an agent, the gateway or a policy decides changes, and
+the ERP keeps receiving its fresh per-request id. Retention keeps a connector call forever when its
+correlation id belongs to an agent run, as it already does for tool and model calls. A test then walks
+the whole chain from an Ask HQ question: the answer row, its agent run, the run's model calls and tool
+calls, the connector call, and the ERP's 200.
