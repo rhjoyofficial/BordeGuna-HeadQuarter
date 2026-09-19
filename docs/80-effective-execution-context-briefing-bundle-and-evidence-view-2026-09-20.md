@@ -442,3 +442,140 @@ re-measure, or open the shadow on `3314c54` and release after), not decided here
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.3 Stream C: the autonomy evidence view (branch `obs/autonomy-evidence-view`, points 5 and 6)
+
+**The plan, written before the code.**
+
+*What was read first, and what it says about thresholds.* A required agreement rate exists in exactly
+one place: on an autonomy grant (`autonomy_grants.min_agreement_rate`, optionally
+`min_agreement_dimension` per ADR-030 and `evaluation_suite_key`). There is no table, config key or
+ADR that sets a required rate per autonomy level or per dimension, and production holds zero grants.
+A suite's `pass_threshold` (1.0 on the three seeded suites) is a different thing: it decides whether
+one run of that suite passed, and it is shown as such. So today the honest reading of "required
+threshold" for every agent and dimension is "no requirement configured", and the state is "not
+eligible". The view invents no number; whether per-level requirements should exist is a decision for
+Joy and ChatGPT and is listed in the record below.
+
+*One service, pure query and arithmetic.* `App\Observe\Autonomy\AutonomyEvidence::build()` returns,
+per agent, the resolver's present answer and one row for the overall rate plus one per evaluation
+dimension. Rules, each deterministic:
+
+1. **Applicable suites** are the ones the gate itself would run: active, and scoped to no role or to
+   the agent's role (`role_key`, else the agent key, as `AgentEvaluationSubject` reads it).
+2. **The latest-run rule.** Per applicable suite, the evidence is the finished run (`passed` or
+   `failed`) with the highest id whose `agent_key` is this agent. Older runs are history and appear
+   only under recent failures. A newer run that never finished is named as a caveat and is not
+   evidence.
+3. **Counted from result rows, never from a stored rate.** A row's figures are counted from
+   `evaluation_results` of those runs with that dimension: passed, failed, unmeasured. Evidence count
+   is passed plus failed; the agreement rate is passed over that, and null when nothing was measured.
+   A provider-refused (`unmeasured`) result is in neither half. A result whose case belongs to
+   another role is excluded. The stored `dimension_rates` of each run is shown beside the recount and
+   a difference is reported, not hidden.
+4. **No inheritance.** The overall row never supplies a dimension row. A dimension with no measured
+   result reads "never measured", or "only unmeasured results" when the provider refused them all.
+5. **Requirements** are the live grants (active, not expired) that name this agent or no agent and
+   carry `min_agreement_rate`: a grant naming a dimension lands on that row, a grant naming none lands
+   on the overall row, a grant naming a suite is checked against that suite's run only.
+6. **Satisfied only when nothing is unknown.** A row is "not eligible" with every applicable reason
+   listed: no requirement configured; never measured; the latest gate run failed (with its counts);
+   the latest run had unmeasured cases; the run carries no prompt stamp, or a different stamp from
+   the one `PromptLibrary` gives the agent today; the rate is below the required rate (checked
+   against the pooled figure and against each contributing suite, so a strong suite cannot carry a
+   weak one). "Satisfied" changes nothing: the resolver alone decides a level.
+7. **The ceiling now** is the real `AutonomyResolver` asked the way `AgentRunner` asks it (agent key,
+   environment, the agent's own ceiling, no business and no context), with its binding reason and
+   constraints, beside the agent's status, the count of live grants and the `ai.runtime` flag.
+8. **Lineage (point 6).** Every figure carries the run ids, run uuids, suite key, role scope, prompt
+   stamp, model, date and the result ids it was counted from, and the page folds them under each
+   figure.
+
+*No write path.* One GET route, `/observe/autonomy-evidence`, behind `hq.agents.view` (the permission
+AI health already uses, so no seeder change), a sidebar entry under Observe, the shared Observe
+panels. No schema change. Flags are read from their rows, not through the cached reader, so the page
+does not even write a cache entry.
+
+*Tests.* The service directly: an unmeasured dimension does not inherit the overall rate;
+other-role results and other agents' runs are excluded; an unmeasured result is neither pass nor
+fail; the latest of several gate runs wins and an unfinished newer run is only a caveat; each reason
+string; stamp mismatch; grant requirements per dimension, overall and per suite; viewing changes no
+row (counts and `updated_at`). The page: GET only, the gates, which roles open it, and a query
+listener proving a render issues no INSERT, UPDATE or DELETE.
+
+**As built (`9915842`).** The plan held with no deviation and no schema change.
+
+- `apps/hq/app/Observe/Autonomy/AutonomyEvidence.php` is the one service; `ObserveController::autonomyEvidence`
+  renders `observe/autonomy-evidence` from it; the route is `GET /observe/autonomy-evidence`
+  (`observe.autonomy-evidence`, `permission:hq.agents.view`, inside the existing auth and 2FA group);
+  the sidebar has "Autonomy evidence" under Observe after Control plane. No seeder, migration, prompt,
+  runner, gateway, detector or resolver file was opened.
+- The page leads with plain language per agent ("The agent is paused, so it runs nothing at all", "No
+  live autonomy grant names this agent", "The resolver answers A0: ..."), then one card per row
+  (overall, then the six dimensions) with passed, failed, unmeasured, evidence count, agreement rate
+  and required rate ("none configured" when no grant names one), the state badge and the list of
+  reasons. Lineage and recent failures are folded under each card: run id and uuid, suite, role
+  scope, prompt stamp, model, date, the whole run's counts including skipped and unmeasured, the
+  figures stored on the run beside the recount, and the result ids per outcome. Cards stack in one
+  column below the widest breakpoint and tables scroll inside their own box.
+- Requirement checks are done in whole thousandths (`passed * 1000 >= required_thousandths * measured`),
+  so a rate that rounds up to the requirement does not pass.
+
+**What thresholds exist.** Only `autonomy_grants.min_agreement_rate` (with `min_agreement_dimension`
+and `evaluation_suite_key`), and production has no grant, so every row in production reads "no
+requirement configured" and "not eligible". `evaluation_suites.pass_threshold` (1.0 on the three
+seeded suites) is the suite's own pass mark and is shown as that, never as an autonomy requirement.
+**Decision for Joy and ChatGPT:** whether a required rate per level and dimension should exist as
+configuration independent of a grant (so the view can say "what A1 would need" before anyone drafts
+a grant), and what those rates are. Nothing was invented here.
+
+**Decisions taken here, to revisit.**
+
+1. With no suite named on a grant, the requirement must hold for the pooled figure and for each
+   contributing suite's latest run. Stricter than the resolver's single-number comparison; chosen
+   because it fails closed.
+2. A failed latest gate run, a run with unmeasured cases, a missing or different prompt stamp, and a
+   stored rate that does not match the recount each make a row "not eligible" even when the rate
+   meets the grant. The resolver itself checks none of these.
+3. The stamp compared is `evaluation_runs.prompt_version` against `PromptLibrary::version(role)`
+   today. Runs carry no model, skill or policy stamp (`hq:agent:evaluate` writes only the prompt
+   stamp), so those cannot be compared yet.
+4. Evidence is treated as group-wide (like the switches on Control plane), not business-scoped:
+   evaluation runs carry no business in practice.
+5. Recent failures are the newest 10 per row across the agent's finished runs.
+
+**Found on the way, reported and not fixed.**
+
+- `AgentRunner::resolveAutonomy()` passes no `agreementRate` and no `dimensionRates` to the resolver,
+  and nothing else in `app/` builds them. So today a grant carrying `min_agreement_rate` can never
+  match at runtime, whatever was measured. That is fail closed and harmless with zero grants, but the
+  "mechanical link between we measured and it may act" (ADR-023) has no producer yet; Phase 9 needs
+  one, and this service's recount is a candidate source. The view says so on any agent that has such
+  a grant.
+- `tests/Feature/Facts` run on its own fails one test (`OrderUpdatedTest`, "Call to undefined function
+  signedPost()"): the helper lives in `tests/Feature/Identity/ShopWebhookAndIdentityTest.php`. It
+  fails identically on the untouched branch; Identity and Facts run together pass.
+- `Features::enabled()` writes a cache entry on a miss, so a page that must write nothing cannot use
+  it; this view reads the flag rows directly by the same rule.
+
+**Not done.** No walk in a real browser: that needs a signed-in 2FA session, which is Joy's. The page
+is covered by the Inertia response test, strict TypeScript and the Vite build only.
+
+**Tests: 13, 286 assertions** (`tests/Feature/Observe/AutonomyEvidenceTest.php`): the blank system;
+the ceiling and the flag rule; no inheritance from the overall rate; unmeasured is neither pass nor
+fail and never a recent failure; other roles, other agents and inactive suites excluded, with the
+recount difference reported; the latest finished run wins and an unfinished newer run is a caveat;
+a never-run suite is named; prompt stamp different, missing, matching, and a role with no prompt;
+thousandths, per-suite, pooled, suite-named, revoked, expired and other agents' grants; a real
+`EvaluationRunner` run recounted to exactly what it stored with every result id accounted for;
+viewing issues no INSERT, UPDATE or DELETE and leaves row counts and `updated_at` unchanged across
+eight tables; the route is GET only, 405 on every other verb, behind auth, both 2FA gates and
+`hq.agents.view`; which roles open it. Two mutations were watched failing (a dimension row reading
+the overall results; an unmeasured result counted as a failure).
+
+**Verification, the merge gate until 1 October:** Pest, folder by folder: Agents 106, Ai 53, Ask 8,
+Auth 15, Autonomy 14, Commerce 8, Consent 8, Conversation 70, Erp 18, Evaluation 176, Identity and
+Facts together 38, Foundation 14, Gateway 174, Media 7, Observe 53, Platform 21, Scheduler 34,
+Security 24, Settings 6, Dashboard 5, Unit 1: **853 passed, 0 failed** (840 on main plus these 13).
+Pint `--test` passed; `tsc --noEmit` clean; `vite build` succeeded. **Local verification passed;
+GitHub Actions validation deferred until the 1 October reset.**

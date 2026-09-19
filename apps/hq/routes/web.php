@@ -121,6 +121,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('ai-health', [ObserveController::class, 'aiHealth'])->middleware('permission:hq.agents.view')->name('ai-health');
         Route::get('cost', [ObserveController::class, 'cost'])->middleware('permission:hq.ai.cost.view')->name('cost');
         Route::get('control-plane', [ObserveController::class, 'controlPlane'])->middleware('permission:hq.tools.view')->name('control-plane');
+        Route::get('autonomy-evidence', [ObserveController::class, 'autonomyEvidence'])->middleware('permission:hq.agents.view')->name('autonomy-evidence');
         Route::get('platform', [ObserveController::class, 'platform'])->middleware('permission:hq.horizon.view')->name('platform');
     });
 
