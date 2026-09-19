@@ -442,3 +442,63 @@ re-measure, or open the shadow on `3314c54` and release after), not decided here
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.3 Stream C: the autonomy evidence view (branch `obs/autonomy-evidence-view`, points 5 and 6)
+
+**The plan, written before the code.**
+
+*What was read first, and what it says about thresholds.* A required agreement rate exists in exactly
+one place: on an autonomy grant (`autonomy_grants.min_agreement_rate`, optionally
+`min_agreement_dimension` per ADR-030 and `evaluation_suite_key`). There is no table, config key or
+ADR that sets a required rate per autonomy level or per dimension, and production holds zero grants.
+A suite's `pass_threshold` (1.0 on the three seeded suites) is a different thing: it decides whether
+one run of that suite passed, and it is shown as such. So today the honest reading of "required
+threshold" for every agent and dimension is "no requirement configured", and the state is "not
+eligible". The view invents no number; whether per-level requirements should exist is a decision for
+Joy and ChatGPT and is listed in the record below.
+
+*One service, pure query and arithmetic.* `App\Observe\Autonomy\AutonomyEvidence::build()` returns,
+per agent, the resolver's present answer and one row for the overall rate plus one per evaluation
+dimension. Rules, each deterministic:
+
+1. **Applicable suites** are the ones the gate itself would run: active, and scoped to no role or to
+   the agent's role (`role_key`, else the agent key, as `AgentEvaluationSubject` reads it).
+2. **The latest-run rule.** Per applicable suite, the evidence is the finished run (`passed` or
+   `failed`) with the highest id whose `agent_key` is this agent. Older runs are history and appear
+   only under recent failures. A newer run that never finished is named as a caveat and is not
+   evidence.
+3. **Counted from result rows, never from a stored rate.** A row's figures are counted from
+   `evaluation_results` of those runs with that dimension: passed, failed, unmeasured. Evidence count
+   is passed plus failed; the agreement rate is passed over that, and null when nothing was measured.
+   A provider-refused (`unmeasured`) result is in neither half. A result whose case belongs to
+   another role is excluded. The stored `dimension_rates` of each run is shown beside the recount and
+   a difference is reported, not hidden.
+4. **No inheritance.** The overall row never supplies a dimension row. A dimension with no measured
+   result reads "never measured", or "only unmeasured results" when the provider refused them all.
+5. **Requirements** are the live grants (active, not expired) that name this agent or no agent and
+   carry `min_agreement_rate`: a grant naming a dimension lands on that row, a grant naming none lands
+   on the overall row, a grant naming a suite is checked against that suite's run only.
+6. **Satisfied only when nothing is unknown.** A row is "not eligible" with every applicable reason
+   listed: no requirement configured; never measured; the latest gate run failed (with its counts);
+   the latest run had unmeasured cases; the run carries no prompt stamp, or a different stamp from
+   the one `PromptLibrary` gives the agent today; the rate is below the required rate (checked
+   against the pooled figure and against each contributing suite, so a strong suite cannot carry a
+   weak one). "Satisfied" changes nothing: the resolver alone decides a level.
+7. **The ceiling now** is the real `AutonomyResolver` asked the way `AgentRunner` asks it (agent key,
+   environment, the agent's own ceiling, no business and no context), with its binding reason and
+   constraints, beside the agent's status, the count of live grants and the `ai.runtime` flag.
+8. **Lineage (point 6).** Every figure carries the run ids, run uuids, suite key, role scope, prompt
+   stamp, model, date and the result ids it was counted from, and the page folds them under each
+   figure.
+
+*No write path.* One GET route, `/observe/autonomy-evidence`, behind `hq.agents.view` (the permission
+AI health already uses, so no seeder change), a sidebar entry under Observe, the shared Observe
+panels. No schema change. Flags are read from their rows, not through the cached reader, so the page
+does not even write a cache entry.
+
+*Tests.* The service directly: an unmeasured dimension does not inherit the overall rate;
+other-role results and other agents' runs are excluded; an unmeasured result is neither pass nor
+fail; the latest of several gate runs wins and an unfinished newer run is only a caveat; each reason
+string; stamp mismatch; grant requirements per dimension, overall and per suite; viewing changes no
+row (counts and `updated_at`). The page: GET only, the gates, which roles open it, and a query
+listener proving a render issues no INSERT, UPDATE or DELETE.
