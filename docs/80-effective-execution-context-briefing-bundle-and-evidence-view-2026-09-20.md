@@ -442,3 +442,87 @@ re-measure, or open the shadow on `3314c54` and release after), not decided here
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.4 Stream D: production, main and unreleased state (point 16), branch `obs/release-state`
+
+#### C.4.1 The plan (written before the code)
+
+**What was found first.** The commit reaches the image only as the label `com.bordeguna.commit`
+(`deploy/Dockerfile`, `ARG GIT_COMMIT`), which `deploy.sh` reads back off the running container from
+the HOST. Nothing inside the container can read its own label, so today the application cannot say
+what release it is. `rollback.sh` builds without the build argument, so a rolled-back image carries an
+empty label. `deploy.sh` waits for `/up` and prints `/api/health`, but asserts nothing about the
+health answer, so "verified" has no recorded meaning yet. `deploy/RELEASES.md` is a gitignored,
+append-only text table on the host. `/api/health` is public (throttled, statuses only). The
+deploy-safety suite skips itself on a filesystem that cannot represent mode 600 (Git Bash on NTFS).
+
+**Four facts, four sources, none of them inferred.**
+
+| Fact | Source of truth | How the application reads it |
+| --- | --- | --- |
+| Current production release | the image itself: `ARG GIT_COMMIT` becomes `ENV HQ_RELEASE_COMMIT` beside the label | `config('hq.release.commit')`; empty means "development checkout", never a guess |
+| Last release attempt, and whether it was verified | `deploy.sh` and `rollback.sh` write `release.json` on the host | a host directory mounted read-only |
+| Last verified production release | `last-verified.json`, written only when the smoke verification passed | the same mount |
+| Current main, commits ahead, migrations ahead | `deploy/release-state-refresh.sh` on the host writes `main.json` from the host's own `git fetch` | the same mount |
+
+The container gets no git checkout, no GitHub credential and makes no outbound call for any of this.
+
+**The manifest directory** is `deploy/release-state/` inside `/opt/bordeguna-hq` (gitignored, so a
+checkout or rollback never touches it, and `deploy.sh` keeps its promise of touching nothing outside
+the checkout and the backup root). It is mounted as a DIRECTORY, read-only, at
+`/var/www/html/release-state` in app, horizon and scheduler; every file is written to a temporary
+name and renamed, because a bind-mounted directory sees a rename and a bind-mounted file would not.
+
+**"Verified" is defined from what the deploy already does, made strict and recorded:** `/up` answered,
+AND `/api/health` answered with overall `ok`, AND the health answer names the commit that was just
+released (so the thing that answered is known to be the new image, not the old one still draining).
+Health is retried for a bounded time because Horizon is terminated seconds earlier. A release whose
+verification failed or never ran is recorded as such and shows as **unverified**; the deploy's exit
+code does not change for a failed health read (it never did), but it now warns loudly and
+`last-verified.json` stays where it was.
+
+**A failed release is recorded honestly.** After the checkout moves, an EXIT trap records
+`status: failed` with the stage reached (build, up, smoke) in `release.json`. `last-verified.json` is
+not touched. The running application compares its OWN commit with the record, so a failed build
+reads as "the attempt at X failed at build; production still runs Y", not as a release of X. A
+REFUSED deploy (no verified dump) writes nothing at all: the manifest, like the checkout, moves only
+after a verified dump. The backup-first ordering is not changed.
+
+**Main and the unreleased changes.** `release-state-refresh.sh` runs at the end of `hq-monitor.sh`
+(cron, every 5 minutes) and at the end of a deploy. It fetches `origin main` at most once every 30
+minutes (the attempt is stamped BEFORE the fetch so a failing remote is not retried every tick), with
+a timeout and no terminal prompt; failure is logged, never paged. It compares `origin/main` with the
+RUNNING release (the image label, as `deploy.sh` reads it; the manifest only as a named fallback) and
+writes: main's head, when main was last successfully fetched, commits ahead and behind, up to 50
+one-line subjects, and the migration files ADDED between the release and main
+(`git diff --name-only --diff-filter=A <release>..origin/main -- apps/hq/database/migrations`).
+No attempt is made to infer features.
+
+**Absence is never "up to date".** The reader distinguishes: development checkout; manifest directory
+missing; `main.json` missing; unreadable; older than the threshold (90 minutes by default, three
+missed fetches), shown with its age ("main state unknown, last read N hours ago"); and computed
+against a release other than the one running. In every one of those states the "ahead" figures are
+withheld, not shown as zero.
+
+**Where it shows.** A compact read-only "Release state" panel at the top of the existing Platform
+dashboard (`/observe/platform`, permission `hq.horizon.view`, GET only), in plain sentences built on
+the server so they are tested: "Production runs X, released D. Main is N commits ahead, including M
+migrations. None of that is live." `/api/health` is public, so it gains ONLY the release commit
+(`checks.application.release`, or `development`); subjects, migrations and paths stay behind the
+permission.
+
+**Shell.** One sourced library (`deploy/release-state-lib.sh`: atomic JSON writes, JSON escaping), the
+refresher, and small additions to `deploy.sh`, `rollback.sh` (which now stamps the commit into the
+image it builds) and `hq-monitor.sh`. All tolerate a missing directory and are idempotent.
+
+**Tests.** Pest: the reader in every state above, the panel's props and sentences, the health field.
+Deploy-safety: a refused deploy writes no manifest; a healthy deploy writes `release.json` and
+`last-verified.json` after the dump; a failed build and a failed verification record the failure and
+leave the previous `last-verified.json` byte-identical; the refresher counts commits and migrations
+ahead, throttles its fetch, survives a failing remote, and escapes a hostile subject into valid JSON;
+a rollback stamps the commit and records itself.
+
+**Not done, on purpose.** No alert on "main is ahead" (it is the deliberate state while gate 11
+waits). No write path, no button, no flag. Nothing is switched on. Production is not touched: the new
+mount and the refresher take effect only at the next deploy, and the operator steps are in
+`deploy/README.md` marked as not yet applied.
