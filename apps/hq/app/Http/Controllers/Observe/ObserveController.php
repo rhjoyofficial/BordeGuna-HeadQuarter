@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Observe;
 use App\Http\Controllers\Controller;
 use App\Models\Alert;
 use App\Observe\Alerts\AlertEngine;
+use App\Observe\Autonomy\AutonomyEvidence;
 use App\Observe\Dashboards\AiHealthDashboard;
 use App\Observe\Dashboards\ControlPlaneDashboard;
 use App\Observe\Dashboards\CostDashboard;
@@ -15,7 +16,8 @@ use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * The four Phase 2 dashboards and the alert record (docs/48 N.3 and N.5, docs/78 B.2).
+ * The four Phase 2 dashboards and the alert record (docs/48 N.3 and N.5, docs/78 B.2), and the
+ * autonomy evidence view (docs/80 C.3).
  *
  * ⛔ Read-only. There is no action on any of these pages: a switch is changed on its own screen, an
  * alert clears when its condition does, and nothing here can start, stop or re-tool anything.
@@ -35,6 +37,15 @@ final class ObserveController extends Controller
     public function controlPlane(Request $request, ControlPlaneDashboard $dashboard): Response
     {
         return Inertia::render('observe/control-plane', $dashboard->build($this->window($request), $request->user()));
+    }
+
+    /**
+     * What autonomy would rest on, per agent and dimension (docs/80 C.3). It reads and recounts; it
+     * creates no grant, changes no level and touches no evaluation row.
+     */
+    public function autonomyEvidence(AutonomyEvidence $evidence): Response
+    {
+        return Inertia::render('observe/autonomy-evidence', $evidence->build());
     }
 
     public function platform(PlatformDashboard $dashboard): Response
