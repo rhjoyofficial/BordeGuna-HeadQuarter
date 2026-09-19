@@ -442,3 +442,62 @@ re-measure, or open the shadow on `3314c54` and release after), not decided here
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.1 Stream A: the briefing evidence bundle, the unsourced-number check, lineage, the Executive Briefing contract (branch `m7/briefing-evidence-bundle`)
+
+**The plan, written before the code (20 September).** Everything is deterministic and inert: no
+prompt file, no flag row, no scheduled job, no seeder entry, and no change to `TaskScope`,
+`TaskScopeResolver`, `TaskGrounding`, `AgentRunner` or the two detectors.
+
+1. **The typed bundle (`App\Briefing`).** `EvidenceItem` carries a stable id, a kind, a section, a
+   value and unit, the business, brand and store scope, a source reference, `as_of`, freshness
+   (budget, age, state) and lineage. `EvidenceKind` defines `fact`, `metric`, `inference` and
+   `recommendation`; the collector may produce only the first two, and the validator refuses a
+   bundle that carries the narrator-side kinds. The bundle is not business truth: it is the bounded
+   evidence surface a narrator may speak from, and the class says so.
+2. **Lineage (point 6).** Every metric names its formula and the read-model rows it was computed
+   from: the ids and each row's own source reference (store, order ref, last event id) when there
+   are 50 or fewer, otherwise the id range, the count, a sha256 digest of the ids and the filter that
+   selects them again. A rollup names the bundle items it sums. Money is summed in integer paisa
+   from the very rows the lineage lists, never by a second query, so the number and its lineage
+   cannot disagree.
+3. **Content (docs/48 M.2, M.3).** Yesterday as a Dhaka calendar day (`hq.timezone`, the bounds taken
+   in UTC, the way `QueryOrdersTool` and the retention runner do) per store, per business and for the
+   group: orders placed, gross of orders placed (all statuses, named as such), and orders confirmed,
+   delivered and cancelled in the day. What is scheduled today from the scheduler's own
+   `next_run_at`. Anomalies: the latest integrity check, failed and dead job runs, dead events, open
+   alerts, stale sources, and an order-volume band only where a store has at least 14 days and 30
+   rows of history before yesterday (the floor `facts.query_orders` already uses); below that the
+   section says "insufficient history" and no band exists. ERP low stock from the stored snapshots.
+   Pending approvals with their clocks, shape only, never the payload. Marketing and finance render
+   "not connected yet" with the reason. Source freshness is a top-level field, stale and missing
+   first. A store HQ has no adapter for and a business no poll is scheduled for are `not_connected`,
+   which is listed and is not a fault.
+4. **Validation.** `BundleValidator` checks completeness (every contract section present, none
+   silently empty), provenance (every item has a source, an `as_of` or a stated reason, and every
+   metric has lineage that resolves) and freshness. Any failure is `degraded` with coded reasons.
+5. **The unsourced-number check.** `NarrativeNumberCheck`, strict and documented in the class: every
+   digit run in the narrative is a figure, including one attached to letters; there is no whitelist
+   for small counts or ordinals; equality is exact after normalising separators and trailing zeros,
+   so a rounded figure fails; a percentage needs a percent item and a currency figure a BDT item;
+   Bangla digits are read; scale words (k, thousand, lakh, crore and the Bangla words) multiply and
+   must still match exactly; a date or time must equal a date or time the bundle carries; a sum of
+   two items fails unless that sum is itself a metric.
+6. **The contract (point 2).** `ExecutiveBriefingContract`: capability `executive.briefing`, a fixed
+   trusted task owned by HQ, input of scope and date, evidence surface exactly the bundle version,
+   the narration flag, the sections. It is code and data, with no natural-language mapping. The
+   Phase 2.5 Capability Registry (`App\Platform`) describes what a connected external account can
+   do, so it is not where an HQ capability belongs; the contract is registered in `config/hq.php`
+   under `briefing`, beside the tool list. `briefing.compose` goes through the normal registry and
+   gateway, collects, validates and stores the briefing.
+7. **Narration seam.** `BriefingNarrator` behind a new flag `briefing.narration`, absent and so off
+   (`Features::enabled` answers false for a missing row). With the flag or `ai.runtime` off no
+   narrator is resolved and the briefing is stored evidence-only. No model-calling narrator is
+   built, because that needs a prompt; tests use a fake to prove the number check gates what is
+   stored.
+8. **Storage and retention.** One additive, reversible migration: `briefings`, append-only, kept
+   forever (`RetentionPolicy::PERMANENT`), with a nullable `ai_run_id` whose model call is kept by a
+   new keep condition, so the retention schema test stays green for the right reason.
+9. **The page.** `/observe/briefings` and `/observe/briefings/{uuid}`, read-only, behind the existing
+   `hq.tools.facts.read`, inside the viewer's business scope.
+
