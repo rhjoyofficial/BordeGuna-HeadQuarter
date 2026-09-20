@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Agents;
 
+use App\Execution\ExecutionContextView;
 use App\Http\Controllers\Controller;
 use App\Models\Agent;
 use App\Models\AgentRun;
@@ -48,6 +49,7 @@ final class AgentController extends Controller
     public function __construct(
         private readonly Auditor $auditor,
         private readonly BusinessScope $businessScope,
+        private readonly ExecutionContextView $executionContexts,
     ) {}
 
     /**
@@ -142,6 +144,13 @@ final class AgentController extends Controller
                 'review_note' => $run->review_note,
                 'prompt_version' => $run->prompt_version,
             ],
+            // docs/81 point 3: the `eec.v1` context the run was resolved under, as recorded. Read-only,
+            // same permission and same business scope as the rest of the page; a run from before
+            // ADR-047 says so instead of sending an empty context.
+            'execution_context' => $this->executionContexts->for(
+                $run,
+                ($user = $request->user()) === null ? [] : $this->businessScope->all($user),
+            ),
             'tool_calls' => $calls,
             'model_calls' => $models,
             'can' => [
