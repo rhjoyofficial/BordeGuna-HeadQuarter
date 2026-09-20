@@ -526,3 +526,73 @@ a rollback stamps the commit and records itself.
 waits). No write path, no button, no flag. Nothing is switched on. Production is not touched: the new
 mount and the refresher take effect only at the next deploy, and the operator steps are in
 `deploy/README.md` marked as not yet applied.
+
+#### C.4.2 As built (branch `obs/release-state`, commit `184d6a9`)
+
+Built as planned, with these points decided while building:
+
+- **The image says what it is.** `deploy/Dockerfile`: `ENV HQ_RELEASE_COMMIT=$GIT_COMMIT` beside the
+  existing label. `config/hq.php` `release.commit`, `release.state_path` (`base_path('release-state')`),
+  `release.main_stale_after_minutes` (90). A value that is not 7 to 40 hex characters is treated as
+  no value: "development checkout".
+- **`deploy/release-state-lib.sh`** (sourced): atomic write (temporary name, rename, 644 in a 755
+  directory), JSON escaping that drops control characters, the two health readers, short-or-long
+  commit comparison. **`deploy/release-state-refresh.sh`**: as planned; merges are included in the
+  subjects so the list and the count describe the same commits; the basis of the comparison is
+  named (`running-image-label`, or `last-verified-record` as the fallback).
+- **`deploy.sh`**: sources the library; an EXIT trap that records a failed attempt only once the
+  checkout has moved (stages build, up, smoke, record); health retried `HEALTH_TRIES` x `HEALTH_WAIT`
+  (18 x 5 s); `RELEASES.md` rows gain a fifth column, `verification passed|failed`; `release.json`,
+  then `last-verified.json` only on a pass; the refresher is called last and cannot fail the deploy.
+  The backup-first ordering is untouched, and the suite still measures it.
+- **`rollback.sh`** now passes `--build-arg GIT_COMMIT` (it did not, so a rolled-back image carried an
+  empty label), verifies the same way and records itself as `kind: rollback`.
+- **`hq-monitor.sh`** calls the refresher before the heartbeat; a failure is one log line, never a page.
+- **`docker-compose.yml`**: `./release-state:/var/www/html/release-state:ro` on app, horizon and
+  scheduler (twice in the file, because `app` overrides the anchor's volume list). `.gitignore`:
+  `deploy/release-state/`.
+- **`App\Observe\ReleaseState`**: the reader. Main states: `known`, `stale`, `missing`, `unreadable`,
+  `undetermined`, `other_release`; only `known` carries figures (a stale reading keeps
+  `last_known_ahead` beside its age). Everything from the host files is validated before it reaches
+  a sentence: commits by pattern, tokens by pattern, subjects as bounded strings (200 characters, 50
+  items), migrations as plain `.php` file names. `PlatformDashboard` gains `release`;
+  `resources/js/components/observe/release-state-panel.tsx` renders it at the top of
+  `/observe/platform`. `/api/health` gains `checks.application.release` and nothing else.
+- **`deploy/README.md`**: the Release section corrected (it still described the pre-docs/58 order),
+  a "Release state" section, and the by-hand steps for the first deploy, marked NOT YET APPLIED.
+
+**What the next production deploy must do by hand** (full text in `deploy/README.md`): nothing to
+create beforehand; run `./deploy/deploy.sh`, then `./deploy/deploy.sh --no-pull` once, because the
+first run is executed by the old script and writes no record; confirm root's cron can
+`git fetch origin main` without a prompt; confirm the crontab still calls the checkout's
+`hq-monitor.sh`; then look at `deploy/release-state/*.json`, `/api/health` and the panel. No new cron
+line, no new secret, no flag.
+
+#### C.4.3 Verification (20 September 2026, local; GitHub Actions validation deferred until the 1 October reset)
+
+| Check | Result |
+| --- | --- |
+| Pest, folder by folder, `DB_DATABASE=hq_test_d` | 873 tests: Agents 106, Ai 53, Ask 8, Auth 15, Autonomy 14, Commerce 8, Consent 8, Conversation 70, Erp 18, Evaluation 176, Facts 29, Foundation 14, Gateway 174, Identity 9, Media 7, Observe 73 (33 new in `ReleaseStateTest`, 244 assertions), Platform 21, Scheduler 34, Security 24, Settings 6, DashboardTest 5, Unit 1. ⚠ `tests/Feature/Facts` run ALONE shows 1 failed, 28 passed, on this branch and identically with this branch's changes stashed: `OrderUpdatedTest` calls `signedPost()`, which is defined in `tests/Feature/Identity/ShopWebhookAndIdentityTest.php`. Facts and Identity together: 38 passed. Pre-existing, reported, not fixed here |
+| `vendor/bin/pint --test` | passed |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run build` | built |
+| Prettier and ESLint on the two changed front-end files | clean |
+| `bash -n` on every changed script | clean |
+| Deploy-safety suite | **91 passed, 0 failed** (31 before, 60 new), run on Windows Git Bash with ONE local aid that is not committed: a `stat` shim on PATH answering `600` for `stat -c %a`, because NTFS cannot represent the mode and the suite otherwise skips itself. Everything else was the real `deploy.sh`, `rollback.sh`, refresher and git |
+| Mutation check of the new deploy-safety tests (scratch copy) | three mutations (promote to last-verified unconditionally; remove the failure trap; remove the fetch throttle) produced 10 failures; all three caught |
+| Contract check | files written by the real shell library (a subject with quotes, a backslash and Bengali text) were read by `ReleaseState` through artisan and produced the expected sentences |
+
+**Not verified locally:** the suite on a real Linux filesystem (CI job `deploy-safety`, 1 October, or
+the VPS); `shellcheck` (not installed); a real `docker build` with the new `ENV` and a real compose
+`up` with the new mount (Docker Desktop's daemon was not running and was not started); the panel in a
+browser (no walk was done: it needs a 2FA session against a non-test database).
+
+**Decisions to revisit.**
+1. An UNVERIFIED release is cleared only by releasing the same commit again (`--no-pull`), which takes
+   another dump and rebuild. A `--verify-only` mode would be cheaper; not built.
+2. "Verified" requires health to NAME the commit, so a rollback to any release older than this one is
+   always unverified. Honest, but it will surprise someone.
+3. The refresher's `git fetch` can in principle collide with a deploy's own fetch on the ref lock; the
+   deploy would then stop BEFORE the checkout moves (safe, re-run). Not seen, not guarded.
+4. The 90-minute staleness threshold and the 50-subject cap are guesses.
+5. No alert when main has been "unknown" for a long time; the panel is the only place it shows.
