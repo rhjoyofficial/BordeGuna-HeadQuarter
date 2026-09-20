@@ -15,8 +15,8 @@ namespace App\Observe\Retention;
  * evaluation evidence needed for autonomy decisions"). So retention prunes only the high-volume
  * unattended detail: scheduled polls and reconciliations, their connector calls, and model calls that
  * belong to no agent run. A row is kept forever if an agent, an approval, an evaluation result, a
- * conversation message or a consent event refers to it, if it shares a correlation id with an agent
- * run, or if it never finished.
+ * conversation message, a consent event or a stored briefing refers to it, if it shares a
+ * correlation id with an agent run, or if it never finished.
  */
 final class RetentionPolicy
 {
@@ -45,6 +45,9 @@ final class RetentionPolicy
         'consent_events',
         'consent_state',
         'customer_merges',
+        // docs/80 C.1: a stored briefing is the evidence a decision record may later point at ("he
+        // acted on this recommendation", docs/48 M.4), bundle and all. It is never pruned.
+        'briefings',
     ];
 
     /**
@@ -187,6 +190,7 @@ final class RetentionPolicy
                     OR EXISTS (SELECT 1 FROM evaluation_results e WHERE e.ai_run_id = t.id)
                     OR EXISTS (SELECT 1 FROM approvals a WHERE a.ai_run_id = t.id)
                     OR EXISTS (SELECT 1 FROM conversation_messages m WHERE m.ai_run_id = t.id)
+                    OR EXISTS (SELECT 1 FROM briefings b WHERE b.ai_run_id = t.id)
                     OR EXISTS (SELECT 1 FROM tool_calls c WHERE c.ai_run_id = t.id)
                     OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id::text))
                     SQL,

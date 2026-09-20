@@ -102,6 +102,7 @@ it('knows every column that points at a detail row, so a new reference cannot be
         'approvals.ai_run_id',
         'approvals.requesting_tool_call_id',
         'approvals.resulting_tool_call_id',
+        'briefings.ai_run_id',
         'consent_events.tool_call_id',
         'conversation_messages.ai_run_id',
         'conversation_messages.tool_call_id',
@@ -110,7 +111,7 @@ it('knows every column that points at a detail row, so a new reference cannot be
     ]);
 
     $source = file_get_contents(app_path('Observe/Retention/RetentionPolicy.php'));
-    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'c.ai_run_id'] as $reference) {
+    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id'] as $reference) {
         expect($source)->toContain($reference);
     }
 
