@@ -297,7 +297,6 @@ it('restricts a scoped user to their businesses and leaves an unscoped user grou
         ->and($scope->allows($user, $b->id))->toBeTrue();
 
     UserBusinessScope::create(['user_id' => $user->id, 'business_id' => $a->id, 'access' => 'read']);
-    $scope->forget($user);
 
     expect($scope->allows($user, $a->id))->toBeTrue()
         ->and($scope->allows($user, $b->id))->toBeFalse();
