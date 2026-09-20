@@ -544,3 +544,140 @@ still needs Anthropic capacity, which is his.
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.2 Stream F: the approval's requester is the asker; stable ordering in the facts tools; the execution context on the run page (branch `fix/approval-requester-ordering-and-run-context`, points P0-4, P1-1 and 3)
+
+#### C.2.1 Findings, read from the code before any change (20 September)
+
+**P0-4, the approval's requester.**
+
+- `app/Gateway/Approval/ApprovalService.php:76` writes
+  `'requested_by_user_id' => $request->identity->enablingUser()?->getKey()`. For a human caller
+  `enablingUser()` is the person on the screen and for a scheduled job it is the job's owner, which
+  is right. For an agent, `ActingIdentity::forExecution()` (`app/Gateway/Identity/ActingIdentity.php:48`)
+  puts `$context->enabler` in that slot, so an approval an agent parks names the ENABLING user as
+  the requester, whoever asked. The person who asked (`$context->requesterUser`, ADR-047) is on the
+  identity and is not read.
+- Every reader of `requested_by_user_id`, all of them:
+  `ApprovalService.php:76` (write) and `:180` (copied to the successor of an approve-with-edit);
+  `ApprovalController.php:49,58,83` (the email shown as `requested_by`) and `:179` (the requester may
+  cancel their own request); `Approval.php:27,59` (fillable, the `requestedBy` relation);
+  `Tools/Hq/ListApprovalsTool.php:115` and `Briefing/Sections/PendingApprovals.php:40,73` (both show
+  the agent key, or "a person" or "system", never the id); `resources/js/pages/approvals/index.tsx:186`
+  and `show.tsx:188-193` (an agent's approval shows "the X agent" and never the person).
+- It is NOT read by: the payload hash (`CanonicalPayload::hash($payload)` covers the stored payload
+  and nothing else), `ApprovalGuard`, `ApprovalExecutor`, the notifier (`Notifier.php:30-62` names
+  the tool, the risk, the business and the deadline), the SLA and expiry sweeps, or the audit card
+  (`Approval::toCard()` does not carry it).
+- ⚠ **There is no self-approval rule today.** `Approval::isDecidableBy()` (`Approval.php:130`) asks
+  two things: does the user hold `hq.approvals.decide`, and is the approval delegated to somebody
+  else. `docs/48` G.4 records the owner's decision (Q22): Joy holds every approval right so no queue
+  is blocked by an absent approver. So today the single owner parks a call on a screen and approves
+  it himself, and the whole of `ApprovalCenterTest` does exactly that. That behaviour is kept byte
+  for byte.
+- ⚠ **The defect is latent in production.** No registered tool is both agent-executable and
+  approval-gated (`ApprovalCenterTest`: "it still enables no R4 or R5 tool for an agent"), so no
+  agent has ever parked an approval and no historical agent row exists to misread. The first
+  tool that is both would have met the wrong requester. The regression test registers its own R4
+  agent-executable test tool.
+- The check that decides who may approve lives in the controller (`assertDecidable`), not in
+  `ApprovalExecutor::approveAndExecute()`. A rule added only to `isDecidableBy()` would be skipped
+  by any later caller of the executor, so the rule is also enforced in the executor, before the claim.
+
+**P1-1, ordering.**
+
+- `QueryOrdersTool.php:279-281`: grouped rows are ordered by `<metric> desc nulls last` and nothing
+  else, then `limit`. Two groups with the same metric return in whatever order the plan produced,
+  and when the tie sits at the limit, which group is IN the answer is chance.
+- The same family in the other tools:
+  `SnapshotFreshnessTool::orderFacts()` (`:141-157`) has a `GROUP BY` and no `ORDER BY` at all;
+  `ReadErpSnapshotTool.php:106` `latest('polled_at')->first()` (one row per business and kind by a
+  unique index, so a tie cannot occur, left alone);
+  `ListJobsTool.php:98` `orderBy('name')` with a limit and no unique index on the name;
+  `RecentEventsTool.php:102` groups by type and status and orders by type only, so `by_status`
+  keys arrive in either order. `erpSnapshots()` (`:126`) orders by slug and kind, which is unique.
+  `ListApprovalsTool`, `ReadThreadTool` and the briefing sections already end on the id.
+- `ExecutionContextIdentityCaseTest` pins the first-turn prompt (the catalogue with every schema and
+  enum) and the second-turn message (every tool result) by sha256. So the input schema, the
+  descriptor and the tie-free output of `facts.query_orders` and `hq.list_jobs` must not move by a
+  byte: no new always-present output key.
+
+**Point 3, the context on the run page.**
+
+- `ExecutionContextResolver::record()` (`:71-89`) stores `toAuditArray()` on
+  `agent_runs.execution_context` and its digest, and writes `agent_run.context_resolved` to the
+  audit log. `AgentController::show()` (`:120-151`) sends neither to the page.
+- The stored record holds no timestamp. The audit row written in the same call does
+  (`audit_logs.occurred_at`, target the run). The page reads that, and says so when it is absent.
+- ⚠ **A refused run has no row.** `AgentRunner::run()` resolves the context at `:242`, BEFORE
+  `AgentRun::create` at `:257`; a refusal throws and only `agent_run.context_refused` is written to
+  the audit log, against the agent. There is no run page for a refusal to appear on, so the page
+  shows nothing about refusals and invents nothing.
+- The run page shows no person today (no name, no email). The Approval Center shows emails. The new
+  panel shows a name and the user id, no email.
+
+#### C.2.2 The design (written before the code)
+
+**P0-4.** Additive, nullable, nothing rewritten. One migration adds to `approvals`:
+
+| Column | Meaning | Historical rows |
+| --- | --- | --- |
+| `enabled_by_user_id` (FK users, null on delete) | the enabling user of the agent that parked it | null |
+| `requester_kind` (string 24) | `human`, `on_behalf_of`, `gate_runner`, `console`, from the run's resolved context | null |
+| `execution_context_digest` (char 64) | the `eec.v1` digest the call ran under, which joins the approval to `agent_runs.execution_context_digest` | null |
+
+`requested_by_user_id` keeps its name and becomes what it says: for an agent call it is
+`$identity->execution->requesterUser`; for every other caller it is what it was. The four concepts
+are then: requester `requested_by_user_id`, enabler `enabled_by_user_id`, acting identity `agent_key`
+(already there), approver `decided_by_user_id` (already there). The successor of an
+approve-with-edit copies the three new columns. The payload, the hash, the guard and the claim are
+not touched (ADR-018 unchanged).
+
+A row with an `agent_key` and a null `enabled_by_user_id` was recorded before the two were kept
+apart. None exists in production (see above); the screens say "recorded before requester and
+enabler were kept apart" for such a row rather than presenting the person as the asker.
+
+**Separation of duties, decided conservatively.**
+
+1. *An agent parked it and the person who asked is NOT the enabling user:* the person who asked may
+   not approve, reject or edit it, and it may not be delegated to them. They asked through an agent
+   that borrows somebody else's authority; deciding it too would put the ask and the yes in one
+   pair of hands with the enabling person never having looked. They may still withdraw (cancel)
+   their own request, as `docs/48` G.3 says.
+2. *The enabling user, when somebody else asked:* MAY decide it. The narrower rule (the enabler may
+   not) was weighed and not taken: the requester and the approver are already two different people,
+   so it adds no second pair of eyes, and in the production setup the owner is the enabling user of
+   every agent and the only holder of `hq.approvals.decide`, so the narrower rule would leave an
+   approval nobody can decide, against the recorded decision Q22 (`docs/48` G.4). Listed under
+   decisions to revisit for when there is a second approver.
+3. *Requester = enabler (the single owner, the gate runner, a probe of a period he opened, any
+   `as_enabled` run):* unchanged. One person holds the whole authority, exactly as when he parks a
+   call on a screen himself. Byte for byte today's rule.
+4. *Non-agent callers (a person on a screen, a scheduled job with an owner, the console):*
+   unchanged, the new columns stay null, the rule does not apply. Proven by tests.
+5. *Historical rows (null `enabled_by_user_id`):* the rule does not apply; they decide as they did.
+
+Enforced in `Approval::isDecidableBy()` (the screen's `decidable`, `assertDecidable`, `cancel`) AND
+in `ApprovalExecutor::approveAndExecute()` before the claim, AND in `ApprovalService::delegate()`.
+The enabling user may also still withdraw an approval their agent parked (they could before, as
+the recorded "requester"; withdrawing executes nothing).
+
+**P1-1.** `facts.query_orders`: the grouped query becomes an inner query, and the outer one orders by
+`sort_metric desc nulls last`, then the group key ascending: numerically for `business` and `store`
+(the key is the id), and as text under `COLLATE "C"` for every other grouping, so the order does not
+depend on the database's locale. The tool fetches `limit + 1` rows; when the first row left out has
+the same metric as the last row kept, `coverage.tie_at_limit` says so (the metric, the value, how
+many groups share it, how many of them were returned, and the rule that chose). The key is present
+ONLY when a tie was cut, so a tie-free result is byte for byte what it was. No schema or descriptor
+change. `SnapshotFreshnessTool::orderFacts()` orders by business slug then store slug;
+`ListJobsTool` adds the id after the name; `RecentEventsTool` adds the status after the type.
+
+**Point 3.** No new route; `AgentController::show()` adds one prop, `execution_context`, under the
+existing `hq.agents.view` and the existing business-scope 404. It is one of:
+`{state: 'recorded', ...}` built from the stored record (names looked up for the two people,
+business and brand names for the ids, the tools, the narrowings in words, the digest, the
+resolution time from the audit row), or `{state: 'before_adr_047'}` for a run with no record, which
+the page renders as "recorded before execution contexts existed" and never as an empty panel.
+Plain sentences first; the digest, the permission names, the raw record and the per-call terms sit
+in the page's existing `TechnicalDetail`. No emails, no credentials (the record holds none, and a
+test asserts the prop carries no email).
