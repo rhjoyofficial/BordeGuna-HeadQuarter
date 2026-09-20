@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Middleware\AssignCorrelationIds;
+use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsureTwoFactorEnabled;
 use App\Http\Middleware\EnsureTwoFactorVerified;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Events\ProcessDomainEvents;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -34,7 +36,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            // docs/81 P0-1: on every web route (Horizon's too), with no per-route opt-in.
+            EnsureAccountIsActive::class,
         ]);
+
+        // Laravel pulls `auth` ahead of SubstituteBindings, which is in the web group, and so ahead
+        // of anything merely appended to that group. The account check must see a disabled session
+        // BEFORE `auth` turns it away, so it takes a place in the priority list in front of it.
+        $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: EnsureAccountIsActive::class);
 
         $middleware->alias([
             '2fa.enabled' => EnsureTwoFactorEnabled::class,

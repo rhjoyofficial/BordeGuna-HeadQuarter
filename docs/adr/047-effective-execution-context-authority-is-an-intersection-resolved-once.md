@@ -120,6 +120,16 @@ Reading the code for this decision found two more terms the design lists and not
   affected; the sequencing question (release and re-measure before the shadow opens, or open the
   shadow on `3314c54`) is put to ChatGPT in the end-of-milestone report, not decided here.
 
+## Amended 21 September 2026 (`docs/81` C.1)
+
+- Decision 6 re-reads business scope as well: a context stands only while its business set still
+  lies inside what the enabling user and the requester may each read now. A person narrowed mid-run
+  ends the run's remaining calls; a row added mid-run widens nothing until the next resolve.
+  `BusinessScope` keeps no cache (it held rows for 60 seconds), so every term of the intersection is
+  read from the table. The per-call cost is now up to four small queries, not two.
+- The first "not decided" item below is decided: in production `hq:shadow:open` requires `--by`
+  naming an enabled HQ user, and `Requester::forShadowPeriod()` never answers `as_enabled` there.
+
 ## Not decided here
 
 Whether `hq:shadow:open` should require `--by` (a period with no recorded opener runs `as_enabled`

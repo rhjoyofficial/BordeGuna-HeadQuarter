@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Auth\ActiveUserProvider;
 use App\Http\Controllers\Controller;
+use App\Support\Audit\Auditor;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,6 +41,12 @@ class NewPasswordController extends Controller
             'email' => 'required|email',
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
+
+        // docs/81 P0-1: the broker finds nobody for a disabled account, so the reset fails with its
+        // ordinary "no user" sentence. The record says what happened.
+        if (ActiveUserProvider::isDisabledAccount($request->input('email'))) {
+            app(Auditor::class)->recordSystem('auth.password_reset_refused', 'user', after: ['email' => $request->input('email'), 'step' => 'reset'], reason: ActiveUserProvider::DISABLED_REASON);
+        }
 
         // Here we will attempt to reset the user's password. If it is successful we
         // will update the password on an actual user model and persist it to the

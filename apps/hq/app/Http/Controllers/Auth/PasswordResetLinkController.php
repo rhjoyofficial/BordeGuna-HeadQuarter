@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Auth\ActiveUserProvider;
 use App\Http\Controllers\Controller;
+use App\Support\Audit\Auditor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -32,6 +34,12 @@ class PasswordResetLinkController extends Controller
         $request->validate([
             'email' => 'required|email',
         ]);
+
+        // docs/81 P0-1: the broker finds nobody for a disabled account, so no link is sent and the
+        // answer below is the one every address gets. The record says what happened.
+        if (ActiveUserProvider::isDisabledAccount($request->input('email'))) {
+            app(Auditor::class)->recordSystem('auth.password_reset_refused', 'user', after: ['email' => $request->input('email'), 'step' => 'link'], reason: ActiveUserProvider::DISABLED_REASON);
+        }
 
         Password::sendResetLink(
             $request->only('email')
