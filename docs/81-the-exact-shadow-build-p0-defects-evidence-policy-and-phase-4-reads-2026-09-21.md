@@ -544,3 +544,140 @@ still needs Anthropic capacity, which is his.
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.3 Stream G: one rollback invariant, and deploy verify-only (branch `deploy/rollback-invariant-and-verify-only`, P0-3 and point 4)
+
+#### C.3.1 The plan (written before the code)
+
+**What was found first (file:line, on `5c4b948`).**
+
+1. `deploy/rollback.sh:39` prefixes `RUN_MIGRATIONS=0` on `docker compose build`. A shell variable on a
+   build reaches nothing: the image does not take it as a build argument and the compose file never
+   interpolates it. `deploy/docker-compose.yml:42` hardcodes `RUN_MIGRATIONS: "1"` on `app`, and
+   `deploy/entrypoint.sh:38-41` runs `php artisan migrate --force` whenever that reads `1`. So
+   `rollback.sh:41` (`up -d --no-deps app horizon scheduler web`) DOES run `migrate --force` when the
+   old image starts. The comment at `rollback.sh:35` ("Do NOT run migrations on rollback") and
+   `deploy/README.md:116-117` ("no migrations") both say otherwise.
+2. **`rollback.sh` is not backup-first.** `rollback.sh:20` moves the checkout with no dump taken, no
+   backup boundary checked and no `.env` guard. It is the same defect `docs/58` H.1 found in
+   `deploy.sh`, and the 10 September work fixed it there only.
+3. `rollback.sh:13` takes the predecessor from the CHECKOUT (`git rev-parse --short HEAD`), not from
+   the running image label, and records `previous_known` as `0` always (`:30`, `:65`). `deploy.sh`
+   reads the label for exactly this reason.
+4. `rollback.sh:14` accepts any commit the repository can resolve: a commit that was never released,
+   a commit on another branch, or the commit already running. Nothing is refused.
+5. `rollback.sh` is read by bash while `git checkout` replaces it on disk (`:20`). It has worked
+   because git replaces the file rather than rewriting it in place; it is not something to lean on.
+6. `deploy.sh:190` treats every first argument other than `--no-pull` as "pull". A typing mistake
+   (`--nopull`) silently fast-forwards production to `origin/main`.
+
+**What `migrate --force` does when OLD code starts against a NEWER schema.** Laravel runs every
+migration FILE the starting code carries that has no row in the `migrations` table. It never looks at
+the schema, and it knows nothing of migrations that only newer code carries. For a plain rollback
+from N to an earlier released T that is normally nothing, which is why this defect has been silent.
+It is not nothing in exactly the cases where a rollback is most likely to be needed:
+
+- **the release being rolled back died in its migrations.** Its entrypoint ran some, failed on one,
+  and `app` is restarting in a loop. Roll back to a T that also carries the failing migration (an
+  intermediate commit, or a re-release) and the old image's entrypoint tries it again, fails again
+  under `set -e`, and the rollback crash-loops for the same reason the release did;
+- **a migration was undone by hand** (`migrate:rollback`, or a `restore.sh` to a dump older than T's
+  own migrations). T carries the file, the table has no row, and starting T quietly re-applies the
+  migration somebody deliberately removed;
+- **the target is not an ancestor of what is running** (another branch, a reverted line). It may
+  carry migration files production has never seen, and a "code rollback" becomes a schema change
+  nobody reviewed or rehearsed, with no CI on that combination.
+
+**The invariant (one, explicit):**
+
+> **A rollback changes code and nothing else. It never runs a migration, up or down, and it writes
+> nothing to the database itself. It happens only behind a verified dump, exactly like a deploy.**
+
+What that says about SCHEMA, stated once and used everywhere: the schema is NOT rolled back. This
+project's migrations are additive, so the old code runs against the newer, additive schema. Undoing a
+migration, or returning DATA to an earlier state, is `deploy/restore.sh` from the pre-deploy dump: a
+separate, deliberate act with its own confirmation, never a side effect of `rollback.sh`. The dump a
+rollback takes first is there because old code writing into newer data is still a change to
+production, and the restore point must exist before it starts.
+
+**The mechanism, and why this one.** The obvious change (`RUN_MIGRATIONS: "${RUN_MIGRATIONS:-1}"` in
+the compose file, `RUN_MIGRATIONS=0` on `up`) fails in the case that matters: `git checkout <target>`
+replaces `deploy/docker-compose.yml` with the TARGET's copy, and every release older than this one
+hardcodes `"1"`, so the variable would reach nothing, which is the defect over again. It would also
+make the normal deploy depend on what happens to be exported in the operator's shell. Instead
+`rollback.sh` writes a small compose OVERRIDE to a temporary file outside the checkout
+(`services.app.environment.RUN_MIGRATIONS: "0"`) and passes it as a second `-f` on `up` only. Compose
+merges `environment` maps and the later file wins, whatever the target's compose file says. The
+normal deploy path is not touched: `docker-compose.yml` keeps `"1"`, `deploy.sh` keeps its `up`, and
+the entrypoint keeps its test (it gains one log line saying migrations were skipped).
+
+The rollback does not trust the mechanism, it observes it, twice: BEFORE anything moves it resolves
+the target's compose file (read with `git show`, never checked out) together with the override
+through `docker compose config` and refuses unless `app` resolves to `RUN_MIGRATIONS` `0`; AFTER `up`
+it reads the environment of the container that actually started (`docker inspect`) and says what it
+found. If that ever reads `1` the rollback fails loudly at stage `up`.
+
+⚠ Known edge, documented rather than hidden: after a rollback, a bare `docker compose up -d` typed by
+hand sees a changed `app` definition and recreates it with `RUN_MIGRATIONS=1`. A container restart
+(`restart: unless-stopped`, a reboot) does not: it keeps the environment it was created with. The way
+forward from a rollback is `git checkout main && ./deploy/deploy.sh --no-pull`, which is a deploy and
+migrates by design.
+
+**`rollback.sh`, in the order it will run:** usage and the `.env` guard (present, mode 600) -> the
+target must resolve to a commit -> the running release from the image label (the checkout only as a
+marked fallback) -> REFUSE when the target is what is running, when it is neither an ancestor of the
+running release nor a commit `deploy/RELEASES.md` names as released, when tracked files on the
+checkout are modified (a rebuild would bake a hand edit into the image), or when the stack is down
+(nothing to dump; starting a stack is `deploy.sh --no-pull`) -> the backup boundary and the verified
+dump, through the SAME functions as `deploy.sh` (moved to a sourced `deploy/backup-first-lib.sh`, so
+there is one implementation of the invariant, not two) -> the resolved-config check -> ONLY THEN
+`git checkout` -> build stamped with the commit -> `up` with the override -> the container's
+environment observed -> smoke and verification as today -> `RELEASES.md` and `release.json` with
+`kind: rollback`, the label-derived predecessor and the dump. The body moves into a function so bash
+has parsed the whole script before the checkout replaces it.
+
+**`deploy.sh --verify-only`** (combinable with `--no-pull`; an unknown argument is now refused, see
+finding 6). It lives in `deploy/verify-only.sh`, which `deploy.sh` hands over to before it does
+anything else. Read-only by construction: no `git fetch`, no `mkdir`, no marker, no mount probe
+that writes, no dump, no build, no `up`, no record. Each check prints `ok`, `WARN` or `FAIL` with its
+reason; any `FAIL` exits 1; it says at the top and bottom that it is not a deployment.
+
+| Check | Fails when | Warns when |
+| --- | --- | --- |
+| `deploy/.env` | missing; not mode 600; a key the compose file interpolates or the app cannot start without is absent or empty (names only, never values) | a key in the TARGET's `.env.example` is absent |
+| docker and compose | not installed; `compose config -q` rejects the file (the target's copy too, when the release changes it) | |
+| what is running | | no stack (first deploy); no commit label; checkout differs from the running release; detached HEAD |
+| health | `/up` does not answer; `/api/health` is not `ok`; health names a commit other than the running label | health names no commit (a release older than docs/80 C.4) |
+| tracked files modified on the checkout | any (each file named) | |
+| backup boundary, no dump taken | host backup root or `daily/` missing or not writable; the container's `/backups` is a different inode from the host directory (the dead bind mount, read without writing); free space under the stated minimum (`VERIFY_MIN_FREE_MB`, default 5120); `LAST_STATUS` not 0; the `LAST_OK` dump missing or empty | the newest verified dump is older than 26 hours |
+| origin/main | `git ls-remote` cannot reach origin; the target is not a fast-forward of the checkout | origin/main has moved past what this checkout has fetched (the listing is then of the last fetched main, and says so) |
+| what the release brings | | any pending migration whose `up()` contains `dropColumn`, `drop`, `dropIfExists`, `renameColumn`, `rename`, `->change()` or raw `DROP`/`TRUNCATE` (file named: the rule is additive migrations); a migration file MODIFIED rather than added |
+| release-state directory | present but not writable | absent on the host, or not mounted in `app` (expected once, on the first deploy carrying docs/80 C.4); mounted on a dead inode |
+
+**The fetch decision.** It does NOT fetch. `git ls-remote origin refs/heads/main` proves origin is
+reachable with the deploy key and names main's head without moving a ref or writing an object. The
+cron refresher already fetches `origin main` at most every 30 minutes, so the commit objects are
+normally present; when main has moved since, verify-only says so and lists what the last fetched
+main would bring. A tool whose promise is "changes nothing" should not have one exception to explain.
+
+**`--verify-release` (clearing UNVERIFIED without a rebuild): designed, not built.** The safe form
+exists: read the running label L; require `/up`, health `ok` and health naming L; require
+`release.json` to be a `released` record of L; only then rewrite its verification and copy it to
+`last-verified.json`. It cannot verify a commit that is not answering health. It is left out because
+it would be a second writer of the most trusted record in the system, rebuilding `release.json` from
+a grep of itself, to save one `deploy.sh --no-pull` (a dump and a cached build, a few minutes) on an
+event that has happened zero times in production; and a rollback to a release older than docs/80 C.4
+can never be verified by any means, since its health names no commit. `--verify-only` reports the
+case instead. Revisit if UNVERIFIED releases turn out to be common.
+
+**Tests (watched failing first against the unmodified scripts).** The Docker stub learns three
+things: it resolves `RUN_MIGRATIONS` for `app` the way compose does (the last `-f` file that sets it
+wins) and records that value at every `up` that starts `app`; it answers `config`; it answers the
+environment `inspect`. The test world carries the real `docker-compose.yml`. New assertions: a normal
+deploy starts `app` with migrations ON; a rollback starts it with migrations OFF and says so; the
+rollback's dump is taken while the checkout is still at the old commit; a rollback whose backup fails,
+whose target is running, unknown, not an ancestor, or whose checkout is dirty moves NOTHING (HEAD,
+the stub's mutation record, `RELEASES.md`, release state); a rollback whose resolved config still
+says `1` moves nothing; verify-only in a passing world and in several failing worlds leaves a digest
+of HEAD, every ref, `git status`, every file under `deploy/` and the backup root, and the stub's
+mutation record byte-identical, and exits 0 and non-zero respectively with the reason named.
