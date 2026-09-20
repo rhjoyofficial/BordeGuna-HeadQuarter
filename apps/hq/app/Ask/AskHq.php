@@ -4,6 +4,9 @@ namespace App\Ask;
 
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Execution\ExecutionContextRefused;
+use App\Execution\ExecutionContextResolver;
+use App\Execution\Requester;
 use App\Models\Agent;
 use App\Models\AskConversation;
 use App\Models\AskMessage;
@@ -11,7 +14,6 @@ use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
-use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -24,8 +26,9 @@ use Throwable;
  *
  * ⛔ It holds no authority of its own. It takes words, an agent from a fixed list and a business the
  * person may see; it never takes a tool key, arguments, a model or an autonomy level, so nothing a
- * browser sends can reach a tool except through the runner, the gateway and policy, under the agent's
- * enabling user and the agent's own ceiling. While `ai.runtime` is off it asks nothing and says so.
+ * browser sends can reach a tool except through the runner, the gateway and policy, under the run's
+ * Effective Execution Context (ADR-047): what the person asking AND the agent's enabling user may
+ * both do, inside the agent's own ceiling. While `ai.runtime` is off it asks nothing and says so.
  */
 final class AskHq
 {
@@ -37,7 +40,7 @@ final class AskHq
         private readonly Features $features,
         private readonly BusinessScope $scope,
         private readonly Auditor $auditor,
-        private readonly ToolRegistry $tools,
+        private readonly ExecutionContextResolver $contexts,
     ) {}
 
     public function enabled(): bool
@@ -59,30 +62,26 @@ final class AskHq
     /**
      * Why this person may not put questions to this agent, or null when they may.
      *
-     * ⚠ The runner calls tools under the agent's enabling user and does not narrow them to the person
-     * asking. So Ask HQ never lends an agent's reach: the asker must be group-wide (no business rows)
-     * and must hold every permission the agent's tools require. Narrowing a run to the asker's own
-     * businesses is a runtime change, and it belongs to the M6 gate, not to this surface.
+     * ⭐ ADR-047 replaced the rule this method used to hold. Until the run itself narrowed to the
+     * person asking, Ask HQ was open only to group-wide operators holding every permission the
+     * agent's tools need (docs/78 C.3). The run now IS narrowed, by the one resolver every entry
+     * point shares, so a restricted operator may ask and is answered from the intersection only.
+     * What is left here is the resolver's own answer, asked before the question is accepted: a
+     * refusal when the person and the agent's enabling user have nothing in common for the agent
+     * to work with (no shared business, none of its tools' permissions), in the resolver's words.
+     * This surface decides nothing about authority itself.
      */
-    public function refusalFor(User $user, string $agentKey): ?string
+    public function refusalFor(User $user, string $agentKey, ?int $businessId = null): ?string
     {
-        if ($this->scope->isRestricted($user)) {
-            return 'Ask HQ answers with an agent\'s group-wide reach, so it is open only to operators who see every business.';
-        }
-
         $agent = Agent::query()->where('key', $agentKey)->first();
         if ($agent === null) {
             return "There is no agent with the key [{$agentKey}].";
         }
 
-        foreach ((array) $agent->allowed_tools as $key) {
-            if (! $this->tools->has((string) $key)) {
-                continue;
-            }
-            $permission = $this->tools->get((string) $key)->descriptor()->permission;
-            if ($permission !== null && $permission !== '' && ! $user->can($permission)) {
-                return "{$agent->name} uses tools that need [{$permission}], which you do not hold, so Ask HQ will not put your question to it.";
-            }
+        try {
+            $this->contexts->preview($agent, Requester::human($user, 'ask: the signed-in person'), 'operator', $businessId);
+        } catch (ExecutionContextRefused $e) {
+            return $e->getMessage();
         }
 
         return null;
@@ -112,7 +111,7 @@ final class AskHq
         if (! $this->scope->allows($user, $businessId)) {
             throw new InvalidArgumentException('You cannot ask about that business.');
         }
-        if (($refusal = $this->refusalFor($user, $agentKey)) !== null) {
+        if (($refusal = $this->refusalFor($user, $agentKey, $businessId)) !== null) {
             throw new InvalidArgumentException($refusal);
         }
 
@@ -200,11 +199,15 @@ final class AskHq
                 trigger: 'operator',
                 operator: $conversation->user,
                 businessId: $conversation->business_id,
+                // The person who asked is a TERM of the run's authority, read again now: they may
+                // have been disabled, or lost a business, since the question was accepted.
+                requester: Requester::human($conversation->user, "ask_conversations#{$conversation->id}.user_id"),
             ));
         } catch (Throwable $e) {
-            // The runner's own refusals (agent paused, no enabling user) are HQ's sentences and safe to
-            // show; anything else is named by its class only.
-            $safe = $e instanceof \RuntimeException && str_starts_with($e->getMessage(), 'Agent [');
+            // A refused execution context (agent paused, no enabling user, a person disabled, nothing
+            // in common) is one of HQ's own sentences and safe to show; anything else is named by
+            // its class only.
+            $safe = $e instanceof ExecutionContextRefused;
             $reply->forceFill([
                 'status' => AskMessage::FAILED,
                 'content' => $safe ? $e->getMessage() : 'The agent could not answer ('.class_basename($e).').',

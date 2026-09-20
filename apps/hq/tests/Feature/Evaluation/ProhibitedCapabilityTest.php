@@ -31,6 +31,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SafetyCorpusSeeder;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | A prohibited capability is its own runtime-owned boundary (docs/75, ADR-044).
@@ -69,7 +70,7 @@ function capabilityReply(array $overrides): ModelResponse
 
 function askCapability(string $question, array $context = []): AgentRun
 {
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context, requester: Contexts::asEnabled()));
 }
 
 // ── The detector ────────────────────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * An AI agent as configuration (docs/08: agents are rows, not classes).
  *
  * M1 creates no agent rows and runs no agent. The table and this model exist so that
- * ActingIdentity::agent() has something real to point at and so the intersection rule is written,
+ * an agent's acting identity has something real to point at and so the intersection rule is written,
  * tested and correct before anything depends on it. The Executive and Analytics agents are M5.
  *
  * Two defaults are deliberately the safe direction: `status` is `paused` and `max_autonomy_level`

@@ -1,5 +1,6 @@
 <?php
 
+use App\Execution\ExecutionContextRefused;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\FailureClass;
@@ -28,6 +29,7 @@ use App\Tools\ToolRegistry;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Tests\Support\Execution\Contexts;
 use Tests\Support\Tools\CountingTool;
 use Tests\Support\Tools\WriteTool;
 
@@ -204,7 +206,8 @@ it('gives an agent the intersection of its own list and its enabling human, neve
         'key' => 'test-agent', 'name' => 'Test', 'status' => 'active',
         'enabling_user_id' => $human->id, 'allowed_tools' => ['test.counting'],
     ]);
-    $identity = ActingIdentity::agent($agent, $human);
+    // ADR-047: an agent identity exists only for a context the resolver produced.
+    $identity = ActingIdentity::forExecution(Contexts::for($agent));
 
     expect($identity->holds('hq.tools.diagnostics', 'test.counting'))->toBeTrue();
 
@@ -213,12 +216,17 @@ it('gives an agent the intersection of its own list and its enabling human, neve
 
     // The agent lists the tool but the human lacks the permission: still refused. An agent cannot
     // hold more than the person it borrows from.
+    // Since ADR-047 that is refused one step earlier still: no context resolves at all.
     $weak = operator(['hq.dashboard.view']);
-    expect(ActingIdentity::agent($agent, $weak)->holds('hq.tools.diagnostics', 'test.counting'))->toBeFalse();
+    $agent->update(['enabling_user_id' => $weak->id]);
+    expect(fn () => Contexts::for($agent->fresh()))->toThrow(ExecutionContextRefused::class, 'none of the permissions');
+    $agent->update(['enabling_user_id' => $human->id]);
 
-    // A paused agent does nothing, whatever its list says.
+    // A paused agent does nothing, whatever its list says: an identity resolved while it was
+    // active stops holding anything the moment it is paused, and no new one resolves.
     $agent->update(['status' => 'paused']);
-    expect(ActingIdentity::agent($agent->fresh(), $human)->holds('hq.tools.diagnostics', 'test.counting'))->toBeFalse();
+    expect($identity->holds('hq.tools.diagnostics', 'test.counting'))->toBeFalse();
+    expect(fn () => Contexts::for($agent->fresh()))->toThrow(ExecutionContextRefused::class, 'is [paused]');
 });
 
 it('never lets a credential identity satisfy a permission', function () {
@@ -263,7 +271,7 @@ it('refuses an agent a tool that is not agent-executable, before any other consi
         toolKey: 'test.counting',
         args: [],
         caller: CallerKind::Agent,
-        identity: ActingIdentity::agent($agent, $human),
+        identity: ActingIdentity::forExecution(Contexts::for($agent)),
         correlationId: (string) Str::uuid(),
     ));
 

@@ -4,6 +4,7 @@ namespace App\Agents;
 
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Execution\EffectiveExecutionContext;
 use App\Gateway\OutcomeClass;
 use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Models\Agent;
@@ -46,16 +47,19 @@ final readonly class ContextAssembler
     /**
      * The opening bundle for a run, before any tool has been called.
      */
-    public function open(Agent $agent, string $question, ?Business $business, array $catalogue): ContextBundle
+    public function open(EffectiveExecutionContext $context, string $question, ?Business $business, array $catalogue): ContextBundle
     {
+        $agent = $context->agent;
+
         $blocks = [
             ContextBlock::system('agent:'.$agent->key, $this->identityBlock($agent, $business)),
             ContextBlock::system('tools:catalogue', $this->catalogueBlock($catalogue)),
             // ⭐ The names a business goes by and the slug a tool argument takes, resolved by HQ
             // and handed to the model as a lookup table, so "Bionic Garden" is never a guess at a
             // slug (docs/67). System provenance: it is HQ's own data about HQ's own businesses.
+            // Built from the run's resolved context (ADR-047), so it lists what this run may read.
             ContextBlock::system('businesses:directory', $this->references->directory(
-                $this->references->permittedBusinesses($agent, null, $business?->id),
+                $this->references->permittedBusinesses($context),
             )),
         ];
 

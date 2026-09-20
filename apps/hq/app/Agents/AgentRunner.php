@@ -12,6 +12,8 @@ use App\Autonomy\AutonomyRequest;
 use App\Autonomy\AutonomyResolver;
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Execution\EffectiveExecutionContext;
+use App\Execution\ExecutionContextResolver;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
@@ -27,7 +29,6 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Business;
 use App\Models\Store;
-use App\Models\User;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -42,7 +43,7 @@ use Throwable;
  *    -> context assembled, every block labelled with its provenance
  *    -> autonomy resolved (A0 in Phase 2: shadow)
  *    -> model turn, reply forced to AgentResponseSchema
- *    -> each proposed call -> ToolGateway::execute() under the agent's identity
+ *    -> each proposed call -> ToolGateway::execute() under the run's Effective Execution Context
  *         allow             -> result folded back, loop may continue
  *         deny              -> reason folded back; a second denial of the same tool -> ONE closing turn, no tool honoured
  *         awaiting approval -> recorded as a proposal, never waited on
@@ -222,6 +223,7 @@ final class AgentRunner
         private readonly SecurityIntent $securityIntent,
         private readonly TaskScopeResolver $taskScope,
         private readonly ProhibitedCapability $prohibitedCapability,
+        private readonly ExecutionContextResolver $contexts,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -232,26 +234,18 @@ final class AgentRunner
             throw new RuntimeException("There is no agent with the key [{$request->agentKey}].");
         }
 
-        // Fail closed, and say which of the two it is. A paused agent is a deliberate state (it is
-        // the documented rollback); an agent with no enabling human has no authority at all, because
-        // an agent never has authority of its own.
-        if (! $agent->isActive()) {
-            throw new RuntimeException("Agent [{$agent->key}] is [{$agent->status}], so it will not run.");
-        }
-
-        $enabling = $agent->enablingUser;
-        if ($enabling === null) {
-            throw new RuntimeException(
-                "Agent [{$agent->key}] names no enabling user. An agent borrows a human's authority and has none of its own, "
-                .'so one must be set before it can run.'
-            );
-        }
+        // ⭐ ADR-047: the run's authority is resolved ONCE, here, by the one resolver every entry
+        //    point shares: the person who asked AND the enabling human AND the agent's own scope.
+        //    It fails closed and says why (a paused agent, no enabling human, no requester, nothing
+        //    in common), and everything below takes its authority from the result: the catalogue,
+        //    the directory, the group expansion and every gateway call.
+        $execution = $this->contexts->resolve($agent, $request->requester, $request->trigger, $request->businessId, $request->brandId);
 
         $business = $request->businessId === null ? null : Business::find($request->businessId);
         $correlationId = (string) Str::uuid();
-        $catalogue = $this->toolset->catalogueFor($agent, $request->businessId);
+        $catalogue = $this->toolset->catalogueFor($execution);
 
-        $bundle = $this->assembler->open($agent, $request->question, $business, $catalogue);
+        $bundle = $this->assembler->open($execution, $request->question, $business, $catalogue);
         foreach ($request->extraContext as $block) {
             if ($block instanceof ContextBlock) {
                 $bundle = $bundle->with($block);
@@ -280,10 +274,14 @@ final class AgentRunner
             'started_at' => now(),
         ]);
 
+        // Who asked, who enabled, the scopes, the permission names and why anything was narrowed:
+        // on the row and in the audit log, before the first model turn.
+        $this->contexts->record($run, $execution);
+
         $startedAt = microtime(true);
 
         try {
-            $this->loop($run, $agent, $enabling, $request, $bundle, $decision, $correlationId);
+            $this->loop($run, $agent, $execution, $request, $bundle, $decision, $correlationId);
         } catch (OutputTruncated $e) {
             // Its own stop reason, because it is its own failure: the answer was too long for the
             // room it had, twice. Not the model misbehaving, not the schema, and the next reader
@@ -328,7 +326,7 @@ final class AgentRunner
     private function loop(
         AgentRun $run,
         Agent $agent,
-        User $enabling,
+        EffectiveExecutionContext $execution,
         AgentRunRequest $request,
         ContextBundle $bundle,
         AutonomyDecision $decision,
@@ -457,7 +455,7 @@ final class AgentRunner
                 return;
             }
 
-            $requested = $this->expandGroupWide($agent, $request, $this->proposedCalls($reply), $scope);
+            $requested = $this->expandGroupWide($execution, $this->proposedCalls($reply), $scope);
 
             // A turn that asks for evidence and names nothing cannot make progress, and repeating it
             // would burn the remaining turns to arrive at the same place.
@@ -482,7 +480,7 @@ final class AgentRunner
                 }
 
                 $toolCalls++;
-                [$block, $record, $denied] = $this->invoke($agent, $enabling, $request, $call, $decision, $correlationId, $run);
+                [$block, $record, $denied] = $this->invoke($agent, $execution, $request, $call, $decision, $correlationId, $run);
 
                 $bundle = $bundle->with($block);
                 $results[] = $block->render();
@@ -623,7 +621,7 @@ final class AgentRunner
      */
     private function invoke(
         Agent $agent,
-        User $enabling,
+        EffectiveExecutionContext $execution,
         AgentRunRequest $request,
         array $call,
         AutonomyDecision $decision,
@@ -665,7 +663,7 @@ final class AgentRunner
             toolKey: $key,
             args: $args,
             caller: CallerKind::Agent,
-            identity: ActingIdentity::agent($agent, $enabling),
+            identity: ActingIdentity::forExecution($execution),
             correlationId: $correlationId,
             businessId: $request->businessId,
             brandId: $request->brandId,
@@ -735,8 +733,8 @@ final class AgentRunner
      *
      * A call that names a target is left alone, and so is a call for a tool with no scope argument.
      * A call whose scope argument is the group reference, or is missing, is decided by the task's
-     * scope, never by the model's omission: a GROUP task becomes one call per target this agent may
-     * read for this tool in this run; a task about one or more NAMED businesses becomes one call per
+     * scope, never by the model's omission: a GROUP task becomes one call per target this run's
+     * Effective Execution Context may read for this tool; a task about one or more NAMED businesses becomes one call per
      * named target (the named business for a business argument; its stores, or the named store, for
      * a store argument), intersected with what the agent may read, and the record says both that HQ
      * expanded it and that the task decided the targets; a task that names NOTHING leaves the call
@@ -747,7 +745,7 @@ final class AgentRunner
      * @param  list<array<string, mixed>>  $calls
      * @return list<array<string, mixed>>
      */
-    private function expandGroupWide(Agent $agent, AgentRunRequest $request, array $calls, TaskScope $taskScope): array
+    private function expandGroupWide(EffectiveExecutionContext $execution, array $calls, TaskScope $taskScope): array
     {
         $out = [];
 
@@ -781,8 +779,8 @@ final class AgentRunner
             }
 
             $permitted = $kind === 'business'
-                ? $this->references->permittedBusinessSlugs($agent, $key, $request->businessId)
-                : $this->references->permittedStoreSlugs($agent, $key, $request->businessId);
+                ? $this->references->permittedBusinessSlugs($execution, $key)
+                : $this->references->permittedStoreSlugs($execution, $key);
 
             $slugs = $taskScope->isGroup()
                 ? $permitted

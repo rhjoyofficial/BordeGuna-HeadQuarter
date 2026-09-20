@@ -4,6 +4,7 @@ namespace App\Agents\Shadow;
 
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Execution\Requester;
 use App\Models\AgentRun;
 use App\Models\ShadowPeriod;
 use App\Models\ShadowProbeRun;
@@ -17,7 +18,10 @@ use Throwable;
  * ⭐ **A probe is trusted workload, not authority.** Its trusted task is the exact operator-owned
  * question stored on the period when it opened. It runs through the ordinary runner, gateway and
  * autonomy plane as a run with trigger `shadow_probe`; nothing here chooses a tool, a scope or a
- * business, and nothing here can widen what the agent may do. After the run, the probe row records
+ * business, and nothing here can widen what the agent may do. It asks ON BEHALF OF the person who
+ * opened the period (ADR-047): the scheduler has no authority of its own, so the run is resolved by
+ * the same Effective Execution Context resolver as a person's question, narrowed to that person and
+ * to the agent's enabling user, with no bypass for being scheduled. After the run, the probe row records
  * whether the runtime's canonical task stayed exactly the question (ADR-041 makes it so; this is the
  * evidence that it did).
  *
@@ -93,6 +97,7 @@ final class ShadowProbes
                     question: $probe['question'],
                     trigger: self::TRIGGER,
                     operator: $operator,
+                    requester: Requester::forShadowPeriod($period),
                 ));
                 $row->forceFill([
                     'agent_run_id' => $run->id,

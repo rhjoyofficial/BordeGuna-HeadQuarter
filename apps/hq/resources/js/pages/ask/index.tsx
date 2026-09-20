@@ -137,7 +137,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Ask HQ"
-                    description="Put a question to an agent. It answers through the same runner, tools and policies as everywhere else, under its enabling user and its own ceiling; this page holds no power of its own."
+                    description="Put a question to an agent. It answers through the same runner, tools and policies as everywhere else, with only what you and its enabling user may both do, under its own ceiling; this page holds no power of its own."
                     actions={
                         <StatusBadge tone={runtime_on ? 'warn' : 'neutral'}>
                             {runtime_on ? 'AI runtime on' : 'AI runtime off: nothing is asked'}

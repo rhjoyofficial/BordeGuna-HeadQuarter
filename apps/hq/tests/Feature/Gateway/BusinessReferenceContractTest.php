@@ -22,6 +22,7 @@ use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Tests\Support\Execution\Contexts;
 
 /*
  | The business a tool argument names is a contract, not a guess (docs/67, ADR-039).
@@ -48,13 +49,16 @@ beforeEach(function () {
     $this->executive = Agent::where('key', 'executive')->sole();
 });
 
+/** A call by the executive, resolved through the real resolver: `$enabling` is its enabling user and nobody else asked. */
 function scopedRequest(string $tool, array $args, User $enabling, ?int $businessId = null): ToolRequest
 {
+    Agent::where('key', 'executive')->update(['enabling_user_id' => $enabling->id]);
+
     return new ToolRequest(
         toolKey: $tool,
         args: $args,
         caller: CallerKind::Agent,
-        identity: ActingIdentity::agent(Agent::where('key', 'executive')->sole(), $enabling),
+        identity: ActingIdentity::forExecution(Contexts::for(Agent::where('key', 'executive')->sole())),
         correlationId: (string) Str::uuid(),
         businessId: $businessId,
     );
@@ -159,7 +163,7 @@ it('resolves a store argument by its display name too, and refuses an unknown st
 // ── The agent's catalogue: required and enumerated ──────────────────────────────────────────────
 
 it('marks the scope argument required and enumerates exactly the businesses the agent may name', function () {
-    $catalogue = collect(app(AgentToolset::class)->catalogueFor($this->executive));
+    $catalogue = collect(app(AgentToolset::class)->catalogueFor(Contexts::for($this->executive)));
 
     $snapshot = $catalogue->firstWhere('tool', 'erp.read_snapshot');
     expect($snapshot)->not->toBeNull();
@@ -186,18 +190,18 @@ it('narrows the enumeration to the business the run was opened for, to the enabl
     $bionic = Business::where('slug', 'bionic')->sole();
     $toolset = app(AgentToolset::class);
 
-    $one = collect($toolset->catalogueFor($this->executive, $bionic->id))->firstWhere('tool', 'erp.read_snapshot');
+    $one = collect($toolset->catalogueFor(Contexts::for($this->executive, $bionic->id)))->firstWhere('tool', 'erp.read_snapshot');
     expect($one['arguments']['properties']['business_slug']['enum'])->toBe(['bionic', 'all']);
 
     UserBusinessScope::create(['user_id' => $this->owner->id, 'business_id' => $laladia->id]);
     Cache::flush();
-    $scoped = collect($toolset->catalogueFor($this->executive->fresh()))->firstWhere('tool', 'erp.read_snapshot');
+    $scoped = collect($toolset->catalogueFor(Contexts::for($this->executive->fresh())))->firstWhere('tool', 'erp.read_snapshot');
     expect($scoped['arguments']['properties']['business_slug']['enum'])->toBe(['laladia', 'all']);
 
     UserBusinessScope::query()->delete();
     ToolRegistration::create(['key' => 'erp.read_snapshot', 'enabled' => true, 'enabled_businesses' => [$bionic->id]]);
     Cache::flush();
-    $switched = collect($toolset->catalogueFor($this->executive->fresh()))->firstWhere('tool', 'erp.read_snapshot');
+    $switched = collect($toolset->catalogueFor(Contexts::for($this->executive->fresh())))->firstWhere('tool', 'erp.read_snapshot');
     expect($switched['arguments']['properties']['business_slug']['enum'])->toBe(['bionic', 'all']);
 });
 
@@ -215,7 +219,7 @@ it('does not change the tool\'s own schema: a screen or a job that names the bus
 // ── The directory the model reads ───────────────────────────────────────────────────────────────
 
 it('hands the model a directory of the businesses it may name, with the slug beside every other name', function () {
-    $bundle = app(ContextAssembler::class)->open($this->executive, 'How is Bionic Garden doing?', null, []);
+    $bundle = app(ContextAssembler::class)->open(Contexts::for($this->executive), 'How is Bionic Garden doing?', null, []);
     $block = collect($bundle->blocks)->firstWhere('source', 'businesses:directory');
 
     expect($block)->not->toBeNull();
@@ -234,7 +238,7 @@ it('hands the model a directory of the businesses it may name, with the slug bes
 
 it('narrows the directory to the one business a single-business run is about', function () {
     $bionic = Business::where('slug', 'bionic')->sole();
-    $bundle = app(ContextAssembler::class)->open($this->executive, 'How is Bionic Garden doing?', $bionic, []);
+    $bundle = app(ContextAssembler::class)->open(Contexts::for($this->executive, $bionic->id), 'How is Bionic Garden doing?', $bionic, []);
     $text = collect($bundle->blocks)->firstWhere('source', 'businesses:directory')->content;
 
     expect($text)->toContain('bionic: Bionic')->not->toContain('laladia: LaLaDia');

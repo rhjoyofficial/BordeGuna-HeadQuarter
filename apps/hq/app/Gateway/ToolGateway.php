@@ -3,6 +3,7 @@
 namespace App\Gateway;
 
 use App\Consent\ConsentGate;
+use App\Execution\ExecutionContextResolver;
 use App\Gateway\Approval\ApprovalGuard;
 use App\Gateway\Approval\ApprovalService;
 use App\Gateway\Credentials\CredentialHealth;
@@ -45,7 +46,7 @@ use Throwable;
  *
  *   1. registry + runtime switch     -> unavailable
  *   2. schema validation             -> invalid          (before policy, before any credential)
- *   3. scope resolution + business scope -> denied
+ *   3. scope resolution + business scope -> denied   (an agent's scope is its resolved execution context, ADR-047)
  *   4/5. policy engine, which owns the permission intersection and the guardrail rules
  *                                    -> allow | require_approval | deny | dry_run | confirm
  *   6. approval                      -> M3; in M1 an approval requirement is a refusal, not a wait
@@ -77,6 +78,7 @@ final class ToolGateway
         private readonly Auditor $auditor,
         private readonly ConsentGate $consent,
         private readonly CredentialHealth $health,
+        private readonly ExecutionContextResolver $contexts,
     ) {}
 
     public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
@@ -457,9 +459,25 @@ final class ToolGateway
      */
     private function checkScope(ToolDescriptor $descriptor, ToolRequest $request, ResolvedScope $scope): ?string
     {
-        $user = $request->identity->enablingUser();
-        if ($user !== null && ! $this->businessScope->allows($user, $scope->businessId)) {
-            return "{$request->identity->label} is not scoped to business {$scope->businessId}.";
+        // ⭐ ADR-047: an agent's call is checked against the context its run was resolved under,
+        //    the same object its catalogue and its directory were built from: the person who asked
+        //    AND the person who enabled AND the agent's own scope. First, that the context still
+        //    stands at all; a person disabled mid-run, or an agent paused mid-run, ends it here.
+        if (($execution = $request->identity->execution) !== null) {
+            if (($gone = $this->contexts->stillStands($execution)) !== null) {
+                return $gone;
+            }
+            if (! $execution->allowsBusiness($scope->businessId)) {
+                return "{$request->identity->label} is not scoped to business {$scope->businessId}.";
+            }
+            if (! $execution->allowsBrand($request->brandId)) {
+                return "{$request->identity->label} is not scoped to brand {$request->brandId}.";
+            }
+        } else {
+            $user = $request->identity->enablingUser();
+            if ($user !== null && ! $this->businessScope->allows($user, $scope->businessId)) {
+                return "{$request->identity->label} is not scoped to business {$scope->businessId}.";
+            }
         }
 
         if (! $descriptor->supportsBusiness($scope->businessSlug)) {
@@ -539,6 +557,12 @@ final class ToolGateway
      */
     private function permittedBusinesses(ToolRequest $request): ?array
     {
+        // An agent's cross-business reads are filtered by its resolved context (ADR-047): what the
+        // asker AND the enabling user AND the agent row may all read, never the enabling user's alone.
+        if ($request->identity->execution !== null) {
+            return $request->identity->execution->businessIds;
+        }
+
         $user = $request->identity->enablingUser();
 
         return $user === null ? null : $this->businessScope->all($user);
