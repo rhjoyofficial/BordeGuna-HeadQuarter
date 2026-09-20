@@ -16,9 +16,13 @@ you typed, and says plainly that nothing was asked.
 
 ## Ask HQ
 
-- **Who can use it:** the owner and operator roles (`hq.ask.use`), and only someone who sees every
-  business and holds every permission the chosen agent's tools need. The agent works with its
-  enabling person's reach, so HQ will not lend that reach to anyone narrower; the page says why.
+- **Who can use it:** the owner and operator roles (`hq.ask.use`). Since ADR-047 the answer is
+  narrowed to the person asking: the agent works with what the asker AND its enabling person may
+  both do (businesses, brands, tool permissions), never with the enabling person's reach alone. So
+  somebody limited to one business may ask, and is answered about that business only. HQ refuses,
+  and the page says why, only when the two people have nothing in common for the agent to work with
+  (no shared business, or none of the permissions its tools need). Every run records who asked, who
+  enabled, and what was narrowed and why (HQ, Agents, the run; and the audit log).
 - **What it takes:** your words, the Executive or the Analytics agent, and optionally a business.
   Nothing else; there is no way to name a tool, a model or an autonomy level from the page.
 - **What you get:** the agent's answer, marked **Shadow** while the agent is at A0 (a proposal for a

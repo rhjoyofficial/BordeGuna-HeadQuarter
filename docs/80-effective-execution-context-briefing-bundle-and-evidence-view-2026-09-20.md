@@ -535,8 +535,8 @@ One value object and one resolver, in `app/Execution`:
   to another enabler, refuses the rest of the run's calls.
 - **Recorded and audited.** `agent_runs.execution_context` (json) and
   `agent_runs.execution_context_digest`, additive and nullable; one audit row per run
-  (`agent_run.context_resolved`), one per refusal (`agent_run.context_refused`). Ids, labels as the
-  existing audit rows already carry them, scopes, permission NAMES, reasons. No secret exists in it.
+  (`agent_run.context_resolved`), one per refusal (`agent_run.context_refused`). User ids, scopes,
+  permission NAMES, reasons. No address, credential or secret exists in it.
 - **Entry points.** Ask HQ passes `Requester::human(asker)` and drops its group-wide restriction:
   the page and the submit ask the resolver, and refuse with its reason when the intersection leaves
   the agent nothing. Shadow Probes pass `Requester::forShadowPeriod()`. The gate runner, and with it
@@ -566,3 +566,104 @@ One value object and one resolver, in `app/Execution`:
 5. An agent left with no usable tool is refused rather than run with an empty catalogue.
 6. `users.is_active = false` is treated as disabled here.
 7. The scheduler's tool path (`RunScheduledJob`) is not rerouted: it has one human and no agent.
+
+#### C.2.3 As built (20 September), ADR-047
+
+Built as designed in C.2.2, with one refinement found by the existing gateway tests: whether an
+agent may EXECUTE a tool at all (`agentExecutable`) stays out of the permission term. The catalogue
+leaves such a tool out and policy refuses it by name before it asks about permission, as before; the
+context's tool set is "the agent's tools whose permission both people hold" and nothing else.
+
+**New (`app/Execution`):** `RequesterKind`, `Requester`, `EffectiveExecutionContext` (`eec.v1`),
+`ExecutionContextResolver` (`resolve`, `preview`, `record`, `stillStands`), `ExecutionContextRefused`.
+**Migration, additive and reversible:** `2026_09_20_200000_add_execution_context_to_agent_runs`
+(`execution_context` jsonb null, `execution_context_digest` varchar(64) null), rehearsed on Postgres:
+applied, rolled back, re-applied.
+**Changed:** `AgentRunner` (27 lines in, 29 out: the two fail-closed checks moved into the resolver
+with their sentences unchanged; catalogue, directory, expansion and identity taken from the context;
+the context recorded before the first model turn), `AgentRunRequest` (`requester`), `AgentToolset`,
+`ContextAssembler`, `BusinessReferenceResolver` (all three take the context, not the agent row),
+`ActingIdentity` (`agent()` removed, `forExecution()` added, `holds()` asks both people and the
+resolved tool set), `ToolGateway` (`checkScope`: still stands, business, brand; the cross-business
+filter), `AskHq` (the group-wide rule removed; `refusalFor` is the resolver's preview),
+`ShadowProbes`, `AgentEvaluationSubject`, `hq:agent:ask` (new `--as`), `AgentRun`, the Ask page's
+one sentence, the Ask HQ runbook. **Not touched** (`git diff` empty): every prompt file,
+`TaskGrounding`, `TaskScope`, `TaskScopeResolver`, `SecurityIntent`, `ProhibitedCapability`,
+`app/Gateway/Policy`, `app/Gateway/Approval`, the seeders.
+
+**The executive stamp did not change.** `PromptLibrary::version()` hashes the two prompt files and
+no code; read after the change it is `executive.v8+18d60e98` (and `support.v1+0f4a195b`). The
+identity test's system-prompt digest begins `18d60e98`, the same bytes.
+
+**Every AI entry point, after:**
+
+| Entry point | Requester it states |
+| --- | --- |
+| Ask HQ (`AskHq::answer`) | `human`, the asker, read again when the queued answer runs |
+| Shadow Probes (`hq:shadow:tick`, the scheduled one) | `on_behalf_of` the period's opener; `as_enabled` when no opener was recorded, and the record says so |
+| Gate runner, and the support agent's scenario path | `gate_runner`, `as_enabled`; `support` names no enabling user, so it still cannot run |
+| Console (`hq:agent:ask`) | `console`, `as_enabled`; or `human` with `--as` |
+| A scheduled job that starts a run (none exists yet) | `Requester::forScheduledJob`: `on_behalf_of` the owner, refused when there is none |
+
+**Regression tests** (30 new, `tests/Feature/Security`): `EffectiveExecutionContextTest` (14),
+`ExecutionContextOnePathTest` (13), `ExecutionContextIdentityCaseTest` (3).
+
+*Watched failing first, against the unmodified behaviour* (the code at `d8779c6` plus only the inert
+`requester` field, so each failed for its behavioural reason and not for a missing class), 13 of the
+14 in the first file: restricted requester with the owner enabling (the group-wide read returned 3
+rows, not 1); two restricted people with different scopes (3, not 2); same permissions and no shared
+business (ran; no refusal); same business, another brand (ran; `brand_scope` was read by nothing);
+a permission only the enabling user holds (the tool ran for the asker); a permission only the
+requester holds (the tool was listed in the catalogue); an asker sharing no permission (ran); no
+requester named (ran); no enabling identity (refused, but unaudited); a requester or enabling user
+disabled while the question waited in the queue (ran); Ask HQ for a restricted operator (refused by
+the old rule); a Shadow Probe for a restricted opener (3 rows, not 2); the context recorded and
+audited (no column). *Passed before and after:* owner requester with a restricted enabling user,
+which the enabling-side intersection always held. *New guards, with no earlier behaviour to watch
+fail* (second file): the gateway's checks reached with no runner in front (business, permission,
+brand); the mid-run re-read (requester disabled, requester deleted, enabling user disabled, agent
+paused, agent handed to another enabling user, which is the requester/enabler mismatch case); the
+scheduled-job requester; the no-opener period; the gate runner and the console; the source-reading
+test (no `ActingIdentity::agent(` anywhere; `forExecution(` only in the runner; a context built only
+by the resolver; `resolve(` called only by the runner; every `new AgentRunRequest(` in `app/` states
+a `requester:`; nothing that starts or carries a run reads `->enablingUser`; the runner still has
+exactly one `->execute(`).
+
+**The identity case, byte for byte.** Four sha256 digests (system prompt, first-turn prompt,
+second-turn message with all seven tool results, the recorded calls row by row) were captured by
+running the scenario on the app code of `d8779c6` (checked out over the working tree, then
+restored), and the new code reproduces all four, for `as_enabled` and for the owner asking in
+person. They are pinned in `ExecutionContextIdentityCaseTest`, with the rule for re-pinning them.
+
+**One existing test changed its meaning, on purpose:** `AskHqTest` no longer expects the group-wide
+refusal; it expects a restricted operator to be allowed, a business outside their rows refused, and
+an asker sharing nothing refused in the resolver's words. Twelve existing test files changed
+mechanically (a `requester:` on each run request; `Contexts::for()` where a test built an agent
+identity, a catalogue or a directory by hand), with their assertions unchanged, except
+`ToolGatewayTest`'s intersection case, which now also asserts that no context resolves for a
+permissionless enabling user or a paused agent.
+
+**Verification, the merge gate until 1 October.** Pest, folder by folder on `hq_test_b`: Agents 106,
+Ai 53, Ask 8, Auth 15, Autonomy 14, Commerce 8, Consent 8, Conversation 70, Erp 18, Evaluation 176,
+Identity and Facts 38, Foundation 14, Gateway 174, Media 7, Observe 40, Platform 21, Scheduler 34,
+Security 54, Settings 6, Dashboard 5, Unit 1: **870 passed, 0 failed** (840 before, 30 new; the one
+whole-suite run agrees). Pint `--test` passed; `tsc --noEmit` clean; `vite build` succeeded.
+**Local verification passed; GitHub Actions validation deferred until the 1 October reset.**
+
+**Not done, and why.** The run page does not yet SHOW the recorded context (it is on the row and in
+the audit log; the screen is a small follow-up and was left out of the most security-critical
+stream). The scheduler's tool path carries no context (choice 7). Nothing was switched on: no flag,
+no grant, no job, no prompt, no agent status.
+
+**Found on the way, reported and not changed.**
+- `users.is_active` exists and nothing in authentication reads it; only this resolver now does.
+- `tests/Feature/Facts` run alone fails one test (`signedPost()` is defined in
+  `tests/Feature/Identity`); the two folders pass together, which is how `docs/78` counted them.
+- `facts.query_orders` orders grouped rows by the metric alone, so equal groups come back in an
+  order that changes between runs.
+- The ADR index (`docs/32`) stops at ADR-019; ADR-020 to ADR-046 are not listed. ADR-047 was added.
+- An approval parked by an agent records the ENABLING user as `requested_by_user_id`
+  (`ApprovalService.php:76`); with a requester now known this may deserve a second column. Approval
+  binding was out of scope.
+- `BusinessScope` caches a person's rows for 60 seconds, so a person narrowed a moment ago keeps
+  their old reach for up to a minute unless `forget()` is called. Unchanged here.
