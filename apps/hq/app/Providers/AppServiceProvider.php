@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
+use App\Auth\ActiveUserProvider;
 use App\Briefing\BriefingNarrator;
 use App\Briefing\NoNarrator;
 use App\Commerce\Support\CommerceRegistry;
@@ -29,6 +30,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Client\Events\ResponseReceived;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
@@ -85,6 +87,9 @@ class AppServiceProvider extends ServiceProvider
         // freshly created model legitimately lacks database defaults until refreshed.
         Model::preventLazyLoading(! $this->app->isProduction());
         Model::preventSilentlyDiscardingAttributes(! $this->app->isProduction());
+
+        // docs/81 P0-1: a disabled account is nobody to the guard, the remember cookie and the password broker.
+        Auth::provider('active-eloquent', fn ($app, array $config) => new ActiveUserProvider($app['hash'], $config['model']));
 
         Event::listen(Login::class, [RecordAuthenticationEvents::class, 'login']);
         Event::listen(Logout::class, [RecordAuthenticationEvents::class, 'logout']);
