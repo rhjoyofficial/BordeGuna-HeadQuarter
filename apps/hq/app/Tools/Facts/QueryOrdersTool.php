@@ -46,6 +46,15 @@ use Illuminate\Support\Facades\DB;
  * units and would silently drag an average down, so units are summed only over orders that HAVE
  * lines, and the count of those is reported beside it. Reporting units against the full row count
  * would be arithmetic on a denominator that does not apply.
+ *
+ * ## The order of the rows is a rule, not an accident (docs/81 P1-1)
+ *
+ * Grouped rows come back by the metric, descending, and then by the GROUP KEY, ascending: the id for
+ * a business or a store (the key behind the slug), and the text itself under the "C" collation for
+ * every other grouping, so the order does not depend on the database's locale. Ordering by the
+ * metric alone left tied groups in whatever order the plan produced, and with a limit it let chance
+ * decide which of them was in the answer at all. When a tie IS cut by the limit,
+ * `coverage.tie_at_limit` says so; the key is absent whenever no tie was cut.
  */
 final class QueryOrdersTool implements Tool
 {
@@ -60,6 +69,10 @@ final class QueryOrdersTool implements Tool
     private const GROUPINGS = ['none', 'day', 'week', 'month', 'business', 'store', 'status', 'source', 'district', 'payment_method'];
 
     private const METRICS = ['orders', 'gross', 'subtotal', 'units', 'avg_order_value'];
+
+    /** Units, summed only over rows that carry lines. One definition: the column and the sort read the same thing. */
+    private const UNITS = 'coalesce(sum((select sum((l->>\'qty\')::numeric) from jsonb_array_elements(lines) l)'
+        .' ) filter (where lines is not null and jsonb_array_length(lines) > 0), 0)';
 
     public function key(): string
     {
@@ -165,8 +178,16 @@ final class QueryOrdersTool implements Tool
         $metric = (string) ($payload['metric'] ?? 'orders');
         $limit = min((int) ($payload['limit'] ?? 100), self::MAX_ROWS);
 
+        [$rows, $tie] = $this->rows($base(), $groupBy, $metric, $limit, $timezone);
+
+        // Present only when the limit cut through a tie, so a result it did not happen to is byte
+        // for byte what it always was.
+        if ($tie !== null) {
+            $coverage['tie_at_limit'] = $tie;
+        }
+
         return ToolResult::succeeded([
-            'rows' => $this->rows($base(), $groupBy, $metric, $limit, $timezone),
+            'rows' => $rows,
             'coverage' => $coverage,
             'filters' => $this->echoFilters($payload, $from, $to, $timezone),
         ]);
@@ -258,31 +279,44 @@ final class QueryOrdersTool implements Tool
         ];
     }
 
-    /** @return list<array<string, mixed>> */
+    /**
+     * The grouped rows, in a fixed order, and what the limit did to a tie.
+     *
+     * The grouping is an inner query; the ordering and the limit sit outside it, on plain columns.
+     * That is what lets the group key be the second sort key for every grouping, including the ones
+     * whose expression carries a bound timezone.
+     *
+     * @return array{0: list<array<string, mixed>>, 1: array<string, mixed>|null}
+     */
     private function rows(QueryBuilder $query, string $groupBy, string $metric, int $limit, string $timezone): array
     {
         [$expression, $bindings] = $this->groupExpression($groupBy, $timezone);
 
-        $select = $query
+        $grouped = $query
             ->selectRaw($expression.' as group_key', $bindings)
             ->selectRaw(
                 'count(*) as orders,'
                 .' coalesce(sum(gross), 0) as gross,'
                 .' coalesce(sum(subtotal), 0) as subtotal,'
                 // Units only over rows that actually carry lines; the denominator is reported too.
-                .' coalesce(sum((select sum((l->>\'qty\')::numeric) from jsonb_array_elements(lines) l)'
-                .' ) filter (where lines is not null and jsonb_array_length(lines) > 0), 0) as units,'
-                .' count(*) filter (where lines is not null and jsonb_array_length(lines) > 0) as orders_with_lines'
+                .' '.self::UNITS.' as units,'
+                .' count(*) filter (where lines is not null and jsonb_array_length(lines) > 0) as orders_with_lines,'
+                // What the rows are ordered by. Unchanged from when it was the ORDER BY itself.
+                .' '.$this->orderExpression($metric).' as sort_metric'
             )
             ->groupBy('group_key');
 
-        $select = $groupBy === 'none'
-            ? $select
-            : $select->orderByRaw($this->orderExpression($metric).' desc nulls last');
+        $ordered = fn (): QueryBuilder => DB::query()->fromSub($grouped->clone(), 'g')
+            ->orderByRaw('sort_metric desc nulls last')
+            ->orderByRaw($this->keyOrder($groupBy));
+
+        // One more than was asked for: the extra row is how a tie at the cut is seen.
+        $fetched = $ordered()->limit($limit + 1)->get()->map(fn ($row) => (array) $row)->all();
+        $kept = array_slice($fetched, 0, $limit);
+        $tie = $this->tieAtLimit($fetched, $kept, $limit, $metric, $groupBy, $grouped);
 
         $out = [];
-        foreach ($select->limit($limit)->get() as $row) {
-            $row = (array) $row;
+        foreach ($kept as $row) {
             $orders = (int) $row['orders'];
             $gross = (float) $row['gross'];
 
@@ -297,7 +331,7 @@ final class QueryOrdersTool implements Tool
             ];
         }
 
-        return $out;
+        return [$out, $tie];
     }
 
     /**
@@ -326,10 +360,61 @@ final class QueryOrdersTool implements Tool
         return match ($metric) {
             'gross' => 'sum(gross)',
             'subtotal' => 'sum(subtotal)',
-            'units' => 'units',
+            'units' => self::UNITS,
             'avg_order_value' => 'sum(gross) / nullif(count(*), 0)',
             default => 'count(*)',
         };
+    }
+
+    /**
+     * The second sort key: the group key itself, ascending, nulls last.
+     *
+     * A business or a store is grouped by its id, so it is ordered as a number (as text, 10 would
+     * sort before 9). Everything else is text, ordered under the "C" collation: byte order, the same
+     * on every server, where the database's own locale is whatever the host was installed with.
+     */
+    private function keyOrder(string $groupBy): string
+    {
+        return in_array($groupBy, ['business', 'store'], true)
+            ? 'group_key::bigint asc nulls last'
+            : 'group_key collate "C" asc nulls last';
+    }
+
+    /**
+     * Whether the limit cut through a tie, and if so what a reader needs to know about it.
+     *
+     * @param  list<array<string, mixed>>  $fetched  up to limit + 1 rows
+     * @param  list<array<string, mixed>>  $kept
+     * @return array<string, mixed>|null
+     */
+    private function tieAtLimit(array $fetched, array $kept, int $limit, string $metric, string $groupBy, QueryBuilder $grouped): ?array
+    {
+        if (count($fetched) <= $limit || $kept === []) {
+            return null;
+        }
+
+        $cut = $kept[count($kept) - 1]['sort_metric'];
+        $firstLeftOut = $fetched[$limit]['sort_metric'];
+
+        // Compared as the database returned them: the same numeric prints the same way.
+        if ((string) $cut !== (string) $firstLeftOut || ($cut === null) !== ($firstLeftOut === null)) {
+            return null;
+        }
+
+        $sharing = DB::query()->fromSub($grouped->clone(), 'g')
+            ->when($cut === null, fn ($q) => $q->whereNull('sort_metric'), fn ($q) => $q->where('sort_metric', $cut))
+            ->count();
+        $returned = count(array_filter($kept, static fn (array $row) => (string) $row['sort_metric'] === (string) $cut));
+
+        return [
+            'metric' => $metric,
+            'value' => $cut === null ? null : round((float) $cut, 2),
+            'limit' => $limit,
+            'groups_sharing_the_value' => $sharing,
+            'of_which_returned' => $returned,
+            'chosen_by' => 'group key ascending ('.(in_array($groupBy, ['business', 'store'], true) ? 'the id' : 'text, "C" collation').'), not by the metric',
+            'note' => 'The limit cut through groups that tie on the metric. The groups left out rank equal to the last one shown; raise the limit to see them all.',
+        ];
     }
 
     /** Ids are unhelpful to a reader and to a model; slugs are what everything else names. */

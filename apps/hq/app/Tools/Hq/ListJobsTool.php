@@ -95,7 +95,9 @@ final class ListJobsTool implements Tool
         }
 
         $jobs = [];
-        foreach ($query->orderBy('name')->limit(min((int) ($payload['limit'] ?? 25), self::MAX))->get() as $job) {
+        // The id after the name: a name is not unique, and a limit must not cut between two jobs
+        // of the same name by chance (docs/81 P1-1).
+        foreach ($query->orderBy('name')->orderBy('id')->limit(min((int) ($payload['limit'] ?? 25), self::MAX))->get() as $job) {
             $jobs[] = [
                 'name' => $job->name,
                 'tool' => $job->tool_key,
