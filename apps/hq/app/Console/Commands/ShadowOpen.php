@@ -7,6 +7,7 @@ use App\Agents\Shadow\ShadowProbes;
 use App\Models\Agent;
 use App\Models\User;
 use Illuminate\Console\Command;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -17,6 +18,10 @@ use Throwable;
  * `ai.runtime` on, sets the agent active at its unchanged A0 ceiling, and writes the period, each
  * step audited with the reason given. `--by` names the person on whose word this is done; the audit
  * rows carry that user as the actor.
+ *
+ * ⛔ On production `--by` is mandatory and must name an enabled HQ user, and `--no-schedule` is
+ * refused (docs/81 points 11 and 12). Both are enforced in `ShadowPeriods::open()`; this command
+ * only says so earlier. Local and testing keep the convenience path.
  */
 class ShadowOpen extends Command
 {
@@ -46,6 +51,27 @@ class ShadowOpen extends Command
                     $suite, $row['run_id'] ?? '-', $row['status'] ?? '-', $row['unmeasured'] ?? '-', $row['prompt_version'] ?? '-', $row['triggered_by'] ?? '-'));
             }
         }
+        // docs/81 points 11 and 12: the opener is read before anything is reported, so a dry run
+        // says what an --apply would say. A named person must exist and be enabled everywhere; on
+        // production one must be named.
+        $user = null;
+        $openerRefusal = null;
+        if (($email = $this->option('by')) !== null) {
+            $user = User::query()->where('email', $email)->first();
+            if ($user === null) {
+                $openerRefusal = "No HQ user has the email [{$email}].";
+            }
+        }
+        if ($openerRefusal === null) {
+            try {
+                $periods->assertOpener($user?->getKey());
+            } catch (RuntimeException $e) {
+                $openerRefusal = $user === null ? $e->getMessage() : "[{$email}] is disabled, so nothing opens on their word.";
+            }
+        }
+        $this->line('  opener: '.($user === null ? 'none named (--by)' : "{$user->email} (user #{$user->getKey()})")
+            .($openerRefusal === null ? '' : ' - REFUSED: '.$openerRefusal));
+
         $questions = (array) $this->option('question');
         $scheduled = ! $this->option('no-schedule');
         if (! $scheduled) {
@@ -58,22 +84,12 @@ class ShadowOpen extends Command
         if (! $this->option('apply')) {
             $this->info('dry run: nothing was changed. Add --apply (with --reason and --by) to open it.');
 
-            return $refusals === [] ? self::SUCCESS : self::FAILURE;
+            return $refusals === [] && $openerRefusal === null ? self::SUCCESS : self::FAILURE;
         }
-        if ($refusals !== []) {
-            $this->error('Not opened.');
+        if ($refusals !== [] || $openerRefusal !== null) {
+            $this->error($openerRefusal === null ? 'Not opened.' : "Not opened. {$openerRefusal}");
 
             return self::FAILURE;
-        }
-
-        $user = null;
-        if (($email = $this->option('by')) !== null) {
-            $user = User::query()->where('email', $email)->first();
-            if ($user === null) {
-                $this->error("No HQ user has the email [{$email}].");
-
-                return self::FAILURE;
-            }
         }
 
         try {
