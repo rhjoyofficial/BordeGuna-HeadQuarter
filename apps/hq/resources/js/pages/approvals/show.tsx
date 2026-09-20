@@ -41,6 +41,11 @@ type Approval = {
     consumed_at: string | null;
     created_at: string | null;
     requested_by: string | null;
+    /** The enabling user of the agent that parked it; null for a person, a job, and a row from before the split. */
+    enabled_by: string | null;
+    requester_kind: string | null;
+    /** False for an agent's row whose requester column still holds the enabling user (docs/81 P0-4). */
+    requester_recorded: boolean;
     decided_by: string | null;
     delegated_to: string | null;
     decidable: boolean;
@@ -185,13 +190,30 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                             {approval.business ?? (approval.business_id ? `#${approval.business_id}` : 'not business-specific')}
                             {approval.store ? ` · ${approval.store}` : ''}
                         </Fact>
-                        <Fact label="Asked by">
+                        <Fact label={approval.agent_key ? 'Proposed by' : 'Asked by'}>
                             {approval.agent_key ? (
                                 <span className="text-amber-700 dark:text-amber-300">the {approval.agent_key} agent</span>
                             ) : (
                                 (approval.requested_by ?? 'system')
                             )}
                         </Fact>
+                        {approval.agent_key && (
+                            <Fact label="Who asked the agent">
+                                {!approval.requester_recorded ? (
+                                    <span className="text-muted-foreground">
+                                        Recorded before requester and enabler were kept apart, so the person who asked is not known.
+                                    </span>
+                                ) : approval.requested_by === approval.enabled_by ? (
+                                    <>{approval.requested_by ?? 'nobody recorded'}, who also enabled the agent</>
+                                ) : (
+                                    <>
+                                        {approval.requested_by ?? 'nobody recorded'}
+                                        {approval.requester_kind === 'on_behalf_of' ? ' (a scheduled or system run on their behalf)' : ''}
+                                        <span className="text-muted-foreground"> · agent enabled by {approval.enabled_by ?? 'nobody recorded'}</span>
+                                    </>
+                                )}
+                            </Fact>
+                        )}
                         <Fact label="Requested">
                             {approval.created_at ? `${timeAgo(approval.created_at)}, ${formatDateTime(approval.created_at)}` : '-'}
                         </Fact>
