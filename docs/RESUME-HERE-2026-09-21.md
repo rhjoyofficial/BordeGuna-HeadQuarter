@@ -36,6 +36,11 @@ prompt or safety semantics may be tuned to improve a gate result.
 `main` = the merge of streams E and F on top of the `docs/80` milestone, pushed to
 `github-personal:rhjoyofficial/BordeGuna-HeadQuarter`.
 
+**Verified on the merged tree at the pause, not recalled:** full Pest suite **1046 passed, 0 failed**
+(9,368 assertions, 231 s), `pint --test` passed, `tsc --noEmit` clean, `vite build` succeeded.
+Local verification passed; GitHub Actions validation deferred until the 1 October reset. That 1046 is
+the number the next merge must not reduce.
+
 | Stream | Branch | State |
 | --- | --- | --- |
 | E. Disabled users cannot authenticate; business scope never stale; `--by` mandatory on production | `fix/auth-scope-and-shadow-opener` | **MERGED** |
