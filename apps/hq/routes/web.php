@@ -7,6 +7,7 @@ use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
+use App\Http\Controllers\Observe\BriefingController;
 use App\Http\Controllers\Observe\ObserveController;
 use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
@@ -123,6 +124,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('control-plane', [ObserveController::class, 'controlPlane'])->middleware('permission:hq.tools.view')->name('control-plane');
         Route::get('autonomy-evidence', [ObserveController::class, 'autonomyEvidence'])->middleware('permission:hq.agents.view')->name('autonomy-evidence');
         Route::get('platform', [ObserveController::class, 'platform'])->middleware('permission:hq.horizon.view')->name('platform');
+
+        // docs/80 C.1: stored briefings and the evidence behind each, read-only. Composing one is the
+        // tool `briefing.compose` through the gateway; nothing on these pages composes or narrates.
+        Route::get('briefings', [BriefingController::class, 'index'])->middleware('permission:hq.tools.facts.read')->name('briefings');
+        Route::get('briefings/{uuid}', [BriefingController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.tools.facts.read')->name('briefings.show');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');

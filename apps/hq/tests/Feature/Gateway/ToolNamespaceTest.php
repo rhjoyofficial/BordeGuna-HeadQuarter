@@ -45,6 +45,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'commerce.list_orders', 'hq.list_approvals', 'hq.list_jobs', 'hq.recent_events',
         // Phase 3 stream 3 (docs/72 §B): the support agent's thread read and its one proposal-only write.
         'conversation.read_thread', 'messaging.send_reply',
+        // M7 (docs/80 C.1): composes and stores the Executive Briefing's evidence bundle. No job runs it yet.
+        'briefing.compose',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

@@ -1,6 +1,7 @@
 <?php
 
 use App\Ai\Providers\AnthropicProvider;
+use App\Briefing\ExecutiveBriefingContract;
 use App\Observe\Alerts\Rules\AiBudgetPressure;
 use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
 use App\Observe\Alerts\Rules\CredentialExpiring;
@@ -20,6 +21,7 @@ use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
+use App\Tools\Briefing\ComposeBriefingTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
@@ -84,6 +86,38 @@ return [
         // messaging provider is registered, which none is (gate P3-G4).
         ReadThreadTool::class,
         SendReplyTool::class,
+
+        // M7 (docs/48 M.4, docs/80 C.1): collects, validates and stores the Executive Briefing's
+        // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
+        // model while narration is off, which is the shipped state. No scheduled job runs it.
+        ComposeBriefingTool::class,
+    ],
+
+    // docs/80 C.1: the Executive Briefing capability. The contract is code (its trusted task, its
+    // input and its evidence surface are constants on the class); what is here is deployment tuning.
+    //
+    // ⛔ Narration is behind the feature flag `briefing.narration`, which has no row anywhere and is
+    // therefore off (`Features::enabled` answers false for a missing key). It also needs `ai.runtime`.
+    'briefing' => [
+        'contract' => ExecutiveBriefingContract::class,
+
+        // How old a source may be before the briefing says, at the top, that it is stale. The ERP
+        // polls and the shop reconciliation are DAILY, so a day plus two hours of grace, the same
+        // figure the snapshot alert uses; the alert check runs every five minutes.
+        'freshness_budget_minutes' => [
+            'facts_orders' => 1560,
+            'erp_low_stock' => 1560,
+            'integrity_check' => 1560,
+            'alerts' => 15,
+        ],
+
+        // The order-volume band exists only above this history floor, the same one
+        // `facts.query_orders` uses before it will call anything a trend. Below it the briefing says
+        // "insufficient history" and gives no band.
+        'band' => ['min_days' => 14, 'min_rows' => 30],
+
+        // Individual rows listed beside a count (failed runs, alerts, approvals, low-stock lines).
+        'max_listed' => 20,
     ],
 
     // The ERP's HQ API (bordeguna-erp feature/hq-api). The per-business token is NOT here: it is an

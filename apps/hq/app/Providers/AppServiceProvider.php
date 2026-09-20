@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
+use App\Briefing\BriefingNarrator;
+use App\Briefing\NoNarrator;
 use App\Commerce\Support\CommerceRegistry;
 use App\Commerce\Support\ConnectorCallLogger;
 use App\Evaluation\DeterministicGrader;
@@ -67,6 +69,10 @@ class AppServiceProvider extends ServiceProvider
 
         // Deterministic graders decide tool calls and refusals; the rubric grader exists and
         // refuses while ai.runtime is off, which in this milestone means always.
+        // docs/80 C.1: HQ ships with no briefing narrator. The composer resolves this binding only when
+        // `briefing.narration` and `ai.runtime` are both on, and what it then gets can reach no model.
+        $this->app->bind(BriefingNarrator::class, NoNarrator::class);
+
         $this->app->singleton(EvaluationRunner::class, fn ($app) => (new EvaluationRunner($app->make(Auditor::class)))
             ->withGrader(new DeterministicGrader)
             ->withGrader($app->make(RubricGrader::class)));
