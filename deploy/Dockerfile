@@ -35,6 +35,10 @@ FROM php:8.3-fpm-alpine AS runtime
 # Empty by default so a plain `docker compose build` still works; deploy.sh always passes it.
 ARG GIT_COMMIT=""
 LABEL com.bordeguna.commit=$GIT_COMMIT
+# ⭐ The same fact, where the APPLICATION can read it (docs/80 C.4). A container cannot read its own
+# image label, so until this line the running app had no honest way to say what release it was.
+# Empty means "not a release image": the app then says "development checkout" rather than guessing.
+ENV HQ_RELEASE_COMMIT=$GIT_COMMIT
 
 RUN apk add --no-cache bash curl postgresql17-client icu-libs libzip libpng libjpeg-turbo freetype tzdata \
  && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS postgresql17-dev icu-dev libzip-dev libpng-dev libjpeg-turbo-dev freetype-dev linux-headers \

@@ -17,6 +17,11 @@ x-app: &app
   env_file: [.env]
   volumes:
     - storage:/var/www/html/storage
+    # Release state written by the HOST (deploy.sh, rollback.sh, release-state-refresh.sh), read-only
+    # here (docs/80 C.4). ⚠ The DIRECTORY is mounted, never the files: they are replaced by rename,
+    # and a bind-mounted file would pin the old inode. ⚠ `app` below overrides this list, so the line
+    # is repeated there.
+    - ./release-state:/var/www/html/release-state:ro
   networks: [internal]
   depends_on:
     db:
@@ -38,6 +43,7 @@ services:
     volumes:
       - storage:/var/www/html/storage
       - public:/var/www/html/public-volume
+      - ./release-state:/var/www/html/release-state:ro
     healthcheck:
       test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);'"]
       interval: 30s
