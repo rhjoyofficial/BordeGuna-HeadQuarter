@@ -544,3 +544,136 @@ still needs Anthropic capacity, which is his.
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.4 Stream H: the autonomy evidence policy, the producer, the resolver link and the view (branch `autonomy/evidence-policy-and-producer`, point 5, respecting point 13)
+
+**The plan, written before the code.**
+
+*Findings, read from the code first.*
+
+1. **No required rate exists per level or per dimension.** The only requirement anywhere is a number
+   on one grant: `autonomy_grants.min_agreement_rate` with `min_agreement_dimension` and
+   `evaluation_suite_key` (`database/migrations/2026_09_09_310000_create_autonomy_grants_table.php`,
+   `2026_09_10_200000_add_dimensions_to_evaluation.php:44`). `AutonomyEvidence.php:46-48` says so in
+   its own header, and `docs/80` C.3 listed it as a decision for Joy and ChatGPT.
+2. **The mechanical link has no producer.** `AgentRunner::resolveAutonomy()` (`AgentRunner.php:856-866`)
+   builds an `AutonomyRequest` with no `agreementRate` and no `dimensionRates`, and nothing in `app/`
+   builds either. `AutonomyResolver::hasEvaluationEvidence()` (`AutonomyResolver.php:209-231`) then
+   reads null and the grant does not match. Fail closed, and ADR-023's link is unreachable.
+3. **The resolver ignores a grant's `evaluation_suite_key`.** `hasEvaluationEvidence()` never reads it,
+   so a grant naming a suite would be compared with whatever pooled rate the caller passed. Harmless
+   while nothing passes a rate; it matters the moment a producer exists, so it is closed here.
+4. **The per-check record already exists.** `DeterministicGrader::CHECKS` (`DeterministicGrader.php:51`)
+   names seventeen checks (`must_not_call`, `no_tool_calls`, `no_denied_calls`, `task_grounding`,
+   `security_intent`, `prohibited_capability`, `no_substitution`, `refusal`, `covers_businesses`,
+   `scope_bound`, `tool_calls`, `citations`, `outcome`, `agent_woken`, `only_tools`, `replies`,
+   `reply_script`); every result stores `checks` as `check => pass|fail|not_applicable`
+   (`EvaluationRunner.php:126,147`) and the run stores `check_rates` (`EvaluationRunner.php:163-168,212`).
+   A hard safety requirement references a check by one of those keys, and is recounted from the
+   result rows, never read from `check_rates`.
+5. **The append-only pattern** is a plpgsql function that raises, bound by `BEFORE UPDATE` and
+   `BEFORE DELETE` triggers (`audit_logs` in `2026_09_05_100100`, `consent_events` in `2026_09_09_300000`,
+   with restrict-only foreign keys because a cascade is a write the trigger refuses). Reused here.
+6. **The audited named-human act** is the `hq:shadow:open` shape: dry run by default, `--apply`,
+   `--by <email>`, `--reason`, `Auditor::record(..., actorUserId)`.
+7. **The identity case** (`tests/Feature/Security/ExecutionContextIdentityCaseTest.php`) pins the
+   system prompt, both turns and the recorded calls. It holds no grant and no policy, so the rule
+   below ("no active policy: the request and the decision are exactly today's") keeps it green with
+   no re-pin.
+
+*Schema (one additive migration, Postgres triggers, rehearsed apply, roll back, re-apply).*
+
+- `autonomy_evidence_policies`: `id`, `uuid`, `version` (unique, assigned in order), `name`,
+  `summary`, `status` (`proposed` | `active` | `retired`), `supersedes_id`, `proposed_by`,
+  `proposed_at`, `activated_by`, `activated_at`, `activation_reason`, `retired_by`, `retired_at`,
+  `retirement_reason`, `content_digest` (sha256 of the canonical requirement set, written at
+  activation), timestamps. A partial unique index allows **at most one `active` row**.
+- `autonomy_evidence_requirements`: `policy_id`, `autonomy_level` (`a1`..`a4`; A0 needs nothing, A5
+  is refused), `dimension` (one of the six ADR-030 dimensions; there is deliberately **no `overall`
+  row**, because ADR-030 rejected the single number), `min_agreement_rate` decimal(4,3) **nullable =
+  not decided**, `min_sample_count` **nullable = not decided**, `max_evidence_age_days` **nullable =
+  not decided**, `required_measured_state` (only value today: `fully_measured`; a laxer state needs
+  its own ADR), `note`. Unique on (policy, level, dimension).
+- `autonomy_evidence_hard_checks`: `policy_id`, `autonomy_level`, `check_key` (a key of
+  `DeterministicGrader::CHECKS`), `min_sample_count` and `max_evidence_age_days` (both nullable = not
+  decided). The rate is not a column: a hard check is 100 percent or it fails.
+- `autonomy_evidence_policy_events`: append-only history (`policy_id`, `event` proposed | activated |
+  retired, actor user id and label, reason, a snapshot of the whole policy, its digest,
+  `occurred_at`). `BEFORE UPDATE` and `BEFORE DELETE` refuse, as on `consent_events`.
+- Database-level immutability: a trigger on the policy table refuses every change to a `retired` row,
+  allows an `active` row only the move to `retired` (and only the retirement columns), refuses
+  deleting anything that was ever active, and **refuses the move to `active` when the policy has no
+  requirement row, when any numeric field of a requirement or hard check is NULL, or when
+  `activated_by`, `activated_at` or `activation_reason` is missing.** Triggers on the two child tables
+  refuse INSERT, UPDATE and DELETE once the parent is `active` or `retired`.
+- `agent_runs.autonomy_evidence` jsonb nullable: which policy version and which evidence the run's
+  autonomy decision was judged on. Null when no policy is active, so today's rows do not change.
+
+*Governance.* `App\Autonomy\Evidence\EvidencePolicies` is the one writer: `propose()` (from a JSON
+file, numbers may be null), `activate()`, `retire()`. Console only, the narrower surface:
+`hq:autonomy-policy:propose`, `hq:autonomy-policy:activate`, `hq:autonomy-policy:retire`,
+`hq:autonomy-policy:show`. Activation and retirement are dry runs without `--apply` and need `--by`
+(an existing, enabled user holding `hq.policies.manage`) and `--reason`; each writes an event row and
+an audit row under that human. Activating retires the previous active version in the same
+transaction. **Nothing is activated in this stream and no seeder writes a policy or a grant.** No
+number is shipped: tests carry their own fixture values, labelled as test values.
+
+*The producer.* `App\Autonomy\Evidence\EvidenceProducer`, deterministic, no write:
+
+- `measure(Agent)`: the recount that `AutonomyEvidence` does today, moved here unchanged (applicable
+  suites, the latest finished run per suite, results of those runs for this role, passed / failed /
+  unmeasured per dimension and overall with the result ids, the run lineage, the stored figure beside
+  the recount, the prompt stamp compared with `PromptLibrary::version(role)`), plus a per-check recount
+  from `evaluation_results.checks` with result ids. `AutonomyEvidence` consumes it; its 13 tests and
+  its no-write guarantee are the proof the move changed nothing.
+- `judge(evidence, policy, now)`: per level, every requirement and hard check beside its measured
+  value, `met` or the exact reasons, and the **evidence ceiling**.
+- `forRunner(Agent)`: what the runner passes on. No active policy: null, and nothing is queried
+  beyond the one policy lookup. An active policy and no live grant that could name this agent: the
+  policy version is recorded and no evidence is counted, because no grant means A0 whatever the
+  evidence says.
+- **Cost bound, no cache.** One query for the active policy, one for its rows, one for the suites,
+  one indexed latest-run lookup per applicable suite, one results query restricted to those run ids
+  (columns `id, run_id, case_id, passed, unmeasured, dimension, checks` only), one grouped count of
+  declared cases. History is never read, so the row count is the number of cases in the latest runs,
+  not the number of runs ever made; an explicit ceiling on that row count fails closed. No cache was
+  chosen, so there is no stale read to reason about: a finished run or an activation is seen by the
+  next run.
+
+*Eligibility rules, every one fail closed.*
+
+1. No active policy: no verdict, no rates passed, the resolver decides exactly as today.
+2. The policy is **necessary, never sufficient**: it enters the resolver as one more ceiling (combined
+   by MINIMUM), so it can only lower. With no matching grant the answer is still A0. Nothing here
+   creates, edits or promotes a grant (point 13).
+3. Levels are cumulative: level L is eligible only when every level from A1 to L has at least one
+   requirement row and ALL of its requirements and hard checks are met. A level the policy says
+   nothing about is unreachable through evidence.
+4. A requirement is met only when: the dimension has measured results (an unmeasured or never
+   measured dimension never satisfies it, and the overall figure is never read for it); measured
+   count >= `min_sample_count`; the pooled rate AND each contributing suite's rate meet
+   `min_agreement_rate`, in whole thousandths; every contributing run is finished within
+   `max_evidence_age_days`, carries the agent's CURRENT prompt stamp, passed its own gate, held zero
+   unmeasured cases and recounts to what it stored; every applicable suite declaring cases in the
+   dimension has been run. A NULL field on a requirement is "not decided" and never met.
+5. A hard check is met only at 100 percent: zero `fail`, at least `min_sample_count` `pass`, on runs
+   that satisfy the same stamp, age and zero-unmeasured rules. A failing hard check caps the level
+   below the one that names it whatever the rates are.
+6. Rates handed to the grant comparison (`agreementRate`, `dimensionRates`, and per suite) are given
+   only for clean evidence and are floored to thousandths, and a grant naming `evaluation_suite_key`
+   is compared with that suite's figure, never the pooled one.
+7. The decision records the policy id, version and digest, the evidence digest and run ids, the
+   ceiling and its reasons, additively (`AutonomyDecision::toArray()` gains a key only when a policy
+   was applied).
+
+*The view.* Same GET route, still write-free: the active policy (or "no policy is active, so evidence
+cannot widen autonomy"), per row each requirement beside the measured value with the exact reason it
+is not met, the hard checks, the evidence ceiling, the proposed versions listed as not in force. The
+lineage expanders stay.
+
+*Tests (Pest, `hq_test_h`).* Policy governance and the triggers; activation refusals (NULL field,
+wrong actor, no rows, second active); the producer's rules one by one; the resolver with and without a
+policy; the runner recording the evidence; no seeder writes a grant or a policy; the view. Mutations
+to watch failing: the overall rate substituted for a missing dimension; unmeasured counted as a pass;
+one satisfied dimension treated as enough; a policy with a NULL field activated; evidence on an old
+prompt stamp accepted.
