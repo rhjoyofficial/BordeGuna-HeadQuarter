@@ -24,7 +24,8 @@ use Tests\Support\Ai\FixtureProvider;
 
 /*
  | docs/78 B.3, docs/48 K: Ask HQ, built inert behind the flag `ask_hq`. It asks nothing while the AI
- | runtime is off, lends no agent's reach to someone who lacks it, and takes no tool from a browser.
+ | runtime is off, lends no agent's reach to someone who lacks it (ADR-047: the run is narrowed to the
+ | asker, not refused to them), and takes no tool from a browser.
  */
 
 beforeEach(function () {
@@ -159,7 +160,7 @@ it('takes no tool, arguments or model from the browser', function () {
         ->and($source)->not->toContain('ToolGateway')->not->toContain('ModelRuntime')->not->toContain('AgentRunner');
 });
 
-it('refuses the support agent, a stranger\'s conversation, and an asker without the agent\'s reach', function () {
+it('refuses the support agent, a stranger\'s conversation, a business outside the asker\'s rows, and an asker who shares nothing with the agent', function () {
     askHqFlag();
 
     $this->actingAsHq($this->owner)->post('/ask', ['question' => 'Hi', 'agent_key' => 'support'])
@@ -171,16 +172,22 @@ it('refuses the support agent, a stranger\'s conversation, and an asker without 
     $this->actingAsHq($other)->post('/ask', ['question' => 'Mine now', 'agent_key' => 'executive', 'conversation' => $mine->uuid])
         ->assertNotFound();
 
-    // A business-restricted operator: the runner would answer with the enabling user's group-wide reach.
+    // ADR-047 replaced the old rule ("open only to operators who see every business"): the run itself
+    // is narrowed to the asker now, so a business-restricted operator may ask. What is still refused
+    // at the door is a business outside the asker's own rows.
     $business = Business::firstOrFail();
+    $elsewhere = Business::where('id', '!=', $business->id)->firstOrFail();
     UserBusinessScope::create(['user_id' => $other->id, 'business_id' => $business->id]);
-    $this->actingAsHq($other)->post('/ask', ['question' => 'Hi', 'agent_key' => 'executive'])
-        ->assertSessionHasErrors(['question' => 'Ask HQ answers with an agent\'s group-wide reach, so it is open only to operators who see every business.']);
+    Cache::flush();
+    expect(app(AskHq::class)->refusalFor($other, 'executive'))->toBeNull();
+    $this->actingAsHq($other)->post('/ask', ['question' => 'Hi', 'agent_key' => 'executive', 'business_id' => $elsewhere->id])
+        ->assertSessionHasErrors(['question' => 'You cannot ask about that business.']);
 
-    // Someone holding hq.ask.use but not what the agent's tools need.
+    // Someone holding hq.ask.use and none of what the agent's tools need: the intersection leaves the
+    // agent nothing to work with, and the resolver's own sentence says so.
     $narrow = User::factory()->create();
     $narrow->givePermissionTo('hq.ask.use');
-    expect(app(AskHq::class)->refusalFor($narrow, 'executive'))->toContain('which you do not hold');
+    expect(app(AskHq::class)->refusalFor($narrow, 'executive'))->toContain('hold in common none of the permissions');
 
     expect(AskMessage::where('role', 'user')->count())->toBe(1);
 });

@@ -32,6 +32,7 @@ use Database\Seeders\SafetyCorpusSeeder;
 use Database\Seeders\TaskIntegrityCases;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | Task integrity, apart from authority safety (docs/69, ADR-040).
@@ -86,7 +87,7 @@ function gradeIntegrity(EvaluationCase $case): array
 
 function askIntegrity(string $question): AgentRun
 {
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, requester: Contexts::asEnabled()));
 }
 
 // ── The schema: the assessment comes first, and stays inside the subset ─────────────────────────
@@ -189,7 +190,7 @@ it('declares cardinality on the scoped tools and writes it into the catalogue as
     expect($registry->get('commerce.list_orders')->descriptor()->cardinality)->toBe(ToolCardinality::OnePerStore);
     expect($registry->get('facts.snapshot_freshness')->descriptor()->cardinality)->toBe(ToolCardinality::HqWide);
 
-    $catalogue = collect(app(AgentToolset::class)->catalogueFor(Agent::where('key', 'executive')->sole()));
+    $catalogue = collect(app(AgentToolset::class)->catalogueFor(Contexts::for(Agent::where('key', 'executive')->sole())));
     $snapshot = $catalogue->firstWhere('tool', 'erp.read_snapshot');
     expect($snapshot['scope_semantics'])->toContain('exactly one business')->toContain('one call per relevant business');
     expect($snapshot['purpose'])->toContain('ONE business');

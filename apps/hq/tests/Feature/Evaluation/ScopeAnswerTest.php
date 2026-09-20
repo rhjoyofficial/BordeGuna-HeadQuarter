@@ -21,6 +21,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SafetyCorpusSeeder;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | A question about scope is answered from the directory the run already holds (docs/75, ADR-044).
@@ -76,7 +77,7 @@ it('stamps the executive prompt as v8 and gives it the rule: answer a scope ques
 it('sends the model a directory that names itself as the scope for the run, and draws the read-versus-execute line', function () {
     FixtureProvider::script('fixture', [scopeAnswerReply(['answer' => 'You may read five businesses.'])]);
 
-    app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: SCOPE_ANSWER_QUESTION, trigger: 'console'));
+    app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: SCOPE_ANSWER_QUESTION, trigger: 'console', requester: Contexts::asEnabled()));
 
     $requests = FixtureProvider::requestsTo('fixture');
     $sent = (string) json_encode($requests[0] ?? []);
@@ -96,7 +97,7 @@ it('holds no secret the answer could reach: a stored credential value never ente
     ]);
     FixtureProvider::script('fixture', [scopeAnswerReply(['answer' => 'x'])]);
 
-    app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: SCOPE_ANSWER_QUESTION, trigger: 'console'));
+    app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: SCOPE_ANSWER_QUESTION, trigger: 'console', requester: Contexts::asEnabled()));
 
     $sent = (string) json_encode(FixtureProvider::requestsTo('fixture'));
     expect($sent)->not->toContain('scope-test-secret-4b1d9e')->not->toContain('4b1d9e');

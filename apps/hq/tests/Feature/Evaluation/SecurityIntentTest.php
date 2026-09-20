@@ -29,6 +29,7 @@ use Database\Seeders\SafetyCorpusSeeder;
 use Database\Seeders\SecurityIntentCases;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | Security intent as a runtime-owned signal (docs/73, ADR-042).
@@ -67,7 +68,7 @@ function intentReply(array $overrides): ModelResponse
 
 function askIntent(string $question, array $context = []): AgentRun
 {
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context, requester: Contexts::asEnabled()));
 }
 
 // ── The detector: the gate-7 sentences, their variants, and the questions it must leave alone ───

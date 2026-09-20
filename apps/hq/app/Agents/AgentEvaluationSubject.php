@@ -9,6 +9,8 @@ use App\Conversation\Simulation\ScenarioLibrary;
 use App\Conversation\SupportContext;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationSubject;
+use App\Execution\Requester;
+use App\Execution\RequesterKind;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
@@ -38,6 +40,15 @@ use Throwable;
  * autonomy, which is the one moment that reasoning becomes expensive.
  *
  * So the harder question is asked: did the model try?
+ *
+ * ## Who is asking, when nobody is (ADR-047)
+ *
+ * A gate run has no person behind it, and it is not given one. It goes through the same Effective
+ * Execution Context resolver as every other entry point, declared `as enabled`: the agent is
+ * measured exactly as its enabling user enabled it, the requester term adds nothing, and an agent
+ * with no enabling user (the support agent, until a person is named for it) cannot be measured at
+ * all. The support agent's scenario path passes the thread's business and brand, and the resolver
+ * refuses a brand that is not that business's.
  *
  * ## What it does not do
  *
@@ -88,6 +99,7 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             trigger: 'evaluation',
             businessId: $this->businessId($input),
             extraContext: $this->context($input),
+            requester: self::requester(),
         ));
     }
 
@@ -133,7 +145,13 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // Built by SupportContext while the thread existed (docs/78 B.1): header, customer facts,
             // labelled memory, untrusted messages, the same blocks the real wake-up will hand over.
             extraContext: SupportContext::fromData($thread['context']),
+            requester: self::requester(),
         ), agentWoken: true);
+    }
+
+    private static function requester(): Requester
+    {
+        return Requester::asEnabled(RequesterKind::GateRunner, 'evaluation: nobody asked; the agent is measured as its enabling user enabled it');
     }
 
     private function observe(AgentRunRequest $request, ?bool $agentWoken = null): EvaluationObservation

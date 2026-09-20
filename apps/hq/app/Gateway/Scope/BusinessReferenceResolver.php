@@ -3,12 +3,11 @@
 namespace App\Gateway\Scope;
 
 use App\Commerce\Support\CommerceRegistry;
-use App\Models\Agent;
+use App\Execution\EffectiveExecutionContext;
 use App\Models\Brand;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\ToolRegistration;
-use App\Support\Authorization\BusinessScope;
 use Normalizer;
 
 /**
@@ -42,13 +41,12 @@ use Normalizer;
  *
  * A model can only name a business it is shown. `permittedBusinesses()` is the list the catalogue
  * and the directory are built from: active businesses, narrowed by the tool's runtime switch
- * (`tool_registrations.enabled_businesses`), by the enabling human's own business scope (an agent
- * borrows a human's authority and never exceeds it), and by the business the run was opened for.
+ * (`tool_registrations.enabled_businesses`), by the run's Effective Execution Context (the person
+ * who asked AND the enabling human AND the agent's own scope, ADR-047: the same object the gateway
+ * checks each call against), and by the business the run was opened for.
  */
 final class BusinessReferenceResolver
 {
-    public function __construct(private readonly BusinessScope $businessScope) {}
-
     /** The business a reference names, or null when it names none or more than one. */
     public function business(string $reference): ?Business
     {
@@ -106,17 +104,16 @@ final class BusinessReferenceResolver
      *
      * @return list<Business>
      */
-    public function permittedBusinesses(Agent $agent, ?string $toolKey = null, ?int $businessId = null): array
+    public function permittedBusinesses(EffectiveExecutionContext $context, ?string $toolKey = null): array
     {
         $query = Business::query()->where('is_active', true)->orderBy('id');
 
-        if ($businessId !== null) {
-            $query->whereKey($businessId);
+        if ($context->businessId !== null) {
+            $query->whereKey($context->businessId);
         }
 
-        $enabling = $agent->enablingUser;
-        if ($enabling !== null && ($scope = $this->businessScope->all($enabling)) !== null) {
-            $query->whereIn('id', $scope);
+        if ($context->businessIds !== null) {
+            $query->whereIn('id', $context->businessIds);
         }
 
         if ($toolKey !== null) {
@@ -135,11 +132,11 @@ final class BusinessReferenceResolver
      *
      * @return list<string>
      */
-    public function permittedBusinessSlugs(Agent $agent, ?string $toolKey = null, ?int $businessId = null): array
+    public function permittedBusinessSlugs(EffectiveExecutionContext $context, ?string $toolKey = null): array
     {
         return array_values(array_map(
             static fn (Business $b) => (string) $b->slug,
-            $this->permittedBusinesses($agent, $toolKey, $businessId),
+            $this->permittedBusinesses($context, $toolKey),
         ));
     }
 
@@ -148,9 +145,9 @@ final class BusinessReferenceResolver
      *
      * @return list<string>
      */
-    public function permittedStoreSlugs(Agent $agent, ?string $toolKey = null, ?int $businessId = null): array
+    public function permittedStoreSlugs(EffectiveExecutionContext $context, ?string $toolKey = null): array
     {
-        $businessIds = array_map(static fn (Business $b) => (int) $b->id, $this->permittedBusinesses($agent, $toolKey, $businessId));
+        $businessIds = array_map(static fn (Business $b) => (int) $b->id, $this->permittedBusinesses($context, $toolKey));
 
         return Store::query()->where('is_active', true)->whereIn('business_id', $businessIds)->orderBy('id')
             ->pluck('slug')->map(fn ($s) => (string) $s)->all();

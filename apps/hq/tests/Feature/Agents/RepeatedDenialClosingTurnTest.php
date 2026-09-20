@@ -16,6 +16,7 @@ use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | A repeated denial ends in a verdict, not in silence (docs/67, ADR-039).
@@ -63,6 +64,7 @@ function askExecutive(string $question = 'How is Bionic Garden doing this week?'
 {
     return app(AgentRunner::class)->run(new AgentRunRequest(
         agentKey: 'executive', question: $question, trigger: 'console', businessId: null,
+        requester: Contexts::asEnabled(),
     ));
 }
 

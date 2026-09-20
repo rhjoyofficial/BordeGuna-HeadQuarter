@@ -27,6 +27,7 @@ use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Tests\Support\Execution\Contexts;
 use Tests\Support\Tools\CountingTool;
 use Tests\Support\Tools\WriteTool;
 
@@ -296,7 +297,7 @@ it('refuses an agent a tool that is not agent-executable before anything else is
 
     $outcome = policyGateway()->execute(new ToolRequest(
         toolKey: 'test.counting', args: [], caller: CallerKind::Agent,
-        identity: ActingIdentity::agent($agent, $human), correlationId: (string) Str::uuid(),
+        identity: ActingIdentity::forExecution(Contexts::for($agent)), correlationId: (string) Str::uuid(),
     ));
 
     expect($outcome->status)->toBe(OutcomeStatus::Denied)->and($outcome->error)->toContain('not yet cleared for agents');
@@ -328,8 +329,8 @@ it('refuses an agent a permanently human-only tool, and says never rather than n
     $decision = app(PolicyEngine::class)->decide(
         $descriptor,
         new ToolRequest(toolKey: 'test.permanent', args: [], caller: CallerKind::Agent,
-            identity: ActingIdentity::agent($agent, $human), correlationId: (string) Str::uuid()),
-        ActingIdentity::agent($agent, $human),
+            identity: ActingIdentity::forExecution(Contexts::for($agent)), correlationId: (string) Str::uuid()),
+        ActingIdentity::forExecution(Contexts::for($agent)),
     );
 
     // The refusal is identical in effect and different in what it tells the reader to do next.

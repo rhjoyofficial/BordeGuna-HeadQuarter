@@ -17,6 +17,7 @@ use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | A model omission is not a group-wide task (ADR-043, docs/74 C.2).
@@ -64,7 +65,7 @@ function askScoped(string $question, string $tool, array $args = [], ?int $busin
         scopeReply(['status' => AgentResponseSchema::STATUS_ANSWER, 'task' => $question, 'answer' => 'Done, kept apart.']),
     ]);
 
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: $businessId));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: $businessId, requester: Contexts::asEnabled()));
 }
 
 // ── The resolver's own table ───────────────────────────────────────────────────────────────────

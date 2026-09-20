@@ -3,6 +3,7 @@
 namespace App\Agents;
 
 use App\Ai\TaskType;
+use App\Execution\Requester;
 use App\Models\User;
 
 /**
@@ -25,5 +26,10 @@ final readonly class AgentRunRequest
         public TaskType $task = TaskType::OperatorQuestion,
         /** Set by the evaluation subject so a corpus case can supply its own labelled context. */
         public array $extraContext = [],
+        /**
+         * Who is asking (ADR-047). `operator` above is a label on the row; THIS is a term of the
+         * run's authority, and a request that names none is refused: there is no default requester.
+         */
+        public ?Requester $requester = null,
     ) {}
 }

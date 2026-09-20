@@ -4,8 +4,11 @@ namespace App\Console\Commands;
 
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Execution\Requester;
+use App\Execution\RequesterKind;
 use App\Models\AiRun;
 use App\Models\Business;
+use App\Models\User;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -23,7 +26,8 @@ class AgentAsk extends Command
     protected $signature = 'hq:agent:ask
         {agent : the agent key, e.g. executive or analytics}
         {question* : the question, in words}
-        {--business= : limit the question to one business slug}';
+        {--business= : limit the question to one business slug}
+        {--as= : email of the HQ user who is asking; the run is narrowed to what that person AND the enabling user may do}';
 
     protected $description = 'Ask an agent a question and record the run.';
 
@@ -42,12 +46,29 @@ class AgentAsk extends Command
             }
         }
 
+        // ADR-047: a shell names nobody, so by default the run is resolved `as enabled` (the agent's
+        // enabling user is the accountable person, and nothing is added to their authority). `--as`
+        // names the person asking, and the run is then the intersection of the two.
+        $asker = null;
+        if (($email = $this->option('as')) !== null) {
+            $asker = User::query()->where('email', $email)->first();
+            if ($asker === null) {
+                $this->error("No HQ user has the email [{$email}].");
+
+                return self::FAILURE;
+            }
+        }
+
         try {
             $run = $runner->run(new AgentRunRequest(
                 agentKey: $agentKey,
                 question: $question,
                 trigger: 'console',
+                operator: $asker,
                 businessId: $businessId,
+                requester: $asker === null
+                    ? Requester::asEnabled(RequesterKind::Console, 'hq:agent:ask with no --as')
+                    : Requester::human($asker, 'hq:agent:ask --as'),
             ));
         } catch (Throwable $e) {
             $this->error($e->getMessage());

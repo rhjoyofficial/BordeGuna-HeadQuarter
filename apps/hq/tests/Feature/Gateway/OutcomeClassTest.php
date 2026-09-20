@@ -25,6 +25,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | A connector failure is not a refusal (ADR-043, docs/74 C.1).
@@ -72,7 +73,7 @@ function askForOrders(string $question = 'What has laladia.com sold since Monday
         classReply(['status' => AgentResponseSchema::STATUS_ANSWER, 'task' => $question, 'answer' => 'The shop could not be read; I say so.']),
     ]);
 
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console'));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', requester: Contexts::asEnabled()));
 }
 
 function storeAdminToken(string $store = 'laladia-com'): IntegrationCredential

@@ -2,6 +2,7 @@
 
 namespace App\Agents;
 
+use App\Execution\EffectiveExecutionContext;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Registry\ToolAvailability;
@@ -13,12 +14,15 @@ use App\Tools\ToolRegistry;
 /**
  * What an agent may actually name in a turn, and how that list is described to it.
  *
- * ## Four narrowings, and every one of them can only remove
+ * ## Five narrowings, and every one of them can only remove
  *
  *   1. `config('hq.tools')` - the tool exists in the deployed code at all.
  *   2. `tool_registrations` - it is switched on at runtime for this business.
  *   3. `agents.allowed_tools` - this agent was granted it (an empty list grants nothing).
  *   4. `descriptor.agentExecutable` - an agent may run it, rather than only propose it.
+ *   5. the run's Effective Execution Context - BOTH the person who asked and the enabling human
+ *      hold the tool's permission (ADR-047). The list is built from the same object the gateway
+ *      checks each call against, so the agent is never shown a tool this run cannot use.
  *
  * ⛔ **This is a convenience, not the control.** Every proposal still goes through the whole gateway
  * sequence, where the permission intersection, policy, consent, credentials and approval are decided
@@ -45,13 +49,14 @@ final readonly class AgentToolset
      *
      * @return list<string>
      */
-    public function keysFor(Agent $agent, ?int $businessId = null): array
+    public function keysFor(EffectiveExecutionContext $context): array
     {
-        $allowed = (array) ($agent->allowed_tools ?? []);
+        $allowed = (array) ($context->agent->allowed_tools ?? []);
+        $businessId = $context->businessId;
         $out = [];
 
         foreach ($this->registry->keys() as $key) {
-            if (! in_array($key, $allowed, true)) {
+            if (! in_array($key, $allowed, true) || ! $context->permitsTool($key)) {
                 continue;
             }
 
@@ -91,18 +96,18 @@ final readonly class AgentToolset
      *
      * @return list<array<string, mixed>>
      */
-    public function catalogueFor(Agent $agent, ?int $businessId = null): array
+    public function catalogueFor(EffectiveExecutionContext $context): array
     {
         $out = [];
 
-        foreach ($this->keysFor($agent, $businessId) as $key) {
+        foreach ($this->keysFor($context) as $key) {
             $tool = $this->registry->get($key);
             $descriptor = $tool->descriptor();
 
             $entry = [
                 'tool' => $key,
                 'purpose' => $descriptor->purpose,
-                'arguments' => $this->agentSchema($agent, $key, $descriptor, $tool->inputSchema(), $businessId),
+                'arguments' => $this->agentSchema($context, $key, $descriptor, $tool->inputSchema()),
             ];
 
             // ⭐ How many calls a question is (ADR-040). A tool that returns one business says so in
@@ -124,7 +129,7 @@ final readonly class AgentToolset
      * @param  array<string, mixed>  $schema
      * @return array<string, mixed>
      */
-    private function agentSchema(Agent $agent, string $key, ToolDescriptor $descriptor, array $schema, ?int $businessId): array
+    private function agentSchema(EffectiveExecutionContext $context, string $key, ToolDescriptor $descriptor, array $schema): array
     {
         foreach ($this->scopes->declaredPaths($descriptor) as $kind => $argument) {
             if (! isset($schema['properties'][$argument]) || ! is_array($schema['properties'][$argument])) {
@@ -132,8 +137,8 @@ final readonly class AgentToolset
             }
 
             $values = $kind === 'business'
-                ? $this->references->permittedBusinessSlugs($agent, $key, $businessId)
-                : $this->references->permittedStoreSlugs($agent, $key, $businessId);
+                ? $this->references->permittedBusinessSlugs($context, $key)
+                : $this->references->permittedStoreSlugs($context, $key);
 
             // An empty enum is a schema no value satisfies. If there is nothing to name, the tool
             // stays listed with its argument required, and the gateway will say so if it is called.

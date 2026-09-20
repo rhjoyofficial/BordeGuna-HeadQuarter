@@ -2,6 +2,7 @@
 
 namespace App\Gateway\Identity;
 
+use App\Execution\EffectiveExecutionContext;
 use App\Models\Agent;
 use App\Models\User;
 
@@ -16,6 +17,10 @@ use App\Models\User;
  * The `system` identity is what unattended internal work runs as. It is narrow by construction: its
  * permissions are a fixed list in config('hq.gateway.system_permissions'), and it can hold nothing
  * that is not written there.
+ *
+ * ⭐ An agent identity exists only for a resolved `EffectiveExecutionContext` (ADR-047). The old
+ * two-argument `agent($agent, $enabling)` is gone on purpose: it could say who enabled and had no
+ * way to say who asked, which is how a run came to act with the enabling user's whole reach.
  */
 final class ActingIdentity
 {
@@ -25,6 +30,7 @@ final class ActingIdentity
         public readonly ?User $user = null,
         public readonly ?Agent $agent = null,
         public readonly ?string $serviceKey = null,
+        public readonly ?EffectiveExecutionContext $execution = null,
     ) {}
 
     public static function human(User $user): self
@@ -32,10 +38,13 @@ final class ActingIdentity
         return new self(IdentityKind::Human, $user->email ?? "user:{$user->getKey()}", $user);
     }
 
-    /** An agent always names the human whose authority it borrows. There is no agent without one. */
-    public static function agent(Agent $agent, User $enabling): self
+    /**
+     * An agent acts under a resolved context, and under nothing else: the person who asked, the
+     * person who enabled, and the intersection of the two. There is no agent identity without one.
+     */
+    public static function forExecution(EffectiveExecutionContext $context): self
     {
-        return new self(IdentityKind::Agent, "agent:{$agent->key}", $enabling, $agent);
+        return new self(IdentityKind::Agent, $context->actingIdentity(), $context->enabler, $context->agent, null, $context);
     }
 
     public static function service(string $serviceKey, ?User $enabling = null): self
@@ -86,9 +95,12 @@ final class ActingIdentity
         return match ($this->kind) {
             IdentityKind::Human => (bool) $this->user?->can($permission),
 
-            // Agent: the enabling human must hold it AND the agent must be allowed this tool AND
-            // the agent must be active. Any one of those failing is a refusal.
-            IdentityKind::Agent => (bool) $this->user?->can($permission)
+            // Agent: the enabling human must hold it AND the person who asked must hold it AND the
+            // tool must be in the resolved context AND the agent must be allowed this tool AND the
+            // agent must be active. Any one of those failing is a refusal, and so is an agent
+            // identity that carries no resolved context at all.
+            IdentityKind::Agent => $this->execution !== null
+                && $this->execution->holds($permission, $toolKey)
                 && $this->agent !== null
                 && $this->agent->isActive()
                 && $this->agent->mayUseTool($toolKey),

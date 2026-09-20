@@ -33,6 +33,7 @@ use Database\Seeders\SafetyCorpusSeeder;
 use Database\Seeders\TaskIntegrityCases;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Execution\Contexts;
 
 /*
  | Only trusted input establishes a task (docs/71, ADR-041).
@@ -73,7 +74,7 @@ function groundingReply(array $overrides): ModelResponse
 
 function askGrounded(string $question, array $context = []): AgentRun
 {
-    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context));
+    return app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: $question, trigger: 'console', businessId: null, extraContext: $context, requester: Contexts::asEnabled()));
 }
 
 // ── The grounding rules, on the sentences gate 6 actually saw ───────────────────────────────────
@@ -233,7 +234,7 @@ it('expands a call that names no business the same way, leaves a named business 
     ]);
 
     // A run opened FOR one business may only read that business, so the expansion is one call.
-    $run = app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: 'Read me the ERP overview.', trigger: 'console', businessId: $laladia->id));
+    $run = app(AgentRunner::class)->run(new AgentRunRequest(agentKey: 'executive', question: 'Read me the ERP overview.', trigger: 'console', businessId: $laladia->id, requester: Contexts::asEnabled()));
 
     $evidence = collect($run->evidence)->where('kind', 'evidence')->values();
     expect($evidence)->toHaveCount(2);
@@ -243,7 +244,7 @@ it('expands a call that names no business the same way, leaves a named business 
 });
 
 it('offers the group reference in the catalogue only for tools that cover one target per call, and says so in a sentence', function () {
-    $catalogue = collect(app(AgentToolset::class)->catalogueFor(Agent::where('key', 'executive')->sole()));
+    $catalogue = collect(app(AgentToolset::class)->catalogueFor(Contexts::for(Agent::where('key', 'executive')->sole())));
 
     $snapshot = $catalogue->firstWhere('tool', 'erp.read_snapshot');
     expect($snapshot['arguments']['properties']['business_slug']['enum'])->toContain(AgentRunner::GROUP_REFERENCE, 'bor-de-guna');
