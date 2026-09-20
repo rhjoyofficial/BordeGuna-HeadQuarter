@@ -544,3 +544,142 @@ still needs Anthropic capacity, which is his.
 ## C. Record
 
 (filled in per stream as it completes)
+
+### C.1 Stream E: disabled users cannot authenticate, business scope is never stale, a production shadow needs `--by` (branch `fix/auth-scope-and-shadow-opener`)
+
+#### C.1.1 Today's behaviour (read from the code before any change, 21 September; paths under `apps/hq`)
+
+**P0-1, `users.is_active`.** The column is `boolean NOT NULL DEFAULT true`
+(`database/migrations/2026_09_05_100400_add_two_factor_and_pgvector.php:27`), cast on the model
+(`app/Models/User.php:38`) and not fillable (`User.php:15`). Its only readers are the execution
+context resolver (`app/Execution/ExecutionContextResolver.php:109`, `:135`, `:153`). Authentication
+never reads it:
+
+- Password step: `app/Http/Requests/Auth/LoginRequest.php:44` calls `Auth::attempt()` with the
+  email and password only. The guard is `session` over the stock `eloquent` provider
+  (`config/auth.php`), which knows nothing of `is_active`. A disabled user signs in.
+- 2FA step: `app/Http/Controllers/Security/TwoFactorChallengeController.php:31` verifies whoever
+  `$request->user()` is. A disabled user completes the challenge.
+- A live session: `bootstrap/app.php:28` registers no middleware that looks at the account, and the
+  two 2FA middlewares (`app/Http/Middleware/EnsureTwoFactor*.php`) only read the 2FA state. A user
+  disabled while signed in keeps working until the session expires.
+- Remember me: the stock provider's `retrieveByToken` revives a disabled user from the cookie.
+- Password reset: `routes/auth.php:20-30` with the stock broker sends a disabled user a link and
+  accepts the new password (`app/Http/Controllers/Auth/NewPasswordController.php:46`).
+- Horizon: `config/horizon.php:86` mounts it on the `web` group alone, behind the gate
+  `viewHorizon` = `can('hq.horizon.view')` (`app/Providers/HorizonServiceProvider.php:18`). A
+  disabled user with the permission opens it.
+- There is no Sanctum, no API token and no authenticated route in `routes/api.php` (health and the
+  two signed webhooks only). The only guard is `web`.
+- `bootstrap/app.php` has NO `priority()` list; Laravel's default list applies
+  (`vendor/laravel/framework/src/Illuminate/Foundation/Http/Kernel.php:103`). In it `auth`
+  (`AuthenticatesRequests`) outranks `SubstituteBindings`, which is in the `web` group, so `auth`
+  is pulled ahead of anything appended to the `web` group that is not itself in the list. A check
+  appended to `web` would therefore run AFTER `auth`, not before it.
+- Lockout: nothing in `app/` writes `users.is_active` (no screen, no command; `hq:user:create`
+  leaves the default `true`, `hq:user:update-email` does not touch it). Only SQL or tinker can
+  disable anybody today. This stream adds no way to disable a user either.
+- Audit today: `app/Listeners/RecordAuthenticationEvents.php` writes `auth.login`, `auth.logout`
+  and `auth.login_failed` (system actor, `after.email`). The login form's failure sentence is the
+  generic `auth.failed`.
+
+**P0-2, `BusinessScope`.** `app/Support/Authorization/BusinessScope.php:35-42` caches a person's
+rows under `hq:business_scope:{id}` for 60 seconds in the default cache store, which is Redis in
+production (`deploy/.env.example:31`) and therefore shared by the web containers, Horizon workers
+and the scheduler. `forget()` (`:79`) exists and NOTHING calls it. Nothing in `app/` or
+`database/` writes `user_business_scopes` at all (no screen, command, seeder or observer; the rows
+are made by hand or by tests), so there is no mutation path an invalidation could hang on, and a
+raw SQL write could never be seen by one. Every reader goes through `all()`:
+
+- the gateway: `app/Gateway/ToolGateway.php:478` (`allows`, a human's single target) and `:568`
+  (`all`, the cross-business filter);
+- the resolver: `app/Execution/ExecutionContextResolver.php:163-164`;
+- Ask HQ: `app/Ask/AskHq.php:111` and the preview through the resolver;
+- screens and badges: `AdminController`, `AgentController`, `AskController:100`, `InboxController`,
+  `BriefingController`, the three Observe dashboards, `Scheduling/Nl/EntityResolver`, `NavBadges`.
+
+So for up to 60 seconds a removed row keeps its reach (at the gateway too), and because "no rows
+means group-wide" is cached as `[]`, a person given their FIRST row stays group-wide for up to 60
+seconds: the dangerous direction. A second finding: `stillStands()`
+(`ExecutionContextResolver.php:98-114`), the gateway's per-call re-read, checks the agent and that
+both people are alive, and never re-reads business scope; a run resolved group-wide keeps
+`businessIds = null` to its end however its people are narrowed meanwhile.
+
+There is no profiling evidence anywhere in the repository for the cache (no benchmark, no doc, no
+commit message); the query it saves is one indexed `pluck` on a table that has zero rows in
+production.
+
+**`--by`.** `app/Console/Commands/ShadowOpen.php:75-83` treats `--by` as optional in every
+environment and does not look at `is_active`. `ShadowPeriods::open()`
+(`app/Agents/Shadow/ShadowPeriods.php:163`) accepts `actorUserId = null` and then audits as
+`system`. `Requester::forShadowPeriod()` (`app/Execution/Requester.php:60-65`) turns a period with
+no opener into `as_enabled`, and `ShadowProbes::ask()` (`app/Agents/Shadow/ShadowProbes.php:75`)
+labels the run with the enabling user. `--no-schedule` IS already refused in production, in the
+domain class (`ShadowPeriods.php:173`); the command only prints a note (`ShadowOpen.php:55`).
+
+#### C.1.2 The design (written before the code)
+
+**P0-1. Two layers, because each covers what the other cannot.**
+
+1. *The user provider is the chokepoint for getting IN.* `App\Auth\ActiveUserProvider` extends the
+   Eloquent provider and returns nobody for a disabled account from `retrieveById` (the session),
+   `retrieveByToken` (remember me) and `retrieveByCredentials` (the password step and the password
+   broker, which both resolve the account through it). It is registered as the driver of the one
+   provider in `config/auth.php`. No route, guard call or future controller can forget it, because
+   there is no other way for the framework to turn an id, a cookie or an email into a user. The
+   login form answers a disabled account with the same `auth.failed` sentence as a wrong password
+   (the framework's 200 ms timebox already equalises the timing), and the reset form answers with
+   the broker's own "no user" sentence, which is what it says for an unknown address today. There
+   is no environment switch and no role exemption.
+2. *A middleware ends the session.* `EnsureAccountIsActive` is appended to the `web` group (so it
+   is on every web route, Horizon's included, with no per-route opt-in) and placed in the priority
+   list BEFORE `AuthenticatesRequests`, so it runs before `auth` rather than after it. It reads the
+   session's user id from the guard, reads `is_active` fresh from the database (one primary-key
+   query; correct under a long-lived worker and under `actingAs`), and for a disabled account:
+   audits `auth.session_rejected` (system actor, target the user, reason "the account is
+   disabled"), cycles the remember token so an old cookie dies even if the account is enabled
+   again, logs the guard out, invalidates the session, regenerates the CSRF token and throws the
+   framework's `AuthenticationException`. The framework then answers exactly as `auth` does: a
+   redirect to `login` for a page or an Inertia visit, 401 JSON for a request that expects JSON.
+   The message never says "disabled".
+3. *Audit.* A refused password step keeps writing `auth.login_failed` through the existing
+   listener; the listener adds `reason: 'the account is disabled'` when the address belongs to a
+   disabled account, so the record is truthful while the screen stays generic. A refused reset
+   request writes `auth.password_reset_refused` the same way.
+4. *Proof that the guard is reached.* A test enumerates every registered route: each route that
+   carries `auth` must carry the check, and carry it EARLIER in the sorted middleware the router
+   will actually run; every route in the `web` group (Horizon's too) must carry it; and no `api`
+   route may carry `auth` at all (the day one does, the test fails and the author must decide).
+5. *Lockout.* No way to disable a user is added. `is_active` stays unfillable, and a test holds
+   that; `hq:user:create` still creates an enabled user.
+
+**P0-2. The cache is removed; nothing replaces it.** Reasons: (a) there is no mutation path to
+invalidate from, and hand-made rows are exactly how scope changes today; (b) the shared Redis store
+makes any invalidation a cross-process problem; (c) no evidence anywhere says the query matters;
+(d) a request-scoped memo would be wrong inside a Horizon worker or a minutes-long agent run, where
+one object outlives many decisions. `BusinessScope::all()` reads the rows every time. `forget()`
+goes with the cache (nothing called it). Widening can then only appear once the row is committed,
+and narrowing appears on the next read, in every process.
+
+The per-call re-read learns business scope: `stillStands()` re-reads both people's rows, and the
+context stands only while its business set is still inside each person's current scope (a
+group-wide context does not survive either person gaining rows). When it does not, the rest of the
+run's calls are refused, the same fail-closed ending a disabled person or a paused agent has. A
+context is never widened mid-run: a row added meanwhile shows at the next resolve.
+
+Tests use a persistent `file` cache store for the cross-process cases, not only the `array` store
+the suite defaults to (`phpunit.xml:24`): the key the old code would have written is planted, as
+another process would have left it, and must be ignored. Redis itself is not installed on this
+laptop (no `phpredis`, no server), so the file store stands in for "a store that outlives the
+process"; with the cache gone the store's kind no longer matters.
+
+**`--by`.** Enforced in `ShadowPeriods::open()` (the chokepoint; the command is one caller):
+in production the opener must be a user who exists and is not disabled, otherwise it refuses and
+changes nothing; `--no-schedule` stays refused there. The command validates `--by` before it
+reports, refuses a disabled or unknown user in every environment when `--by` is given, and in
+production says so in the dry run as well. `Requester::forShadowPeriod()` in production names the
+recorded opener or nobody (which the resolver refuses): it never falls back to `as_enabled` there,
+so even a row written around the command cannot run probes on implicit authority. The audit rows
+are already written under `actorUserId`; with the opener mandatory, every production opening is
+`human`, under the named person. Local and testing keep today's convenience path. What the command
+switches on, its preconditions and the probes' questions are untouched.
