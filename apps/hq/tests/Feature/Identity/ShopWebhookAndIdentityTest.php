@@ -17,16 +17,6 @@ beforeEach(function () {
     IntegrationCredential::create(['provider' => 'shop_webhook_secret', 'account_ref' => 'laladia-com', 'credential_type' => 'token', 'payload' => ['value' => 'whsec'], 'status' => 'active']);
 });
 
-function signedPost($test, array $envelope, string $secret = 'whsec', array $headers = [], string $store = 'laladia-com')
-{
-    $raw = json_encode($envelope);
-
-    return $test->call('POST', "/api/webhooks/shop/{$store}", [], [], [], array_merge([
-        'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
-        'HTTP_X_SHOP_SIGNATURE' => hash_hmac('sha256', $raw, $secret),
-    ], $headers), $raw);
-}
-
 function orderPayload(string $ref = 'LLD-20260905-AAA111', string $phone = '+880 1711-000000', string $status = 'pending'): array
 {
     return ['order_number' => $ref, 'order_status' => $status, 'payment_status' => 'unpaid', 'payment_method' => 'cod',

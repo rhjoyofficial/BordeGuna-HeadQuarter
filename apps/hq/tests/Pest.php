@@ -154,3 +154,17 @@ function enableAiRuntime(): void
     );
     app(Features::class)->forget();
 }
+
+/**
+ * A shop webhook delivery, signed as the shop signs it. Shared by the Identity and Facts tests, so it
+ * lives here: a helper defined in one test file exists only when that file happens to be loaded.
+ */
+function signedPost($test, array $envelope, string $secret = 'whsec', array $headers = [], string $store = 'laladia-com')
+{
+    $raw = json_encode($envelope);
+
+    return $test->call('POST', "/api/webhooks/shop/{$store}", [], [], [], array_merge([
+        'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+        'HTTP_X_SHOP_SIGNATURE' => hash_hmac('sha256', $raw, $secret),
+    ], $headers), $raw);
+}
