@@ -15,6 +15,7 @@ use App\Models\RetentionWatermark;
 use App\Models\ToolCall;
 use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
 use App\Observe\HostProbe;
+use App\Observe\ReleaseState;
 use App\Scheduling\Commands\SchedulerTick;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -26,7 +27,7 @@ use Throwable;
 /**
  * Platform (docs/48 N.3, docs/25): the queues, the scheduler, the event inbox, the circuits and the
  * connectors, credentials and readiness, the integrity check, ERP snapshot freshness, the host, the
- * retention passes and the open alerts. Group-wide: the permission that opens it is the operators'.
+ * retention passes, the open alerts, and the release state (docs/80 C.4). Group-wide: the permission that opens it is the operators'.
  */
 final class PlatformDashboard
 {
@@ -37,6 +38,7 @@ final class PlatformDashboard
         private readonly CircuitBreaker $breaker,
         private readonly CapabilityReadiness $readiness,
         private readonly HostProbe $host,
+        private readonly ReleaseState $release,
     ) {}
 
     public function build(?CarbonImmutable $now = null): array
@@ -47,6 +49,8 @@ final class PlatformDashboard
 
         return [
             'checked_at' => $now->toIso8601String(),
+            // docs/80 C.4: what is released here against what is only merged. Read-only, from the image and the host's files.
+            'release' => $this->release->build($now),
             'queues' => $this->queues(),
             'scheduler' => $this->scheduler($now),
             'events' => $this->events($now),

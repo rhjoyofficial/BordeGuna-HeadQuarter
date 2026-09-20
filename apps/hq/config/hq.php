@@ -237,6 +237,24 @@ return [
         'agents' => ['executive'],
     ],
 
+    // docs/80 C.4: what release this is, and what the HOST says about releases and about main.
+    //
+    // `commit` is baked into the image by `deploy/Dockerfile` (`ENV HQ_RELEASE_COMMIT`, from the same
+    // build argument as the image label). ⚠ Empty means "not a release image", and the application then
+    // says "development checkout": it never guesses a commit from anything else.
+    //
+    // `state_path` is a directory the host writes and the containers mount READ-ONLY. The application
+    // never writes there, never runs git and never calls GitHub.
+    //
+    // `main_stale_after_minutes`: the host fetches main at most every 30 minutes, so 90 is three missed
+    // fetches. Past that the panel withholds "N commits ahead" and shows the age instead, because a
+    // stale or missing reading must never look like "up to date".
+    'release' => [
+        'commit' => env('HQ_RELEASE_COMMIT'),
+        'state_path' => env('HQ_RELEASE_STATE_PATH', base_path('release-state')),
+        'main_stale_after_minutes' => (int) env('HQ_RELEASE_MAIN_STALE_AFTER_MINUTES', 90),
+    ],
+
     // docs/78 B.2, decision V.7 (docs/48): the governed retention policy. Deliberately NOT read from the
     // environment: a production that quietly kept less than the decision says would be the policy lying
     // about itself, so changing a number is a deploy somebody reviews, and a test pins these values.

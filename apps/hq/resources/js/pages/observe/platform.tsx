@@ -1,4 +1,5 @@
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
+import { ReleaseStatePanel, type ReleaseState } from '@/components/observe/release-state-panel';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -8,6 +9,7 @@ import { Head, Link } from '@inertiajs/react';
 
 type Props = {
     checked_at: string;
+    release: ReleaseState;
     queues: { masters: number; paused: boolean; workload: { name: string; length: number; wait_seconds: number; processes: number }[] } | null;
     scheduler: { last_tick: string | null; age_seconds: number | null; stale_after_seconds: number; stale: boolean };
     events: { waiting: number; oldest_waiting_minutes: number | null; dead: number; dead_last_7_days: number; last_occurred_at: string | null };
@@ -60,6 +62,8 @@ export default function Platform(props: Props) {
                         </Link>
                     }
                 />
+
+                <ReleaseStatePanel release={props.release} />
 
                 <StatGrid>
                     <Stat

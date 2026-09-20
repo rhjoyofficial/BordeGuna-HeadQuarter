@@ -188,6 +188,18 @@ for pair in "hq:${HQ_BACKUP_ROOT}/LAST_RUN" "erp:${ERP_BACKUP_ROOT}/daily"; do
     fi
 done
 
+# ── Release state for the application: where origin/main stands against what is running ─────────
+#
+# Not a check, and it never pages: "main is ahead of production" is a deliberate state while a safety
+# gate waits, and "GitHub did not answer" is not an incident. It refreshes a small file the app
+# containers mount read-only (docs/80 C.4); the application shows the age of what it reads, so a
+# refresher that has stopped shows up there as "main state unknown", never as "up to date".
+# It fetches at most once every 30 minutes and only ever fetches.
+RS_REFRESH="$(dirname "$0")/release-state-refresh.sh"
+if [ -x "$RS_REFRESH" ]; then
+    "$RS_REFRESH" || log "release-state refresh failed (not paged)"
+fi
+
 # Daily heartbeat at ~08:00 UTC (14:00 Dhaka) so silence is distinguishable from a dead monitor.
 HB="$STATE_DIR/heartbeat.$(date -u +%F)"
 if [ "$(date -u +%H)" = "08" ] && [ ! -f "$HB" ]; then

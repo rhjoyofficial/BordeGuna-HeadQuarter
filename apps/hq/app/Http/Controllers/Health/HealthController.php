@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Health;
 
 use App\Http\Controllers\Controller;
+use App\Observe\ReleaseState;
 use App\Scheduling\Commands\SchedulerTick;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -19,10 +20,15 @@ use Throwable;
  */
 final class HealthController extends Controller
 {
-    public function __invoke(MasterSupervisorRepository $supervisors): JsonResponse
+    public function __invoke(MasterSupervisorRepository $supervisors, ReleaseState $release): JsonResponse
     {
         $checks = [
-            'application' => ['status' => 'ok', 'version' => config('app.version', 'phase-0'), 'environment' => app()->environment()],
+            // `release` is the commit this image was built from, or `development` (docs/80 C.4). It is the
+            // ONLY release fact here, because this endpoint is public: deploy.sh reads it to know that the
+            // image answering is the one it just released. Commit subjects, pending migrations and dump
+            // paths stay behind a permission, on the Platform dashboard.
+            'application' => ['status' => 'ok', 'version' => config('app.version', 'phase-0'), 'environment' => app()->environment(),
+                'release' => $release->commit() ?? 'development'],
             'database' => $this->check(fn () => DB::select('select 1 as ok')[0]->ok === 1),
             'redis' => $this->check(fn () => Redis::connection()->ping() !== false),
             'queue' => $this->queue($supervisors),
