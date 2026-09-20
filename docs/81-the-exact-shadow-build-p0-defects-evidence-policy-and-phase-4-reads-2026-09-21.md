@@ -683,3 +683,116 @@ so even a row written around the command cannot run probes on implicit authority
 are already written under `actorUserId`; with the opener mandatory, every production opening is
 `human`, under the named person. Local and testing keep today's convenience path. What the command
 switches on, its preconditions and the probes' questions are untouched.
+
+#### C.1.3 As built (21 September)
+
+No migration. No prompt file, TaskGrounding, TaskScope, detector, policy or approval code touched.
+Nothing switched on; no flag row, grant or scheduled job created.
+
+**P0-1.**
+
+- `app/Auth/ActiveUserProvider.php` (new): `retrieveById` `:29`, `retrieveByToken` `:34`,
+  `retrieveByCredentials` `:39` return nobody unless `is_active === true`. Registered as the driver
+  `active-eloquent` (`app/Providers/AppServiceProvider.php:92`, `config/auth.php:68`).
+- `app/Http/Middleware/EnsureAccountIsActive.php` (new): `:43` reads `is_active` by primary key for
+  the session's user id; for a disabled account it audits `auth.session_rejected` (`:47`), cycles
+  the remember token (`:52`), logs out, invalidates the session and throws
+  `AuthenticationException` (`:60`), so pages and Inertia visits go to `login` and JSON gets 401.
+- `bootstrap/app.php:40` appends it to the `web` group; `:46` places it in the priority list ahead
+  of `AuthenticatesRequests`. Measured with `gatherRouteMiddleware`: on `dashboard` it is index 5,
+  `Authenticate` index 6; on Horizon it is index 6, Horizon's own `Authenticate` index 10. With
+  line 46 deleted, three tests fail ("two-factor/challenge runs auth before the account check"),
+  so the priority entry is load-bearing and held by a test.
+- Audit: `RecordAuthenticationEvents::failed` adds `reason: 'the account is disabled'` to
+  `auth.login_failed` when the address is a disabled account, and is otherwise byte for byte what
+  it was (a test pins the ordinary row). The two reset controllers write
+  `auth.password_reset_refused` (`step: link|reset`). The screens say what they said: `auth.failed`
+  at login, the unchanged generic status for a reset link, the broker's `passwords.user` for a reset.
+- What a disabled account meets now: password step refused; the 2FA challenge redirects to login
+  and verifies nothing; a verified session is rejected on its next request (new session id, 2FA
+  key gone, remember token cycled, one audit row, and the request after that is a plain guest);
+  JSON 401; Inertia visit redirected; `/horizon` redirected and its API 403; remember-me cookie
+  dead (the same cookie revives the user while enabled, so the test proves the cookie was good);
+  no reset link, no token row, and a token issued before the disabling resets nothing.
+- Lockout: no code path disables anybody. A test holds that `is_active` is not fillable, that
+  `hq:user:create` makes an enabled user, and that no file under `app/` assigns `is_active => false`
+  to a user. The sole owner can be disabled only by SQL or tinker, as before; the recovery is the
+  same SQL (`update users set is_active = true where id = ...`), which needs no sign-in.
+
+**P0-2.**
+
+- `app/Support/Authorization/BusinessScope.php:40-45`: `all()` reads the rows (ordered) on every
+  call; the cache, its TTL constant and `forget()` are gone. Three tests that called `forget()`
+  lost that line and nothing else.
+- `app/Execution/ExecutionContextResolver.php:117-129`: `stillStands()` re-reads both people's
+  rows; a context whose business set is no longer inside a person's current scope (or that was
+  group-wide when a person has since gained rows) ends the run's remaining calls with "narrowed
+  after this run was resolved". A widening mid-run changes nothing until the next resolve.
+  ADR-047 carries an amendment.
+- Callers needed no change: the gateway (`ToolGateway.php:478`, `:568`), the resolver, Ask HQ and
+  every screen already go through `all()`.
+
+**`--by`.**
+
+- `app/Agents/Shadow/ShadowPeriods.php:230` `assertOpener()`, called first thing after the
+  preconditions in `open()` (`:173`): in production nobody named is a refusal; a named person must
+  exist and be enabled in every environment. `--no-schedule` stays refused in production (`:175`).
+- `app/Console/Commands/ShadowOpen.php`: the opener is resolved and checked before the report, the
+  report prints `opener: ...` with the refusal, and a dry run fails when the opener is refused.
+- `app/Execution/Requester.php:69`: in production a period with no recorded opener names nobody
+  (the resolver refuses it, audited `agent_run.context_refused`); it answers `as_enabled` only off
+  production. The runbook `docs/runbooks/shadow-week.md` says so.
+
+**Tests watched failing on the unmodified code, then passing.**
+
+- `tests/Feature/Security/DisabledAccountTest.php` (15 tests): 11 failed first (password step, 2FA
+  challenge, live session, JSON and Inertia, the handed-over guard, Horizon, remember-me, reset
+  link, reset token, the route enumeration, the one-door test). The 4 that passed first describe
+  behaviour that must not change (ordinary failed-login audit, an enabled user end to end, an
+  enabled user's reset, no way to disable anybody).
+- `tests/Feature/Security/BusinessScopeFreshnessTest.php` (11 tests with datasets): all 11 failed
+  first, each on the stale answer (one also on a test typo, corrected before the fix). The
+  cross-process cases run on a `file` cache store with the old key planted as another process would
+  have left it. Redis is not installed on this laptop, so Redis itself was not exercised; with no
+  cache left in the class the store's kind cannot matter.
+- `tests/Feature/Agents/ShadowPeriodTest.php` (+8 with datasets): 4 failed first (no `--by` in
+  production, a disabled opener, the domain-class refusals, a production period with no opener
+  running `as_enabled`). Passing first, because the behaviour already existed: an unknown `--by`,
+  the opening audited under the named person, the probes resolved from the opener, the local
+  convenience path. The existing `--no-schedule` production test now passes `--by`, so it still
+  reaches the refusal it is about.
+
+**Verification (local; GitHub Actions deferred until 1 October).** Base 977. Full Pest suite in one
+run: **1011 passed, 8608 assertions**, 232 s, database `hq_test_e`. Folder by folder, summing to the
+same 1011 and 8608: Unit 1, Agents 114, Ai 53, Ask 8, Auth 15, Autonomy 14, Briefing 61,
+Commerce 8, Consent 8, Conversation 70, Erp 18, Evaluation 176, Facts 29, Foundation 14,
+Gateway 174, Identity 9, Media 7, Observe 86, Platform 21, Scheduler 34, Security 80, Settings 6,
+DashboardTest 5. `vendor/bin/pint --test` passed. `npx tsc --noEmit` clean. `npm run build` built.
+
+**Decisions the owner may want to revisit.**
+
+1. A narrowing mid-run ENDS the run's remaining calls, even for a business the person still has.
+   The narrower reading was chosen; the alternative is to refuse only the calls that fall outside.
+2. The remember token is cycled when a disabled session is rejected, so re-enabling the account
+   does not bring an old "remember me" cookie back. The person signs in again.
+3. A rejected session is audited once per session (`auth.session_rejected`), as `system` with the
+   user as target, because at that moment nobody is authenticated.
+4. `--by` naming a disabled or unknown person is refused in every environment, not only production.
+5. No cache at all for business scope. If a screen ever shows this query as a cost, the place for a
+   memo is that screen's own request, never the shared class.
+6. Nothing here adds a way to disable a user. When one is built it needs its own rule for the last
+   enabled owner.
+
+**Found on the way, not fixed (outside this stream).**
+
+- Horizon is on the `web` group only, so a user who has passed the password step and NOT the 2FA
+  challenge can open `/horizon` if they hold `hq.horizon.view` (`config/horizon.php:86`). The two
+  2FA middlewares are not on it.
+- `ToolAvailability` (`app/Gateway/Registry/ToolAvailability.php:27`, `:108`) caches the tool kill
+  switches for 30 seconds in the shared store, and `Features`
+  (`app/Support/Features/Features.php:42`) caches flags for 60 seconds. A switch
+  turned off by the screen calls `forget()`; one turned off by SQL, or by another process that
+  does not, can stay on for up to 30 seconds at the gateway. The same family as P0-2.
+- `phpunit.xml` names `CACHE_STORE` twice (`:24` and `:30`), harmless.
+- The brief expected a `priority()` list in `bootstrap/app.php`; HQ has none and ran on Laravel's
+  default until this stream added one entry.
