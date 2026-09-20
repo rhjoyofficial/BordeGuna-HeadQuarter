@@ -681,3 +681,79 @@ the page renders as "recorded before execution contexts existed" and never as an
 Plain sentences first; the digest, the permission names, the raw record and the per-call terms sit
 in the page's existing `TechnicalDetail`. No emails, no credentials (the record holds none, and a
 test asserts the prop carries no email).
+
+#### C.2.3 As built (20 September)
+
+**P0-4.** Migration `2026_09_21_160000_add_requester_identity_to_approvals` adds the three nullable
+columns of C.2.2 and nothing else; rehearsed on Postgres `hq_test_f`: applied, rolled back (columns
+gone), re-applied (columns back). `ApprovalService::park()` (`ApprovalService.php:70-88`) reads the
+resolved context off an agent identity: requester `requesterUser`, enabler, requester kind and the
+context digest. Every other caller takes the old branch unchanged. The successor of an
+approve-with-edit copies the new columns (`:190-191`). `Approval::separationOfDutiesReason()`
+(`Approval.php:153`) is the one rule, read by `isDecidableBy()` (`:177`), by
+`ApprovalExecutor::approveAndExecute()` before the claim (`ApprovalExecutor.php:52`, so a refusal
+leaves the approval pending for somebody else), by `ApprovalService::delegate()` (`:280`) and by the
+controller's `assertDecidable` (`ApprovalController.php:228`, which gives the person the reason in
+the 403). `cancel` also lets the enabling user withdraw. The Approval Center shows "Proposed by the
+X agent" and, beside it, who asked the agent and who enabled it (emails, as that screen already
+shows people); a row with an agent key and no enabler says "Recorded before requester and enabler
+were kept apart" (`requester_recorded`). The payload, the hash, `CanonicalPayload`, `ApprovalGuard`
+and the claim are untouched; a test holds that the same arguments hash the same whoever asked.
+
+**P1-1.** `QueryOrdersTool::rows()` (`QueryOrdersTool.php:285-335`) groups in an inner query and
+orders outside it by `sort_metric desc nulls last`, then `keyOrder()` (`:376`): `group_key::bigint`
+for business and store, `group_key collate "C"` for everything else, ascending, nulls last. It
+fetches `limit + 1`; `tieAtLimit()` (`:390`) adds `coverage.tie_at_limit` (metric, value, limit,
+`groups_sharing_the_value`, `of_which_returned`, `chosen_by`, a note) only when the first row left
+out ties with the last row kept. The units expression became one constant so the column and the
+sort read the same thing. The descriptor, the input schema and a tie-free output are unchanged, and
+the four pinned digests of `ExecutionContextIdentityCaseTest` stayed green WITHOUT re-pinning.
+`SnapshotFreshnessTool::orderFacts()` now orders by business slug then store slug;
+`ListJobsTool` by name then id; `RecentEventsTool`'s summary by type then status.
+
+**Point 3.** `App\Execution\ExecutionContextView` shapes the stored record for the page and
+resolves nothing. `AgentController::show()` (`:147-153`) sends it as `execution_context` under the
+existing `hq.agents.view` and the existing business-scope 404; no new route. The panel
+(`resources/js/components/agents/execution-context-panel.tsx`, shared `SectionHeader`,
+`StatusBadge`, `TechnicalDetail`, `JsonBlock`) says in sentences who asked and on what basis, who
+enabled, what acted, the entry point and environment, the businesses and brands, the tools, what
+narrowed it and why, and when it was resolved (the `agent_run.context_resolved` audit row's
+`occurred_at`; "the time was not recorded" when that row is missing). The digest, the permission
+names and the per-call terms are folded away. A run with no record says "Recorded before execution
+contexts existed ... a gap in the record, not a statement that the run had no limits". People are a
+name and a user id, never an email. A business or brand outside the VIEWER's own scope is counted,
+not named. **Refusals are not shown, because a refused context has no run row:** it exists only as
+`agent_run.context_refused` in the audit log, against the agent.
+
+**Watched failing first.** `ApprovalRequesterIdentityTest`: 10 of 15 failed before the change (the
+record, the successor, the requester barred on the screen and in the executor, the delegate, the
+cancel, the screen props, the migration), and the 5 that passed are the ones that prove nothing
+changed for a person on a screen, a scheduled job, the payload hash and a third approver.
+`DeterministicOrderingTest`: all 7 groupings, business and store, metric-first, and the tie at the
+limit failed before; `hq.list_jobs` failed before. ⚠ Two did NOT fail before and are kept as guards
+only: the `facts.snapshot_freshness` and `hq.recent_events` cases passed against the old code,
+because Postgres happened to sort for the GROUP BY on this data. The missing ORDER BY is still a
+missing guarantee, and it is fixed, but it was not seen failing. `RunExecutionContextPanelTest`:
+5 of 6 failed before; the sixth (no permission, another business's run) passed before, as it should.
+
+**Decisions to revisit.**
+
+1. The enabling user MAY approve what another person asked their agent for. Revisit when a second
+   person holds `hq.approvals.decide`: the narrower rule (neither the requester nor the enabler)
+   becomes workable then.
+2. The separation rule does not apply when requester and enabler are one person, nor to a person
+   who parks a call on a screen and approves it (there is no self-approval rule there today, Q22).
+   That is the single-owner setup kept byte for byte, not a judgement that it is ideal.
+3. The enabling user may withdraw an approval their agent parked even without the decide permission.
+4. `coverage.tie_at_limit` is reported; a cut between DIFFERENT values is still not (the tool has
+   never said that rows were left out by the limit). Worth a `truncated` key in a change that may
+   re-pin the identity digests.
+5. The stored `eec.v1` record has no `resolved_at` of its own; the page reads the audit row.
+6. The day, week and month groupings are ordered by the metric, not by date. Existing behaviour,
+   left alone here; a date series probably wants date order.
+
+**Not done.** The run page and the approval screen were not walked in a browser at 390px: there is
+no local HQ database other than the test one, which the suite wipes. The panel uses the same grid,
+`min-w-0` and `break-words`/`break-all` as the rest of the page; that is construction, not evidence.
+
+**Verification (20 September, local; GitHub Actions deferred until the 1 October reset).** Full Pest suite on Postgres `hq_test_f`: **1012 passed, 8282 assertions, 0 failed** (base 977, plus 35: 15 approval requester identity, 14 deterministic ordering, 6 run page context). `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean. `npm run build`: built. The identity-case digests: green, not re-pinned.
