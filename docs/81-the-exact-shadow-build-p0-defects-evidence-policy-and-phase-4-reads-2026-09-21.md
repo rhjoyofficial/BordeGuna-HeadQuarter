@@ -2610,3 +2610,72 @@ issued (`deploy/README.md`); the gate does not need them.
    The runner proves the structured reply before any case and stops without a measurement if it fails.
 5. A complete pass only: the seven-day A0 shadow, opened with `--by <a real person>`. Anything else:
    everything stays inert.
+
+### D.4 Where the steps stand (21 September, 07:07 UTC, read on production)
+
+1. Done, but with the wrong key: row #18 `openai_api_key` / `hq` was stored before the deploy, and
+   `hq:credentials:health --verify-model` answered `provider_blocked_by_credit` (06:28 UTC). The key
+   belongs to another OpenAI account that has no credit; the Bor de Guna organisation, which does have
+   credit, is a different account. Joy stores a key made in the Bor de Guna organisation (project
+   "Bor de Guna HQ Automation") on `/credentials`.
+2. Done. The old script at 06:19 UTC (nine migrations), then `--verify-only --no-pull` and
+   `--no-pull` at 06:32 UTC. `deploy/release-state/release.json`: `status: released`, dump
+   `hq-20260921-063157.dump` verified at 06:31:58, verification passed, `/api/health` names
+   `87d8658`. The scheduler runs under `docker-init`: 2 processes and no zombie at 07:06 UTC.
+3. Done except the verification: the seeder, the dry run, then `hq:ai:provider openai --apply` under
+   Joy's name (audit #679). `hq:ai:provider` reads `serving: openai`, the four OpenAI rows on and the
+   four Anthropic rows off; `hq:ai:probe` routes a diagnostic to `gpt-5.6-luna`; HQ's own budget reads
+   $19.59 of $50. Verification waits for step 1's key.
+4. Waiting for a verified key.
+5. Waiting for step 4.
+
+The P3-G1 production replay (`hq:conversation:simulate --repeat=2`, rolled back, no model) can run
+now that production carries the invariants; this session's permission classifier refused it as a
+remote write, so it is Joy's line to type.
+
+## E. The cumulative report (point 18), as posted in the ChatGPT thread on 21 September
+
+Posted before Gate 11 attempt 2, because everything else the milestone asked for is done and only an
+owner action (the key) stands between the candidate and the gate; the previous instruction set that
+cadence ("do not wait for Gate 11 to report all progress"). The gate's result follows as its own
+message.
+
+> Cumulative report (your 21 September instruction, docs/81, point 18). From Claude, 21 September. Everything below was read from the repository and from production today.
+>
+> 1. P0 DEFECTS. All fixed, each watched failing first. P0-1: a disabled account is refused at every door (password step, 2FA challenge, a live session rejected on its next request with its remember token cycled and one audit row, JSON 401, Horizon, password reset); no code path can disable anybody, so no lockout. P0-2: the BusinessScope cache is gone (read on every call), and a run whose people were narrowed after it was resolved ends its remaining calls. P0-3: a rollback never migrates (an override pins RUN_MIGRATIONS=0 and the started container is read back), it is backup-first through the same library as deploy, and every refusal comes before anything is touched. P0-4: an agent's approval records requester, enabler, requester kind and context digest separately (additive migration; old rows untouched and labelled as predating the split); the requester cannot approve what they asked for; one rule at every door. P1-1: facts.query_orders orders by metric then a typed key, and reports a tie at the limit instead of choosing silently.
+>
+> 2. CANDIDATE AND RELEASE. Eight streams, each in its own worktree, merged --no-ff one at a time with the full suite on the combined tree before each push: E, F, J (defects found on the way: Horizon behind 2FA, kill switches and flags read fresh, an approve-with-edit redacted by the tool's declared paths), I, H, G, K, L. Candidate 87d8658 (application code byte-identical to 675d5dd). Joy deployed it inert, backup-first: the old script at 06:19 UTC (nine additive migrations), then the new script with --verify-only and --no-pull at 06:32 UTC, which wrote the release record: released, verification passed, /api/health names 87d8658.
+>
+> INCIDENT, found by the candidate's own preflight (stream L). Production's scheduler had been dead since 18 September: PID 1 was schedule:work with no init, every runInBackground child stayed a zombie (9,482 against a pids.max of 9,483), so nothing scheduled ran from 17 September 22:05 UTC to 21 September. The monitor said "unreachable" once, because every reader of /api/health threw away a 503's body. I restarted it by hand; stream L puts init: true on the scheduler and makes deploy, rollback, verify-only and the host monitor keep the 503's body and name the failing component. Now live: 2 processes, no zombie.
+>
+> 3. EXECUTION CONTEXT ON THE RUN PAGE. The recorded eec.v1 context in sentences: who asked and on what basis, who enabled, what acted, entry point, environment, businesses, brands, tools, what narrowed it, when it was resolved. People by name and id, never email; scope outside the viewer's own is counted, not named; the digest folded away. Read-only, existing permission. A refused context has no run row and stays in the audit log.
+>
+> 4. VERIFY-ONLY. deploy.sh --verify-only runs the real preflight and changes nothing (shown byte-identical in the passing and the failing case); HQ_ROOT runs a copy against production. Its first real use found the incident above. deploy.sh refuses unknown arguments.
+>
+> 5. AUTONOMY EVIDENCE POLICY. Built (ADR-048): versioned policy tables guarded by triggers, one writer, console-only propose, activate, retire (dry run until --apply; activation needs --by, --reason and no undecided field). The producer recounts from evaluation_results; the policy is one more ceiling in the resolver and can only lower. A grant naming a suite is now compared with that suite's own figure (the old resolver let a pooled 0.96 satisfy it). agent_runs.autonomy_evidence records what each run was judged under. No numbers and no version exist; production says "No autonomy evidence policy is active". Left for the owner: which levels, which of the six dimensions per level, rate, sample and age per requirement, hard checks, who activates.
+>
+> 6. M7 BRIEFING BUNDLE. Unchanged since docs/80, as you approved it; narration off; no scheduled briefing.
+>
+> 7. M6. Unchanged, inert; ask_hq and scheduler.nl off.
+>
+> 8. P3-G1 AND P3-G2. P3-G1 local: 33 of 33, two replays identical, no residual trace. The production replay (rolled back, no model) can run now that the release carries the invariants; my own attempt was refused by this session's permission classifier as a remote write, so it is one line for Joy to type. P3-G2 prepared, not run: after Gate 11, with Joy as enabling user for the simulated run only; Support stays paused.
+>
+> 9. PHASE 4 READS. ERP endpoints (products, SKU, price with its rule, availability, customer eligibility; reads only) are on ERP production. HQ tools erp.lookup_product, lookup_sku, read_price, read_availability, check_order_eligibility: R2, held by no agent, eligibility not agent-executable, phone masked; one contract digest in both repositories. Not reachable yet: they need a new ERP token with the read abilities. No order write anywhere.
+>
+> 10. PROVIDER. OWNER DECISION, 21 September: Anthropic is skipped for now; HQ uses OpenAI's API. Stream K (ADR-049): an OpenAI driver on the Responses API with store: false; exactly one provider serves any measurement, moved by an audited lever under a named person; readiness follows the serving provider; a billing 429 is blocked-by-credit and never condemns the key. Tiers gpt-5.6-luna, terra, sol. On production OpenAI serves (switched through the lever under Joy's name) and the Anthropic rows are off. But the stored key belongs to another OpenAI account with no credit (verify-model: provider_blocked_by_credit); Joy is storing a key from the account that has credit.
+> FOR YOUR DECISION RECORD: Gate 11 attempt 2 will be the first gate that measures an OpenAI model (gpt-5.6-terra for the Executive, reasoning effort low); every earlier gate measured Claude. A later return to Anthropic needs its own complete gate before any shadow runs on it. HQ's agent schema is outside OpenAI's strict subset, so turns go strict: false and stay validated by HQ's ArgumentValidator, exactly as on Anthropic; the runner proves one structured reply with the real provider before any case and stops without a measurement if it fails. Estimated cost $2.50 to $3.
+>
+> 11. GATE 11 READINESS. Ready on the exact candidate, which is production. Missing only a verified key: verify-model must read verified, then one run, zero unmeasured, no tuning, stop for the activation decision.
+>
+> 12. LOCAL VERIFICATION. Combined tree: 1189 Pest passed (10,692 assertions), Pint, strict TypeScript, Vite; deploy-safety 260 passed on Git Bash with a stat shim. Local verification passed; GitHub Actions validation deferred until the 1 October reset; Linux parity unproven.
+>
+> 13. MAIN VS PRODUCTION. Production 87d8658 with a verified release record; main is documentation ahead only (a list of what the owner must buy or register per phase, and this report). On a branch, not merged: stream M (one lock so two deploys cannot overlap; verify-only flags a stray RUN_MIGRATIONS in deploy/.env; Anthropic's spend-limit answer read as blocked-by-credit; a deleted ERP hostname left in .env.example).
+>
+> 14. A0 AND SHADOW. Nothing activated. ai.runtime off; Executive, Analytics, Support paused at A0; grants 0; no autonomy policy; no shadow period; Meta inbound off; no outbound provider. HQ alerts now go to a Telegram bot of HQ's own (the old Hermes agent was removed from the VPS at Joy's request).
+>
+> 15. BLOCKERS. Joy: (1) the OpenAI key from the account with credit; (2) the P3-G1 production replay line; (3) the new ERP read token; (4) Meta Business Verification for Phase 3 live; (5) a browser walk of the new pages under his 2FA. Mine: stream M; CI reconciliation on 1 October.
+>
+> MY PROPOSAL, for you to challenge:
+> (a) Phase 4 write foundation, built inert: an ERP endpoint that creates a DRAFT sales order only (idempotency key, price and stock re-read by the ERP, never confirmed, invoiced or posted), and in HQ a take_order capability at R3, approval-required, agentExecutable false, held by no agent, with a reconciliation check between the draft and what was proposed. Nothing reaches a customer or the books.
+> (b) Design documents for Phases 5 and 6 (marketing and ads; the content factory and research engine), so the owner can start the slow registrations those phases need now rather than when we reach them.
+> (c) Order after the key: Gate 11 attempt 2, then P3-G2 on the same provider in the same session if Gate 11 passes, both before the shadow opens. Do you agree, or should P3-G2 wait until the shadow week has run?
