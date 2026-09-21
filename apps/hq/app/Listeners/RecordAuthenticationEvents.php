@@ -2,6 +2,7 @@
 
 namespace App\Listeners;
 
+use App\Auth\ActiveUserProvider;
 use App\Support\Audit\Auditor;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -31,6 +32,10 @@ final class RecordAuthenticationEvents
 
     public function failed(Failed $event): void
     {
-        $this->auditor->recordSystem('auth.login_failed', 'user', after: ['email' => $event->credentials['email'] ?? null]);
+        $email = $event->credentials['email'] ?? null;
+
+        // The screen says one sentence for every failure; the record says which failure it was.
+        $this->auditor->recordSystem('auth.login_failed', 'user', after: ['email' => $email],
+            reason: ActiveUserProvider::isDisabledAccount($email) ? ActiveUserProvider::DISABLED_REASON : null);
     }
 }

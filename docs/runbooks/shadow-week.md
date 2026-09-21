@@ -18,7 +18,9 @@ The dry run refuses, and says why, unless: the latest run of every suite for the
 with zero unmeasured on the prompt stamp in force; the ceiling is A0; no tool above R3 and none
 customer-facing; grants 0; analytics and support paused; `ai.runtime` off; Meta inbound off; no send
 provider; no open period. On production the period must carry its Shadow Probes; `--no-schedule` is
-for a test machine.
+for a test machine. On production `--by` is mandatory too (`docs/81` points 11 and 12): it must be
+the email of an HQ user who exists and is not disabled, the dry run says so when it is missing, and
+nothing opens a production period implicitly. The probes then ask on behalf of that person.
 
 Opening turns `ai.runtime` on, sets the Executive active and writes the period, all three audited
 under the named person.

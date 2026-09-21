@@ -24,7 +24,8 @@ class Approval extends Model
 
     protected $fillable = [
         'uuid', 'tool_key', 'tool_version', 'payload', 'payload_hash', 'risk_tier', 'action_class',
-        'business_id', 'brand_id', 'store_id', 'requested_by_user_id', 'agent_key', 'ai_run_id',
+        'business_id', 'brand_id', 'store_id', 'requested_by_user_id', 'enabled_by_user_id', 'requester_kind',
+        'execution_context_digest', 'agent_key', 'ai_run_id',
         'correlation_id', 'requesting_tool_call_id', 'reason', 'evidence', 'preview', 'estimated_cost',
         'policy_id', 'policy_version', 'status', 'approver_role', 'decided_by_user_id', 'decided_at',
         'decision_note', 'delegated_to_user_id', 'delegated_by_user_id', 'delegated_at',
@@ -59,6 +60,12 @@ class Approval extends Model
     public function requestedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by_user_id');
+    }
+
+    /** The enabling user of the agent that parked it. Null for a non-agent caller, and for a row from before docs/81 P0-4. */
+    public function enabledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'enabled_by_user_id');
     }
 
     public function decidedBy(): BelongsTo
@@ -124,12 +131,50 @@ class Approval extends Model
     }
 
     /**
+     * Whether requester and enabler were recorded apart. False for a non-agent caller (there is no
+     * enabler) and for an agent row from before docs/81 P0-4, whose requester column holds the
+     * ENABLING user; a screen must not present that person as the one who asked.
+     */
+    public function requesterRecordedApart(): bool
+    {
+        return $this->enabled_by_user_id !== null;
+    }
+
+    /**
+     * The one separation-of-duties rule (docs/81 C.2.2), or null when it has nothing to say.
+     *
+     * A person who asked through an agent that borrows SOMEBODY ELSE's authority may not also be
+     * the one who says yes. It applies only where two people were recorded: when the requester is
+     * the enabling user (the single-owner setup), for a non-agent caller, and for a row from before
+     * the split, nothing changes, because docs/48 G.4 (Q22) keeps the owner able to decide
+     * everything. The enabling user MAY decide what somebody else asked: requester and approver
+     * are then already two people.
+     */
+    public function separationOfDutiesReason(User $user): ?string
+    {
+        if ($this->enabled_by_user_id === null || $this->requested_by_user_id === null) {
+            return null;
+        }
+        if ((int) $this->requested_by_user_id === (int) $this->enabled_by_user_id) {
+            return null;
+        }
+        if ((int) $this->requested_by_user_id !== (int) $user->getKey()) {
+            return null;
+        }
+
+        return 'You asked for this through an agent that acts under another person\'s authority, so the decision belongs to somebody else. You may still withdraw it.';
+    }
+
+    /**
      * Who may decide this one: the delegate when there is one, otherwise anybody holding the
      * decide permission. Delegation NARROWS, it never widens.
      */
     public function isDecidableBy(User $user): bool
     {
         if (! $user->can('hq.approvals.decide')) {
+            return false;
+        }
+        if ($this->separationOfDutiesReason($user) !== null) {
             return false;
         }
 

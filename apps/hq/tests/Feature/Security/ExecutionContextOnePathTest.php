@@ -24,7 +24,6 @@ use App\Models\ShadowPeriod;
 use App\Models\ToolCall;
 use App\Models\User;
 use App\Models\UserBusinessScope;
-use App\Support\Authorization\BusinessScope;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
@@ -70,7 +69,6 @@ function onePathPerson(array $businessSlugs = [], ?array $permissions = null): U
     foreach ($businessSlugs as $slug) {
         UserBusinessScope::create(['user_id' => $user->id, 'business_id' => Business::where('slug', $slug)->value('id'), 'access' => 'read']);
     }
-    app(BusinessScope::class)->forget($user);
 
     return $user;
 }

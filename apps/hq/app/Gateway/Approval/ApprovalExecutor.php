@@ -46,6 +46,13 @@ final class ApprovalExecutor
      */
     public function approveAndExecute(Approval $approval, User $approver, ?string $note = null): ToolOutcome
     {
+        // 0. Separation of duties (docs/81 P0-4), here as well as on the screen, because this is the
+        //    only door to an execution and a rule the controller alone held would be skipped by the
+        //    next caller. Before the claim: a refusal leaves the approval pending for somebody else.
+        if (($barred = $approval->separationOfDutiesReason($approver)) !== null) {
+            return $this->refusal($approval, $barred);
+        }
+
         // 1. Approval-specific checks, before anything is claimed. A refusal here leaves the
         //    approval exactly as it was, still pending and still decidable.
         if (($blocked = $this->guard->preClaimReason($approval)) !== null) {

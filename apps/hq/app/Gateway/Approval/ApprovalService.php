@@ -62,6 +62,13 @@ final class ApprovalService
         $payload = $this->redactor->redact($args, $descriptor->redact);
         $now = CarbonImmutable::now();
 
+        // ⭐ Four things, kept apart (docs/81 P0-4): who ASKED, who ENABLED, what ACTED, who DECIDED.
+        //    An agent acts under a resolved context (ADR-047), and the requester is the accountable
+        //    person that context names, never the enabling user merely because their authority is
+        //    what the agent borrows. Every other caller is what it always was: the person on the
+        //    screen, or the job's owner, with no enabler, kind or digest, because there is none.
+        $execution = $request->identity->isAgent() ? $request->identity->execution : null;
+
         $approval = Approval::create([
             'tool_key' => $descriptor->key,
             'tool_version' => $descriptor->version,
@@ -73,7 +80,12 @@ final class ApprovalService
             'business_id' => $businessId,
             'brand_id' => $request->brandId,
             'store_id' => $storeId,
-            'requested_by_user_id' => $request->identity->enablingUser()?->getKey(),
+            'requested_by_user_id' => $execution !== null
+                ? $execution->requesterUser->getKey()
+                : $request->identity->enablingUser()?->getKey(),
+            'enabled_by_user_id' => $execution?->enabler->getKey(),
+            'requester_kind' => $execution?->requester->kind->value,
+            'execution_context_digest' => $execution?->digest(),
             'agent_key' => $request->identity->agent?->key,
             'ai_run_id' => $request->aiRunId,
             'correlation_id' => $request->correlationId,
@@ -177,7 +189,8 @@ final class ApprovalService
             $successor = Approval::create(array_merge(
                 collect($original->toArray())->only([
                     'tool_key', 'tool_version', 'risk_tier', 'action_class', 'business_id', 'brand_id',
-                    'store_id', 'requested_by_user_id', 'agent_key', 'ai_run_id', 'correlation_id',
+                    'store_id', 'requested_by_user_id', 'enabled_by_user_id', 'requester_kind',
+                    'execution_context_digest', 'agent_key', 'ai_run_id', 'correlation_id',
                     'requesting_tool_call_id', 'evidence', 'preview', 'estimated_cost', 'policy_id',
                     'policy_version', 'approver_role', 'escalate_to_role',
                 ])->all(),
@@ -263,6 +276,9 @@ final class ApprovalService
         }
         if ($to->getKey() === $by->getKey()) {
             throw new InvalidArgumentException('Delegating to yourself changes nothing.');
+        }
+        if (($barred = $approval->separationOfDutiesReason($to)) !== null) {
+            throw new InvalidArgumentException('The delegate asked for this through an agent that acts under another person\'s authority, so the decision cannot be handed to them.');
         }
 
         $approval->forceFill([
