@@ -1,6 +1,7 @@
 <?php
 
 use App\Ai\ModelTier;
+use App\Ai\ProviderCheck;
 use App\Ai\Providers\AnthropicProvider;
 use App\Commerce\Support\CommerceRegistry;
 use App\Gateway\Credentials\CredentialHealth;
@@ -186,6 +187,28 @@ it('records a credit refusal as provider_blocked_by_credit: an incident, never a
         ->and($row->lastResult['source'])->toBe('provider_check')
         ->and(app(CredentialHealth::class)->isKnownInvalid($key->refresh()))->toBeFalse();
     expect(json_encode($row->toArray()))->not->toContain('never-shown');
+});
+
+/*
+ | docs/81 C.9: Anthropic's monthly spend limit is the account's cap, a billing block like OpenAI's
+ | organization_spend_limit_exceeded, and it never judges the key. The wording is the one production
+ | received during gate 6 (docs/69), a 400 that says neither "credit balance" nor "purchase credits".
+ */
+it('records Anthropic\'s monthly spend limit as provider_blocked_by_credit too: the account is capped, the key is fine', function () {
+    aiModel('anthropic', 'claude-haiku-4-5-20251001', ModelTier::Low);
+    $key = anthropicKey();
+    Http::fake(['api.anthropic.com/*' => Http::response(['type' => 'error', 'error' => ['type' => 'invalid_request_error',
+        'message' => 'You have reached your specified API usage limits. You will regain access on 2026-10-01']], 400)]);
+
+    $row = app(CapabilityReadiness::class)->verifyModel(modelRow());
+
+    expect($row->state)->toBe(ReadinessRow::PROVIDER_BLOCKED_BY_CREDIT)
+        ->and($row->lastResult['class'])->toBe(OutcomeClass::ProviderBlockedByCredit->value)
+        ->and($row->lastResult['message'])->toContain('usage limits')
+        ->and(app(CredentialHealth::class)->isKnownInvalid($key->refresh()))->toBeFalse();
+    expect(ProviderCheck::classify(400, 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.'))
+        ->toBe(OutcomeClass::ProviderBlockedByCredit)
+        ->and(ProviderCheck::classify(400, 'max_tokens: must be at most 64000'))->toBe(OutcomeClass::ConnectorError);
 });
 
 it('tells a wrong key, a missing permission, a provider outage and an unusable answer apart', function (int $status, array $body, string $state, bool $condemned, bool $incident) {

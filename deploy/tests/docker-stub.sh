@@ -75,6 +75,14 @@ case "${ALL}" in
         ;;
     *"/backup.sh once"*)
         (cd "${STUB_REPO}" && git rev-parse --short HEAD) > "${STUB_STATE}/head-at-backup"
+        # STUB_BACKUP_HOLD (docs/81 C.9): the FIRST dump of this world waits here until that file
+        # exists, so a test can run a second release beside one that is part way through. Later dumps
+        # never wait. Bounded by the clock, not by sleeps, so STUB_FAST_SLEEP cannot shorten it.
+        if [ -n "${STUB_BACKUP_HOLD:-}" ] && mkdir "${STUB_STATE}/hold-taken" 2>/dev/null; then
+            touch "${STUB_STATE}/holding"
+            end=$((SECONDS + 90))
+            while [ ! -e "${STUB_BACKUP_HOLD}" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.1; done
+        fi
         exit "${STUB_BACKUP_EXIT:-0}"
         ;;
     *"LAST_STATUS"*)

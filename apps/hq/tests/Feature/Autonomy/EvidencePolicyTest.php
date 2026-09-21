@@ -168,6 +168,42 @@ it('keeps an active or retired version immutable at the database level, and the 
     expect((float) AutonomyEvidenceRequirement::where('policy_id', $draft->id)->value('min_agreement_rate'))->toBe(0.5);
 });
 
+/*
+ | docs/81 C.9: retire() acts on the version as the database has it. Until then it judged the caller's
+ | in-memory status and saved the caller's instance, so an unsaved edit the caller held was written
+ | with the retirement (and refused by the trigger), and a stale copy was judged "active".
+ */
+it('retires the version as it stands in the database, leaving an unsaved edit the caller holds alone', function () {
+    $owner = $this->hqUser('owner');
+    $active = F::activate($owner, [F::requirement('a1', 'tool_selection')]);
+    $name = $active->name;
+    $active->name = 'an unsaved edit the caller is holding';
+
+    $retired = aepPolicies()->retire($active, $owner, 'withdrawn with an unsaved edit in hand');
+
+    expect($retired->status)->toBe('retired')
+        ->and($retired->retirement_reason)->toBe('withdrawn with an unsaved edit in hand')
+        ->and($active->fresh()->status)->toBe('retired')
+        ->and($active->fresh()->name)->toBe($name)
+        ->and($active->name)->toBe('an unsaved edit the caller is holding')
+        ->and(aepPolicies()->active())->toBeNull()
+        ->and(AutonomyEvidencePolicyEvent::where('policy_id', $active->id)->where('event', 'retired')->count())->toBe(1)
+        ->and(AuditLog::where('action', 'autonomy.evidence_policy.retired')->count())->toBe(1);
+});
+
+it('judges the status the database holds, so a stale copy of a retired version is refused in words and retires nothing twice', function () {
+    $owner = $this->hqUser('owner');
+    $active = F::activate($owner, [F::requirement('a1', 'tool_selection')]);
+    $stale = AutonomyEvidencePolicy::find($active->id);
+
+    aepPolicies()->retire($active->fresh(), $owner, 'the first retirement');
+
+    expect(aepRefused(fn () => aepPolicies()->retire($stale, $owner, 'again, from a copy loaded before the first')))
+        ->toThrow(RuntimeException::class, 'only the active version can be retired');
+    expect(AutonomyEvidencePolicyEvent::where('policy_id', $active->id)->where('event', 'retired')->count())->toBe(1)
+        ->and($active->fresh()->retirement_reason)->toBe('the first retirement');
+});
+
 it('digests the rules alone: the same rules give the same digest, one changed number another', function () {
     $owner = $this->hqUser('owner');
     $a = F::propose([F::requirement('a1', 'tool_selection'), F::requirement('a1', 'reasoning')], by: $owner);

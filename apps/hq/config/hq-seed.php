@@ -32,7 +32,7 @@ return [
         ['slug' => 'laladia-com', 'name' => 'laladia.com', 'business' => 'laladia', 'adapter' => 'laladia', 'base_url' => 'https://laladia.com', 'product_owners' => ['bor-de-guna']],
         ['slug' => 'bionic-garden', 'name' => 'bionic.garden', 'business' => 'bionic', 'adapter' => 'bionic', 'base_url' => 'https://bionic.garden', 'product_owners' => ['bor-de-guna']],
         ['slug' => 'econic-store', 'name' => 'econic.store', 'business' => 'econic', 'adapter' => 'woocommerce', 'base_url' => 'https://econic.store', 'product_owners' => ['econic']],
-        ['slug' => 'erp-counter', 'name' => 'ERP counter / POS', 'business' => 'bor-de-guna', 'adapter' => 'erp_pos', 'base_url' => 'https://erp.srv1808022.hstgr.cloud', 'product_owners' => ['bor-de-guna']],
+        ['slug' => 'erp-counter', 'name' => 'ERP counter / POS', 'business' => 'bor-de-guna', 'adapter' => 'erp_pos', 'base_url' => 'https://erp.bordeguna.com', 'product_owners' => ['bor-de-guna']],
     ],
 
     'channels' => [
