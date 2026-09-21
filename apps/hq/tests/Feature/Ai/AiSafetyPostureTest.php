@@ -31,6 +31,7 @@ it('mentions no model id anywhere in app/ outside the driver layer', function ()
     // retired, and it takes the choice away from the one component able to account for it.
     $allowed = [
         'app/Ai/Providers/AnthropicProvider.php',   // speaks the id to the network
+        'app/Ai/Providers/OpenAiProvider.php',      // the same, for OpenAI (docs/81 C.7)
     ];
 
     // Deliberately loose: any `claude-*`, `gpt-*`, `gemini-*` or `claude.*sonnet` style literal.
@@ -70,7 +71,9 @@ it('keeps the driver layer as the only place that names a provider endpoint', fu
         if (str_starts_with($relative, 'app/Ai/Providers/')) {
             continue;
         }
-        if (str_contains((string) file_get_contents($file->getPathname()), 'api.anthropic.com')) {
+        $source = (string) file_get_contents($file->getPathname());
+        // Every provider endpoint HQ knows, Anthropic's and OpenAI's (docs/81 C.7).
+        if (str_contains($source, 'api.anthropic.com') || str_contains($source, 'api.openai.com')) {
             $offenders[] = $relative;
         }
     }

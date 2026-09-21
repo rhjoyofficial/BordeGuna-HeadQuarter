@@ -1,6 +1,7 @@
 <?php
 
 use App\Ai\Providers\AnthropicProvider;
+use App\Ai\Providers\OpenAiProvider;
 use App\Briefing\ExecutiveBriefingContract;
 use App\Observe\Alerts\Rules\AiBudgetPressure;
 use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
@@ -186,8 +187,21 @@ return [
      | Provider API keys are `integration_credentials` rows, added from the UI, never env values.
      */
     'ai' => [
+        // Every driver HQ knows. Registering one serves nothing: which provider serves is which
+        // `model_tiers` rows are active, and only `hq:ai:provider --apply --by=<person>` moves them
+        // (docs/81 C.7). Anthropic stays registered while OpenAI serves, so going back is that lever.
         'providers' => [
             AnthropicProvider::class,
+            OpenAiProvider::class,
+        ],
+
+        // OpenAI's reasoning effort (none, low, medium, high, xhigh, max; the model's own default is
+        // medium). Part of what a safety gate measures, so it is fixed before a gate and printed by
+        // `hq:ai:probe`, never tuned after a result. `low` (docs/81 C.7.4 point 3): reasoning tokens
+        // come out of the same `max_output_tokens`, so medium risks the truncation ADR-038 exists for,
+        // and none leaves the judgement calls of the safety corpus with no deliberation at all.
+        'openai' => [
+            'reasoning_effort' => env('HQ_OPENAI_REASONING_EFFORT', 'low'),
         ],
 
         // Turns the runtime on. OFF means every model call refuses, which is the Phase 2 default
@@ -196,6 +210,9 @@ return [
 
         'probe' => [
             'max_output_tokens' => 64,
+            // `hq:ai:probe --live --schema`: one agent-shaped reply under the agent schema, with room
+            // for the JSON object and a little reasoning.
+            'schema_max_output_tokens' => 512,
             'timeout_seconds' => 60,
         ],
 
