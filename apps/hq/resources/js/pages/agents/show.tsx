@@ -171,7 +171,8 @@ export default function AgentRunShow({
                             <div className="text-muted-foreground text-xs font-medium uppercase">What it set out to serve</div>
                             {run.canonical_task ? (
                                 <p className="mt-1 text-sm">
-                                    HQ established the task from your words. {run.task && run.task !== run.canonical_task && (
+                                    HQ established the task from your words.{' '}
+                                    {run.task && run.task !== run.canonical_task && (
                                         <span className="text-muted-foreground">The agent read it as: {run.task}</span>
                                     )}
                                 </p>
@@ -187,27 +188,36 @@ export default function AgentRunShow({
                             )}
                             {run.authority_request === 'refused' && (
                                 <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                    The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done in its place.
+                                    The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done
+                                    in its place.
                                 </p>
                             )}
                             {run.authority_source === 'runtime' && (
                                 <p className="text-muted-foreground mt-1 text-xs">
-                                    HQ&apos;s own detector{run.security_intent?.version ? ` (${run.security_intent.version})` : ''} read the message as security-sensitive
-                                    {run.security_intent?.classes?.length ? `: ${run.security_intent.classes.map((c) => c.replace(/_/g, ' ')).join(', ')}` : ''}. The agent cannot lower that
-                                    reading; its own field said {run.security_intent?.error ? 'nothing usable (the detector failed and failed closed)' : 'what it read'}.
+                                    HQ&apos;s own detector{run.security_intent?.version ? ` (${run.security_intent.version})` : ''} read the message
+                                    as security-sensitive
+                                    {run.security_intent?.classes?.length
+                                        ? `: ${run.security_intent.classes.map((c) => c.replace(/_/g, ' ')).join(', ')}`
+                                        : ''}
+                                    . The agent cannot lower that reading; its own field said{' '}
+                                    {run.security_intent?.error ? 'nothing usable (the detector failed and failed closed)' : 'what it read'}.
                                 </p>
                             )}
                             {(run.prohibited_capability?.kinds?.length || run.prohibited_capability?.error) && (
                                 <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
                                     The message asked for something HQ does not have
-                                    {run.prohibited_capability?.kinds?.length ? ` (${run.prohibited_capability.kinds.map((k) => k.replace(/_/g, ' ')).join(', ')})` : ''}. HQ&apos;s own
-                                    detector{run.prohibited_capability?.version ? ` (${run.prohibited_capability.version})` : ''} refused it whole on the first turn, and nothing was run
-                                    in its place{run.prohibited_capability?.error ? '; the detector failed and failed closed' : ''}.
+                                    {run.prohibited_capability?.kinds?.length
+                                        ? ` (${run.prohibited_capability.kinds.map((k) => k.replace(/_/g, ' ')).join(', ')})`
+                                        : ''}
+                                    . HQ&apos;s own detector{run.prohibited_capability?.version ? ` (${run.prohibited_capability.version})` : ''}{' '}
+                                    refused it whole on the first turn, and nothing was run in its place
+                                    {run.prohibited_capability?.error ? '; the detector failed and failed closed' : ''}.
                                 </p>
                             )}
                             {run.authority_request === 'in_untrusted_content' && (
                                 <p className="text-muted-foreground mt-1 text-sm">
-                                    Untrusted content in this run claimed wider authority for the agent. The claim had no standing; your question was served.
+                                    Untrusted content in this run claimed wider authority for the agent. The claim had no standing; your question was
+                                    served.
                                 </p>
                             )}
                         </div>

@@ -47,6 +47,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'conversation.read_thread', 'messaging.send_reply',
         // M7 (docs/80 C.1): composes and stores the Executive Briefing's evidence bundle. No job runs it yet.
         'briefing.compose',
+        // Phase 4 read side (docs/81 C.5): five live ERP reads, R2, read-only, held by no agent.
+        'erp.lookup_product', 'erp.lookup_sku', 'erp.read_price', 'erp.read_availability', 'erp.check_order_eligibility',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

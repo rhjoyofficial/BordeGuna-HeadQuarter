@@ -35,9 +35,14 @@ if [ -d /var/www/html/public-volume ]; then
     fi
 fi
 
+# `app` gets RUN_MIGRATIONS=1 from docker-compose.yml on a deploy. deploy/rollback.sh starts it with
+# RUN_MIGRATIONS=0 through a compose override, because a rollback never runs a migration (docs/81
+# C.3). horizon and the scheduler never have it. The skip is logged so a rollback's `app` log says so.
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
     log "running migrations"
     php artisan migrate --force --no-interaction
+else
+    log "migrations not run: RUN_MIGRATIONS is '${RUN_MIGRATIONS:-unset}' for this container"
 fi
 
 php artisan config:cache

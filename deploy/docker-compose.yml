@@ -39,6 +39,11 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     environment:
+      # A DEPLOY migrates: the entrypoint runs `migrate --force` when this reads 1 (only `app` has it,
+      # so horizon and the scheduler never race it). A ROLLBACK never migrates (docs/81 C.3):
+      # deploy/rollback.sh passes a second `-f` override that sets this to "0" on its `up`, and reads
+      # the started container back. It is an override, not a variable here, because a rollback checks
+      # out the TARGET's copy of this file and every release before docs/81 hardcodes "1".
       RUN_MIGRATIONS: "1"
     volumes:
       - storage:/var/www/html/storage

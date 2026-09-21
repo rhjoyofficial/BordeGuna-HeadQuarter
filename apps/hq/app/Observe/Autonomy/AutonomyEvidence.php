@@ -2,21 +2,22 @@
 
 namespace App\Observe\Autonomy;
 
-use App\Agents\PromptLibrary;
 use App\Autonomy\AutonomyRequest;
 use App\Autonomy\AutonomyResolver;
+use App\Autonomy\Evidence\EvidencePolicies;
+use App\Autonomy\Evidence\EvidenceProducer;
+use App\Autonomy\Evidence\MeasuredEvidence;
 use App\Evaluation\EvaluationDimension;
 use App\Evaluation\GradeResult;
 use App\Models\Agent;
+use App\Models\AutonomyEvidencePolicy;
 use App\Models\AutonomyGrant;
-use App\Models\EvaluationCase;
 use App\Models\EvaluationResult;
 use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Models\FeatureFlag;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
-use Throwable;
 
 /**
  * The evidence autonomy would rest on, per agent and per evaluation dimension (docs/80 points 5 and 6).
@@ -61,7 +62,8 @@ final class AutonomyEvidence
 
     public function __construct(
         private readonly AutonomyResolver $resolver,
-        private readonly PromptLibrary $prompts,
+        private readonly EvidenceProducer $producer,
+        private readonly EvidencePolicies $policies,
     ) {}
 
     /** @return array<string, mixed> */
@@ -71,15 +73,53 @@ final class AutonomyEvidence
         $environment = (string) app()->environment();
         $grants = $this->liveGrants($now);
         $flag = $this->runtimeFlag($environment);
+        $policy = $this->policies->active();
 
         return [
             'generated_at' => $now->toIso8601String(),
             'environment' => $environment,
             'runtime_flag' => $flag,
             'live_grants_total' => $grants->count(),
+            'policy' => $this->policySection($policy),
             'agents' => Agent::query()->orderBy('key')->get()
-                ->map(fn (Agent $agent) => $this->agent($agent, $grants, $environment, $flag['enabled']))
+                ->map(fn (Agent $agent) => $this->agent($agent, $grants, $environment, $flag['enabled'], $policy, $now))
                 ->all(),
+        ];
+    }
+
+    /**
+     * The autonomy evidence policy as it stands (ADR-048): the active version, or the plain statement
+     * that none is, and every proposed version with what is still undecided in it. Proposed versions
+     * are shown as NOT in force.
+     *
+     * @return array<string, mixed>
+     */
+    private function policySection(?AutonomyEvidencePolicy $active): array
+    {
+        $proposed = AutonomyEvidencePolicy::query()
+            ->where('status', AutonomyEvidencePolicy::PROPOSED)
+            ->with(['requirements', 'hardChecks'])
+            ->orderBy('version')
+            ->get()
+            ->map(fn (AutonomyEvidencePolicy $p) => $this->policies->snapshot($p) + [
+                'proposed_at' => $p->proposed_at?->toIso8601String(),
+                'in_force' => false,
+                'blocking' => $this->policies->structuralRefusals($p),
+            ])
+            ->all();
+
+        return [
+            'active' => $active === null ? null : $this->policies->snapshot($active) + [
+                'content_digest' => $active->content_digest,
+                'activated_by_user_id' => $active->activated_by === null ? null : (int) $active->activated_by,
+                'activated_at' => $active->activated_at?->toIso8601String(),
+                'activation_reason' => $active->activation_reason,
+                'in_force' => true,
+            ],
+            'statement' => $active === null
+                ? 'No autonomy evidence policy is active, so evidence cannot widen autonomy.'
+                : "Autonomy evidence policy version {$active->version} is active. It is a ceiling on what a matching grant can give, never a grant itself.",
+            'proposed' => $proposed,
         ];
     }
 
@@ -87,29 +127,20 @@ final class AutonomyEvidence
      * @param  Collection<int, AutonomyGrant>  $allGrants
      * @return array<string, mixed>
      */
-    private function agent(Agent $agent, Collection $allGrants, string $environment, bool $runtimeOn): array
+    private function agent(Agent $agent, Collection $allGrants, string $environment, bool $runtimeOn, ?AutonomyEvidencePolicy $policy, CarbonImmutable $now): array
     {
-        $role = $agent->role_key ?? $agent->key;
-        $stamp = $this->currentStamp($role);
+        // ADR-048: the recount is the producer's, the same code the runner's evidence comes from, so
+        // the page can never show a figure the runtime would not have used.
+        $measured = $this->producer->measure($agent);
+        $role = $measured->role;
+        $stamp = $measured->stamp;
+        $suites = $measured->suites;
+        $latest = $measured->latest;
         $grants = $allGrants->filter(fn (AutonomyGrant $g) => $g->agent_key === null || $g->agent_key === $agent->key)->values();
 
-        $suites = EvaluationSuite::query()
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('role_key')->orWhere('role_key', $role))
-            ->orderBy('key')
-            ->get();
-
         $suiteRows = [];
-        $latest = [];
         foreach ($suites as $suite) {
-            $run = EvaluationRun::query()
-                ->where('suite_id', $suite->id)->where('agent_key', $agent->key)
-                ->whereIn('status', self::FINISHED)
-                ->orderByDesc('id')->first();
-
-            if ($run !== null) {
-                $latest[$suite->id] = $run;
-            }
+            $run = $latest[$suite->id] ?? null;
 
             $suiteRows[] = [
                 'suite_id' => (int) $suite->id,
@@ -122,16 +153,13 @@ final class AutonomyEvidence
                 'unfinished_newer_run_ids' => EvaluationRun::query()->where('suite_id', $suite->id)->where('agent_key', $agent->key)
                     ->whereNotIn('status', self::FINISHED)->where('id', '>', $run?->id ?? 0)
                     ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all(),
-                'latest_run' => $run === null ? null : $this->runLineage($run, $suite),
+                'latest_run' => $run === null ? null : MeasuredEvidence::runLineage($run, $suite),
             ];
         }
 
-        $results = $this->resultsOf($latest, $role);
-        $declared = $this->declaredCases($suites, $role);
-
         $rows = [];
         foreach ([self::OVERALL, ...array_map(fn (EvaluationDimension $d) => $d->value, EvaluationDimension::cases())] as $dimension) {
-            $rows[] = $this->row($dimension, $agent, $role, $stamp, $suites, $latest, $results, $declared, $grants);
+            $rows[] = $this->row($dimension, $agent, $role, $stamp, $measured, $grants);
         }
 
         return [
@@ -141,7 +169,10 @@ final class AutonomyEvidence
             'role' => $role,
             'configured_ceiling' => $agent->max_autonomy_level?->value,
             'current_stamp' => $stamp,
-            'ceiling' => $this->ceiling($agent, $grants, $environment, $runtimeOn),
+            'ceiling' => $this->ceiling($agent, $grants, $environment, $runtimeOn, $measured, $now),
+            // What the active autonomy evidence policy says of this agent's evidence, level by level;
+            // null when no policy is active (ADR-048).
+            'policy_judgement' => $policy === null ? null : $this->producer->judge($measured, $policy, $now),
             'live_grants' => $grants->map(fn (AutonomyGrant $g) => $this->grantLineage($g))->all(),
             'suites' => $suiteRows,
             'rows' => $rows,
@@ -151,10 +182,6 @@ final class AutonomyEvidence
     /**
      * One row: the overall rate, or one dimension. Never both from the same figures.
      *
-     * @param  Collection<int, EvaluationSuite>  $suites
-     * @param  array<int, EvaluationRun>  $latest  suite id => its latest finished run
-     * @param  Collection<int, EvaluationResult>  $results  every counted result of those runs
-     * @param  array<int, array<string, int>>  $declared  suite id => dimension => active applicable cases
      * @param  Collection<int, AutonomyGrant>  $grants
      * @return array<string, mixed>
      */
@@ -163,28 +190,14 @@ final class AutonomyEvidence
         Agent $agent,
         string $role,
         ?string $stamp,
-        Collection $suites,
-        array $latest,
-        Collection $results,
-        array $declared,
+        MeasuredEvidence $measured,
         Collection $grants,
     ): array {
         $isOverall = $dimension === self::OVERALL;
         $label = $isOverall ? 'overall agreement' : EvaluationDimension::from($dimension)->label();
-        $mine = $isOverall ? $results : $results->where('dimension', $dimension)->values();
-
-        $sources = [];
-        foreach ($suites as $suite) {
-            $run = $latest[$suite->id] ?? null;
-            if ($run === null) {
-                continue;
-            }
-            $ofRun = $mine->where('run_id', $run->id)->values();
-            if ($ofRun->isEmpty()) {
-                continue;
-            }
-            $sources[] = $this->source($dimension, $run, $suite, $ofRun);
-        }
+        $suites = $measured->suites;
+        $latest = $measured->latest;
+        $sources = $measured->sources($dimension);
 
         $passed = array_sum(array_column($sources, 'passed'));
         $failed = array_sum(array_column($sources, 'failed'));
@@ -208,7 +221,7 @@ final class AutonomyEvidence
         }
 
         foreach ($suites as $suite) {
-            $cases = $isOverall ? array_sum($declared[$suite->id] ?? []) : ($declared[$suite->id][$dimension] ?? 0);
+            $cases = $measured->declaredIn($suite, $dimension);
             if ($cases > 0 && ! isset($latest[$suite->id])) {
                 $reasons[] = "suite {$suite->key} holds {$cases} ".($isOverall ? '' : "{$label} ").'case(s) for this agent and has never been run against it';
             }
@@ -251,7 +264,7 @@ final class AutonomyEvidence
             'failed' => $failed,
             'unmeasured' => $unmeasured,
             'evidence_count' => $evidence,
-            'agreement_rate' => $this->rate($passed, $failed),
+            'agreement_rate' => MeasuredEvidence::rate($passed, $failed),
             'required_rate' => $requirements === [] ? null : max(array_column($requirements, 'required_rate')),
             'requirements' => $requirements,
             'eligible' => $reasons === [],
@@ -259,44 +272,6 @@ final class AutonomyEvidence
             'reasons' => $reasons,
             'sources' => $sources,
             'recent_failures' => $this->recentFailures($agent, $suites, $role, $isOverall ? null : $dimension, $latest),
-        ];
-    }
-
-    /**
-     * What one run contributed to one row, with the result ids behind each count.
-     *
-     * @param  Collection<int, EvaluationResult>  $results
-     * @return array<string, mixed>
-     */
-    private function source(string $dimension, EvaluationRun $run, EvaluationSuite $suite, Collection $results): array
-    {
-        $ids = fn (Collection $rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all();
-
-        $unmeasured = $results->where('unmeasured', true);
-        $measured = $results->where('unmeasured', false);
-        $passed = $measured->where('passed', true);
-        $failed = $measured->where('passed', false);
-
-        // The run's own stored figures, kept beside the recount so a difference is visible.
-        $stored = $dimension === self::OVERALL
-            ? ['passed' => (int) $run->cases_passed, 'failed' => (int) $run->cases_failed, 'rate' => $run->agreement_rate]
-            : (is_array($run->dimension_rates[$dimension] ?? null) ? [
-                'passed' => (int) ($run->dimension_rates[$dimension]['passed'] ?? 0),
-                'failed' => (int) ($run->dimension_rates[$dimension]['failed'] ?? 0),
-                // JSON gives back 1 for 1.0; a rate is a float wherever it is shown.
-                'rate' => is_numeric($run->dimension_rates[$dimension]['rate'] ?? null) ? (float) $run->dimension_rates[$dimension]['rate'] : null,
-            ] : null);
-
-        return $this->runLineage($run, $suite) + [
-            'passed' => $passed->count(),
-            'failed' => $failed->count(),
-            'unmeasured' => $unmeasured->count(),
-            'agreement_rate' => $this->rate($passed->count(), $failed->count()),
-            'result_ids' => ['passed' => $ids($passed), 'failed' => $ids($failed), 'unmeasured' => $ids($unmeasured)],
-            'stored' => $stored,
-            'stored_matches' => $stored === null
-                ? $measured->isEmpty()
-                : $stored['passed'] === $passed->count() && $stored['failed'] === $failed->count(),
         ];
     }
 
@@ -362,13 +337,13 @@ final class AutonomyEvidence
 
         if ($passed + $failed === 0) {
             $reasons[] = "grant {$grant->id} requires {$this->shown($required)} and nothing was measured";
-        } elseif (! $this->meets($passed, $failed, $required)) {
-            $reasons[] = "{$label} measured {$this->shown($this->rate($passed, $failed))} ({$passed} of ".($passed + $failed)."), below the {$this->shown($required)} grant {$grant->id} requires";
+        } elseif (! MeasuredEvidence::meets($passed, $failed, $required)) {
+            $reasons[] = "{$label} measured {$this->shown(MeasuredEvidence::rate($passed, $failed))} ({$passed} of ".($passed + $failed)."), below the {$this->shown($required)} grant {$grant->id} requires";
         }
 
         foreach ($sources as $source) {
             $measured = $source['passed'] + $source['failed'];
-            if ($measured > 0 && ! $this->meets($source['passed'], $source['failed'], $required)) {
+            if ($measured > 0 && ! MeasuredEvidence::meets($source['passed'], $source['failed'], $required)) {
                 $reasons[] = "run {$source['run_id']} of {$source['suite_key']} measured {$label} at {$this->shown($source['agreement_rate'])} ({$source['passed']} of {$measured}), below the {$this->shown($required)} grant {$grant->id} requires";
             }
         }
@@ -377,55 +352,10 @@ final class AutonomyEvidence
             'required_rate' => $required,
             'measured_passed' => $passed,
             'measured_failed' => $failed,
-            'measured_rate' => $this->rate($passed, $failed),
+            'measured_rate' => MeasuredEvidence::rate($passed, $failed),
             'met' => $reasons === [],
             'reasons' => array_values(array_unique($reasons)),
         ];
-    }
-
-    /**
-     * Every result of the latest runs that may be counted for this role.
-     *
-     * @param  array<int, EvaluationRun>  $latest
-     * @return Collection<int, EvaluationResult>
-     */
-    private function resultsOf(array $latest, string $role): Collection
-    {
-        if ($latest === []) {
-            return collect();
-        }
-
-        return EvaluationResult::query()
-            ->whereIn('run_id', array_map(fn (EvaluationRun $r) => $r->id, array_values($latest)))
-            // ⛔ A result whose case belongs to another role is not evidence about this one (ADR-036).
-            ->whereHas('evaluationCase', fn ($q) => $q->whereNull('applies_to_role')->orWhere('applies_to_role', $role))
-            ->orderBy('id')
-            ->get(['id', 'run_id', 'case_id', 'passed', 'unmeasured', 'dimension']);
-    }
-
-    /**
-     * How many active cases each suite holds for this role, per dimension.
-     *
-     * @param  Collection<int, EvaluationSuite>  $suites
-     * @return array<int, array<string, int>>
-     */
-    private function declaredCases(Collection $suites, string $role): array
-    {
-        $out = [];
-
-        $rows = EvaluationCase::query()
-            ->whereIn('suite_id', $suites->pluck('id')->all())
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('applies_to_role')->orWhere('applies_to_role', $role))
-            ->selectRaw('suite_id, dimension, count(*) as n')
-            ->groupBy('suite_id', 'dimension')
-            ->get();
-
-        foreach ($rows as $row) {
-            $out[(int) $row->suite_id][(string) ($row->dimension ?: EvaluationDimension::ToolSelection->value)] = (int) $row->n;
-        }
-
-        return $out;
     }
 
     /**
@@ -468,17 +398,23 @@ final class AutonomyEvidence
     }
 
     /**
-     * What the resolver says now, asked the way `AgentRunner` asks it: the agent, the environment and
-     * the agent's own ceiling, with no business, no context and no measured rates.
+     * What the resolver says now, asked the way `AgentRunner` asks it: the agent, the environment, the
+     * agent's own ceiling and, when a policy is active, the producer's evidence (ADR-048). No
+     * business and no context, because the page asks for no particular business or message.
      *
      * @param  Collection<int, AutonomyGrant>  $grants
      * @return array<string, mixed>
      */
-    private function ceiling(Agent $agent, Collection $grants, string $environment, bool $runtimeOn): array
+    private function ceiling(Agent $agent, Collection $grants, string $environment, bool $runtimeOn, MeasuredEvidence $measured, CarbonImmutable $now): array
     {
+        $evidence = $this->producer->forRunner($agent, $now, $measured);
         $decision = $this->resolver->resolve(new AutonomyRequest(
             agentKey: $agent->key,
             environment: $environment,
+            agreementRate: $evidence?->agreementRate,
+            dimensionRates: $evidence?->dimensionRates ?? [],
+            suiteRates: $evidence?->suiteRates ?? [],
+            evidence: $evidence,
             agentCeiling: $agent->max_autonomy_level,
         ));
 
@@ -494,9 +430,15 @@ final class AutonomyEvidence
             : $grants->count().' live autonomy grant(s) name this agent or every agent.';
         $why[] = 'The resolver answers '.strtoupper($decision->level->value).': '.$decision->boundBy.'.';
 
+        if ($evidence !== null) {
+            $why[] = ucfirst($evidence->detail()).'.';
+        }
+
         $unmatched = $grants->filter(fn (AutonomyGrant $g) => $g->min_agreement_rate !== null && ! in_array((int) $g->id, $decision->grantIds, true));
         foreach ($unmatched as $grant) {
-            $why[] = "Grant {$grant->id} requires measured evidence. The resolver was asked the way the runtime asks it, without measured rates, so that grant does not apply.";
+            $why[] = $evidence === null
+                ? "Grant {$grant->id} requires measured evidence. The resolver was asked the way the runtime asks it, without measured rates, so that grant does not apply."
+                : "Grant {$grant->id} requires measured evidence that the clean evidence does not supply or does not reach, so that grant does not apply.";
         }
 
         return $decision->toArray() + ['why' => $why];
@@ -531,37 +473,6 @@ final class AutonomyEvidence
         ];
     }
 
-    private function currentStamp(string $role): ?string
-    {
-        try {
-            return $this->prompts->has($role) ? $this->prompts->version($role) : null;
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    /** @return array<string, mixed> */
-    private function runLineage(EvaluationRun $run, EvaluationSuite $suite): array
-    {
-        return [
-            'run_id' => (int) $run->id,
-            'run_uuid' => $run->uuid,
-            'suite_key' => $suite->key,
-            'role_scope' => $suite->role_key,
-            'prompt_version' => $run->prompt_version,
-            'model' => $run->model,
-            'run_status' => $run->status,
-            'run_cases_total' => (int) $run->cases_total,
-            'run_cases_passed' => (int) $run->cases_passed,
-            'run_cases_failed' => (int) $run->cases_failed,
-            'run_cases_skipped' => (int) $run->cases_skipped,
-            'run_cases_unmeasured' => (int) $run->cases_unmeasured,
-            'run_agreement_rate' => $run->agreement_rate,
-            'triggered_by' => $run->triggered_by,
-            'finished_at' => $run->finished_at?->toIso8601String(),
-        ];
-    }
-
     /** @return array<string, mixed> */
     private function grantLineage(AutonomyGrant $grant): array
     {
@@ -576,17 +487,6 @@ final class AutonomyEvidence
             'evaluation_suite_key' => $grant->evaluation_suite_key,
             'expires_at' => $grant->expires_at?->toIso8601String(),
         ];
-    }
-
-    private function rate(int $passed, int $failed): ?float
-    {
-        return $passed + $failed === 0 ? null : round($passed / ($passed + $failed), 3);
-    }
-
-    /** Whole thousandths on both sides: no float comparison, no rounding up into a pass. */
-    private function meets(int $passed, int $failed, float $required): bool
-    {
-        return $passed * 1000 >= (int) round($required * 1000) * ($passed + $failed);
     }
 
     private function shown(?float $rate): string

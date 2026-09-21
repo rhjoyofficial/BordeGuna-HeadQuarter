@@ -10,11 +10,13 @@ use App\Commerce\Exceptions\ValidationFailed;
 use App\Commerce\Support\ConnectorCallLogger;
 use App\Erp\Dto\ErpLowStock;
 use App\Erp\Dto\ErpLowStockLine;
+use App\Erp\Dto\ErpOrderRead;
 use App\Erp\Dto\ErpOverview;
 use App\Erp\Dto\ErpTicketResult;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -31,6 +33,15 @@ use Illuminate\Support\Str;
 final class ErpConnector
 {
     public const CONNECTOR_PREFIX = 'erp:';
+
+    /** The version the ERP's order-reads stamp on every body (`meta.contract`), docs/81 C.5. */
+    public const ORDER_READS_CONTRACT = 'hq-order-reads.v1';
+
+    /** The only product filters the ERP's order-reads accept; anything else is refused before it is sent. */
+    public const PRODUCT_FILTERS = ['q', 'sku', 'id', 'barcode', 'brand', 'status'];
+
+    /** What the ERP accepts as an `X-Correlation-Id` (HqApiContext); anything else it replaces. */
+    private const CORRELATION_PATTERN = '/^[A-Za-z0-9._:-]{8,128}$/';
 
     public function __construct(
         public readonly string $businessSlug,
@@ -142,6 +153,65 @@ final class ErpConnector
         }, $idempotencyKey);
     }
 
+    // ---- Phase 4 read side: order-reads (docs/81 C.5). Reads only; nothing here writes. -----------
+
+    /**
+     * Products by identity: text in the name or SKU, an exact SKU, id, barcode or brand code, and
+     * whether active, inactive or both. Cost is not in the answer under any ability.
+     *
+     * @param  array<string, string|int|null>  $filter  keys from PRODUCT_FILTERS only
+     */
+    public function lookupProducts(array $filter = [], int $perPage = 20, int $page = 1): ErpOrderRead
+    {
+        $unknown = array_diff(array_keys($filter), self::PRODUCT_FILTERS);
+        if ($unknown !== []) {
+            throw new \InvalidArgumentException('lookupProducts does not send the filter(s) ['.implode(', ', $unknown).'].');
+        }
+        $filter = array_filter($filter, fn ($value) => $value !== null && $value !== '');
+
+        return $this->orderRead($this->path('order-reads/products'), 'lookupProducts', [
+            'filter' => $filter, 'per_page' => $perPage, 'page' => $page,
+        ], answering: []);
+    }
+
+    /** The one product a SKU names in this business, or the ERP saying there is none. */
+    public function lookupSku(string $sku): ErpOrderRead
+    {
+        return $this->orderRead($this->path('order-reads/skus/'.rawurlencode($sku)), 'lookupSku', [], answering: ['not_found'], ref: $sku);
+    }
+
+    /**
+     * The price the ERP's one pricing engine answers, with the rule that produced it: for a store
+     * (its price group), for a named customer, or for nobody (the standard selling price only).
+     * "No price in force", "no such SKU", "no such store" and "no such customer" are answers.
+     */
+    public function readPrice(string $sku, string $quantity = '1', ?string $storeKey = null, ?int $customerId = null, ?string $on = null): ErpOrderRead
+    {
+        $query = array_filter(['quantity' => $quantity, 'store' => $storeKey, 'customer_id' => $customerId, 'on' => $on], fn ($v) => $v !== null);
+
+        return $this->orderRead($this->path('order-reads/prices/'.rawurlencode($sku)), 'readPrice', $query,
+            answering: ['not_found', 'no_price_in_force', 'unknown_store', 'unknown_customer'], ref: $sku);
+    }
+
+    /** Stock and availability as the two facts the ERP keeps apart; a verdict only for a named store. */
+    public function readAvailability(string $sku, ?string $storeKey = null): ErpOrderRead
+    {
+        $query = $storeKey === null ? [] : ['store' => $storeKey];
+
+        return $this->orderRead($this->path('order-reads/availability/'.rawurlencode($sku)), 'readAvailability', $query,
+            answering: ['not_found', 'unknown_store'], ref: $sku);
+    }
+
+    /**
+     * Whether a phone names a customer, the way the ERP's checkout would pick one. ⚠ The phone goes
+     * in a POST body, never a URL, and is never the recorded request reference.
+     */
+    public function checkCustomerEligibility(string $phone): ErpOrderRead
+    {
+        return $this->orderRead($this->path('order-reads/customer-eligibility'), 'checkCustomerEligibility', ['phone' => $phone],
+            answering: [], method: 'post');
+    }
+
     public function pendingApprovals(): array
     {
         return $this->get($this->path('approvals/pending'), 'pendingApprovals')['data'] ?? [];
@@ -218,9 +288,49 @@ final class ErpConnector
     {
         return Http::withToken($this->token)
             ->acceptJson()
-            ->withHeaders(['X-Correlation-Id' => (string) Str::uuid()])
+            ->withHeaders(['X-Correlation-Id' => $this->correlationId()])
             ->timeout($this->timeoutSeconds)
             ->connectTimeout(5);
+    }
+
+    /**
+     * The gateway's correlation id, so the id the ERP echoes and logs is the one `connector_calls`
+     * records. A fresh one only when there is none, or when it is one the ERP would replace anyway.
+     */
+    private function correlationId(): string
+    {
+        $id = Context::get('correlation_id');
+
+        return is_string($id) && preg_match(self::CORRELATION_PATTERN, $id) === 1 ? $id : (string) Str::uuid();
+    }
+
+    /**
+     * One order-read. A 404 whose code is in `$answering` is the ERP stating a fact and comes back
+     * as `found: false`; every other failure is classified as for any other call. A found body must
+     * carry `data`, the order-reads contract version, and this connector's own business.
+     *
+     * @param  list<string>  $answering
+     */
+    private function orderRead(string $path, string $operation, array $query, array $answering, ?string $ref = null, string $method = 'get'): ErpOrderRead
+    {
+        return $this->logger->call($this->connectorName(), $operation, function () use ($path, $operation, $query, $answering, $method) {
+            $response = $this->send(fn (PendingRequest $c) => $method === 'post'
+                ? $c->post($this->url($path), $query)
+                : $c->get($this->url($path), $query));
+
+            $code = $response->json('error.code');
+            if ($response->status() === 404 && is_string($code) && in_array($code, $answering, true)) {
+                return ErpOrderRead::notFound($code, (string) ($response->json('error.message') ?? $code));
+            }
+            $this->throwForStatus($response, $operation);
+
+            $body = $response->json() ?? [];
+            $data = ErpContract::requireDataArray($body, $operation);
+            $meta = is_array($body['meta'] ?? null) ? $body['meta'] : [];
+            ErpContract::requireOrderReadsContract($meta, self::ORDER_READS_CONTRACT, $this->erpBusinessId, $operation);
+
+            return new ErpOrderRead(found: true, data: $data, meta: $meta, links: is_array($body['links'] ?? null) ? $body['links'] : []);
+        }, null, $ref);
     }
 
     private function get(string $path, string $operation, array $query = []): array

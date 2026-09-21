@@ -13,6 +13,7 @@ use App\Models\ToolCall;
 use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Notifications\Notifier;
+use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -37,6 +38,7 @@ final class ApprovalService
         private readonly Auditor $auditor,
         private readonly Notifier $notifier,
         private readonly Redactor $redactor,
+        private readonly ToolRegistry $registry,
     ) {}
 
     /**
@@ -176,15 +178,28 @@ final class ApprovalService
      * and its own hash. That is what keeps the record of what the person originally read, and the
      * delta between proposal and final is the highest-value signal the behaviour-alignment layer
      * receives: it is the owner saying "close, but this is how I would have done it".
+     *
+     * An edit is a decision, so it asks the one rule of who may decide (docs/81 C.6) before it writes
+     * anything, and the successor keeps the original's delegation, so an edit never widens who may
+     * decide what follows it. The edited payload is redacted with the tool's own declared paths,
+     * exactly as `park()` redacts a proposal: the successor is what executes, and its hash is taken
+     * over what is stored.
      */
     public function approveWithEdit(Approval $original, array $editedArgs, User $approver, ?string $note = null): Approval
     {
         if (! $original->status->isOpen()) {
             throw new RuntimeException("Only a pending approval can be edited; this one is {$original->status->label()}.");
         }
+        if (($barred = $original->decisionRefusalReason($approver)) !== null) {
+            throw new RuntimeException($barred);
+        }
+        if (! $this->registry->has($original->tool_key)) {
+            throw new RuntimeException("[{$original->tool_key}] is no longer registered, so an edit to it cannot be redacted or executed.");
+        }
+        $redact = $this->registry->get($original->tool_key)->descriptor()->redact;
 
-        return DB::transaction(function () use ($original, $editedArgs, $approver, $note) {
-            $payload = $this->redactor->redact($editedArgs);
+        return DB::transaction(function () use ($original, $editedArgs, $approver, $note, $redact) {
+            $payload = $this->redactor->redact($editedArgs, $redact);
 
             $successor = Approval::create(array_merge(
                 collect($original->toArray())->only([
@@ -194,6 +209,12 @@ final class ApprovalService
                     'requesting_tool_call_id', 'evidence', 'preview', 'estimated_cost', 'policy_id',
                     'policy_version', 'approver_role', 'escalate_to_role',
                 ])->all(),
+                // Delegation narrows who may decide; the edit carries it, never drops it.
+                [
+                    'delegated_to_user_id' => $original->delegated_to_user_id,
+                    'delegated_by_user_id' => $original->delegated_by_user_id,
+                    'delegated_at' => $original->delegated_at,
+                ],
                 [
                     'payload' => $payload,
                     'payload_hash' => CanonicalPayload::hash($payload),
@@ -228,6 +249,10 @@ final class ApprovalService
     public function reject(Approval $approval, User $approver, string $reason): Approval
     {
         $this->assertTransition($approval, ApprovalStatus::Rejected);
+        // A rejection is a decision: the same rule as an approval (docs/81 C.6), before anything moves.
+        if (($barred = $approval->decisionRefusalReason($approver)) !== null) {
+            throw new RuntimeException($barred);
+        }
 
         $approval->forceFill([
             'status' => ApprovalStatus::Rejected->value,

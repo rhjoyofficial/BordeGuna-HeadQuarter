@@ -81,9 +81,13 @@ return [
     | the chance to add your own middleware to this list or change any of
     | the existing middleware. Or, you can simply stick with this list.
     |
+    | HQ: the same two 2FA checks every HQ page carries (docs/81 C.6). Horizon authenticates by its
+    | own gate, not by `auth`, so with `web` alone a person past the password step and not past the
+    | challenge opened it. `auth` is not added: a guest keeps the gate's 403.
+    |
     */
 
-    'middleware' => ['web'],
+    'middleware' => ['web', '2fa.enabled', '2fa.verified'],
 
     /*
     |--------------------------------------------------------------------------

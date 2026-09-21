@@ -75,7 +75,7 @@ final class AgentController extends Controller
 
     public function index(Request $request): Response
     {
-        $agents = Agent::with('enablingUser:id,email')->orderBy('key')->get()->map(fn (Agent $a) => [
+        $agents = Agent::with('enablingUser:id,name')->orderBy('key')->get()->map(fn (Agent $a) => [
             'key' => $a->key,
             'name' => $a->name,
             'purpose' => $a->purpose,
@@ -84,7 +84,8 @@ final class AgentController extends Controller
             'model_tier' => $a->model_tier,
             'max_autonomy_level' => $a->max_autonomy_level?->value,
             'allowed_tools' => (array) ($a->allowed_tools ?? []),
-            'enabling_user' => $a->enablingUser?->email,
+            // A name and a user id, as the run page names people; never an email (docs/81 C.6).
+            'enabling_user' => $a->enablingUser === null ? null : ['user_id' => $a->enablingUser->id, 'name' => $a->enablingUser->name],
             // Counted over what this human may READ, not over the table. A count is a disclosure.
             'runs' => $this->readable($request)->where('agent_key', $a->key)->count(),
             'awaiting_review' => $this->readable($request)->where('agent_key', $a->key)

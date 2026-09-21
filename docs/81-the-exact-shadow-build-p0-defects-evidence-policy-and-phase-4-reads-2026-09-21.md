@@ -531,6 +531,7 @@ only in the combined tree).
 | G. One rollback invariant; deploy verify-only | `deploy/rollback-invariant-and-verify-only` | P0-3, 4 |
 | H. Versioned autonomy evidence policy, the evidence producer, resolver integration, the view | `autonomy/evidence-policy-and-producer` | 5 |
 | I. Phase 4 read side: product, variant, price, stock and eligibility lookups through governed reads | `p4/erp-read-foundation` (HQ) and a branch in the ERP repository | 9 |
+| J. Defects found during the milestone (Horizon before 2FA, cached kill switches, the executor's decision rule, the edit's redaction, an email on the agents index, housekeeping), fixed before the candidate | `fix/pre-candidate-defects` | `docs/RESUME-HERE-2026-09-21.md` section 9 |
 | K. OpenAI as the model provider, by the owner's decision of 21 September (a driver, the rows, one serving provider, an audited lever, readiness that follows it) | `ai/openai-provider` | 10, 17 (owner decision, C.7) |
 
 Rules every stream keeps: a correction is watched failing first; no prompt file changes; nothing is
@@ -1010,6 +1011,1013 @@ no local HQ database other than the test one, which the suite wipes. The panel u
 `min-w-0` and `break-words`/`break-all` as the rest of the page; that is construction, not evidence.
 
 **Verification (20 September, local; GitHub Actions deferred until the 1 October reset).** Full Pest suite on Postgres `hq_test_f`: **1012 passed, 8282 assertions, 0 failed** (base 977, plus 35: 15 approval requester identity, 14 deterministic ordering, 6 run page context). `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean. `npm run build`: built. The identity-case digests: green, not re-pinned.
+
+### C.3 Stream G: one rollback invariant, and deploy verify-only (branch `deploy/rollback-invariant-and-verify-only`, P0-3 and point 4)
+
+#### C.3.1 The plan (written before the code)
+
+**What was found first (file:line, on `5c4b948`).**
+
+1. `deploy/rollback.sh:39` prefixes `RUN_MIGRATIONS=0` on `docker compose build`. A shell variable on a
+   build reaches nothing: the image does not take it as a build argument and the compose file never
+   interpolates it. `deploy/docker-compose.yml:42` hardcodes `RUN_MIGRATIONS: "1"` on `app`, and
+   `deploy/entrypoint.sh:38-41` runs `php artisan migrate --force` whenever that reads `1`. So
+   `rollback.sh:41` (`up -d --no-deps app horizon scheduler web`) DOES run `migrate --force` when the
+   old image starts. The comment at `rollback.sh:35` ("Do NOT run migrations on rollback") and
+   `deploy/README.md:116-117` ("no migrations") both say otherwise.
+2. **`rollback.sh` is not backup-first.** `rollback.sh:20` moves the checkout with no dump taken, no
+   backup boundary checked and no `.env` guard. It is the same defect `docs/58` H.1 found in
+   `deploy.sh`, and the 10 September work fixed it there only.
+3. `rollback.sh:13` takes the predecessor from the CHECKOUT (`git rev-parse --short HEAD`), not from
+   the running image label, and records `previous_known` as `0` always (`:30`, `:65`). `deploy.sh`
+   reads the label for exactly this reason.
+4. `rollback.sh:14` accepts any commit the repository can resolve: a commit that was never released,
+   a commit on another branch, or the commit already running. Nothing is refused.
+5. `rollback.sh` is read by bash while `git checkout` replaces it on disk (`:20`). It has worked
+   because git replaces the file rather than rewriting it in place; it is not something to lean on.
+6. `deploy.sh:190` treats every first argument other than `--no-pull` as "pull". A typing mistake
+   (`--nopull`) silently fast-forwards production to `origin/main`.
+
+**What `migrate --force` does when OLD code starts against a NEWER schema.** Laravel runs every
+migration FILE the starting code carries that has no row in the `migrations` table. It never looks at
+the schema, and it knows nothing of migrations that only newer code carries. For a plain rollback
+from N to an earlier released T that is normally nothing, which is why this defect has been silent.
+It is not nothing in exactly the cases where a rollback is most likely to be needed:
+
+- **the release being rolled back died in its migrations.** Its entrypoint ran some, failed on one,
+  and `app` is restarting in a loop. Roll back to a T that also carries the failing migration (an
+  intermediate commit, or a re-release) and the old image's entrypoint tries it again, fails again
+  under `set -e`, and the rollback crash-loops for the same reason the release did;
+- **a migration was undone by hand** (`migrate:rollback`, or a `restore.sh` to a dump older than T's
+  own migrations). T carries the file, the table has no row, and starting T quietly re-applies the
+  migration somebody deliberately removed;
+- **the target is not an ancestor of what is running** (another branch, a reverted line). It may
+  carry migration files production has never seen, and a "code rollback" becomes a schema change
+  nobody reviewed or rehearsed, with no CI on that combination.
+
+**The invariant (one, explicit):**
+
+> **A rollback changes code and nothing else. It never runs a migration, up or down, and it writes
+> nothing to the database itself. It happens only behind a verified dump, exactly like a deploy.**
+
+What that says about SCHEMA, stated once and used everywhere: the schema is NOT rolled back. This
+project's migrations are additive, so the old code runs against the newer, additive schema. Undoing a
+migration, or returning DATA to an earlier state, is `deploy/restore.sh` from the pre-deploy dump: a
+separate, deliberate act with its own confirmation, never a side effect of `rollback.sh`. The dump a
+rollback takes first is there because old code writing into newer data is still a change to
+production, and the restore point must exist before it starts.
+
+**The mechanism, and why this one.** The obvious change (`RUN_MIGRATIONS: "${RUN_MIGRATIONS:-1}"` in
+the compose file, `RUN_MIGRATIONS=0` on `up`) fails in the case that matters: `git checkout <target>`
+replaces `deploy/docker-compose.yml` with the TARGET's copy, and every release older than this one
+hardcodes `"1"`, so the variable would reach nothing, which is the defect over again. It would also
+make the normal deploy depend on what happens to be exported in the operator's shell. Instead
+`rollback.sh` writes a small compose OVERRIDE to a temporary file outside the checkout
+(`services.app.environment.RUN_MIGRATIONS: "0"`) and passes it as a second `-f` on `up` only. Compose
+merges `environment` maps and the later file wins, whatever the target's compose file says. The
+normal deploy path is not touched: `docker-compose.yml` keeps `"1"`, `deploy.sh` keeps its `up`, and
+the entrypoint keeps its test (it gains one log line saying migrations were skipped).
+
+The rollback does not trust the mechanism, it observes it, twice: BEFORE anything moves it resolves
+the target's compose file (read with `git show`, never checked out) together with the override
+through `docker compose config` and refuses unless `app` resolves to `RUN_MIGRATIONS` `0`; AFTER `up`
+it reads the environment of the container that actually started (`docker inspect`) and says what it
+found. If that ever reads `1` the rollback fails loudly at stage `up`.
+
+⚠ Known edge, documented rather than hidden: after a rollback, a bare `docker compose up -d` typed by
+hand sees a changed `app` definition and recreates it with `RUN_MIGRATIONS=1`. A container restart
+(`restart: unless-stopped`, a reboot) does not: it keeps the environment it was created with. The way
+forward from a rollback is `git checkout main && ./deploy/deploy.sh --no-pull`, which is a deploy and
+migrates by design.
+
+**`rollback.sh`, in the order it will run:** usage and the `.env` guard (present, mode 600) -> the
+target must resolve to a commit -> the running release from the image label (the checkout only as a
+marked fallback) -> REFUSE when the target is what is running, when it is neither an ancestor of the
+running release nor a commit `deploy/RELEASES.md` names as released, when tracked files on the
+checkout are modified (a rebuild would bake a hand edit into the image), or when the stack is down
+(nothing to dump; starting a stack is `deploy.sh --no-pull`) -> the backup boundary and the verified
+dump, through the SAME functions as `deploy.sh` (moved to a sourced `deploy/backup-first-lib.sh`, so
+there is one implementation of the invariant, not two) -> the resolved-config check -> ONLY THEN
+`git checkout` -> build stamped with the commit -> `up` with the override -> the container's
+environment observed -> smoke and verification as today -> `RELEASES.md` and `release.json` with
+`kind: rollback`, the label-derived predecessor and the dump. The body moves into a function so bash
+has parsed the whole script before the checkout replaces it.
+
+**`deploy.sh --verify-only`** (combinable with `--no-pull`; an unknown argument is now refused, see
+finding 6). It lives in `deploy/verify-only.sh`, which `deploy.sh` hands over to before it does
+anything else. Read-only by construction: no `git fetch`, no `mkdir`, no marker, no mount probe
+that writes, no dump, no build, no `up`, no record. Each check prints `ok`, `WARN` or `FAIL` with its
+reason; any `FAIL` exits 1; it says at the top and bottom that it is not a deployment.
+
+| Check | Fails when | Warns when |
+| --- | --- | --- |
+| `deploy/.env` | missing; not mode 600; a key the compose file interpolates or the app cannot start without is absent or empty (names only, never values) | a key in the TARGET's `.env.example` is absent |
+| docker and compose | not installed; `compose config -q` rejects the file (the target's copy too, when the release changes it) | |
+| what is running | | no stack (first deploy); no commit label; checkout differs from the running release; detached HEAD |
+| health | `/up` does not answer; `/api/health` is not `ok`; health names a commit other than the running label | health names no commit (a release older than docs/80 C.4) |
+| tracked files modified on the checkout | any (each file named) | |
+| backup boundary, no dump taken | host backup root or `daily/` missing or not writable; the container's `/backups` is a different inode from the host directory (the dead bind mount, read without writing); free space under the stated minimum (`VERIFY_MIN_FREE_MB`, default 5120); `LAST_STATUS` not 0; the `LAST_OK` dump missing or empty | the newest verified dump is older than 26 hours |
+| origin/main | `git ls-remote` cannot reach origin; the target is not a fast-forward of the checkout | origin/main has moved past what this checkout has fetched (the listing is then of the last fetched main, and says so) |
+| what the release brings | | any pending migration whose `up()` contains `dropColumn`, `drop`, `dropIfExists`, `renameColumn`, `rename`, `->change()` or raw `DROP`/`TRUNCATE` (file named: the rule is additive migrations); a migration file MODIFIED rather than added |
+| release-state directory | present but not writable | absent on the host, or not mounted in `app` (expected once, on the first deploy carrying docs/80 C.4); mounted on a dead inode |
+
+**The fetch decision.** It does NOT fetch. `git ls-remote origin refs/heads/main` proves origin is
+reachable with the deploy key and names main's head without moving a ref or writing an object. The
+cron refresher already fetches `origin main` at most every 30 minutes, so the commit objects are
+normally present; when main has moved since, verify-only says so and lists what the last fetched
+main would bring. A tool whose promise is "changes nothing" should not have one exception to explain.
+
+**`--verify-release` (clearing UNVERIFIED without a rebuild): designed, not built.** The safe form
+exists: read the running label L; require `/up`, health `ok` and health naming L; require
+`release.json` to be a `released` record of L; only then rewrite its verification and copy it to
+`last-verified.json`. It cannot verify a commit that is not answering health. It is left out because
+it would be a second writer of the most trusted record in the system, rebuilding `release.json` from
+a grep of itself, to save one `deploy.sh --no-pull` (a dump and a cached build, a few minutes) on an
+event that has happened zero times in production; and a rollback to a release older than docs/80 C.4
+can never be verified by any means, since its health names no commit. `--verify-only` reports the
+case instead. Revisit if UNVERIFIED releases turn out to be common.
+
+**Tests (watched failing first against the unmodified scripts).** The Docker stub learns three
+things: it resolves `RUN_MIGRATIONS` for `app` the way compose does (the last `-f` file that sets it
+wins) and records that value at every `up` that starts `app`; it answers `config`; it answers the
+environment `inspect`. The test world carries the real `docker-compose.yml`. New assertions: a normal
+deploy starts `app` with migrations ON; a rollback starts it with migrations OFF and says so; the
+rollback's dump is taken while the checkout is still at the old commit; a rollback whose backup fails,
+whose target is running, unknown, not an ancestor, or whose checkout is dirty moves NOTHING (HEAD,
+the stub's mutation record, `RELEASES.md`, release state); a rollback whose resolved config still
+says `1` moves nothing; verify-only in a passing world and in several failing worlds leaves a digest
+of HEAD, every ref, `git status`, every file under `deploy/` and the backup root, and the stub's
+mutation record byte-identical, and exits 0 and non-zero respectively with the reason named.
+
+#### C.3.2 As built (21 September)
+
+No migration. No PHP, prompt, TaskGrounding, TaskScope, detector, policy or approval file touched.
+Nothing switched on. Only `deploy/` changed, and nothing in it has run on the VPS.
+
+**The invariant, one implementation.** `deploy/backup-first-lib.sh` (new, sourced, never executed)
+holds `running_release` (`:25`, the image label), `bf_stack_is_up` (`:33`), `ensure_backup_boundary`
+(`:44`, the dead bind-mount repair and the do-not-delete marker), `backup_mount_is_live` (`:60`) and
+`take_verified_dump` (`:105`, `backup.sh once`, then `LAST_STATUS`, `LAST_OK` and a non-empty dump,
+each a refusal that names the verb). `deploy.sh` sources it (`:57`) and calls the two at `:126-127`
+exactly where its own copies used to be; `rollback.sh` calls the same two (`:132-133`). There is no
+second copy of the backup-first logic anywhere.
+
+**`deploy.sh`.** An argument it does not know is refused before anything happens (`:41`,
+"Nothing has moved"), so `--nopull` no longer means "pull". `--verify-only` hands over to
+`deploy/verify-only.sh` with `exec` (`:45-51`) before the `.env` guard, the sources or any read of
+the stack. Everything else is byte-for-byte the release path it was.
+
+**`rollback.sh`, in the order it runs.** The whole body is `main()` (`:45`), called on the last line
+(`:214`), so bash has parsed the file before `git checkout` replaces it. Refusals first, every one a
+read, so a refused rollback moves nothing and takes nothing: usage (`:47`), `.env` present and 600,
+a target the checkout knows (`:61`), the running release from the label, the target already running
+(`:76`), neither an ancestor of the running release nor a release `RELEASES.md` names (`:89`), tracked
+files modified, named (`:95`), the database not running (`:97`), and then the configuration check:
+the override `no-migrations.override.yml` is written to `mktemp -d` under `TMPDIR` (`:109`), the
+TARGET's compose file is read with `git show` (never checked out), and the two are resolved together
+through `docker compose config`; anything but `0` for every service that sets the key is a refusal
+(`:125`). ⚠ **This moved ahead of the dump**, against C.3.1, which put it after: it is a read like the
+others, so there is no reason for a rollback that is going to be refused to take a backup first.
+Then the boundary and the verified dump, then `git checkout` (`:137`), the stamped build, `up -d
+--no-deps app horizon scheduler web` with the override as a second `-f` (`:150`), the started `app`
+container's environment read back with `docker inspect`, and a loud failure at stage `up` unless it
+is `RUN_MIGRATIONS=0` (`:157`). `RELEASES.md` records `code only, no migrations run, dump <path>`
+(`:192`); `release.json` records kind `rollback` with the label-derived predecessor, now `previous_known:
+true` when the label is readable (it was always `0` before) and the dump the rollback stood behind.
+
+**Compose and the entrypoint.** `docker-compose.yml:47` keeps `RUN_MIGRATIONS: "1"` on `app` (a deploy
+migrates) with a comment saying the rollback overrides it and why it is an override and not a
+variable. `entrypoint.sh:45` logs `migrations not run: RUN_MIGRATIONS is '0'` when it skips, so the
+`app` log of a rollback (to a release carrying this commit) says so; the test it runs is unchanged.
+
+**The real compose, not only the stub.** Docker Compose v5.5.1 (the client here; `config` needs no
+daemon) was run on the exact files: `3314c54`'s `docker-compose.yml` alone resolves `RUN_MIGRATIONS:
+"1"`; with the rollback's override it resolves `"0"`; the pipeline `rollback.sh` uses on that output
+yields `0`; the new compose file with the override resolves `"0"`; and a `deploy/.env` that set
+`RUN_MIGRATIONS=1` (which would make horizon and the scheduler migrate too, through `env_file`) yields
+`0 1`, which the rollback refuses. So the override does take effect over every earlier release's
+hardcoded `"1"`, which is the case that matters for a rollback to `3314c54`.
+
+**`deploy/verify-only.sh`** (new, 396 lines) is the C.3.1 table as planned: every check `ok`, `WARN`
+or `FAIL` with its reason, exit 1 on any FAIL, "It is not a deployment" at the top and `NOTHING WAS
+RELEASED` at the bottom. `GIT_OPTIONAL_LOCKS=0` (`:38`) because even `git status` refreshes the index
+when it can; `git ls-remote` (`:253`) instead of a fetch; the dead mount found by comparing inodes,
+without writing through the mount (`:216`); the destructive-migration scan reads only each pending
+migration's `up()` (`:309`). **Added beyond C.3.1:** `HQ_ROOT` (`:36`) names the checkout when the
+file is run from anywhere else, because production's checkout at `3314c54` has no `verify-only.sh`:
+before the next deploy it is run from a copy read out of git (`deploy/README.md`). An `HQ_ROOT` that
+cannot be entered is exit 2 with the reason. `--verify-release` was designed and not built, as
+C.3.1 decided.
+
+**`deploy/README.md`.** Release starts with `--verify-only`; a Preflight section says what it checks
+and what a clean result does not prove; the "NOT YET APPLIED TO PRODUCTION" section is rewritten for
+the deploy from `3314c54` to the candidate, with the lines Joy types (fetch; confirm `origin/main` is
+the candidate; verify-only from a copy of the candidate's script with `HQ_ROOT`; `./deploy/deploy.sh`
+run by the OLD script; `--verify-only --no-pull` then `--no-pull` run by the NEW one; what to look
+at; `./deploy/rollback.sh 3314c54` as the way back); Rollback states the invariant, the refusals,
+backup first, the override and its read-back, and that the schema is never rolled back.
+
+**Watched failing first.** The suite runs the real scripts against a stubbed `docker` and a
+throwaway git repository. The stub learned three things (C.3.1): `RUN_MIGRATIONS` resolved from the
+`-f` files a command is really given, last file wins, recorded at every `up` that starts `app`; a
+`config` answer; the environment `inspect`. It carries the real `docker-compose.yml`. The base suite
+had 91 checks; it now has **238**. The same new test file and stub were run against the scripts of
+`5c4b948` (the base of this branch, copied to a scratch tree): **116 passed, 122 failed**. All 91 old
+checks passed there, so **122 of the 147 new checks were watched failing**: every one about the
+rollback running migrations, taking no dump, accepting a running, unknown or unrelated target or a
+dirty checkout, recording `previous_known` false, and every "nothing changed" assertion of
+verify-only (the old `deploy.sh` read `--verify-only` as "pull" and DEPLOYED). The 25 that passed
+against the old scripts are guards that must not change (a deploy still migrates, a rollback still
+succeeds and moves the checkout, `--no-pull` back to main migrates) or checks that are vacuous there
+(for example "an `HQ_ROOT` that is not a directory is refused" passes when the file does not exist).
+⚠ The unverified checkpoint itself failed 2 of its own checks on the first run: the counter meant to
+prove "no container was touched" counted the backup mount probe (`rm -f` INSIDE the backup
+container) as a container removal. The counters now read an `exec` line for its command only, and
+the two checks pass because the counting is right, not because the check was loosened.
+
+**Verification (21 September, local; GitHub Actions validation deferred until the 1 October
+reset).** Combined with `main` (`074ffae`, streams E and F) by a `--no-ff` merge into this branch.
+Deploy-safety suite: **238 passed, 0 failed**, on Git Bash on NTFS with a `stat` shim on PATH (kept
+in the scratchpad, NOT in the repository) that answers `600` to `stat -c %a`, because NTFS cannot
+represent a file mode and the suite otherwise skips itself; so the one verify-only case that needs a
+real mode (`.env` readable by others) was skipped there. ⛔ **Linux parity is unproven** until the CI
+job `deploy-safety` runs on Ubuntu after the reset. `bash -n` clean on every script in `deploy/`,
+`deploy/tests/` and `deploy/gate/`. ShellCheck is not installed here and was not run. Full Pest suite
+in one run on Postgres `hq_test_g`: **1046 passed, 9368 assertions**, 328 s (no PHP changed; the
+number the next merge must not reduce). `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean.
+`npm run build`: built.
+
+**Decisions the owner may want to revisit.**
+
+1. A rollback target must be an ancestor of the running release or a release `RELEASES.md` names.
+   Anything else is refused and pointed at `deploy.sh --no-pull`. A hand-typed commit from another
+   line is therefore never a "rollback".
+2. A rollback refuses when the database container is down (nothing to dump). Starting a stack is a
+   deploy.
+3. The configuration check refuses unless EVERY service that sets `RUN_MIGRATIONS` resolves to `0`,
+   so a `RUN_MIGRATIONS` in `deploy/.env` blocks rollbacks entirely. That is deliberate: it would make
+   horizon and the scheduler migrate on every start.
+4. A destructive statement in a pending migration's `up()` is a WARN in verify-only, not a FAIL: the
+   additive rule is the project's, and a deliberate exception should be possible after reading it.
+5. `VERIFY_MIN_FREE_MB` defaults to 5120 and `VERIFY_MAX_DUMP_AGE_HOURS` to 26. These are operational
+   defaults chosen here (a dump plus a cached build; the nightly dump plus two hours), not business
+   numbers; both are environment overrides.
+6. After a rollback, a bare `docker compose up -d` typed by hand recreates `app` with migrations on.
+   Documented, not prevented: the way forward is a deploy.
+
+**Found on the way, not fixed.**
+
+- The FIRST run of the next deploy is executed by production's OLD `deploy.sh` (`3314c54`), so none of
+  this stream protects that one run: its unknown-argument handling is the old one (anything but
+  `--no-pull` pulls). The README's lines type the argument-free form for exactly that reason.
+- verify-only does not check `deploy/.env` for a stray `RUN_MIGRATIONS`; the rollback refuses it, but
+  a deploy would silently make every PHP container migrate at start.
+- `docker compose config` prints every `.env` value (through `env_file`). `rollback.sh` captures it
+  in a pipe and prints only the digits; nothing else in `deploy/` runs `config` without `-q`.
+- The suite takes about 8 minutes on this laptop (git on NTFS), against well under a minute on Linux.
+
+### C.4 Stream H: the autonomy evidence policy, the producer, the resolver link and the view (branch `autonomy/evidence-policy-and-producer`, point 5, respecting point 13)
+
+**The plan, written before the code.**
+
+*Findings, read from the code first.*
+
+1. **No required rate exists per level or per dimension.** The only requirement anywhere is a number
+   on one grant: `autonomy_grants.min_agreement_rate` with `min_agreement_dimension` and
+   `evaluation_suite_key` (`database/migrations/2026_09_09_310000_create_autonomy_grants_table.php`,
+   `2026_09_10_200000_add_dimensions_to_evaluation.php:44`). `AutonomyEvidence.php:46-48` says so in
+   its own header, and `docs/80` C.3 listed it as a decision for Joy and ChatGPT.
+2. **The mechanical link has no producer.** `AgentRunner::resolveAutonomy()` (`AgentRunner.php:856-866`)
+   builds an `AutonomyRequest` with no `agreementRate` and no `dimensionRates`, and nothing in `app/`
+   builds either. `AutonomyResolver::hasEvaluationEvidence()` (`AutonomyResolver.php:209-231`) then
+   reads null and the grant does not match. Fail closed, and ADR-023's link is unreachable.
+3. **The resolver ignores a grant's `evaluation_suite_key`.** `hasEvaluationEvidence()` never reads it,
+   so a grant naming a suite would be compared with whatever pooled rate the caller passed. Harmless
+   while nothing passes a rate; it matters the moment a producer exists, so it is closed here.
+4. **The per-check record already exists.** `DeterministicGrader::CHECKS` (`DeterministicGrader.php:51`)
+   names seventeen checks (`must_not_call`, `no_tool_calls`, `no_denied_calls`, `task_grounding`,
+   `security_intent`, `prohibited_capability`, `no_substitution`, `refusal`, `covers_businesses`,
+   `scope_bound`, `tool_calls`, `citations`, `outcome`, `agent_woken`, `only_tools`, `replies`,
+   `reply_script`); every result stores `checks` as `check => pass|fail|not_applicable`
+   (`EvaluationRunner.php:126,147`) and the run stores `check_rates` (`EvaluationRunner.php:163-168,212`).
+   A hard safety requirement references a check by one of those keys, and is recounted from the
+   result rows, never read from `check_rates`.
+5. **The append-only pattern** is a plpgsql function that raises, bound by `BEFORE UPDATE` and
+   `BEFORE DELETE` triggers (`audit_logs` in `2026_09_05_100100`, `consent_events` in `2026_09_09_300000`,
+   with restrict-only foreign keys because a cascade is a write the trigger refuses). Reused here.
+6. **The audited named-human act** is the `hq:shadow:open` shape: dry run by default, `--apply`,
+   `--by <email>`, `--reason`, `Auditor::record(..., actorUserId)`.
+7. **The identity case** (`tests/Feature/Security/ExecutionContextIdentityCaseTest.php`) pins the
+   system prompt, both turns and the recorded calls. It holds no grant and no policy, so the rule
+   below ("no active policy: the request and the decision are exactly today's") keeps it green with
+   no re-pin.
+
+*Schema (one additive migration, Postgres triggers, rehearsed apply, roll back, re-apply).*
+
+- `autonomy_evidence_policies`: `id`, `uuid`, `version` (unique, assigned in order), `name`,
+  `summary`, `status` (`proposed` | `active` | `retired`), `supersedes_id`, `proposed_by`,
+  `proposed_at`, `activated_by`, `activated_at`, `activation_reason`, `retired_by`, `retired_at`,
+  `retirement_reason`, `content_digest` (sha256 of the canonical requirement set, written at
+  activation), timestamps. A partial unique index allows **at most one `active` row**.
+- `autonomy_evidence_requirements`: `policy_id`, `autonomy_level` (`a1`..`a4`; A0 needs nothing, A5
+  is refused), `dimension` (one of the six ADR-030 dimensions; there is deliberately **no `overall`
+  row**, because ADR-030 rejected the single number), `min_agreement_rate` decimal(4,3) **nullable =
+  not decided**, `min_sample_count` **nullable = not decided**, `max_evidence_age_days` **nullable =
+  not decided**, `required_measured_state` (only value today: `fully_measured`; a laxer state needs
+  its own ADR), `note`. Unique on (policy, level, dimension).
+- `autonomy_evidence_hard_checks`: `policy_id`, `autonomy_level`, `check_key` (a key of
+  `DeterministicGrader::CHECKS`), `min_sample_count` and `max_evidence_age_days` (both nullable = not
+  decided). The rate is not a column: a hard check is 100 percent or it fails.
+- `autonomy_evidence_policy_events`: append-only history (`policy_id`, `event` proposed | activated |
+  retired, actor user id and label, reason, a snapshot of the whole policy, its digest,
+  `occurred_at`). `BEFORE UPDATE` and `BEFORE DELETE` refuse, as on `consent_events`.
+- Database-level immutability: a trigger on the policy table refuses every change to a `retired` row,
+  allows an `active` row only the move to `retired` (and only the retirement columns), refuses
+  deleting anything that was ever active, and **refuses the move to `active` when the policy has no
+  requirement row, when any numeric field of a requirement or hard check is NULL, or when
+  `activated_by`, `activated_at` or `activation_reason` is missing.** Triggers on the two child tables
+  refuse INSERT, UPDATE and DELETE once the parent is `active` or `retired`.
+- `agent_runs.autonomy_evidence` jsonb nullable: which policy version and which evidence the run's
+  autonomy decision was judged on. Null when no policy is active, so today's rows do not change.
+
+*Governance.* `App\Autonomy\Evidence\EvidencePolicies` is the one writer: `propose()` (from a JSON
+file, numbers may be null), `activate()`, `retire()`. Console only, the narrower surface:
+`hq:autonomy-policy:propose`, `hq:autonomy-policy:activate`, `hq:autonomy-policy:retire`,
+`hq:autonomy-policy:show`. Activation and retirement are dry runs without `--apply` and need `--by`
+(an existing, enabled user holding `hq.policies.manage`) and `--reason`; each writes an event row and
+an audit row under that human. Activating retires the previous active version in the same
+transaction. **Nothing is activated in this stream and no seeder writes a policy or a grant.** No
+number is shipped: tests carry their own fixture values, labelled as test values.
+
+*The producer.* `App\Autonomy\Evidence\EvidenceProducer`, deterministic, no write:
+
+- `measure(Agent)`: the recount that `AutonomyEvidence` does today, moved here unchanged (applicable
+  suites, the latest finished run per suite, results of those runs for this role, passed / failed /
+  unmeasured per dimension and overall with the result ids, the run lineage, the stored figure beside
+  the recount, the prompt stamp compared with `PromptLibrary::version(role)`), plus a per-check recount
+  from `evaluation_results.checks` with result ids. `AutonomyEvidence` consumes it; its 13 tests and
+  its no-write guarantee are the proof the move changed nothing.
+- `judge(evidence, policy, now)`: per level, every requirement and hard check beside its measured
+  value, `met` or the exact reasons, and the **evidence ceiling**.
+- `forRunner(Agent)`: what the runner passes on. No active policy: null, and nothing is queried
+  beyond the one policy lookup. An active policy and no live grant that could name this agent: the
+  policy version is recorded and no evidence is counted, because no grant means A0 whatever the
+  evidence says.
+- **Cost bound, no cache.** One query for the active policy, one for its rows, one for the suites,
+  one indexed latest-run lookup per applicable suite, one results query restricted to those run ids
+  (columns `id, run_id, case_id, passed, unmeasured, dimension, checks` only), one grouped count of
+  declared cases. History is never read, so the row count is the number of cases in the latest runs,
+  not the number of runs ever made; an explicit ceiling on that row count fails closed. No cache was
+  chosen, so there is no stale read to reason about: a finished run or an activation is seen by the
+  next run.
+
+*Eligibility rules, every one fail closed.*
+
+1. No active policy: no verdict, no rates passed, the resolver decides exactly as today.
+2. The policy is **necessary, never sufficient**: it enters the resolver as one more ceiling (combined
+   by MINIMUM), so it can only lower. With no matching grant the answer is still A0. Nothing here
+   creates, edits or promotes a grant (point 13).
+3. Levels are cumulative: level L is eligible only when every level from A1 to L has at least one
+   requirement row and ALL of its requirements and hard checks are met. A level the policy says
+   nothing about is unreachable through evidence.
+4. A requirement is met only when: the dimension has measured results (an unmeasured or never
+   measured dimension never satisfies it, and the overall figure is never read for it); measured
+   count >= `min_sample_count`; the pooled rate AND each contributing suite's rate meet
+   `min_agreement_rate`, in whole thousandths; every contributing run is finished within
+   `max_evidence_age_days`, carries the agent's CURRENT prompt stamp, passed its own gate, held zero
+   unmeasured cases and recounts to what it stored; every applicable suite declaring cases in the
+   dimension has been run. A NULL field on a requirement is "not decided" and never met.
+5. A hard check is met only at 100 percent: zero `fail`, at least `min_sample_count` `pass`, on runs
+   that satisfy the same stamp, age and zero-unmeasured rules. A failing hard check caps the level
+   below the one that names it whatever the rates are.
+6. Rates handed to the grant comparison (`agreementRate`, `dimensionRates`, and per suite) are given
+   only for clean evidence and are floored to thousandths, and a grant naming `evaluation_suite_key`
+   is compared with that suite's figure, never the pooled one.
+7. The decision records the policy id, version and digest, the evidence digest and run ids, the
+   ceiling and its reasons, additively (`AutonomyDecision::toArray()` gains a key only when a policy
+   was applied).
+
+*The view.* Same GET route, still write-free: the active policy (or "no policy is active, so evidence
+cannot widen autonomy"), per row each requirement beside the measured value with the exact reason it
+is not met, the hard checks, the evidence ceiling, the proposed versions listed as not in force. The
+lineage expanders stay.
+
+*Tests (Pest, `hq_test_h`).* Policy governance and the triggers; activation refusals (NULL field,
+wrong actor, no rows, second active); the producer's rules one by one; the resolver with and without a
+policy; the runner recording the evidence; no seeder writes a grant or a policy; the view. Mutations
+to watch failing: the overall rate substituted for a missing dimension; unmeasured counted as a pass;
+one satisfied dimension treated as enough; a policy with a NULL field activated; evidence on an old
+prompt stamp accepted.
+
+#### C.4.1 As built (21 September)
+
+The branch took `main` first (merge `0bb4072`: streams E and F), so everything below was built and
+verified on top of the disabled-account, fresh-scope, `--by` and approval-requester changes. No
+prompt file, TaskGrounding, TaskScope or detector file changed; the agent stamps are still
+`executive.v8+18d60e98` and `support.v1+0f4a195b`. Nothing switched on: no policy version, no grant,
+no flag row, no scheduled job was created, and no seeder or migration writes any of them.
+
+**The schema** is the plan's, one migration (`2026_09_21_100000_create_autonomy_evidence_policy_tables`):
+four tables, `agent_runs.autonomy_evidence`, the partial unique index for "at most one active", and
+three plpgsql functions bound by five triggers (the policy guard, the two child-row guards, the two
+append-only event guards). Rehearsed on Postgres `hq_test_h`: applied (4 tables, the column, 5
+triggers, 3 functions, the index present), rolled back (all of them gone), re-applied (all back). No
+number is defaulted anywhere in it.
+
+**Governance.** `App\Autonomy\Evidence\EvidencePolicies` is the one writer: `propose()` (numbers may be
+null), `activate()` (a named, enabled person holding `hq.policies.manage`, a reason, no undecided
+field, at least one requirement, no gap in the ladder; retires the previous version in the same
+transaction; content digest written), `retire()`, `snapshot()`, `digest()` (the rules alone, so the
+same rules give the same digest whatever the row ids), `structuralRefusals()` (what in the version
+itself blocks activation, shown on the page and by `show`). Console only:
+`hq:autonomy-policy:propose {file}`, `:activate {version}`, `:retire {version}`, each a dry run until
+`--apply`, and `:show {version?}` (reads only). Every act writes an event row with a snapshot and an
+audit row under the named person.
+
+**The producer.** `App\Autonomy\Evidence\EvidenceProducer` and the value objects `MeasuredEvidence` and
+`RunnerEvidence`:
+
+- `measure(Agent)`: the recount the evidence view did, moved unchanged (applicable suites, the latest
+  finished run per suite, the role-applicable results of those runs WITH their `checks`, the declared
+  cases, every figure with its run and result ids, the stored figure beside the recount), plus
+  `checkSources()` (a grader check recounted from `evaluation_results.checks`, never from
+  `check_rates`) and `digest()` (exactly what was counted). More than `MAX_RESULT_ROWS` (20,000)
+  result rows is refused: nothing is counted and nothing is met.
+- `judge(evidence, policy, now)`: per level A1 to A4 every requirement and hard check beside its
+  measured value, `met` or the exact reasons, cumulative eligibility, and the evidence ceiling with
+  the reasons it goes no higher. The rules are the plan's rules 3 to 5, each failing closed.
+- `forRunner(Agent)`: null when no policy is active (one query). With an active policy and no live
+  grant that could name the agent: the version is recorded, `evidence_counted: false`, ceiling A0,
+  no evaluation table read. Otherwise the ceiling, and the clean rates (overall, per dimension, per
+  suite) floored to thousandths.
+
+**The resolver** (`AutonomyResolver`): the policy enters as one more ceiling (`evidence_policy`),
+combined by minimum; a grant naming `evaluation_suite_key` is compared with that suite's own figure
+(`AutonomyRequest::$suiteRates`) and never the pooled one; the decision carries the policy and
+evidence it was judged under (`AutonomyDecision::$evidence`, key `evidence_policy` in `toArray()`)
+only when a policy was applied, on every path including the floors.
+
+**The runner** (`AgentRunner::resolveAutonomy()`) asks `forRunner()` first and passes what it returns;
+`agent_runs.autonomy_evidence` stores the record (policy id, uuid, version, digest; evidence digest;
+run ids; prompt stamp; ceiling and its reasons; the rates; when it was judged), null when no policy
+was active.
+
+**The view** (same GET route, still write-free, now built on the producer): the active version with
+its rules, digest and activator, or "No autonomy evidence policy is active, so evidence cannot widen
+autonomy."; every proposed version listed as not in force with what blocks it; per agent the policy's
+judgement level by level; and the resolver asked exactly the way the runner asks it.
+
+**Tests watched failing first, then passing.**
+
+- `AutonomyResolverTest`: 3 of 16 failed on the unmodified resolver (the suite-named grant, which
+  answered A2 on a pooled 0.96; the suite-and-dimension grant; the policy ceiling). ⚠ The existing
+  test "requires measured evidence when the grant asks for it" was amended: it asserted that a
+  pooled 0.96 satisfies a grant naming `safety.core`, which is finding 3 itself. It now asserts A0
+  for a pooled figure, A0 for another suite's figure or a low suite figure, A2 for the suite's own.
+- `AutonomyEvidenceRunnerTest` (5): 4 failed on the unmodified runner. The fifth (no policy, nothing
+  recorded, the grant decides as before) passed first, as it must.
+- `AutonomyEvidencePolicyViewTest` (3): all 3 failed against the view as it was before the policy
+  section. The 13 older `AutonomyEvidenceTest` tests are unchanged and green on the producer.
+- `EvidencePolicyTest` (9) and `EvidenceProducerTest` (12) test classes that did not exist, so their
+  first failure proves nothing. Their teeth were shown by mutation instead, each applied to the
+  built code, the three files run, and the code restored:
+
+| Mutation | Caught by |
+| --- | --- |
+| the overall rate substituted for a missing dimension | 5 producer tests |
+| an unmeasured result counted as a pass | the unmeasured test |
+| one satisfied dimension treated as enough for a level | the every-requirement test and the hard-check test |
+| a policy with a NULL field activated (domain check removed) | 3 policy tests (the trigger still refused underneath) |
+| evidence on an old prompt stamp accepted | the producer stamp test and the runner stamp test |
+
+`ExecutionContextIdentityCaseTest` stayed green WITHOUT re-pinning.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** Base 1046.
+Full Pest suite in one run on Postgres `hq_test_h`: **1077 passed, 9718 assertions, 0 failed**, 259 s (1046 on the base plus 31: resolver +2, runner 5, view 3, policy 9, producer 12). `vendor/bin/pint --test`:
+passed. `npx tsc --noEmit`: clean. `npm run build`: built. The page was
+Prettier-formatted (it was clean on the base commit).
+
+**The decisions left for the owner (every one of them undecided today, and no version exists).**
+
+1. Which levels get requirements at all (a level the policy says nothing about is unreachable
+   through evidence, and levels are cumulative).
+2. Per level, which of the six dimensions are required (reasoning, tool selection, policy,
+   enforcement, execution, outcome).
+3. Per requirement: `min_agreement_rate`, `min_sample_count`, `max_evidence_age_days`.
+4. Per level, which of the seventeen grader checks are hard checks, and per hard check
+   `min_sample_count` and `max_evidence_age_days`.
+5. Who activates it (`--by`) and why (`--reason`). Activating it is not granting anything: every
+   grant is still a separate owner decision, and production grants stay at zero.
+
+**Decisions to revisit.**
+
+1. Rates reach a grant only while a policy is active. With none, a grant requiring evidence stays
+   unmatched, exactly as before; the owner cannot use a rate-gated grant without first activating a
+   policy. Chosen because the policy is where "clean evidence" is decided.
+2. "Clean" for the rates handed to a grant means current stamp, passed gate, zero unmeasured,
+   recount agreeing, every declaring suite run. Age is not in it: age belongs to the policy's
+   requirements, and the policy's ceiling bounds the level anyway.
+3. A hard check applies the stamp, age and zero-unmeasured rules (plan rule 5), not the gate and
+   recount rules a requirement applies. A run that failed its gate for another case can still show a
+   hard check at 100 percent.
+4. `MAX_RESULT_ROWS` = 20,000 is a cost bound, not an autonomy threshold; above it nothing is
+   counted. The latest runs hold a few hundred rows today.
+5. `propose` is also a dry run until `--apply`, which the plan did not ask for; `--by` is optional
+   on a proposal (it records the proposer when given).
+6. A retired version is never reactivated; a change of mind is a new version.
+7. The view's "what the agent may do now" panel now asks the resolver with the producer's evidence,
+   as the runner does; with no policy its text is what it was.
+
+**Found on the way, not fixed (outside this stream).**
+
+- Locally, `php artisan migrate:fresh` against a worktree database fails with a Redis connection
+  error unless `CACHE_STORE=array` is set, because the worktree `.env` names Redis and this PC has
+  no Redis. The suite is unaffected (`phpunit.xml` sets the array store).
+- `EvidencePolicies::retire()` saves the model it is given, so a caller holding a model with other
+  unsaved changes is refused by the trigger (fail closed; seen once as a test artefact).
+
+**Not done.** The page was not walked in a browser (needs Joy's 2FA session). `docs/68` is left for
+the merge step.
+
+### C.5 Stream I: Phase 4 read side (product, variant, price, stock, eligibility), reads only
+
+**Status: plan written before the code (this section), then the as-built record below it. Branches:
+HQ `p4/erp-read-foundation` (worktree `hq-wt/i`), ERP `feature/hq-api-order-reads` (worktree
+`erp-wt/hq-reads`, from `origin/master`). No order is created, changed or cancelled by anything in
+this stream, on either side; `take_order` is registered nowhere; no write ability is added to any
+token; nothing is switched on.**
+
+#### C.5.1 What both codebases hold today (read, not assumed)
+
+ERP (`erp-wt/hq-reads`):
+
+- The HQ API is `routes/api.php:18-33`: `auth:sanctum` + `throttle:120,1`, then `{business}` under
+  `HqApiContext` (`app/Http/Middleware/HqApiContext.php:23-53`: the token must hold
+  `hq:business:{id}`, the business must be active, `TenantScope::enter` from the TOKEN, the
+  `X-Correlation-Id` header echoed when it matches `^[A-Za-z0-9._:-]{8,128}$`, else a fresh uuid).
+  One controller, `app/Http/Controllers/Api/Hq/HqReadController.php`, with inline field arrays (no
+  Resource classes), `requireAbility()` (403 `{"error":{"code":"forbidden","message":"Token lacks
+  ability X."}}`, lines 253-258), `ok()` (`data` + `meta.as_of`, line 270), `paginated()` (line
+  275: `meta.page/per_page/total/as_of`, `links.next/prev`) and `error()` (line 284). Thirteen
+  routes; the one write is `POST tickets`.
+- `HqApiToken::READ_ABILITIES` (`app/Console/Commands/HqApiToken.php:23-27`) is the whole
+  allow-list: `inventory.view`, `inventory.reports.view`, `sales.view`, `sales.reports.view`,
+  `sales.customers.view`, `purchasing.view`, `purchasing.reports.view`, `accounting.view`,
+  `hrm.employees.view`, `hrm.attendance.view`, `crm.tickets.view`, `crm.tickets.manage`,
+  `crm.contacts.view`. ⚠ Finding: `inventory.view`, `sales.view` and `sales.customers.view` are
+  NOT Spatie permissions seeded anywhere in the ERP; they are the ERP's AI `ReadableData` names
+  (`app/Modules/Foundation/Support/Ai/ReadableData.php:55-87`). The screens themselves gate the
+  product list on `inventory.reports.view` (`app/Modules/Inventory/routes/web.php:42`) and the
+  price list and customer pages on `sales.reports.view` (`app/Modules/Sales/routes/web.php:26-33`).
+  `docs/40`'s "abilities are the ERP's own permission names" is therefore true for the report and
+  ticket abilities and loose for the three `*.view` names. Reported, not changed.
+- Tests: `tests/Feature/HqApi/HqApiTest.php` (7 tests; `Sanctum::actingAs` with an ability list
+  plus `hq:business:{id}`; models created `withoutGlobalScopes()` with an explicit `business_id`).
+- Product: `app/Modules/Inventory/Models/Product.php` (`sku`, `barcode`, `name`, `type`
+  (`ProductType`, `Service` is not stockable), `is_active`, `availability_override`
+  (`AvailabilityPolicy`, narrows only), `lead_time_days`, `low_stock_threshold`; relations
+  `brand`, `category`, `unitOfMeasure`; `currentStockQuantity()` sums active batches, normalised
+  decimal string). ⚠ There is NO `cost_price` column on products and NO `mrp` column anywhere in
+  the schema: cost lives on `stock_batches.unit_cost` (`averageUnitCost()`), and `mrp` and
+  `cost_price` are spreadsheet columns the price importer knowingly does not import
+  (`app/Modules/Sales/Support/PriceListFile.php:71`, `NOT_A_SELLING_PRICE`).
+- Variants: the ERP has no variant concept (confirmed again: `app/Modules/Inventory` and
+  `app/Modules/Commerce` hold no variant model). A SKU identifies exactly one product per business
+  (`docs/79` C.1, C.2).
+- Price: one engine, `app/Modules/Sales/Actions/ResolveSellingPrice.php` (customer rule beats
+  price-group rule beats default; highest quantity break reached; RETAIL when no group, lines
+  212-233; with no customer and a `priceGroupId`, the store's own group, lines 159-176). The rule
+  travels with the number: `ResolvedPrice` (`app/Modules/Sales/Support/ResolvedPrice.php`) carries
+  `tier()` (`customer`, `price_group`, `default`) and `explain()`. Rows are `product_prices`
+  (`ProductPrice`: `customer_id`, `price_group_id`, `min_quantity`, `unit_price`, `effective_from`,
+  `effective_to`, `is_discount`, `discount_label`, `note`). ⚠ Finding: the "10/15/20 percent off
+  the selling price" tiers are NOT an ERP rule: the ERP stores absolute `unit_price` rows per price
+  group (`RETAIL`, `DEALER`, `DISTRIBUTOR`, `CORPORATE`, `PriceListFile::PRICE_COLUMNS`), and the
+  percentages live in the spreadsheet that fills them. The price the ERP would apply to an HQ order
+  is the engine's answer at the store's group (`SalesOrderOrigin::website`, `docs/79` C.4).
+  Promotions (`app/Modules/Sales/Support/ApplyPromotions.php`, Buy X Get Y) are applied by
+  `RecordCounterSale` only; `CreateSalesOrder` applies none. So a sales order carries no promotion,
+  and the price endpoint says so rather than pretending one applies.
+- Availability: `app/Modules/Commerce/Support/Availability.php` decides per STORE (`policyFor`:
+  the store's `availability_policy` narrowed by the product override; `decide`: inactive is "out
+  of season", zero stock refuses only under `Strict`, else `madeToOrder`). Without a store there
+  is no verdict in the ERP, only the facts it would decide from. `CartRules::refusalFor`
+  (`app/Modules/Commerce/Support/CartRules.php:27-47`) adds "published on this store" and "a price
+  in force" before the availability verdict. Stock per warehouse is what `HqReadController::stock`
+  already aggregates (`stock_batches` active, grouped by product and warehouse, line 79-92).
+- Customer: `app/Modules/Sales/Models/Customer.php` (`is_active`, `is_system` for the seeded
+  walk-in row, `phone` kept verbatim, `phone_normalized` derived by `PhoneIdentity::normalize`
+  on save, `payment_terms`, `credit_limit`, `price_group_id`). ⚠ Findings the eligibility endpoint
+  must state and not improve on: the ERP has NO blocked flag, NO COD flag and NO credit-hold flag;
+  `CreateSalesOrder` refuses only an inactive customer (line 66); `PlaceWebsiteOrder::identify`
+  (`app/Modules/Commerce/Actions/PlaceWebsiteOrder.php:329-363`) matches the FIRST active,
+  non-system customer of the business by normalised phone (a household may share a number) and
+  otherwise creates a new Retail customer; an INACTIVE match is skipped, not refused; the credit
+  limit is "shown, never enforced" (`CustomerExposure` docblock, C-SO-3). No sales order carries an
+  idempotency key column, so `docs/79`'s `?idempotency_key=` reconcile read needs a migration and
+  belongs to the write gate (P4-G0), not here.
+
+HQ (`hq-wt/i/apps/hq`):
+
+- `app/Erp/ErpConnector.php`: one connector per (business, token); `get()` through
+  `ConnectorCallLogger::call` (`app/Commerce/Support/ConnectorCallLogger.php`: correlation id from
+  `Context('correlation_id')`, HTTP status observed); `throwForStatus()` (lines 246-260) maps
+  401/403 to `Unsupported`, 404 to `Refused`, 422 to `ValidationFailed`, 429 and 5xx to
+  `Unavailable`, a connection error to `Unavailable` (`send()`), never to a policy refusal. ⚠
+  Finding: `client()` (line 217-224) sends a FRESH uuid as `X-Correlation-Id` on every request
+  while the `connector_calls` row records the gateway's `Context` correlation id, so the id the
+  ERP echoes and logs is never the one HQ recorded. Stream I sends the Context id when it is one
+  the ERP accepts, and the uuid only when there is none.
+- `app/Erp/ErpRegistry.php` opens the connector from the `erp_api_token` credential. Tools:
+  `app/Tools/Erp/PollErpTool.php` (R3, Write, `agentExecutable: false`: it replaces a snapshot
+  row), `ReadErpSnapshotTool` (R1, Read, true), `RunErpReportTool` (R2, Read, true, calls the ERP
+  live, `scopeFrom: 'business:args.business_slug'`, `CredentialRequirement(ErpRegistry::PROVIDER,
+  'args.business_slug|business.slug')`, `idempotencyKeyFrom`, `replayWithinSeconds: 60`,
+  `Unsupported` returned as `ToolResult::failedBy`, `Unavailable` rethrown). Registration:
+  `config/hq.php` `tools`. Pinned lists: `tests/Feature/Gateway/ToolNamespaceTest.php` (the key
+  list) and `tests/Feature/Ai/AiSafetyPostureTest.php:113-131` (every agent-executable tool is
+  Read, below R3, not customer-facing; the R4/R5 list is exactly `demo.request_approval`).
+- Fixtures: `tests/fixtures/erp/*.json` consumed by `tests/Feature/Erp/ErpContractFidelityTest.php`
+  (captured from production with `hq:erp:inspect`). Stream I adds fixtures the ERP's own tests
+  WRITE, so both sides read one file.
+
+#### C.5.2 The endpoints (ERP side), the ability each needs, and what each returns
+
+All under `/api/hq/v1/{business}/order-reads/`, the existing middleware, envelope, pagination and
+error shape, a new controller `HqOrderReadController` whose every response body is built from an
+explicit field allow-list (a constant per shape) and nothing else. No ability is added to
+`READ_ABILITIES`: every endpoint needs one that already exists there.
+
+| Endpoint | Ability | Returns |
+| --- | --- | --- |
+| `GET order-reads/products` (`filter[q]` name or SKU contains, `filter[sku]`, `filter[id]`, `filter[barcode]`, `filter[brand]` code, `filter[status]` active (default), inactive, all) | `inventory.view` | paginated product identity rows: `id, sku, barcode, name, type, status, is_active, orderable` (type is not Service), `unit {name, abbreviation}`, `brand {code, name}`, `category {name}`, `availability_override`, `lead_time_days` |
+| `GET order-reads/skus/{sku}` | `inventory.view` | the one product a SKU names, the same row, plus `variant_model: "none"` and the sentence that the ERP has no variants; 404 when none |
+| `GET order-reads/prices/{sku}` (`quantity` default 1, `store` key or `customer_id`, `on` date optional) | `sales.view` | `unit_price` (string), `basis: "selling_price"`, `mrp: null` with `mrp_note`, `quantity`, `as_of`, `priced_as` (`store`, `customer`, `nobody`), `price_source {rule_id, tier, price_group {code,name}, min_quantity, effective_from, effective_to, is_discount, discount_label, explanation}`, `promotions_applied_to_sales_orders: []` with the sentence that Buy X Get Y is a counter-sale rule; 404 `no_price_in_force` when the engine has no rule |
+| `GET order-reads/availability/{sku}` (`store` key optional) | `inventory.view`; per-warehouse rows only with `inventory.reports.view`, else `warehouses: null` and `warehouses_withheld: true` | two separate facts: `stock {on_hand, unit, warehouses[{code,name,on_hand}]}` and `availability {rule: "status_based per store", product_is_active, availability_override, store: null or {key, policy, published, has_price, sellable, made_to_order, message}}`; with no store the verdict fields are null and `verdict_needs_store: true` |
+| `POST order-reads/customer-eligibility` (body `phone`) | `sales.customers.view` | `phone_valid`, `phone_normalized`, `customer_exists`, `match {id, display_name, is_active}` (the row `identify` would pick) or null, `inactive_matches`, `would_create_new_customer`, `refusals` (only `inactive` exists), `fields_the_erp_does_not_have: [blocked, cod_eligible, credit_hold]`, `credit_limit_enforced: false`. No phone, email, address, credit limit or price group in the body. POST so the phone is not in an access log. |
+
+Absent by construction from every body: `unit_cost`, `avg_unit_cost`, `averageUnitCost`,
+supplier, margin, `credit_limit`, `payment_terms`, `bin`, `tin`, `email`, `address`, `note`,
+journals, payroll. The ERP tests assert the absence of each by name on every endpoint, and that a
+token for business A gets 403 on business B, that a missing ability is 403 and no token is 401.
+`HqApiToken` tests gain a case proving every sensitive ability (`sales.orders.record`,
+`sales.orders.cancel`, `sales.prices.manage`, `hrm.payroll.manage`, `accounting.journals.post`,
+`inventory.stock.adjust`) is still refused.
+
+Fixtures: the ERP tests write `tests/fixtures/hq-api/order-reads/*.json` (the exact response
+bodies) and the HQ repo carries a copy under `tests/fixtures/erp/order-reads/`; each side's
+fixture test states the origin (ERP test name and commit).
+
+#### C.5.3 The tools (HQ side)
+
+Connector methods `lookupProducts`, `lookupSku`, `readPrice`, `readAvailability`,
+`checkCustomerEligibility`, each through `ConnectorCallLogger`, each failure through the existing
+classes. Tools, all `ToolScope::Business`, `scopeFrom: 'business:args.business_slug'`,
+`business_slug` REQUIRED in the schema, `additionalProperties: false`, `permission:
+hq.tools.erp.read`, `ReadWrite::Read`, `idempotent: true` with `idempotencyKeyFrom` and
+`replayWithinSeconds: 60`, outputs carrying `business`, `source: "erp"`, `as_of` (the ERP's) and
+`read_live_at`:
+
+| Key | Tier | agentExecutable | Why |
+| --- | --- | --- | --- |
+| `erp.lookup_product` | R2 | true | the same posture as `erp.run_report`: a live read of the ERP, nothing written, no person reached (ADR-027, reading is not acting) |
+| `erp.lookup_sku` | R2 | true | same |
+| `erp.read_price` | R2 | true | same; the price source is named in the output so a model cannot present a price without its rule |
+| `erp.read_availability` | R2 | true | same; `sellable` and `on_hand` are two fields, as the ERP keeps them |
+| `erp.check_order_eligibility` | R2 | **false** | it takes a phone number and returns whether a person exists and their display name (`DataClass::Personal`); an agent that can call it can enumerate customers by phone. It is a stage: P4-G3 decides it, after the suite in `docs/79` G measures it |
+
+`take_order`, `quote_order`, `get_order_status`, `cancel_sales_order`: registered nowhere.
+
+#### C.5.4 Verification planned
+
+ERP: `tests/Feature/HqApi` (7 existing + the new file), then `tests/Feature/Sales`,
+`tests/Feature/Commerce`, `tests/Feature/Inventory`, then the full suite `--parallel --processes=6`;
+Pint on changed files. HQ: the new tool tests, `tests/Feature/Erp`, `tests/Feature/Gateway`,
+`tests/Feature/Ai`, then the full Pest suite on `hq_test_i`, `pint --test`, `tsc --noEmit`,
+`npm run build`. Numbers in C.5.5.
+
+#### C.5.5 As built (21 September)
+
+Branches: ERP `feature/hq-api-order-reads` commit `5bfb709` (on `origin/master` `43974c1`), HQ
+`p4/erp-read-foundation` (main merged in first, then this stream). No migration on either side, no
+seeder, no prompt file, no agent tool list, no flag row, grant or scheduled job. Nothing writes.
+
+**ERP.** `routes/api.php` gains the `order-reads/` group inside the existing `{business}` +
+`HqApiContext` group; `app/Http/Controllers/Api/Hq/HqOrderReadController.php` (new) answers it.
+
+| Endpoint | Ability | As built |
+| --- | --- | --- |
+| `GET order-reads/products` | `inventory.view` | filters `q` (name or SKU contains), `sku`, `id`, `barcode`, `brand` (code), `status` (`active` default, `inactive`, `all`); an unknown filter key or `per_page` over 100 is a 422; ordered by SKU then id; rows are exactly `PRODUCT_FIELDS`; `meta.orderable_means` says `orderable` is only the type rule; pagination links carry the query |
+| `GET order-reads/skus/{sku}` | `inventory.view` | the row plus `variant_model: "none"` and its sentence; 404 `not_found` |
+| `GET order-reads/prices/{sku}` | `sales.view`, and `sales.customers.view` too when `customer_id` is given | `ResolveSellingPrice::find` asked as each caller asks it (a store as its own price group, a customer as themselves, nobody as the default tier); `unit_price` as the stored decimal string, `currency: BDT`, `basis`, `quantity`, `on`, `priced_as`, `store {key, price_group}`, `mrp: null` + `mrp_note`, `price_source {rule_id, tier, price_group {code, name, prices_include_tax}, customer_specific, min_quantity, effective_from, effective_to, is_discount, discount_label, explanation}`, `promotions_applied_to_sales_orders: []` + note, `tier_note` for nobody; 404 `no_price_in_force`, `not_found`, `unknown_store`, `unknown_customer` (the walk-in row counts as unknown); 422 for a bad `on`, a non-positive quantity, or a store and a customer together |
+| `GET order-reads/availability/{sku}` | `inventory.view`; per-warehouse rows only with `inventory.reports.view` | `stock {on_hand, unit, warehouses [{code, name, on_hand}] or null, warehouses_withheld}` and `availability {decided_per_store, product_is_active, product_type_is_stocked, availability_override, verdict_needs_store, store}`; the store verdict is `{key, policy (Availability::policyFor), published, has_price (CataloguePublishing::hasPrice), sellable (CartRules::refusalFor is null), made_to_order, message (the refusal or the decision's sentence)}`; 404 `not_found`, `unknown_store` |
+| `POST order-reads/customer-eligibility` | `sales.customers.view` | body `phone` (required, at most 32 characters, as the checkout validates it); `phone_matchable`, `phone_normalized`, `customer_exists` (any non-system row with the number), `match {id, display_name, is_active}` (the first active non-system row by id, which is the one `identify` picks) or null, `active_matches`, `inactive_matches`, `would_create_new_customer`, `refusal_rules_the_erp_has: ["inactive_customer"]`, `fields_the_erp_does_not_have: ["blocked", "cod_eligible", "credit_hold"]`, `credit_limit_enforced: false`, three sentences in `notes` |
+
+Every found body carries `meta {business_id, contract: "hq-order-reads.v1", as_of}`. Differences
+from the plan in C.5.2, each deliberate:
+
+1. The product row has no `status` field: `is_active` already says it, and a second field would be
+   a second opinion about the same column.
+2. `phone_valid` became `phone_matchable`. The ERP validates no phone format (the checkout accepts
+   any string up to 32 characters), so "valid" would have been an invented rule; "matchable" is
+   exactly `PhoneIdentity::normalize` returning something.
+3. `refusals` became `refusal_rules_the_erp_has`, a statement of the one rule that exists, because
+   on the phone path it never fires (`identify` skips an inactive match and creates a new customer).
+   `active_matches` was added, since a household may share a number.
+4. A price for a named customer also needs `sales.customers.view`: a customer's agreed price is
+   their agreement with the business.
+5. **Correction to C.5.1**: the schema DOES hold an `mrp` column, `stock_batches.mrp`
+   (`2026_08_17_150001_create_production_runs_tables.php`, C-MFG-13: label data a production run
+   sets, "nothing prices off a batch"). There is still no product or price-list MRP, so `mrp` stays
+   null and the note says a batch label may carry one; the batch value is not exposed.
+6. `currency: "BDT"` is stated (the ERP is single-currency; `Money::ofTaka`), and the price group's
+   `prices_include_tax` is passed through as stored (the column default is true; the VAT engine is
+   off on all four businesses). Neither is interpreted here.
+
+**Found on the way, not changed (ERP).** A store whose `price_group_id` is null is priced at the
+default tier only: `CataloguePublishing::priceFor` passes the null straight to the engine, although
+the model's docblock says null means RETAIL. The endpoint asks exactly as the storefront asks, so it
+cannot disagree with the shop; whether null should mean RETAIL there is the ERP's own question. The
+older `HqReadController` pagination links drop the query string; the new endpoint's links keep it.
+
+**HQ.** `app/Erp/ErpConnector.php`: `lookupProducts` (refuses a filter key outside
+`PRODUCT_FILTERS` before sending), `lookupSku`, `readPrice`, `readAvailability`,
+`checkCustomerEligibility` (the phone in a POST body; never the recorded `request_ref`), all through
+one `orderRead()` that returns `App\Erp\Dto\ErpOrderRead` (new): a 404 whose code the endpoint
+declares is an answer (`found: false`, the ERP's code and sentence, logged as a succeeded call with
+the 404 it received); every other failure keeps its class; a found body must carry `data`,
+`meta.contract = hq-order-reads.v1` and this connector's own `business_id`
+(`ErpContract::requireOrderReadsContract`, new). **The C.5.1 correlation finding is fixed for every
+ERP call**: `client()` now sends the gateway's `Context` correlation id when the ERP would accept it
+(`^[A-Za-z0-9._:-]{8,128}$`), and a fresh uuid only otherwise, so the id the ERP echoes and logs is
+the one `connector_calls` records.
+
+`app/Tools/Erp/ErpOrderReadTool.php` (new, abstract) fixes the posture once: R2, Read, Business
+scope, `scopeFrom: business:args.business_slug`, `OnePerBusiness`, `hq.tools.erp.read`, the
+`erp_api_token` credential, idempotent with a 60-second replay, `business_slug` required,
+`additionalProperties: false`, and every output carries `business`, `source: erp`, `contract`, the
+ERP's `as_of` and `read_live_at`. The five tools (`LookupProductTool`, `LookupSkuTool`,
+`ReadPriceTool`, `ReadAvailabilityTool`, `CheckOrderEligibilityTool`) are registered in
+`config/hq.php` `tools`. Differences from C.5.3, each deliberate:
+
+1. `erp.read_price` takes no customer argument. The connector can ask for a named customer; the
+   tool cannot, so no agent a tool is ever given to can read a customer's agreed price.
+2. "No such SKU" and "no price in force" succeed with `found` / `price_in_force` false and the ERP's
+   sentence; an unknown store key fails with the ERP's sentence (a caller mistake, not a fact).
+3. `erp.check_order_eligibility` masks `phone` in the recorded arguments and errors, and
+   `phone_normalized` and `match.display_name` in the recorded output (`DataClass::Personal`).
+
+The stamps are unchanged (`executive.v8+18d60e98`, `support.v1+0f4a195b`): no agent's
+`allowed_tools` names a new key, so the catalogue a model reads is byte for byte what it was, and
+`ExecutionContextIdentityCaseTest`'s pinned digests stayed green WITHOUT re-pinning.
+
+**The contract fixtures.** The ERP test writes the twelve bodies (with `HQ_API_WRITE_FIXTURES=1`) to
+`tests/fixtures/hq-api/order-reads/` plus a `manifest.json` of their canonical digests; HQ carries
+the same files under `tests/fixtures/erp/order-reads/`. Both repositories pin the contract digest
+`e646da534fe9549ec5bf72a845e537bc1437072b693c2c367c6e33a022289b22`: the ERP test fails if an endpoint
+stops matching its fixture or the digest moves; the HQ test fails if its copy was edited or its pin
+differs, and reads every body through the real connector. The canonical form is
+`json_encode(json_decode(file))` with fixed flags, so line endings cannot change a digest.
+
+**Watched failing first.** ERP `HqOrderReadTest` (15): 14 failed before the routes existed (302 and
+405 for routes that were not there); the token-command case passed first, because refusing the
+sensitive abilities already worked, and it is kept as a guard. HQ `OrderReadsContractTest` (6) and
+`OrderReadToolsTest` (10): 15 of 16 failed first (missing methods, classes and registrations); the
+agent-refusal case passed first, because an unknown tool was refused, and it now passes because the
+tool is in no agent's list.
+
+**What the ERP cannot answer (stated, not worked around).** Variants (there are none; a SKU is one
+product). A product or price-list MRP. A promotion on a sales order (Buy X Get Y is a counter-sale
+rule). A blocked, cash-on-delivery or credit-hold flag, or an enforced credit limit. An
+availability verdict without a store. A reconcile read by idempotency key (no sales order column;
+a migration that belongs to P4-G0). HQ's own store slugs mapped to ERP store keys (HQ holds no such
+mapping; `store_key` is the ERP's `stores.key`, and a wrong one is refused by name).
+
+**Production needs, before any of this answers live (none of it done).** Deploy the ERP branch
+(code only: no migration, no seeder, no new permission). The production token holds
+`inventory.reports.view`, `sales.reports.view` and `crm.tickets.view` (`docs/40` I), so the new reads
+answer 403 until a token holding `inventory.view` and `sales.view` exists; `sales.customers.view`
+only if the eligibility check is to be used, which nothing needs yet. Because HQ keeps one
+`erp_api_token` per business, the safe order is: issue a second token under another name
+(`hq:api:token hq@bordeguna.com 4 --name=hq-p4 --abilities=inventory.reports.view,sales.reports.view,crm.tickets.view,inventory.view,sales.view`),
+replace the HQ credential's value, `hq:erp:probe`, then `--revoke` the old `hq` token (revoking by
+the default name removes only tokens named `hq:business:4`). Then deploy HQ. Each step is Joy's.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).**
+ERP: `tests/Feature/HqApi` 22 passed (7 existing + 15 new), then the full suite `--parallel --processes=6`: **3,979 passed, 20,827 assertions, 0 failed** (3,964 on 20 September plus these 15); Pint on the three changed files passed. The worktree has no `node_modules`, so its `public/build` was copied from the main checkout (clean at `43974c1`, the same tree); without it 553 screen tests fail on a missing Vite manifest, which is the environment, not the change. HQ: `tests/Feature/Erp` 34 passed; Gateway, Ai and Agents 376 passed; `ExecutionContextIdentityCaseTest` 3 passed, not re-pinned; the full Pest suite in one run on `hq_test_i`: **1,062 passed, 9,683 assertions, 0 failed** (1,046 on main plus 16), 301 s. `vendor/bin/pint --test` passed on the whole tree; `npx tsc --noEmit` clean; `npm run build` built. Local verification passed; GitHub Actions validation deferred until the 1 October reset.
+
+**Decisions to revisit.**
+
+1. `inventory.view`, `sales.view` and `sales.customers.view` are the allow-list's names but not
+   seeded Spatie permissions (C.5.1). They are used as the plan named them; aligning the names is an
+   ERP change of its own.
+2. `erp.check_order_eligibility` is not agent-executable; P4-G3 decides it after the `docs/79` G
+   suite measures it.
+3. `erp.read_price` has no customer argument.
+4. The connector refuses a body whose `meta.business_id` is not its own. The older endpoints are
+   not checked this way.
+5. The correlation id change reaches every ERP call, the old ones included: the ERP now logs the
+   same id HQ records, which is the intent, and nothing on the ERP side keys on the id's shape.
+
+### C.6 Stream J: defects found during the milestone, fixed before the candidate (branch `fix/pre-candidate-defects`)
+
+The eight defects listed in `docs/RESUME-HERE-2026-09-21.md` section 9: found by streams E and F or
+after the `docs/80` report, in none of the five briefs, and fixed here because the release candidate
+is the build the Executive's A0 shadow will run. Base: `main` at `074ffae`, 1046 tests.
+
+#### C.6.1 Today's behaviour (read from the code before any change, 21 September; paths under `apps/hq`)
+
+**(1) Horizon is reachable before the 2FA challenge.** Every HQ page sits in
+`routes/web.php:36` behind `['auth', '2fa.enabled', '2fa.verified']`; the only routes a person
+reaches with the password alone are the challenge and the mandatory setup (`routes/web.php:22-33`)
+and the starter kit's `routes/auth.php:32-50` (email verification, password confirmation, logout).
+Horizon is in neither file. It registers its own group `horizon` =
+`[SentinelMiddleware:horizon, ...config('horizon.middleware')]`
+(`vendor/laravel/horizon/src/HorizonServiceProvider.php:24-27`), and `config/horizon.php:86` sets
+that to `['web']`, then adds its own `Authenticate`, which asks the gate `viewHorizon` =
+`can('hq.horizon.view')` (`app/Providers/HorizonServiceProvider.php:29`). The gate resolves the
+session's user whether or not the challenge was passed, so a person past the password step and NOT
+past the challenge opens the dashboard and its API (retry a failed job, delete a monitored tag) if
+they hold the permission, and so does a person who has never set 2FA up. The route enumeration of
+stream E (`tests/Feature/Security/DisabledAccountTest.php:267`) proves the account check is on every
+route and says nothing about 2FA. `route:list` confirms it: apart from the challenge, the setup and
+the starter-kit routes named above, the 22 `horizon/*` routes are the only routes that authenticate
+somebody and carry neither 2FA middleware.
+
+**(2) Two shared caches of kill switches.** `app/Gateway/Registry/ToolAvailability.php:25-27` and
+`:106-121` cache every row of `tools` under `hq:tool_switches` for 30 seconds in the default store,
+which is Redis in production and so shared by the web containers, Horizon and the scheduler. The
+gateway asks it on every call (`app/Gateway/ToolGateway.php:101`). `forget()` (`:100`) is called by
+`ToolSwitch.php:42` and `:60` (the screen's toggle) and `ToolRegistrySync.php:48`.
+`app/Support/Features/Features.php:16` and `:40-50` cache every row of `feature_flags` under
+`hq:feature_flags` for 60 seconds; the class is a process singleton
+(`app/Providers/AppServiceProvider.php:47`), and `forget()` (`:34`) is called by the flag screen
+(`AdminController.php:195`, `:206`), the shadow period (`ShadowPeriods.php:100`, `:221`, `:363`) and
+`ShadowTick.php:61`. The flags it answers include `ai.runtime` (`ModelRuntime.php:336`, the switch
+that stops every model call) and `ai.freeze` (`PolicyEngine.php:41`, `:63`, the switch that freezes
+every agent action). So a switch changed by SQL, by a restore, or by any process that does not call
+`forget()` keeps its old answer for up to 30 or 60 seconds, at the gateway too. The dangerous cases
+are a tool turned off that stays on, `ai.runtime` turned off that stays on, and a freeze turned on
+that stays off. It is the family of the business-scope cache stream E removed (C.1.1), with one
+difference: here a `forget()` exists and its callers use it, so the screens were right and
+everything else was not.
+
+**(3) The executor checks separation but not the rest of "who may decide".**
+`app/Models/Approval.php:172-182` `isDecidableBy()` is three rules: the decide permission, the
+separation rule of stream F (`:153`), and delegation (`:181`: once delegated, only the delegate).
+`app/Gateway/Approval/ApprovalExecutor.php:52` enforces the separation rule alone. The controller
+enforces all three (`ApprovalController.php:223-234`, plus the route's `permission:` middleware), and
+it is today the only caller, so nothing is exploitable now; a future caller of the executor that
+skipped the controller (a queued decision, a command, an agent-facing approval tool) could approve
+an approval delegated to somebody else, or approve without the decide permission.
+`ApprovalService::approveWithEdit()` (`ApprovalService.php:180`) and `reject()` (`:228`) check
+nothing about the person at all, and the successor an edit creates (`:189-196`) does not copy the
+delegation, so an edit by the delegate leaves a successor that anybody with the permission may decide.
+
+**(4) An edited payload is redacted without the tool's own paths.** `park()` stores
+`$this->redactor->redact($args, $descriptor->redact)` (`ApprovalService.php:62`), the tool's declared
+paths plus the leaf deny list. `approveWithEdit()` stores `$this->redactor->redact($editedArgs)`
+(`:187`), the deny list only. A tool that declares a sensitive argument whose key is not on the deny
+list (say `customer.phone`) has it masked in the original and stored in clear in the successor, which
+is then hashed and executed as stored. No registered approval-gated tool declares such a path today,
+so no stored row is affected.
+
+**(5) The agents index sends an email.** `app/Http/Controllers/Agents/AgentController.php:78` loads
+`enablingUser:id,email` and `:87` sends `enabling_user` as the email;
+`resources/js/pages/agents/index.tsx:21` and `:102` print it. The run page names people by name and
+user id and never by email (stream F, C.2.3), and holds that by a test.
+
+**(6)** `resources/js/pages/agents/show.tsx` fails `prettier --check` on `main`.
+
+**(7)** `docs/32-architecture-decisions.md:25-26` jumps from ADR-019 to ADR-047; ADR-020 to ADR-046
+exist in `docs/adr/` and are not indexed.
+
+**(8)** `phpunit.xml:24` and `:30` both declare `CACHE_STORE` = `array`.
+
+#### C.6.2 The design (written before the code)
+
+**(1)** `config/horizon.php` becomes `['web', '2fa.enabled', '2fa.verified']`: the same two
+middlewares, in the same order, that every HQ page has. `auth` is deliberately NOT added: a guest
+keeps today's 403 from Horizon's own gate (and `HorizonAccessTest` keeps holding it), while a person
+signed in without 2FA set up is sent to the setup and a person who has not passed the challenge is
+sent to the challenge, exactly as on `/dashboard`. `EnsureAccountIsActive` stays first (it is in the
+`web` group and in the priority list), so a disabled account still ends at the login page. The route
+enumeration gains a second assertion: every route that authenticates a person (by `auth` or by
+Horizon's `Authenticate`) carries both 2FA middlewares, except a named list of the routes that exist
+precisely for the person who has not finished 2FA (the challenge, the setup and its actions, logout,
+and the starter kit's email-verification and password-confirmation routes), and the list is checked
+to name only routes that exist.
+
+**(2)** Both caches are removed, for the reasons of C.1.2: a shared store makes invalidation a
+cross-process problem; a raw write or a restore is never seen by one; a process-singleton memo would
+be wrong in a Horizon worker; and no evidence says the query matters (`tools` and `feature_flags`
+hold a few dozen rows). `switches()` and `all()` read their table on every call. `forget()` stays on
+both classes as a documented no-op, because the production callers and the tests of the other
+streams call it; removing it would touch files outside this stream for no behaviour. Tests plant the
+old key in a persistent `file` store, as another process would have left it, and require it to be
+ignored; and a switch written by SQL is honoured by the next gateway call.
+
+**(3)** One method on the model, `Approval::decisionRefusalReason(User)`, answers null or the reason:
+the separation rule first (its sentence unchanged), then the decide permission, then delegation.
+`isDecidableBy()` becomes "that reason is null", so the screen is what it was. The executor calls it
+before the guard and the claim (a refusal leaves the approval pending and undecided),
+`approveWithEdit()` and `reject()` call it and throw before they write anything, and the successor of
+an edit copies `delegated_to_user_id`, `delegated_by_user_id` and `delegated_at`, so a delegation
+survives the edit. The controller's `assertDecidable` reads the same method, so its 403 says which
+rule refused.
+
+**(4)** `ApprovalService` receives the `ToolRegistry`, and `approveWithEdit()` redacts with the stored
+tool's descriptor paths, exactly as `park()` does; a tool no longer registered is refused (the
+controller already refuses it first). `CanonicalPayload`, the hash, the guard and the claim are
+untouched: the hash is still taken over what is stored.
+
+**(5)** `enabling_user` becomes `{user_id, name}` (or null), printed the way the run page prints a
+person: "Name (user #id)". A test holds that the page's props contain no email.
+
+**(6)** Prettier on that one file. **(7)** Twenty-seven rows from each ADR's own title and status
+line. **(8)** The second declaration goes.
+
+Nothing here touches a prompt, TaskGrounding, TaskScope, a detector, a policy rule, a migration, a
+flag row, a grant or a scheduled job.
+
+#### C.6.3 As built (21 September)
+
+No migration. No prompt file, TaskGrounding, TaskScope, detector or policy rule touched. Nothing
+switched on; no flag row, grant or scheduled job created. The agent stamps are unchanged
+(`executive.v8+18d60e98`, `support.v1+0f4a195b`) and the `ExecutionContextIdentityCaseTest`
+digests stayed green without re-pinning.
+
+**(1) Horizon.** `config/horizon.php:90` is `['web', '2fa.enabled', '2fa.verified']`. Measured on
+the new tree: every one of the 22 `horizon/*` routes carries the account check, then both 2FA
+checks, then Horizon's gate, in that order. A person past the password step is sent to
+`two-factor.challenge` from the page, the API and a retry; a person who never set 2FA up is sent to
+`two-factor.setup`; a verified person with the permission opens it; a guest still gets 403.
+`tests/Feature/Security/TwoFactorEveryRouteTest.php` holds that every route that authenticates a
+person (by `auth` or by Horizon's gate) carries both checks, except ten URIs that exist to finish 2FA
+(the challenge, the setup and its actions, logout, email verification, password confirmation), and
+that each of the ten still exists. The exemption is by URI, not by name, because `POST
+confirm-password` has no name.
+
+**(2) Kill switches.** `ToolAvailability::switches()` (`app/Gateway/Registry/ToolAvailability.php:106`)
+and `Features::all()` (`app/Support/Features/Features.php:43`) read their table on every call; the
+keys, the TTLs and the `Cache` import are gone. `forget()` stays on both (`:103`, `:40`) as a
+documented no-op, and its callers were not touched. A tool switched off by SQL is refused at the
+very next gateway call (`unavailable`, "disabled at runtime"), a tool switched back on is offered at
+the next call, `ai.freeze` set by SQL denies the next call, `ai.runtime` cleared by SQL reads off at
+once, and a stale `hq:tool_switches` / `hq:feature_flags` planted in a persistent `file` store is
+ignored.
+
+**(3) Who may decide.** `Approval::decisionRefusalReason()` (`app/Models/Approval.php:176`) answers
+the separation rule (its sentence unchanged), then "You do not hold the permission to decide
+approvals.", then "This approval is delegated to somebody else."; `isDecidableBy()` (`:191`) is that
+reason being null. It is read by the executor before the guard and the claim
+(`ApprovalExecutor.php:53`), by `approveWithEdit()` (`ApprovalService.php:193`) and `reject()`
+(`:253`) before they write, and by the controller's `assertDecidable` (`ApprovalController.php:228`),
+whose 403 now names the rule. The successor of an edit copies the three delegation columns (`:214`).
+`cancel` and `delegate` are unchanged.
+
+**(4) The edit's redaction.** `ApprovalService` takes the `ToolRegistry` (`:41`); `approveWithEdit()`
+redacts with the stored tool's descriptor paths (`:199`) and refuses a tool no longer registered.
+The hash is still `CanonicalPayload::hash()` over what is stored, and a test holds it.
+
+**(5)** `AgentController.php:88` sends `enabling_user` as `{user_id, name}` or null; the page prints
+"Name (user #id)" (`resources/js/pages/agents/index.tsx:21`, `:102`). **(6)** `show.tsx` formatted
+by Prettier, nothing else. **(7)** `docs/32` has the rows ADR-020 to ADR-046. **(8)** `phpunit.xml`
+declares `CACHE_STORE` once.
+
+**Tests watched failing on the unmodified code, then passing.**
+
+- `tests/Feature/Security/TwoFactorEveryRouteTest.php` (4): 3 failed first (the unverified person
+  and the person without 2FA both got 200 from Horizon; the enumeration stopped at
+  `horizon/api/stats`). The fourth (a verified person opens it, a guest gets 403) passed first and
+  is the behaviour kept.
+- `tests/Feature/Security/KillSwitchFreshnessTest.php` (6): 5 failed first, each on the stale answer
+  (the call `succeeded`, the flag read on). The sixth (`forget()` callable and harmless) passed first.
+- `tests/Feature/Gateway/ApprovalDecisionRuleTest.php` (9) with the test tool
+  `tests/Support/Tools/RedactingGatedTool.php` (R4, declares `customer_phone`, which the deny list does
+  not know): 7 failed first (the executor executed after a delegation and without the permission; an
+  edit and a rejection by somebody who may not decide went through; the successor had no delegation;
+  the edited phone number was stored in clear; the unregistered tool was edited). The two that
+  passed first keep a delegate and the undelegated owner deciding as before.
+- `tests/Feature/Agents/AgentsIndexPeopleTest.php` (1): failed first on the email it received.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** Full Pest suite in one run on Postgres `hq_test_e`: **1066 passed, 9771 assertions, 0 failed**, 315 s (base 1046, plus 20: 4 two-factor, 6 kill switch, 9 approval decision rule, 1 agents index). Along the way: Gateway, Foundation, Security, Agents and Ai folders 480 passed after item 2; the Gateway folder 198 passed after items 3 and 4. `vendor/bin/pint --test` passed. `npx tsc --noEmit` clean. `npm run build` built. `npx prettier --check` passes on `agents/show.tsx` and `agents/index.tsx`. That 1066 is the number the next merge must not reduce.
+
+**Decisions the owner may want to revisit.**
+
+1. Horizon does not get `auth`, so a guest still sees Horizon's 403 rather than the login page. The
+   alternative (redirect a guest to login) changes a tested behaviour for no security gain.
+2. `forget()` is kept as a no-op rather than removed with its callers. If a cache is ever brought
+   back it must be invalidated across processes, and these calls mark the places that write.
+3. A rejection now needs the same right as an approval. Before, the service would reject for anybody
+   who reached it; only the controller stopped them.
+4. An edit made by the delegate keeps the delegation on the successor, so the original approver
+   still cannot decide the edited proposal. Undelegating is not a feature today.
+5. Every call to `Features::enabled()` and to the gateway's availability check is one small query.
+   A page that asks for several flags asks the table several times. No measurement says this matters;
+   if one ever does, the place for a memo is that one request, never the shared class.
+
+**Found on the way, not fixed (outside this stream).** None beyond what C.6.1 lists.
 
 ### C.7 Stream K: OpenAI as the model provider (owner decision, 21 September) (branch `ai/openai-provider`)
 
