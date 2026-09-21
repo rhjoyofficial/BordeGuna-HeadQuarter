@@ -207,6 +207,9 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // told so rather than left to read a quota as a refusal that never came.
             unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,
             agentWoken: $agentWoken,
+            // docs/86: the fourth runtime reading, and whether the provider was asked at all.
+            roleBoundary: $run->role_boundary === null ? null : (array) $run->role_boundary,
+            modelTurns: (int) $run->turns,
         );
     }
 

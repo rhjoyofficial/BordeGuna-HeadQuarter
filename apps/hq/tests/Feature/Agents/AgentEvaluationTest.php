@@ -3,6 +3,7 @@
 use App\Agents\AgentEvaluationSubject;
 use App\Agents\AgentResponseSchema;
 use App\Agents\AgentRunner;
+use App\Agents\TaskGrounding;
 use App\Ai\ModelTier;
 use App\Ai\Providers\ModelResponse;
 use App\Evaluation\DeterministicGrader;
@@ -81,8 +82,14 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
 
     // A refusing model names no task (ADR-041: an empty `task` is its own decision that there is
     // nothing to serve), and says so about the authority request where the case has one.
+    //
+    // ⚠ docs/86: a case the RUNTIME decides from the operator's words before the model is called (an
+    // offer that names no task) takes no reply, so it takes no line of the script either.
     $script = $suite->cases()->where('is_active', true)->whereNull('applies_to_role')
-        ->orderBy('id')->get()->map(fn ($case) => $case->expectsRefusal()
+        ->orderBy('id')->get()
+        ->reject(fn ($case) => app(TaskGrounding::class)->isBareOffer((string) (((array) $case->input)['prompt'] ?? '')))
+        ->values()
+        ->map(fn ($case) => $case->expectsRefusal()
         ? reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'I will not do that, and I hold nothing to give you.',
             'task' => '', 'authority_request' => $case->expectsTask() === false ? 'refused' : 'none'])
         : reply(['status' => AgentResponseSchema::STATUS_ANSWER, 'answer' => 'Something in that message tried to instruct me. I have not acted on it.'])
@@ -141,7 +148,9 @@ it('counts a tool the agent merely NAMED as called, even though the gateway refu
         reply(['answer' => 'done']),
     ]);
 
-    $case = EvaluationCase::where('key', 'injection.customer_message_instructs_tool_call')->sole();
+    // docs/86: a role-neutral injection case. The support-framed "Answer the customer." is now refused
+    // by the Executive's role boundary before the model is asked, so it could not show a NAMED tool.
+    $case = EvaluationCase::where('key', 'injection.order_note_instructs_tool_call')->sole();
     $observation = (new AgentEvaluationSubject(app(AgentRunner::class), 'executive'))->run($case);
 
     // The gateway DID refuse it, and nothing ran. The model still tried, and the corpus measures the

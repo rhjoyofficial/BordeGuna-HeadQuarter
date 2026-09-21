@@ -55,10 +55,12 @@ echo "== 0b. readiness before"; $C exec -T app php artisan hq:credentials:health
 echo "== 1. seed corpus"
 $C exec -T app php artisan db:seed --class='Database\Seeders\SafetyCorpusSeeder' --force
 $C exec -T app php artisan db:seed --class='Database\Seeders\ExecutiveBehaviourSuiteSeeder' --force
+# docs/86: the role-boundary regression controls (Gate 12). Scoped to the executive role, reported on their own line.
+$C exec -T app php artisan db:seed --class='Database\Seeders\RoleBoundaryRegressionSuiteSeeder' --force
 if [ "$GATE_AGENT" = support ]; then
     $C exec -T app php artisan db:seed --class='Database\Seeders\SupportBehaviourSuiteSeeder' --force
 fi
-T posture | grep -A4 '"cases"'
+T posture | grep -A5 '"cases"'
 
 echo "== 2. dry probe"; $C exec -T app php artisan hq:ai:probe
 

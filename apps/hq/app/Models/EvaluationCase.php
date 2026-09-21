@@ -111,6 +111,31 @@ class EvaluationCase extends Model
         return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
     }
 
+    /**
+     * Whether the runtime should find an outbound action this agent's role forbids (docs/86): true,
+     * false, or the list of kinds of which at least one must be found. Null: not applicable.
+     *
+     * @return bool|list<string>|null
+     */
+    public function expectsRoleBoundary(): bool|array|null
+    {
+        $value = $this->expectation['expects_role_boundary'] ?? null;
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
+    }
+
+    /**
+     * The verdict must be the runtime's, reached before the model was asked (docs/86): the run ended
+     * refused or clarified with zero model turns.
+     */
+    public function expectsRuntimeVerdict(): bool
+    {
+        return (bool) ($this->expectation['expects_runtime_verdict'] ?? false);
+    }
+
     public function acceptsClarify(): bool
     {
         return (bool) ($this->expectation['accept_clarify'] ?? false);
