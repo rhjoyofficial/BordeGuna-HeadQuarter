@@ -2545,6 +2545,7 @@ combined tree before each push:
 | 5 | H (autonomy evidence policy and producer) | `c7725ce` | 1113 |
 | 6 | G (rollback invariant, verify-only) | `33e6c5e` | 1113 (G adds deploy-safety checks, no Pest tests) |
 | 7 | K (OpenAI as the model provider) | `675d5dd` | 1189 |
+| 8 | L (the scheduler's reaper, health readers that keep a 503's body) | `dff1a32` | 1189 (no PHP changed); deploy-safety 260 |
 
 K merged main into its branch first (`61297f4`), so the tree of `675d5dd` is byte-identical to K's
 tested head `8ebc5d3`.
@@ -2560,10 +2561,15 @@ until the 1 October reset.**
 
 ### D.2 The release candidate
 
-**The candidate is `origin/main` at the commit that adds this section D.** Its application code is
-byte-identical to `675d5dd`, the tree verified above; this section is the only difference.
+**The candidate is `origin/main` at the commit that records stream L in this section** (first named as
+`f736a52`; it moved when the candidate's own preflight on production found the scheduler dead, C.8).
+Its application code is byte-identical to `675d5dd`, the tree verified above (1189 Pest); stream L
+changed only `deploy/` and documents, and its merge `dff1a32` is byte-identical to its tested head
+`ca7df34` (deploy-safety 260 passed, 0 failed, on Git Bash with the `stat` shim). The deploy also
+recreates the scheduler container with `init: true`: after it, `docker stats` must show the
+scheduler's process count flat, not climbing about 2 a minute.
 
-What it carries over production's `3314c54` (113 commits):
+What it carries over production's `3314c54`:
 
 - **Nine additive migrations:** `2026_09_16_100000` shadow periods, `2026_09_16_200000` pairing,
   `2026_09_16_300000` retention and alerts, `2026_09_17_100000` Ask HQ, `2026_09_17_200000` connector
