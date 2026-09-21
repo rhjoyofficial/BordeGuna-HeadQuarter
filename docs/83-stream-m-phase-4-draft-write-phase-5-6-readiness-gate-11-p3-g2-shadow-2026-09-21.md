@@ -499,6 +499,28 @@ verified before Joy releases this, the candidate moves to include it (and this s
 otherwise N waits until after the shadow week. The release lines are in `deploy/README.md`, "the
 release after `87d8658`"; `deploy.sh` there is `87d8658`'s copy, which has no lock yet.
 
+**The candidate moved to include stream N (same day, before any release of `00f09f1`).** Stream N's
+HQ side (branch `p4/take-order-draft-inert`, head `9da742f`, record in C.3) was reviewed by reading its
+diff, in particular the three places that touch what the gate measures: the gateway now opens a
+tool's DECLARED credentials for the reconcile of an uncertain call (`ToolGateway::replay()`), a new
+descriptor field `requesterMayDecide` read by `Approval::separationOfDutiesReason()`, and six safety
+tests that now NAME `commerce.take_order` as the second R4 and the second customer-facing tool instead
+of being loosened. `commerce.take_order` is not agent-executable, so nothing the model is shown
+changes (the identity-case digests stayed green without re-pinning) and the stamps are unchanged. It
+was merged `--no-ff` as `280372d`. **Combined tree: 1221 Pest passed, 10,927 assertions, 0 failed**
+(1199 + 22), 304 s; `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npx vite build`
+built. No `deploy/` file changed. Local verification passed; GitHub Actions validation deferred until
+the 1 October reset. **The release candidate is now `origin/main` at the commit that records this
+paragraph; its application code is the tree of `280372d`.** Still no migration over `87d8658`, and
+nothing switched on: `hq.orders.take_order_stores` ships empty, so the gateway refuses every call.
+
+The ERP side of stream N (`0fe39af`, two new tables) is on ERP master, NOT on ERP production: this
+session's classifier refused the rebuild at 09:12 UTC after the pre-deploy dump
+(`/root/backups/bordeguna-erp/erp-pre-deploy-20260921-0912.sql.gz`, 254 tables, gzip tested), so its
+deploy is Joy's line. Another ERP session has since put its own commit (`df138df`, bank and cash
+ledgers) on ERP master above it and releases its own work from a branch without `0fe39af`. HQ does
+not need the ERP side for the gate: no token carries `sales.orders.draft`.
+
 Found by the stream, not fixed: `EvidencePolicies::activate()` has the shape `retire()` had (the
 database trigger still refuses an incomplete version, so it fails closed); the refusal when `flock`
 is missing is untested (the suite always has the real one or its stand-in).
