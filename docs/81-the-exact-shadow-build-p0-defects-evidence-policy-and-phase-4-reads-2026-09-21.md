@@ -1146,3 +1146,130 @@ the stub's mutation record, `RELEASES.md`, release state); a rollback whose reso
 says `1` moves nothing; verify-only in a passing world and in several failing worlds leaves a digest
 of HEAD, every ref, `git status`, every file under `deploy/` and the backup root, and the stub's
 mutation record byte-identical, and exits 0 and non-zero respectively with the reason named.
+
+#### C.3.2 As built (21 September)
+
+No migration. No PHP, prompt, TaskGrounding, TaskScope, detector, policy or approval file touched.
+Nothing switched on. Only `deploy/` changed, and nothing in it has run on the VPS.
+
+**The invariant, one implementation.** `deploy/backup-first-lib.sh` (new, sourced, never executed)
+holds `running_release` (`:25`, the image label), `bf_stack_is_up` (`:33`), `ensure_backup_boundary`
+(`:44`, the dead bind-mount repair and the do-not-delete marker), `backup_mount_is_live` (`:60`) and
+`take_verified_dump` (`:105`, `backup.sh once`, then `LAST_STATUS`, `LAST_OK` and a non-empty dump,
+each a refusal that names the verb). `deploy.sh` sources it (`:57`) and calls the two at `:126-127`
+exactly where its own copies used to be; `rollback.sh` calls the same two (`:132-133`). There is no
+second copy of the backup-first logic anywhere.
+
+**`deploy.sh`.** An argument it does not know is refused before anything happens (`:41`,
+"Nothing has moved"), so `--nopull` no longer means "pull". `--verify-only` hands over to
+`deploy/verify-only.sh` with `exec` (`:45-51`) before the `.env` guard, the sources or any read of
+the stack. Everything else is byte-for-byte the release path it was.
+
+**`rollback.sh`, in the order it runs.** The whole body is `main()` (`:45`), called on the last line
+(`:214`), so bash has parsed the file before `git checkout` replaces it. Refusals first, every one a
+read, so a refused rollback moves nothing and takes nothing: usage (`:47`), `.env` present and 600,
+a target the checkout knows (`:61`), the running release from the label, the target already running
+(`:76`), neither an ancestor of the running release nor a release `RELEASES.md` names (`:89`), tracked
+files modified, named (`:95`), the database not running (`:97`), and then the configuration check:
+the override `no-migrations.override.yml` is written to `mktemp -d` under `TMPDIR` (`:109`), the
+TARGET's compose file is read with `git show` (never checked out), and the two are resolved together
+through `docker compose config`; anything but `0` for every service that sets the key is a refusal
+(`:125`). ⚠ **This moved ahead of the dump**, against C.3.1, which put it after: it is a read like the
+others, so there is no reason for a rollback that is going to be refused to take a backup first.
+Then the boundary and the verified dump, then `git checkout` (`:137`), the stamped build, `up -d
+--no-deps app horizon scheduler web` with the override as a second `-f` (`:150`), the started `app`
+container's environment read back with `docker inspect`, and a loud failure at stage `up` unless it
+is `RUN_MIGRATIONS=0` (`:157`). `RELEASES.md` records `code only, no migrations run, dump <path>`
+(`:192`); `release.json` records kind `rollback` with the label-derived predecessor, now `previous_known:
+true` when the label is readable (it was always `0` before) and the dump the rollback stood behind.
+
+**Compose and the entrypoint.** `docker-compose.yml:47` keeps `RUN_MIGRATIONS: "1"` on `app` (a deploy
+migrates) with a comment saying the rollback overrides it and why it is an override and not a
+variable. `entrypoint.sh:45` logs `migrations not run: RUN_MIGRATIONS is '0'` when it skips, so the
+`app` log of a rollback (to a release carrying this commit) says so; the test it runs is unchanged.
+
+**The real compose, not only the stub.** Docker Compose v5.5.1 (the client here; `config` needs no
+daemon) was run on the exact files: `3314c54`'s `docker-compose.yml` alone resolves `RUN_MIGRATIONS:
+"1"`; with the rollback's override it resolves `"0"`; the pipeline `rollback.sh` uses on that output
+yields `0`; the new compose file with the override resolves `"0"`; and a `deploy/.env` that set
+`RUN_MIGRATIONS=1` (which would make horizon and the scheduler migrate too, through `env_file`) yields
+`0 1`, which the rollback refuses. So the override does take effect over every earlier release's
+hardcoded `"1"`, which is the case that matters for a rollback to `3314c54`.
+
+**`deploy/verify-only.sh`** (new, 396 lines) is the C.3.1 table as planned: every check `ok`, `WARN`
+or `FAIL` with its reason, exit 1 on any FAIL, "It is not a deployment" at the top and `NOTHING WAS
+RELEASED` at the bottom. `GIT_OPTIONAL_LOCKS=0` (`:38`) because even `git status` refreshes the index
+when it can; `git ls-remote` (`:253`) instead of a fetch; the dead mount found by comparing inodes,
+without writing through the mount (`:216`); the destructive-migration scan reads only each pending
+migration's `up()` (`:309`). **Added beyond C.3.1:** `HQ_ROOT` (`:36`) names the checkout when the
+file is run from anywhere else, because production's checkout at `3314c54` has no `verify-only.sh`:
+before the next deploy it is run from a copy read out of git (`deploy/README.md`). An `HQ_ROOT` that
+cannot be entered is exit 2 with the reason. `--verify-release` was designed and not built, as
+C.3.1 decided.
+
+**`deploy/README.md`.** Release starts with `--verify-only`; a Preflight section says what it checks
+and what a clean result does not prove; the "NOT YET APPLIED TO PRODUCTION" section is rewritten for
+the deploy from `3314c54` to the candidate, with the lines Joy types (fetch; confirm `origin/main` is
+the candidate; verify-only from a copy of the candidate's script with `HQ_ROOT`; `./deploy/deploy.sh`
+run by the OLD script; `--verify-only --no-pull` then `--no-pull` run by the NEW one; what to look
+at; `./deploy/rollback.sh 3314c54` as the way back); Rollback states the invariant, the refusals,
+backup first, the override and its read-back, and that the schema is never rolled back.
+
+**Watched failing first.** The suite runs the real scripts against a stubbed `docker` and a
+throwaway git repository. The stub learned three things (C.3.1): `RUN_MIGRATIONS` resolved from the
+`-f` files a command is really given, last file wins, recorded at every `up` that starts `app`; a
+`config` answer; the environment `inspect`. It carries the real `docker-compose.yml`. The base suite
+had 91 checks; it now has **238**. The same new test file and stub were run against the scripts of
+`5c4b948` (the base of this branch, copied to a scratch tree): **116 passed, 122 failed**. All 91 old
+checks passed there, so **122 of the 147 new checks were watched failing**: every one about the
+rollback running migrations, taking no dump, accepting a running, unknown or unrelated target or a
+dirty checkout, recording `previous_known` false, and every "nothing changed" assertion of
+verify-only (the old `deploy.sh` read `--verify-only` as "pull" and DEPLOYED). The 25 that passed
+against the old scripts are guards that must not change (a deploy still migrates, a rollback still
+succeeds and moves the checkout, `--no-pull` back to main migrates) or checks that are vacuous there
+(for example "an `HQ_ROOT` that is not a directory is refused" passes when the file does not exist).
+⚠ The unverified checkpoint itself failed 2 of its own checks on the first run: the counter meant to
+prove "no container was touched" counted the backup mount probe (`rm -f` INSIDE the backup
+container) as a container removal. The counters now read an `exec` line for its command only, and
+the two checks pass because the counting is right, not because the check was loosened.
+
+**Verification (21 September, local; GitHub Actions validation deferred until the 1 October
+reset).** Combined with `main` (`074ffae`, streams E and F) by a `--no-ff` merge into this branch.
+Deploy-safety suite: **238 passed, 0 failed**, on Git Bash on NTFS with a `stat` shim on PATH (kept
+in the scratchpad, NOT in the repository) that answers `600` to `stat -c %a`, because NTFS cannot
+represent a file mode and the suite otherwise skips itself; so the one verify-only case that needs a
+real mode (`.env` readable by others) was skipped there. ⛔ **Linux parity is unproven** until the CI
+job `deploy-safety` runs on Ubuntu after the reset. `bash -n` clean on every script in `deploy/`,
+`deploy/tests/` and `deploy/gate/`. ShellCheck is not installed here and was not run. Full Pest suite
+in one run on Postgres `hq_test_g`: **1046 passed, 9368 assertions**, 328 s (no PHP changed; the
+number the next merge must not reduce). `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean.
+`npm run build`: built.
+
+**Decisions the owner may want to revisit.**
+
+1. A rollback target must be an ancestor of the running release or a release `RELEASES.md` names.
+   Anything else is refused and pointed at `deploy.sh --no-pull`. A hand-typed commit from another
+   line is therefore never a "rollback".
+2. A rollback refuses when the database container is down (nothing to dump). Starting a stack is a
+   deploy.
+3. The configuration check refuses unless EVERY service that sets `RUN_MIGRATIONS` resolves to `0`,
+   so a `RUN_MIGRATIONS` in `deploy/.env` blocks rollbacks entirely. That is deliberate: it would make
+   horizon and the scheduler migrate on every start.
+4. A destructive statement in a pending migration's `up()` is a WARN in verify-only, not a FAIL: the
+   additive rule is the project's, and a deliberate exception should be possible after reading it.
+5. `VERIFY_MIN_FREE_MB` defaults to 5120 and `VERIFY_MAX_DUMP_AGE_HOURS` to 26. These are operational
+   defaults chosen here (a dump plus a cached build; the nightly dump plus two hours), not business
+   numbers; both are environment overrides.
+6. After a rollback, a bare `docker compose up -d` typed by hand recreates `app` with migrations on.
+   Documented, not prevented: the way forward is a deploy.
+
+**Found on the way, not fixed.**
+
+- The FIRST run of the next deploy is executed by production's OLD `deploy.sh` (`3314c54`), so none of
+  this stream protects that one run: its unknown-argument handling is the old one (anything but
+  `--no-pull` pulls). The README's lines type the argument-free form for exactly that reason.
+- verify-only does not check `deploy/.env` for a stray `RUN_MIGRATIONS`; the rollback refuses it, but
+  a deploy would silently make every PHP container migrate at start.
+- `docker compose config` prints every `.env` value (through `env_file`). `rollback.sh` captures it
+  in a pipe and prints only the digits; nothing else in `deploy/` runs `config` without `-q`.
+- The suite takes about 8 minutes on this laptop (git on NTFS), against well under a minute on Linux.
