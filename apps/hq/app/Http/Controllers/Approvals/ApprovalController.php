@@ -46,7 +46,7 @@ final class ApprovalController extends Controller
         // `resultingToolCall` is loaded because the card's label depends on whether the action
         // actually ran, not merely on whether the approval was spent.
         $query = Approval::query()->with([
-            'requestedBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email',
+            'requestedBy:id,email', 'enabledBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email',
             'resultingToolCall:id,status,error',
         ]);
 
@@ -54,8 +54,7 @@ final class ApprovalController extends Controller
             $query->where('status', $status);
         }
 
-        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + [
-            'requested_by' => $a->requestedBy?->email,
+        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + $this->people($a) + [
             'decided_by' => $a->decidedBy?->email,
             'delegated_to' => $a->delegatedTo?->email,
             'decidable' => $request->user() !== null && $a->status->isOpen() && $a->isDecidableBy($request->user()),
@@ -79,8 +78,7 @@ final class ApprovalController extends Controller
     public function show(Request $request, Approval $approval): Response
     {
         return Inertia::render('approvals/show', [
-            'approval' => $approval->toCard() + $this->readable($approval) + [
-                'requested_by' => $approval->requestedBy?->email,
+            'approval' => $approval->toCard() + $this->readable($approval) + $this->people($approval) + [
                 'decided_by' => $approval->decidedBy?->email,
                 'delegated_to' => $approval->delegatedTo?->email,
                 'decidable' => $request->user() !== null && $approval->status->isOpen() && $approval->isDecidableBy($request->user()),
@@ -89,6 +87,25 @@ final class ApprovalController extends Controller
                 'superseded_by' => Approval::where('supersedes_id', $approval->id)->value('id'),
             ],
         ]);
+    }
+
+    /**
+     * Who asked and who enabled, kept apart (docs/81 P0-4).
+     *
+     * ⚠ `requester_recorded` is false for an agent's row from before the two were kept apart: its
+     * requester column holds the enabling user, and the screen says so rather than naming that
+     * person as the one who asked.
+     *
+     * @return array<string, mixed>
+     */
+    private function people(Approval $approval): array
+    {
+        return [
+            'requested_by' => $approval->requestedBy?->email,
+            'enabled_by' => $approval->enabledBy?->email,
+            'requester_kind' => $approval->requester_kind,
+            'requester_recorded' => $approval->agent_key === null || $approval->requesterRecordedApart(),
+        ];
     }
 
     /**
@@ -175,9 +192,12 @@ final class ApprovalController extends Controller
         }
 
         // The requester may withdraw their own request; anybody who could decide it may also cancel.
+        // So may the enabling user of the agent that parked it: they could before the requester and
+        // the enabler were kept apart (docs/81 P0-4), and a withdrawal executes nothing.
         $user = $request->user();
         $isRequester = $approval->requested_by_user_id === $user->getKey();
-        if (! $isRequester && ! $approval->isDecidableBy($user)) {
+        $isEnabler = $approval->enabled_by_user_id !== null && $approval->enabled_by_user_id === $user->getKey();
+        if (! $isRequester && ! $isEnabler && ! $approval->isDecidableBy($user)) {
             abort(403);
         }
 
@@ -204,6 +224,9 @@ final class ApprovalController extends Controller
     {
         if ($approval->status !== ApprovalStatus::Pending) {
             throw ValidationException::withMessages(['approval' => "This approval is {$approval->status->label()}."]);
+        }
+        if (($barred = $approval->separationOfDutiesReason($request->user())) !== null) {
+            abort(403, $barred);
         }
         if (! $approval->isDecidableBy($request->user())) {
             abort(403, 'This approval is delegated to somebody else.');

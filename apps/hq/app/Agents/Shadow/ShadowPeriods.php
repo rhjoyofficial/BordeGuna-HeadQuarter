@@ -13,6 +13,7 @@ use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Models\FeatureFlag;
 use App\Models\ShadowPeriod;
+use App\Models\User;
 use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
 use App\Support\Features\Features;
@@ -166,6 +167,11 @@ final class ShadowPeriods
             throw new RuntimeException('A shadow period opens for a stated reason; none was given.');
         }
 
+        // docs/81 points 11 and 12: a production shadow is opened by a named, real, enabled person,
+        // and the rows below are audited under them. There is no implicit opener there: a period
+        // with nobody recorded would have run its probes `as_enabled`, on nobody's word.
+        $this->assertOpener($actorUserId);
+
         if (! $scheduled && app()->isProduction()) {
             throw new RuntimeException('A production shadow period requires its scheduled Shadow Probes; --no-schedule is for manual and test use only (docs/77 E.1).');
         }
@@ -215,6 +221,29 @@ final class ShadowPeriods
         $this->features->forget();
 
         return $period;
+    }
+
+    /**
+     * Who may be recorded as the opener. Off production nobody need be (the local and test
+     * convenience); a person who IS named must exist and be enabled in every environment.
+     */
+    public function assertOpener(?int $actorUserId): void
+    {
+        if ($actorUserId === null) {
+            if (app()->isProduction()) {
+                throw new RuntimeException('A production shadow period is opened by a named person: pass --by with the email of an enabled HQ user. Nothing opens one implicitly (docs/81 points 11 and 12).');
+            }
+
+            return;
+        }
+
+        $active = User::query()->whereKey($actorUserId)->toBase()->value('is_active');
+        if ($active === null) {
+            throw new RuntimeException("The opener (user #{$actorUserId}) does not exist.");
+        }
+        if ($active !== true) {
+            throw new RuntimeException("The opener (user #{$actorUserId}) is disabled, so nothing opens on their word.");
+        }
     }
 
     /** Close a period normally: agent paused, runtime off when no other period needs it, record closed. */

@@ -156,7 +156,9 @@ final class SnapshotFreshnessTool implements Tool
         }
 
         $out = [];
-        foreach ($query->get() as $row) {
+        // A GROUP BY promises no order. Business then store, both unique, so the list never moves
+        // for the same facts (docs/81 P1-1).
+        foreach ($query->orderBy('b.slug')->orderBy('st.slug')->get() as $row) {
             $row = (array) $row;
             $described = $this->describe(
                 "facts_orders:{$row['store']}",

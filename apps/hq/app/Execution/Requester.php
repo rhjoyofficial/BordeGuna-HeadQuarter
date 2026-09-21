@@ -53,15 +53,24 @@ final readonly class Requester
     }
 
     /**
-     * A Shadow Probe asks for the person who opened the period. A period opened with no `--by`
-     * recorded nobody, and runs as enabled, which is what it effectively did before; the record
-     * says which of the two it was.
+     * A Shadow Probe asks for the person who opened the period. Off production a period opened with
+     * no `--by` recorded nobody, and runs as enabled, which is what it effectively did before; the
+     * record says which of the two it was. In production there is no such period (docs/81).
      */
     public static function forShadowPeriod(ShadowPeriod $period): self
     {
-        return $period->opened_by_user_id !== null
-            ? self::onBehalfOf((int) $period->opened_by_user_id, "shadow_periods#{$period->id}.opened_by_user_id")
-            : self::asEnabled(RequesterKind::OnBehalfOf, "shadow_periods#{$period->id} recorded no opener; the agent's enabling user is the accountable person");
+        if ($period->opened_by_user_id !== null) {
+            return self::onBehalfOf((int) $period->opened_by_user_id, "shadow_periods#{$period->id}.opened_by_user_id");
+        }
+
+        // docs/81 points 11 and 12: in production nobody is an implicit opener. `hq:shadow:open`
+        // refuses to write such a period there; one written around it names nobody accountable,
+        // and the resolver refuses a requester who names nobody.
+        if (app()->isProduction()) {
+            return self::onBehalfOf(null, "shadow_periods#{$period->id} recorded no opener, and a production period must name one");
+        }
+
+        return self::asEnabled(RequesterKind::OnBehalfOf, "shadow_periods#{$period->id} recorded no opener; the agent's enabling user is the accountable person");
     }
 
     /**

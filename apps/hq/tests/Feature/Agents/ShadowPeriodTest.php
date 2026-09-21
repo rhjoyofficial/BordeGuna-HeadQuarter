@@ -6,11 +6,13 @@ use App\Agents\Shadow\ShadowEvidence;
 use App\Agents\Shadow\ShadowPeriods;
 use App\Agents\Shadow\ShadowProbes;
 use App\Ai\ModelTier;
+use App\Execution\Requester;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AuditLog;
 use App\Models\AutonomyGrant;
+use App\Models\Business;
 use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Models\FeatureFlag;
@@ -18,6 +20,7 @@ use App\Models\ShadowEvidenceDay;
 use App\Models\ShadowPeriod;
 use App\Models\ShadowProbeRun;
 use App\Models\User;
+use App\Models\UserBusinessScope;
 use App\Support\Features\Features;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
@@ -252,7 +255,7 @@ it('refuses a production shadow period without its Shadow Probes', function () {
     passingGate();
     app()->detectEnvironment(fn () => 'production');
 
-    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--no-schedule' => true, '--reason' => 'x'])
+    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'joy@example.test', '--no-schedule' => true, '--reason' => 'x'])
         ->expectsOutputToContain('requires its scheduled Shadow Probes')
         ->assertFailed();
 
@@ -506,4 +509,151 @@ it('lets the gate runner see an open period and refuse to touch the switches', f
         ->and($run('on'))->toStartWith('REFUSED: a shadow period is open for executive')
         ->and(Agent::where('key', 'executive')->value('status'))->toBe('active')
         ->and(runtimeOn())->toBeTrue();
+});
+
+// ── docs/81 points 11 and 12: a production shadow is opened by a named, real, enabled person ────
+
+function asProduction(Closure $fn): void
+{
+    app()->detectEnvironment(fn () => 'production');
+    try {
+        $fn();
+    } finally {
+        app()->detectEnvironment(fn () => 'testing');
+    }
+}
+
+it('refuses to open a production shadow period without --by, and changes nothing', function () {
+    passingGate();
+
+    asProduction(function () {
+        $this->artisan('hq:shadow:open', ['agent' => 'executive'])
+            ->expectsOutputToContain('opener: none named')
+            ->assertFailed();
+
+        $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--reason' => 'Gate 11 passed.'])
+            ->expectsOutputToContain('A production shadow period is opened by a named person')
+            ->assertFailed();
+
+        // The domain class is the chokepoint: a caller that is not the command is refused the same way.
+        expect(fn () => app(ShadowPeriods::class)->open('executive', 'Gate 11 passed.'))
+            ->toThrow(RuntimeException::class, 'A production shadow period is opened by a named person');
+    });
+
+    expect(ShadowPeriod::count())->toBe(0)
+        ->and(runtimeOn())->toBeFalse()
+        ->and(Agent::where('key', 'executive')->value('status'))->toBe('paused')
+        ->and(AuditLog::whereIn('action', ['shadow_period.opened', 'feature_flag.toggled', 'agent.status_changed'])->count())->toBe(0);
+});
+
+it('refuses a --by that names nobody, or a disabled person, in every environment', function (Closure $by, string $says) {
+    passingGate();
+    $email = $by();
+
+    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => $email, '--reason' => 'x'])
+        ->expectsOutputToContain($says)->assertFailed();
+    asProduction(fn () => $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => $email, '--reason' => 'x'])
+        ->expectsOutputToContain($says)->assertFailed());
+
+    expect(ShadowPeriod::count())->toBe(0)->and(runtimeOn())->toBeFalse();
+})->with([
+    'nobody' => [fn () => 'ghost@example.test', 'No HQ user has the email [ghost@example.test]'],
+    'a disabled person' => [function () {
+        $user = User::factory()->create(['email' => 'gone@example.test']);
+        User::whereKey($user->id)->update(['is_active' => false]);
+
+        return 'gone@example.test';
+    }, 'is disabled'],
+]);
+
+it('refuses a disabled or unknown opener in production at the domain class too', function () {
+    passingGate();
+    $disabled = User::factory()->create();
+    User::whereKey($disabled->id)->update(['is_active' => false]);
+
+    asProduction(function () use ($disabled) {
+        expect(fn () => app(ShadowPeriods::class)->open('executive', 'x', [], $disabled->id))->toThrow(RuntimeException::class, 'is disabled')
+            ->and(fn () => app(ShadowPeriods::class)->open('executive', 'x', [], 987654))->toThrow(RuntimeException::class, 'does not exist');
+    });
+
+    expect(ShadowPeriod::count())->toBe(0)->and(runtimeOn())->toBeFalse();
+});
+
+it('opens a production shadow under the named person: every audit row is theirs, and the probes are mandatory', function () {
+    passingGate();
+    $before = AuditLog::max('id') ?? 0;
+
+    asProduction(function () {
+        $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'joy@example.test', '--no-schedule' => true, '--reason' => 'x'])
+            ->expectsOutputToContain('requires its scheduled Shadow Probes')->assertFailed();
+        expect(ShadowPeriod::count())->toBe(0)->and(runtimeOn())->toBeFalse();
+
+        $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'joy@example.test', '--reason' => 'Gate 11 attempt 2 passed; Joy opens the A0 shadow.'])
+            ->expectsOutputToContain('OPEN for executive at A0')->assertSuccessful();
+    });
+
+    $period = ShadowPeriod::sole();
+    $rows = AuditLog::where('id', '>', $before)->orderBy('id')->get();
+    expect($period->opened_by_user_id)->toBe($this->owner->id)
+        ->and($period->probes_required)->toBeTrue()
+        ->and($period->questions)->toBe(ShadowProbes::define([]))
+        ->and($rows->pluck('action')->all())->toBe(['feature_flag.toggled', 'agent.status_changed', 'shadow_period.opened'])
+        ->and($rows->pluck('actor_type')->unique()->all())->toBe(['human'])
+        ->and($rows->pluck('actor_id')->unique()->all())->toBe([$this->owner->id]);
+});
+
+it('resolves the probes of a production period from the named person, and never from the enabling user by default', function () {
+    passingGate();
+    $opener = User::factory()->create(['email' => 'opener@example.test']);
+    $opener->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view']);
+    $laladia = Business::where('slug', 'laladia')->sole();
+    UserBusinessScope::create(['user_id' => $opener->id, 'business_id' => $laladia->id, 'access' => 'read']);
+    FixtureProvider::script('fixture', [shadowReply(), shadowReply(), shadowReply()]);
+
+    asProduction(function () {
+        $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'opener@example.test', '--reason' => 'Gate 11 attempt 2 passed.'])->assertSuccessful();
+        $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
+    });
+
+    $runs = AgentRun::where('agent_key', 'executive')->orderBy('id')->get();
+    expect($runs)->toHaveCount(3);
+    foreach ($runs as $run) {
+        expect($run->execution_context['requester']['kind'])->toBe('on_behalf_of')
+            ->and($run->execution_context['requester']['user_id'])->toBe($opener->id)
+            ->and($run->execution_context['requester']['as_enabled'])->toBeFalse()
+            ->and($run->execution_context['environment'])->toBe('production')
+            ->and($run->execution_context['scope']['business_ids'])->toBe([$laladia->id])
+            ->and($run->triggered_by_user_id)->toBe($opener->id);
+    }
+});
+
+it('runs nothing for a production period that records no opener: as_enabled is never the implicit requester there', function () {
+    passingGate();
+    // A period written around the command and the domain class, as only SQL could.
+    $period = openShadow();
+    ShadowPeriod::whereKey($period->id)->update(['opened_by_user_id' => null]);
+
+    asProduction(function () use ($period) {
+        $requester = Requester::forShadowPeriod($period->fresh());
+        expect($requester->asEnabled)->toBeFalse()->and($requester->userId)->toBeNull();
+
+        $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
+    });
+
+    expect(AgentRun::count())->toBe(0)
+        ->and(FixtureProvider::callsTo('fixture'))->toBe(0)
+        ->and(ShadowProbeRun::where('shadow_period_id', $period->id)->pluck('status')->unique()->all())->toBe(['failed'])
+        ->and(ShadowProbeRun::where('shadow_period_id', $period->id)->first()->note)->toContain('Nobody accountable')
+        ->and(AuditLog::where('action', 'agent_run.context_refused')->count())->toBe(3);
+
+    // Off production the convenience path is what it was: no opener, the agent runs as enabled.
+    expect(Requester::forShadowPeriod($period->fresh())->asEnabled)->toBeTrue();
+});
+
+it('keeps the convenience path off production: no --by, and --no-schedule, still open a period', function () {
+    passingGate();
+
+    $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--no-schedule' => true, '--reason' => 'Local look.'])->assertSuccessful();
+
+    expect(ShadowPeriod::sole()->opened_by_user_id)->toBeNull()->and(ShadowPeriod::sole()->probes_required)->toBeFalse();
 });
