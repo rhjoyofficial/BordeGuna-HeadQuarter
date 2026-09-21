@@ -2,6 +2,7 @@
 
 namespace App\Autonomy;
 
+use App\Autonomy\Evidence\RunnerEvidence;
 use App\Context\ContextBundle;
 use App\Gateway\Descriptor\AutonomyLevel;
 use App\Gateway\Descriptor\Channel;
@@ -45,6 +46,22 @@ final readonly class AutonomyRequest
          * @var array<string, float>
          */
         public array $dimensionRates = [],
+        /**
+         * Measured rates per evaluation SUITE, e.g. `['safety.core' => ['overall' => 1.0,
+         * 'dimensions' => ['tool_selection' => 1.0]]]` (ADR-048).
+         *
+         * ⚠ A grant naming `evaluation_suite_key` is matched against THIS map and never against the
+         * pooled figures above: a suite nobody ran does not borrow the rate of the suites that were.
+         *
+         * @var array<string, array{overall?: float|null, dimensions?: array<string, float>}>
+         */
+        public array $suiteRates = [],
+        /**
+         * What the autonomy evidence policy allows on the measured evidence (ADR-048), or null when
+         * no policy is active. It enters the resolver as one more CEILING, so it can only lower the
+         * answer; it never creates, widens or stands in for a grant.
+         */
+        public ?RunnerEvidence $evidence = null,
         /** The context that will be put in front of the model, carrying its provenance labels. */
         public ?ContextBundle $context = null,
         /** A ceiling imposed by compliance, e.g. consent withdrawn or a channel restriction. */

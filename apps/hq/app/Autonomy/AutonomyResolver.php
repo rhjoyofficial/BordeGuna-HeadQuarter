@@ -30,6 +30,9 @@ use Illuminate\Support\Carbon;
  * - **Untrusted context caps autonomy** (ADR-024). Reading a customer's message may inform a
  *   proposal; it may never be the reason an action became automatic.
  * - **A5 is unreachable.** Whatever the grants say, the result is capped at A4.
+ * - **The evidence policy is a ceiling, never a grant** (ADR-048). When one is active the runner
+ *   passes what it allows on the measured evidence, and it is combined by minimum like the others.
+ *   A grant naming a suite is compared with that suite's own figure, never the pooled one.
  *
  * ## What this class cannot do
  *
@@ -43,6 +46,15 @@ use Illuminate\Support\Carbon;
 final class AutonomyResolver
 {
     public function resolve(AutonomyRequest $request): AutonomyDecision
+    {
+        $decision = $this->decide($request);
+
+        // ADR-048: the policy and the evidence the answer was judged under travel with it, on every
+        // path (a floor included), and only when a policy was active.
+        return $request->evidence === null ? $decision : $decision->withEvidence($request->evidence->record);
+    }
+
+    private function decide(AutonomyRequest $request): AutonomyDecision
     {
         $at = Carbon::instance(Carbon::parse($request->at ?? now()));
         $constraints = [];
@@ -115,6 +127,13 @@ final class AutonomyResolver
         $contextCeiling = $request->context?->ceiling();
         if ($contextCeiling !== null) {
             $out[] = ['context', $contextCeiling, 'the context contains untrusted content, which can never raise autonomy'];
+        }
+
+        // ADR-048. The autonomy evidence policy is one more ceiling, combined by minimum like the
+        // rest: necessary, never sufficient. It cannot raise a level and it cannot stand in for a
+        // grant, because it is only ever read after a grant has matched.
+        if ($request->evidence !== null) {
+            $out[] = ['evidence_policy', $request->evidence->ceiling, $request->evidence->detail()];
         }
 
         return $out;
@@ -219,6 +238,15 @@ final class AutonomyResolver
         $measured = $grant->min_agreement_dimension === null
             ? $request->agreementRate
             : ($request->dimensionRates[$grant->min_agreement_dimension] ?? null);
+
+        // ADR-048: a grant naming a suite is compared with that suite's own figure, never the pooled
+        // one. A suite nobody measured does not borrow the rate of the suites somebody did.
+        if ($grant->evaluation_suite_key !== null) {
+            $suite = $request->suiteRates[$grant->evaluation_suite_key] ?? null;
+            $measured = $suite === null ? null : ($grant->min_agreement_dimension === null
+                ? ($suite['overall'] ?? null)
+                : ($suite['dimensions'][$grant->min_agreement_dimension] ?? null));
+        }
 
         // No measurement is not a passing measurement. That is doubly true here: a grant naming a
         // dimension nothing has ever measured must not fall back to the overall number, because
