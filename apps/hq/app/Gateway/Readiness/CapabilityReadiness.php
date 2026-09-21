@@ -3,7 +3,8 @@
 namespace App\Gateway\Readiness;
 
 use App\Ai\ProviderCheck;
-use App\Ai\Providers\AnthropicProvider;
+use App\Ai\Providers\ProviderRegistry;
+use App\Ai\ServingProvider;
 use App\Commerce\Support\CommerceRegistry;
 use App\Erp\ErpRegistry;
 use App\Gateway\Credentials\AmbiguousCredential;
@@ -47,6 +48,8 @@ final class CapabilityReadiness
         private readonly CommerceRegistry $commerce,
         private readonly ErpRegistry $erp,
         private readonly ProviderCheck $providerCheck,
+        private readonly ServingProvider $serving,
+        private readonly ProviderRegistry $providers,
     ) {}
 
     /** @return list<ReadinessRow> */
@@ -77,7 +80,16 @@ final class CapabilityReadiness
                 $available['available'] ? null : (string) $available['reason']);
         }
 
-        $rows[] = $this->row('hq', 'hq', 'HQ model provider', AnthropicProvider::CREDENTIAL_PROVIDER, AnthropicProvider::ACCOUNT_REF, true, null, null);
+        // docs/81 C.7: the model provider row is the provider that SERVES, since that is the key a
+        // call would use; one row per provider when more than one serves, so the mix is visible;
+        // Anthropic when none does, which keeps an install with no active row reading as before.
+        foreach ($this->serving->active() ?: [ServingProvider::DEFAULT] as $provider) {
+            if (! $this->providers->has($provider)) {
+                continue;
+            }
+            [$credentialProvider, $account] = $this->providers->get($provider)->credentialPair();
+            $rows[] = $this->row('hq', 'hq', 'HQ model provider', $credentialProvider, $account, true, null, null);
+        }
 
         return $rows;
     }
@@ -131,9 +143,21 @@ final class CapabilityReadiness
             return $row;
         }
 
-        $this->providerCheck->run();
+        $this->providerCheck->run(ProviderCheck::SOURCE, $this->modelProviderFor($row->provider));
 
         return $this->row($row->targetKind, $row->target, $row->targetName, $row->provider, $row->accountRef, true, null, null);
+    }
+
+    /** The model provider whose credential a readiness row names. */
+    private function modelProviderFor(string $credentialProvider): ?string
+    {
+        foreach ($this->providers->keys() as $key) {
+            if ($this->providers->get($key)->credentialPair()[0] === $credentialProvider) {
+                return $key;
+            }
+        }
+
+        return null;
     }
 
     private function row(
