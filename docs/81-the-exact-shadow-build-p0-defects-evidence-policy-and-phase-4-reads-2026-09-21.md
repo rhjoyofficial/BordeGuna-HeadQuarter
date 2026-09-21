@@ -1167,6 +1167,125 @@ Pint on changed files. HQ: the new tool tests, `tests/Feature/Erp`, `tests/Featu
 `tests/Feature/Ai`, then the full Pest suite on `hq_test_i`, `pint --test`, `tsc --noEmit`,
 `npm run build`. Numbers in C.5.5.
 
-#### C.5.5 As built
+#### C.5.5 As built (21 September)
 
-(filled in as the stream completes)
+Branches: ERP `feature/hq-api-order-reads` commit `5bfb709` (on `origin/master` `43974c1`), HQ
+`p4/erp-read-foundation` (main merged in first, then this stream). No migration on either side, no
+seeder, no prompt file, no agent tool list, no flag row, grant or scheduled job. Nothing writes.
+
+**ERP.** `routes/api.php` gains the `order-reads/` group inside the existing `{business}` +
+`HqApiContext` group; `app/Http/Controllers/Api/Hq/HqOrderReadController.php` (new) answers it.
+
+| Endpoint | Ability | As built |
+| --- | --- | --- |
+| `GET order-reads/products` | `inventory.view` | filters `q` (name or SKU contains), `sku`, `id`, `barcode`, `brand` (code), `status` (`active` default, `inactive`, `all`); an unknown filter key or `per_page` over 100 is a 422; ordered by SKU then id; rows are exactly `PRODUCT_FIELDS`; `meta.orderable_means` says `orderable` is only the type rule; pagination links carry the query |
+| `GET order-reads/skus/{sku}` | `inventory.view` | the row plus `variant_model: "none"` and its sentence; 404 `not_found` |
+| `GET order-reads/prices/{sku}` | `sales.view`, and `sales.customers.view` too when `customer_id` is given | `ResolveSellingPrice::find` asked as each caller asks it (a store as its own price group, a customer as themselves, nobody as the default tier); `unit_price` as the stored decimal string, `currency: BDT`, `basis`, `quantity`, `on`, `priced_as`, `store {key, price_group}`, `mrp: null` + `mrp_note`, `price_source {rule_id, tier, price_group {code, name, prices_include_tax}, customer_specific, min_quantity, effective_from, effective_to, is_discount, discount_label, explanation}`, `promotions_applied_to_sales_orders: []` + note, `tier_note` for nobody; 404 `no_price_in_force`, `not_found`, `unknown_store`, `unknown_customer` (the walk-in row counts as unknown); 422 for a bad `on`, a non-positive quantity, or a store and a customer together |
+| `GET order-reads/availability/{sku}` | `inventory.view`; per-warehouse rows only with `inventory.reports.view` | `stock {on_hand, unit, warehouses [{code, name, on_hand}] or null, warehouses_withheld}` and `availability {decided_per_store, product_is_active, product_type_is_stocked, availability_override, verdict_needs_store, store}`; the store verdict is `{key, policy (Availability::policyFor), published, has_price (CataloguePublishing::hasPrice), sellable (CartRules::refusalFor is null), made_to_order, message (the refusal or the decision's sentence)}`; 404 `not_found`, `unknown_store` |
+| `POST order-reads/customer-eligibility` | `sales.customers.view` | body `phone` (required, at most 32 characters, as the checkout validates it); `phone_matchable`, `phone_normalized`, `customer_exists` (any non-system row with the number), `match {id, display_name, is_active}` (the first active non-system row by id, which is the one `identify` picks) or null, `active_matches`, `inactive_matches`, `would_create_new_customer`, `refusal_rules_the_erp_has: ["inactive_customer"]`, `fields_the_erp_does_not_have: ["blocked", "cod_eligible", "credit_hold"]`, `credit_limit_enforced: false`, three sentences in `notes` |
+
+Every found body carries `meta {business_id, contract: "hq-order-reads.v1", as_of}`. Differences
+from the plan in C.5.2, each deliberate:
+
+1. The product row has no `status` field: `is_active` already says it, and a second field would be
+   a second opinion about the same column.
+2. `phone_valid` became `phone_matchable`. The ERP validates no phone format (the checkout accepts
+   any string up to 32 characters), so "valid" would have been an invented rule; "matchable" is
+   exactly `PhoneIdentity::normalize` returning something.
+3. `refusals` became `refusal_rules_the_erp_has`, a statement of the one rule that exists, because
+   on the phone path it never fires (`identify` skips an inactive match and creates a new customer).
+   `active_matches` was added, since a household may share a number.
+4. A price for a named customer also needs `sales.customers.view`: a customer's agreed price is
+   their agreement with the business.
+5. **Correction to C.5.1**: the schema DOES hold an `mrp` column, `stock_batches.mrp`
+   (`2026_08_17_150001_create_production_runs_tables.php`, C-MFG-13: label data a production run
+   sets, "nothing prices off a batch"). There is still no product or price-list MRP, so `mrp` stays
+   null and the note says a batch label may carry one; the batch value is not exposed.
+6. `currency: "BDT"` is stated (the ERP is single-currency; `Money::ofTaka`), and the price group's
+   `prices_include_tax` is passed through as stored (the column default is true; the VAT engine is
+   off on all four businesses). Neither is interpreted here.
+
+**Found on the way, not changed (ERP).** A store whose `price_group_id` is null is priced at the
+default tier only: `CataloguePublishing::priceFor` passes the null straight to the engine, although
+the model's docblock says null means RETAIL. The endpoint asks exactly as the storefront asks, so it
+cannot disagree with the shop; whether null should mean RETAIL there is the ERP's own question. The
+older `HqReadController` pagination links drop the query string; the new endpoint's links keep it.
+
+**HQ.** `app/Erp/ErpConnector.php`: `lookupProducts` (refuses a filter key outside
+`PRODUCT_FILTERS` before sending), `lookupSku`, `readPrice`, `readAvailability`,
+`checkCustomerEligibility` (the phone in a POST body; never the recorded `request_ref`), all through
+one `orderRead()` that returns `App\Erp\Dto\ErpOrderRead` (new): a 404 whose code the endpoint
+declares is an answer (`found: false`, the ERP's code and sentence, logged as a succeeded call with
+the 404 it received); every other failure keeps its class; a found body must carry `data`,
+`meta.contract = hq-order-reads.v1` and this connector's own `business_id`
+(`ErpContract::requireOrderReadsContract`, new). **The C.5.1 correlation finding is fixed for every
+ERP call**: `client()` now sends the gateway's `Context` correlation id when the ERP would accept it
+(`^[A-Za-z0-9._:-]{8,128}$`), and a fresh uuid only otherwise, so the id the ERP echoes and logs is
+the one `connector_calls` records.
+
+`app/Tools/Erp/ErpOrderReadTool.php` (new, abstract) fixes the posture once: R2, Read, Business
+scope, `scopeFrom: business:args.business_slug`, `OnePerBusiness`, `hq.tools.erp.read`, the
+`erp_api_token` credential, idempotent with a 60-second replay, `business_slug` required,
+`additionalProperties: false`, and every output carries `business`, `source: erp`, `contract`, the
+ERP's `as_of` and `read_live_at`. The five tools (`LookupProductTool`, `LookupSkuTool`,
+`ReadPriceTool`, `ReadAvailabilityTool`, `CheckOrderEligibilityTool`) are registered in
+`config/hq.php` `tools`. Differences from C.5.3, each deliberate:
+
+1. `erp.read_price` takes no customer argument. The connector can ask for a named customer; the
+   tool cannot, so no agent a tool is ever given to can read a customer's agreed price.
+2. "No such SKU" and "no price in force" succeed with `found` / `price_in_force` false and the ERP's
+   sentence; an unknown store key fails with the ERP's sentence (a caller mistake, not a fact).
+3. `erp.check_order_eligibility` masks `phone` in the recorded arguments and errors, and
+   `phone_normalized` and `match.display_name` in the recorded output (`DataClass::Personal`).
+
+The stamps are unchanged (`executive.v8+18d60e98`, `support.v1+0f4a195b`): no agent's
+`allowed_tools` names a new key, so the catalogue a model reads is byte for byte what it was, and
+`ExecutionContextIdentityCaseTest`'s pinned digests stayed green WITHOUT re-pinning.
+
+**The contract fixtures.** The ERP test writes the twelve bodies (with `HQ_API_WRITE_FIXTURES=1`) to
+`tests/fixtures/hq-api/order-reads/` plus a `manifest.json` of their canonical digests; HQ carries
+the same files under `tests/fixtures/erp/order-reads/`. Both repositories pin the contract digest
+`e646da534fe9549ec5bf72a845e537bc1437072b693c2c367c6e33a022289b22`: the ERP test fails if an endpoint
+stops matching its fixture or the digest moves; the HQ test fails if its copy was edited or its pin
+differs, and reads every body through the real connector. The canonical form is
+`json_encode(json_decode(file))` with fixed flags, so line endings cannot change a digest.
+
+**Watched failing first.** ERP `HqOrderReadTest` (15): 14 failed before the routes existed (302 and
+405 for routes that were not there); the token-command case passed first, because refusing the
+sensitive abilities already worked, and it is kept as a guard. HQ `OrderReadsContractTest` (6) and
+`OrderReadToolsTest` (10): 15 of 16 failed first (missing methods, classes and registrations); the
+agent-refusal case passed first, because an unknown tool was refused, and it now passes because the
+tool is in no agent's list.
+
+**What the ERP cannot answer (stated, not worked around).** Variants (there are none; a SKU is one
+product). A product or price-list MRP. A promotion on a sales order (Buy X Get Y is a counter-sale
+rule). A blocked, cash-on-delivery or credit-hold flag, or an enforced credit limit. An
+availability verdict without a store. A reconcile read by idempotency key (no sales order column;
+a migration that belongs to P4-G0). HQ's own store slugs mapped to ERP store keys (HQ holds no such
+mapping; `store_key` is the ERP's `stores.key`, and a wrong one is refused by name).
+
+**Production needs, before any of this answers live (none of it done).** Deploy the ERP branch
+(code only: no migration, no seeder, no new permission). The production token holds
+`inventory.reports.view`, `sales.reports.view` and `crm.tickets.view` (`docs/40` I), so the new reads
+answer 403 until a token holding `inventory.view` and `sales.view` exists; `sales.customers.view`
+only if the eligibility check is to be used, which nothing needs yet. Because HQ keeps one
+`erp_api_token` per business, the safe order is: issue a second token under another name
+(`hq:api:token hq@bordeguna.com 4 --name=hq-p4 --abilities=inventory.reports.view,sales.reports.view,crm.tickets.view,inventory.view,sales.view`),
+replace the HQ credential's value, `hq:erp:probe`, then `--revoke` the old `hq` token (revoking by
+the default name removes only tokens named `hq:business:4`). Then deploy HQ. Each step is Joy's.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).**
+ERP: `tests/Feature/HqApi` 22 passed (7 existing + 15 new), then the full suite `--parallel --processes=6`: **3,979 passed, 20,827 assertions, 0 failed** (3,964 on 20 September plus these 15); Pint on the three changed files passed. The worktree has no `node_modules`, so its `public/build` was copied from the main checkout (clean at `43974c1`, the same tree); without it 553 screen tests fail on a missing Vite manifest, which is the environment, not the change. HQ: `tests/Feature/Erp` 34 passed; Gateway, Ai and Agents 376 passed; `ExecutionContextIdentityCaseTest` 3 passed, not re-pinned; the full Pest suite in one run on `hq_test_i`: **1,062 passed, 9,683 assertions, 0 failed** (1,046 on main plus 16), 301 s. `vendor/bin/pint --test` passed on the whole tree; `npx tsc --noEmit` clean; `npm run build` built. Local verification passed; GitHub Actions validation deferred until the 1 October reset.
+
+**Decisions to revisit.**
+
+1. `inventory.view`, `sales.view` and `sales.customers.view` are the allow-list's names but not
+   seeded Spatie permissions (C.5.1). They are used as the plan named them; aligning the names is an
+   ERP change of its own.
+2. `erp.check_order_eligibility` is not agent-executable; P4-G3 decides it after the `docs/79` G
+   suite measures it.
+3. `erp.read_price` has no customer argument.
+4. The connector refuses a body whose `meta.business_id` is not its own. The older endpoints are
+   not checked this way.
+5. The correlation id change reaches every ERP call, the old ones included: the ERP now logs the
+   same id HQ records, which is the intent, and nothing on the ERP side keys on the id's shape.

@@ -512,3 +512,36 @@ Business decisions only; nothing here is an engineering question.
    every order needs approval regardless of value, until evidence says otherwise.
 7. **Recipient and buyer.** May an order taken in conversation name a recipient other than the
    buyer, as the website allows?
+
+## I. The read side as built (21 September 2026, `docs/81` C.5)
+
+Section G's "no ERP endpoint" was about the WRITE; it still holds. What `docs/81` point 9 asked for,
+the read-side prerequisites, now exists on two branches and is recorded in full in `docs/81` C.5.5.
+In short:
+
+- **ERP** (`bordeguna-erp` branch `feature/hq-api-order-reads`): five reads under
+  `/api/hq/v1/{business}/order-reads/`, behind the existing `HqApiContext` and token abilities, with
+  no ability added to `READ_ABILITIES`. `products` and `skus/{sku}` (identity only; the ERP has no
+  variants, and the SKU answer says so), `prices/{sku}` (the one pricing engine's answer with the
+  rule that produced it, for a store, a named customer or nobody; `no_price_in_force` rather than a
+  guess), `availability/{sku}` (stock and the per-store verdict as two facts; the verdict is
+  `CartRules` and `Availability` themselves), and `POST customer-eligibility` (the customer the
+  website checkout would pick for a phone, and the flags the ERP does not have). Every body is an
+  explicit field list; cost, credit limit, payment terms, contact details and notes never leave.
+- **HQ** (branch `p4/erp-read-foundation`): `ErpConnector::lookupProducts`, `lookupSku`,
+  `readPrice`, `readAvailability`, `checkCustomerEligibility` (a "not found" is an answer, a body
+  from another contract version or another business is refused), and five R2 read tools:
+  `erp.lookup_product`, `erp.lookup_sku`, `erp.read_price`, `erp.read_availability` and
+  `erp.check_order_eligibility` (not agent-executable, personal data masked in every stored row).
+  **No agent holds any of them**, so the agents' catalogues and stamps are unchanged.
+- **The contract**: the ERP's test writes the exact response bodies as fixtures; HQ carries a copy;
+  both repositories pin one contract digest, so a change on either side fails that side's test.
+
+What this changes in the design above: C.1 and C.2 are now answerable live (product identity, SKU
+as the variant); C.4's price source is named on every price; C.5's customer identity is answered
+the way `identify` answers it, including that an inactive match is skipped and that the ERP has no
+blocked, COD or credit-hold flag; C.12's confirmation has its read half. C.4 needed one correction:
+the ERP DOES hold an `mrp` column, on `stock_batches` (label data a production run sets, which
+prices nothing); there is still no product or price-list MRP, so the price answer says `mrp: null`.
+Nothing in D, F or G moved: `take_order`, `quote_order`, `get_order_status` and
+`cancel_sales_order` are registered nowhere, and no token holds a write ability.
