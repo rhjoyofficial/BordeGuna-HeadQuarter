@@ -131,12 +131,40 @@ other release). A missing file never reads as "up to date".
 the running containers keep the dead inode (the same trap as the backup directory, docs/58) and the
 panel will say the records are missing. Recreate the containers: `$C up -d --force-recreate --no-deps app horizon scheduler`.
 
-### ⛔ NOT YET APPLIED TO PRODUCTION: the next deploy, and exactly what Joy types
+### ⛔ NOT YET APPLIED TO PRODUCTION: the release after `87d8658` (Stream M, `docs/83`), exactly what Joy types
 
-Production runs release `3314c54` (15 September). It predates `docs/80` C.4 (release state) and
-`docs/81` C.3 (the rollback invariant, `--verify-only`, the refusal of unknown arguments). Nothing
-below has been done on the VPS. The candidate commit is named in `docs/81` section D once the combined
-tree has passed its full local verification; call it `<candidate>` here.
+Production runs `87d8658` (released and verified 21 September, 06:32 UTC; next section). Its
+`deploy.sh` already has the preflight, the refusal of unknown arguments and the release records, but
+NOT the host lock or the `RUN_MIGRATIONS` refusal of `docs/81` C.9: this release is run by that copy,
+so the lock protects the releases AFTER it. The candidate is named in `docs/83` C.1 once the combined
+tree has passed its full local verification; call it `<candidate>` here. It is the build Gate 11
+attempt 2 measures, so nothing else is released between it and the gate.
+
+```bash
+ssh vps
+cd /opt/bordeguna-hq
+
+# 1. Where main is. Moves only the origin/main ref.
+git fetch -q origin main
+git rev-parse --short origin/main     # must print <candidate>; anything else: STOP
+
+# 2. Preflight. Changes nothing. Must end "RESULT: no failure found"; read any WARN.
+./deploy/deploy.sh --verify-only
+
+# 3. The release (backup first, then the fast-forward, build, up, verification).
+./deploy/deploy.sh
+
+# 4. Look.
+cat deploy/release-state/release.json   # status released, verification passed, health_release <candidate>
+```
+
+**Rollback, if the release is wrong:** `./deploy/rollback.sh 87d8658` (code only, no migration runs).
+
+### ✅ APPLIED 21 SEPTEMBER 2026 (06:19 and 06:32 UTC, by Joy): the release of `87d8658`, as it was written
+
+Kept as the record of what was typed. Production then ran release `3314c54` (15 September), which
+predated `docs/80` C.4 (release state) and `docs/81` C.3 (the rollback invariant, `--verify-only`, the
+refusal of unknown arguments). The candidate was `87d8658` (`docs/81` D.2); `<candidate>` below.
 
 **What that deploy does.** The FIRST run is executed by production's OLD `deploy.sh` (the `3314c54`
 copy: bash keeps reading the file it started with even after the fast-forward replaces it on disk).
@@ -213,7 +241,12 @@ recorded as UNVERIFIED because `3314c54`'s health names no commit. That is expec
    `hq_reachable ... unreachable`. (The 18 September `hq_reachable` alert already recovered at 05:10 UTC
    on 21 September: once the restarted scheduler made health 200, the old busybox fallback could read it.)
 
-### ⛔ NOT YET APPLIED TO PRODUCTION: OpenAI as the model provider (docs/81 C.7, ADR-049), after the deploy
+### ✅ APPLIED 21 SEPTEMBER 2026 EXCEPT THE KEY: OpenAI as the model provider (docs/81 C.7, ADR-049)
+
+Steps 1 and 3 were done on 21 September (the switch audited as #679 under Joy's name; `hq:ai:provider`
+reads `serving: openai`). Step 2 was done with a key from an OpenAI account that has no credit, so
+step 4 answered `provider_blocked_by_credit`: step 2 is repeated with a key from the Bor de Guna
+organisation (`docs/83` C.4, item 1), then step 4. Step 5 follows the release above.
 
 The release that carries branch `ai/openai-provider` switches nothing on: the OpenAI driver is
 registered, but no OpenAI row exists until the seeder runs, and a seeded OpenAI row is created OFF.

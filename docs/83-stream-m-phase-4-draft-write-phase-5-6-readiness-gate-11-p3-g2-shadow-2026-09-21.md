@@ -465,9 +465,43 @@ reported as such, never as CI green.
 
 ## C. Record
 
-### C.1 Stream M
+### C.1 Stream M, and the release candidate for Gate 11 attempt 2
 
-Recorded in `docs/81` C.9 (it was planned under that milestone); its merge is recorded here.
+Planned and recorded in `docs/81` C.9 (it began under that milestone). Branch
+`fix/deploy-lock-and-residuals`, head `d26c66c`, reviewed by reading the diff, merged `--no-ff` as
+`ddfcd53` on top of stream O's merge and C.2's test. What it brings: one host lock (`flock` on
+`/tmp/bordeguna-hq-deploy.lock`, the gate runner's pattern) taken by `deploy.sh` and `rollback.sh`
+before they read anything, a second release refused at once naming the holder, `--verify-only`
+reading the lock's record without opening it (FAIL while one runs, WARN for a killed one); a
+`RUN_MIGRATIONS` other than 0 in `deploy/.env` refused by the preflight AND by `deploy.sh` (the stream
+went past its brief there, because the preflight is optional and the deploy is where the damage
+happens); Anthropic's "api usage limit" 400 read as `provider_blocked_by_credit` (the wording measured
+on production during gate 6, `docs/69`); the deleted ERP host gone from `deploy/.env.example` and the
+`erp-counter` seed, held by `DeletedErpHostTest`; `EvidencePolicies::retire()` judging and retiring the
+row as the database has it, locked. Every correction watched failing first. Instruction point 1's other
+outcomes were already true and stay tested: backup-first (`docs/81` C.3), unknown arguments refused,
+the rollback invariant.
+
+**Verification of the combined tree (main `ddfcd53`: streams M and O, and C.2's test).** Full Pest
+suite in one run: **1199 passed, 10,731 assertions, 0 failed**, 314 s (1189 + 6 from stream M + 4
+from C.2). `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npx vite build` built.
+Deploy-safety on the branch: **313 passed, 0 failed** (260 + 53), on Git Bash with the `stat` shim;
+against the unmodified scripts 275 passed and 38 failed, all 38 new checks; nothing in `deploy/`
+changed after the branch except `deploy/README.md`, which no check reads. **Local verification
+passed; GitHub Actions validation deferred until the 1 October reset; Linux parity unproven.**
+
+**The release candidate is `origin/main` at the commit that records this section.** Its application
+code is the tree of `ddfcd53`. It carries no migration over production's `87d8658`, no prompt,
+TaskGrounding, TaskScope, detector or agent-schema change (stamps still `executive.v8+18d60e98` and
+`support.v1+0f4a195b`), and switches nothing on. It is the build Gate 11 attempt 2 measures and the
+shadow week then runs, so nothing is released between them. If stream N's inert HQ side is merged and
+verified before Joy releases this, the candidate moves to include it (and this section says so);
+otherwise N waits until after the shadow week. The release lines are in `deploy/README.md`, "the
+release after `87d8658`"; `deploy.sh` there is `87d8658`'s copy, which has no lock yet.
+
+Found by the stream, not fixed: `EvidencePolicies::activate()` has the shape `retire()` had (the
+database trigger still refuses an incomplete version, so it fails closed); the refusal when `flock`
+is missing is untested (the suite always has the real one or its stand-in).
 
 ### C.2 The scheduler incident as a standing invariant (point 2)
 
@@ -589,8 +623,19 @@ https://erp.bordeguna.com/settings/ai-providers (provider OpenAI (ChatGPT), mode
 switch the Anthropic row off (Anthropic is still preferred while its row is active); press Test; ask
 one question in English and one in Bangla.
 
-**7. Later, after Stream M merges: its release (blocks Gate 11).** Why: Gate 11 must measure the build
-the shadow week will run, and Stream M changes PHP. The lines are added here when it merges.
+**7. The release of the candidate (blocks Gate 11).** Why: Gate 11 must measure the build the shadow
+week will run, and Stream M changes PHP. This session's classifier refuses `deploy.sh` as a production
+deploy. The lines, from `deploy/README.md` "the release after `87d8658`":
+
+```
+ssh vps
+cd /opt/bordeguna-hq
+git fetch -q origin main
+git rev-parse --short origin/main      # must print the candidate named in C.1's message to Joy
+./deploy/deploy.sh --verify-only       # must end "RESULT: no failure found"
+./deploy/deploy.sh
+cat deploy/release-state/release.json  # released, verification passed, health_release = the candidate
+```
 
 ### C.5 Stream O: the Phase 5 and 6 readiness packets
 
