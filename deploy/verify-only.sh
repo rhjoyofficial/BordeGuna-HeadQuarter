@@ -20,7 +20,9 @@
 #   - docker: `compose version`, `compose config -q`, `compose ps`, `inspect`, and `compose exec` of
 #     commands that only read (`wget /up`, the health GET the monitor makes every five minutes,
 #     `stat`);
-#   - the host: stat, df, reading the backup markers.
+#   - the host: stat, df, reading the backup markers, reading the host lock's one-line record (the
+#     lock itself is never opened, created or taken: docs/81 C.9), `kill -0` and /proc to ask whether
+#     the process that wrote it is alive.
 # Its one footprint is a temporary directory under ${TMPDIR:-/tmp}, removed on exit, used to hand
 # the TARGET's compose file to `config -q` without checking it out.
 #
@@ -121,6 +123,48 @@ else
     echo "$DIRTY" | while IFS= read -r line; do note "$line"; done
 fi
 
+# ── 1b. One deploy or rollback at a time (docs/81 C.9) ─────────────────────────────────────────
+#
+# READ ONLY: the lock file is never opened, created or locked here; its one-line record is read.
+# deploy.sh and rollback.sh hold `flock` on it for as long as they run and write who they are into
+# it (deploy/host-lock-lib.sh). A record whose process is alive and is a release script means one is
+# running now: everything below is then read mid-release, and the deploy this previews would be
+# refused, so it is a FAIL. A record whose process is gone was left by a release that was killed; the
+# kernel released its lock with it, so it is a WARN.
+section "host lock (read only: this check never opens or takes the lock)"
+HQ_DEPLOY_LOCK=${HQ_DEPLOY_LOCK:-/tmp/bordeguna-hq-deploy.lock}
+lock_holder_alive() {
+    local pid=${1:-}
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || [ -d "/proc/${pid}" ] || return 1
+    # A pid can be reused; where the host can say what the process is, it must be a release script.
+    if [ -r "/proc/${pid}/cmdline" ]; then
+        tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null | grep -Eq 'deploy\.sh|rollback\.sh' || return 1
+    fi
+    return 0
+}
+command -v flock >/dev/null 2>&1 || fail "flock (util-linux) is not installed: deploy.sh and rollback.sh refuse to run without it"
+LOCK_OPENABLE=1
+if [ -e "$HQ_DEPLOY_LOCK" ]; then
+    [ -w "$HQ_DEPLOY_LOCK" ] || LOCK_OPENABLE=0
+else
+    LOCK_DIR=$(dirname "$HQ_DEPLOY_LOCK")
+    { [ -d "$LOCK_DIR" ] && [ -w "$LOCK_DIR" ]; } || LOCK_OPENABLE=0
+fi
+if [ "$LOCK_OPENABLE" = "0" ]; then
+    fail "the host lock ${HQ_DEPLOY_LOCK} cannot be opened by this user (it, or its directory, is missing or not writable): deploy.sh and rollback.sh would refuse"
+elif [ -s "$HQ_DEPLOY_LOCK" ]; then
+    LOCK_RECORD=$(head -c 300 "$HQ_DEPLOY_LOCK" 2>/dev/null | tr -d '\r\n')
+    LOCK_PID=$(printf '%s' "$LOCK_RECORD" | grep -o '^pid=[0-9]*' | cut -d= -f2 || true)
+    if lock_holder_alive "$LOCK_PID"; then
+        fail "a deploy or rollback is running on this host now (${LOCK_RECORD}). Everything below is read mid-release, and the deploy this previews would be refused. Run this again when it has finished"
+    else
+        warn "the host lock holds the record of a release that is no longer running (${LOCK_RECORD}): it was killed before it could clear it. The lock itself is free (the kernel released it with the process); the next release overwrites the record"
+    fi
+else
+    ok "no deploy or rollback holds the host lock (${HQ_DEPLOY_LOCK})"
+fi
+
 # ── 2. deploy/.env: present, private, complete. Names only, never a value. ─────────────────────
 section "deploy/.env"
 env_has()      { grep -Eq "^${1}=" deploy/.env 2>/dev/null; }
@@ -139,6 +183,23 @@ else
     for k in $REQUIRED; do env_nonempty "$k" || MISSING="${MISSING}${k} "; done
     if [ -z "$MISSING" ]; then ok "every key the compose file interpolates or the application needs to start is set ($(echo "$REQUIRED" | wc -w | tr -d ' ') keys; values not read out)"
     else fail "deploy/.env is missing, or has empty, required keys: ${MISSING}"; fi
+
+    # A stray RUN_MIGRATIONS (docs/81 C.9). Every PHP service reads deploy/.env through `env_file`;
+    # only `app` sets RUN_MIGRATIONS itself. Anything but 0 here reaches horizon and the scheduler,
+    # which would migrate at the same moment as app: deploy.sh and rollback.sh both refuse it. A 0 is
+    # inert today but is a second place deciding whether a container migrates. The value is never
+    # printed, like every other value in this file.
+    RM_LINE='^[[:space:]]*(export[[:space:]]+)?RUN_MIGRATIONS[[:space:]]*='
+    if grep -Eq "$RM_LINE" deploy/.env 2>/dev/null; then
+        RM_VALUE=$(grep -E "$RM_LINE" deploy/.env | tail -1 | cut -d= -f2- | tr -d " \"'\r")
+        if [ "$RM_VALUE" = "0" ]; then
+            warn "deploy/.env sets RUN_MIGRATIONS (to 0). Inert today, since app sets its own and 0 is every other container's default, but it is a second place deciding whether a container migrates. Remove the line"
+        else
+            fail "deploy/.env sets RUN_MIGRATIONS to a value other than 0: every PHP container reads that file, so horizon and the scheduler would migrate at the same moment as app (deploy.sh and rollback.sh refuse it). Remove the line"
+        fi
+    else
+        ok "deploy/.env does not set RUN_MIGRATIONS: app's own setting is the only one"
+    fi
 fi
 
 # ── 3. Docker, compose, and the compose file ───────────────────────────────────────────────────

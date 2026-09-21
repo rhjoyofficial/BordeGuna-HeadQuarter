@@ -24,7 +24,8 @@ use Throwable;
  *
  * ⭐ docs/81 C.7: it checks the provider that SERVES (`ServingProvider`), or the one named, so a gate's
  * bypass step proves the key the gate will actually use. When more than one provider serves it checks
- * nothing and says so: a measurement runs on exactly one. "No credit" is a 400 at Anthropic and a 429
+ * nothing and says so: a measurement runs on exactly one. "No credit" is a 400 at Anthropic (a low
+ * balance, or the monthly spend limit reached, docs/81 C.9) and a 429
  * at OpenAI (credit exhausted, a spend limit, the usage limit, `insufficient_quota`), the same status
  * OpenAI uses for throttling, so the code is read, never the status alone.
  *
@@ -127,6 +128,10 @@ final class ProviderCheck
             $status === 401 && str_contains($text, 'ip not authorized') => OutcomeClass::ProviderUnauthorized,
             $status === 401 => OutcomeClass::CredentialInvalid,
             $status === 400 && (str_contains($text, 'credit balance') || str_contains($text, 'purchase credits')) => OutcomeClass::ProviderBlockedByCredit,
+            // Anthropic's monthly spend limit, as production received it during gate 6 (docs/69): "You
+            // have reached your specified API usage limits. You will regain access on 2026-10-01". The
+            // account is capped, like OpenAI's spend limit below; the key is fine (docs/81 C.9).
+            $status === 400 && str_contains($text, 'api usage limit') => OutcomeClass::ProviderBlockedByCredit,
             OpenAiProvider::isBillingBlock($status, $code, $type) => OutcomeClass::ProviderBlockedByCredit,
             $status === 403 => OutcomeClass::ProviderUnauthorized,
             $status === 429, $status >= 500 => OutcomeClass::ProviderUnavailable,

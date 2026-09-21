@@ -213,31 +213,43 @@ final class EvidencePolicies
         });
     }
 
+    /**
+     * ⚠ Acts on the version AS THE DATABASE HAS IT (docs/81 C.9): the row is read again by id and
+     * locked inside the transaction, its status is judged there, and that row is the one retired and
+     * returned. Until then this judged the caller's in-memory status and saved the caller's instance,
+     * so an unsaved edit the caller held was written with the retirement (the trigger refused it) and a
+     * copy loaded before somebody else retired the version was still "active". The caller's instance
+     * is left as it was.
+     */
     public function retire(AutonomyEvidencePolicy $policy, ?User $by, ?string $reason): AutonomyEvidencePolicy
     {
-        $refusals = [];
-        if ($policy->status !== AutonomyEvidencePolicy::ACTIVE) {
-            $refusals[] = "version {$policy->version} is {$policy->status}, and only the active version can be retired";
-        }
-        if ($by === null) {
-            $refusals[] = 'no person named (--by)';
-        } elseif (! $by->is_active) {
-            $refusals[] = "user {$by->email} is disabled";
-        } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
-            $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
-        }
-        if (trim((string) $reason) === '') {
-            $refusals[] = 'no reason given (--reason)';
-        }
-        if ($refusals !== []) {
-            throw new RuntimeException('Not retired: '.implode('; ', $refusals));
-        }
-
         return DB::transaction(function () use ($policy, $by, $reason) {
-            $this->retireRow($policy, $by, $reason);
-            $this->auditor->record('autonomy.evidence_policy.retired', $policy, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey());
+            $fresh = AutonomyEvidencePolicy::query()->lockForUpdate()->find($policy->getKey());
 
-            return $policy->refresh();
+            $refusals = [];
+            if ($fresh === null) {
+                $refusals[] = "version {$policy->version} does not exist";
+            } elseif ($fresh->status !== AutonomyEvidencePolicy::ACTIVE) {
+                $refusals[] = "version {$fresh->version} is {$fresh->status}, and only the active version can be retired";
+            }
+            if ($by === null) {
+                $refusals[] = 'no person named (--by)';
+            } elseif (! $by->is_active) {
+                $refusals[] = "user {$by->email} is disabled";
+            } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
+                $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
+            }
+            if (trim((string) $reason) === '') {
+                $refusals[] = 'no reason given (--reason)';
+            }
+            if ($refusals !== []) {
+                throw new RuntimeException('Not retired: '.implode('; ', $refusals));
+            }
+
+            $this->retireRow($fresh, $by, $reason);
+            $this->auditor->record('autonomy.evidence_policy.retired', $fresh, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey());
+
+            return $fresh;
         });
     }
 

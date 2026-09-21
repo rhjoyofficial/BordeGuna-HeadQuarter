@@ -15,7 +15,8 @@
 #
 # ORDER:
 #
-#   target known and refusable -> the resolved compose configuration says RUN_MIGRATIONS=0
+#   the host lock (one release at a time, docs/81 C.9)
+#   -> target known and refusable -> the resolved compose configuration says RUN_MIGRATIONS=0
 #   (both are reads: a refused rollback takes nothing, not even a dump) -> backup boundary
 #   verified -> dump taken -> dump verified -> ONLY THEN the checkout moves -> build -> up
 #   (migrations OFF) -> the started container's environment is read back -> smoke and verify
@@ -54,6 +55,12 @@ main() {
     . deploy/release-state-lib.sh
     # shellcheck source=deploy/backup-first-lib.sh
     . deploy/backup-first-lib.sh
+    # shellcheck source=deploy/host-lock-lib.sh
+    . deploy/host-lock-lib.sh
+
+    # ── 0. One deploy or rollback at a time (docs/81 C.9). Held until this script ends: the lock is
+    # on a descriptor, so the checkout replacing this file on disk does not touch it.
+    hl_acquire rollback
 
     # ── 1. The target, and the refusals. Nothing has moved when any of these fires. ────────────
     local TARGET SHORT CUR RUNNING PREV PREV_KNOWN PREV_NOTE
@@ -105,7 +112,8 @@ main() {
     # From here the EXIT trap removes the temporary directory. It records nothing until STAGE is
     # set, which happens only after the checkout has moved.
     RB_TMP="$TMP"
-    trap record_failed_rollback EXIT
+    # Replaces hl_acquire's trap, so it clears the host lock's record itself.
+    trap 'record_failed_rollback; hl_release' EXIT
     OVERRIDE="${TMP}/no-migrations.override.yml"
     TARGET_COMPOSE="${TMP}/target-compose.yml"
     cat > "$OVERRIDE" <<'YAML'

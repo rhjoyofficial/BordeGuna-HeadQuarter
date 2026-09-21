@@ -53,7 +53,9 @@ Verify: DNS resolves, certificate valid, `http://` redirects to `https://`, `/up
 ssh vps && cd /opt/bordeguna-hq && ./deploy/deploy.sh --verify-only && ./deploy/deploy.sh
 ```
 The script: refuses an argument it does not know (until docs/81 C.3 a typing mistake such as
-`--nopull` meant "pull") -> refuses without a 600 `.env` -> verifies the backup mount -> takes a
+`--nopull` meant "pull") -> refuses without a 600 `.env` -> takes the host lock (docs/81 C.9: one
+deploy or rollback at a time; a second one refuses at once, names the one running, and moves
+nothing) -> refuses a `deploy/.env` that sets `RUN_MIGRATIONS` to anything but 0 -> verifies the backup mount -> takes a
 pre-deploy dump (`/backup.sh once`) and verifies it -> ONLY THEN fast-forwards to `origin/main` ->
 builds `app` and `backup` images (the commit is stamped into the image as a label and as
 `HQ_RELEASE_COMMIT`) -> `up -d` (the `app` entrypoint runs `migrate --force`) -> `horizon:terminate`
@@ -68,6 +70,14 @@ A release whose health never comes good still exits 0 (the stack is up) but is l
 **UNVERIFIED**, and the Platform dashboard says so. Fix what health reports, then
 `./deploy/deploy.sh --no-pull` to release the same commit again and have it verified.
 
+**One release at a time (docs/81 C.9).** `deploy.sh` and `rollback.sh` hold `flock` on
+`/tmp/bordeguna-hq-deploy.lock` (override: `HQ_DEPLOY_LOCK`) for as long as they run, the gate runner's
+pattern. "another deploy or rollback is already running on this host (pid=... kind=... started=...)"
+means exactly that: wait for it, then run yours. Nothing needs removing by hand, ever: the kernel
+drops the lock when the process ends, however it ends, and a killed release only leaves its one-line
+record, which the preflight WARNs about and the next release overwrites. ⚠ A `deploy.sh` older than
+this (production's copy until the first release that carries it) takes no lock and cannot see one.
+
 ### Preflight: `./deploy/deploy.sh --verify-only [--no-pull]` (docs/81 C.3)
 
 It CHANGES NOTHING and RELEASES NOTHING: no fetch, no checkout, no `mkdir`, no dump, no build, no
@@ -75,8 +85,11 @@ It CHANGES NOTHING and RELEASES NOTHING: no fetch, no checkout, no `mkdir`, no d
 preflight and prints `ok`, `WARN` or `FAIL` for each check with its reason, then exits 1 if anything
 FAILED. It is handed over to `deploy/verify-only.sh` before `deploy.sh` has done anything.
 
-It checks: the checkout (branch or detached, no tracked file modified); `deploy/.env` (present, mode
-600, every key the compose file interpolates or the application needs, by NAME only, never a value);
+It checks: the checkout (branch or detached, no tracked file modified); the host lock, by reading its
+record and never opening it (FAIL while a deploy or rollback runs, WARN for the record of one that was
+killed, FAIL if the lock could not be opened or `flock` is missing); `deploy/.env` (present, mode
+600, every key the compose file interpolates or the application needs, by NAME only, never a value;
+FAIL on a `RUN_MIGRATIONS` other than 0, WARN on a 0);
 docker, compose and `compose config -q`; what is running (the image label) and whether the database
 is up; `/up`, `/api/health` and that health names the running commit; the backup boundary WITHOUT
 a dump (host directory writable, the container's `/backups` the same inode as the host directory,

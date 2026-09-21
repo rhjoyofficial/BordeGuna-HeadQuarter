@@ -55,8 +55,9 @@ new_world() {
     # The release-state pieces deploy.sh sources and calls (docs/80 C.4), and rollback.sh, which
     # records itself the same way. The real files, as shipped.
     cp "${REPO_ROOT}/deploy/release-state-lib.sh" "${REPO_ROOT}/deploy/release-state-refresh.sh" "${REPO_ROOT}/deploy/rollback.sh" deploy/
-    # The backup-first functions both scripts share, and the preflight (docs/81 C.3).
-    for f in backup-first-lib.sh verify-only.sh; do
+    # The backup-first functions both scripts share, the preflight (docs/81 C.3), and the host lock
+    # both take (docs/81 C.9).
+    for f in backup-first-lib.sh verify-only.sh host-lock-lib.sh; do
         [ -f "${REPO_ROOT}/deploy/${f}" ] && cp "${REPO_ROOT}/deploy/${f}" deploy/
     done
     chmod +x deploy/deploy.sh deploy/release-state-refresh.sh deploy/rollback.sh
@@ -87,11 +88,29 @@ new_world() {
     chmod +x "${WORLD}/bin/docker"
     # `sleep`, real unless a test asks otherwise: the "/up never answers" path waits 30 x 2 s, and a
     # test of what gets RECORDED there has no reason to spend a minute proving that sleep sleeps.
-    REAL_SLEEP=$(command -v sleep)
+    # ⚠ Looked up on the system PATH only: an earlier world's bin/ is still on PATH, and on NTFS its
+    # removal can lag behind a process that just ended, so a plain lookup could pick that world's
+    # wrapper, which then vanishes (seen as exit 127 while writing docs/81 C.9).
+    REAL_SLEEP=$(PATH=/usr/bin:/bin command -v sleep)
     printf '#!/bin/bash\n[ "${STUB_FAST_SLEEP:-0}" = "1" ] && exit 0\nexec "%s" "$@"\n' "$REAL_SLEEP" > "${WORLD}/bin/sleep"
     chmod +x "${WORLD}/bin/sleep"
+    # `flock`, real wherever util-linux is installed (Linux, CI, the VPS). Git Bash has none, so the
+    # suite brings a stand-in that makes the SAME flock(2) call on the descriptor it inherits, through
+    # perl, exactly as `flock -n 9` does: the lock belongs to the open file description, so it outlives
+    # the helper and holds for as long as the calling script keeps descriptor 9 open. Only the one form
+    # the scripts use is accepted.
+    if ! command -v flock >/dev/null 2>&1; then
+        cat > "${WORLD}/bin/flock" <<'FLOCK'
+#!/bin/bash
+[ "$#" -eq 2 ] && [ "$1" = "-n" ] || { echo "flock stand-in: only 'flock -n <fd>' is supported" >&2; exit 64; }
+exec perl -MFcntl=:flock -e 'open(my $fh, ">&=", $ARGV[0]) or exit 1; flock($fh, LOCK_EX | LOCK_NB) or exit 1; exit 0' "$2"
+FLOCK
+        chmod +x "${WORLD}/bin/flock"
+    fi
     export PATH="${WORLD}/bin:${PATH}"
     export HOST_BACKUP_DIR="${WORLD}/backups"
+    # The host lock of this world, never the real /tmp one (docs/81 C.9).
+    export HQ_DEPLOY_LOCK="${WORLD}/deploy.lock"
 
     # Defaults: a healthy stack running the checked-out commit.
     export STUB_RUNNING_COMMIT="$OLD_HEAD"
@@ -101,6 +120,7 @@ new_world() {
     unset STUB_LAST_OK 2>/dev/null || true
     unset STUB_BUILD_EXIT STUB_UP_D_EXIT STUB_UP_EXIT STUB_HEALTH_STATUS STUB_HEALTH_RELEASE STUB_FAST_SLEEP 2>/dev/null || true
     unset STUB_IGNORE_OVERRIDE STUB_CONFIG_EXIT STUB_BACKUP_INODE STUB_RELEASE_STATE_INODE STUB_RELEASE_STATE_MOUNTED 2>/dev/null || true
+    unset STUB_BACKUP_HOLD 2>/dev/null || true
     unset VERIFY_MIN_FREE_MB VERIFY_MAX_DUMP_AGE_HOURS VERIFY_REMOTE_TIMEOUT 2>/dev/null || true
     unset RELEASE_STATE_DIR HEALTH_TRIES HEALTH_WAIT FETCH_MIN_INTERVAL RS_FETCHED_NOW 2>/dev/null || true
 }
@@ -909,6 +929,171 @@ grep -q "ALERT hq_reachable: HQ /api/health unreachable" "$MW/out" \
     && ok "when nothing answers at all, the monitor still alerts hq_reachable" \
     || bad "no answer at all should alert hq_reachable: $(grep ALERT "$MW/out" | head -3)"
 mon_cleanup
+
+# ═══ One deploy or rollback at a time (docs/81 C.9) ══════════════════════════════════════════════
+#
+# Until docs/81 C.9 nothing stopped two releases at once: each took its dump, moved the checkout,
+# built and started the stack, and each wrote a record of a release the other had half made. The
+# stub holds the FIRST dump of a world open (STUB_BACKUP_HOLD), so a release is really part way
+# through, holding the lock, while a second one is tried beside it.
+
+echo
+echo "one deploy or rollback at a time"
+echo
+
+wait_for_file() { local end=$((SECONDS + ${2:-60})); while [ ! -e "$1" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.1; done; [ -e "$1" ]; }
+lock_record()   { { tr -d '\r\n' < "$HQ_DEPLOY_LOCK"; } 2>/dev/null; }
+
+# ── 26. A deploy part way through: a second deploy, a rollback and the preflight beside it ───────
+new_world
+RC=$(run_deploy)
+is   "a first deploy releases main, so the old commit is a real rollback target" "$RC" "0"
+seed_backups
+export VERIFY_MIN_FREE_MB=1
+export STUB_BACKUP_HOLD="${WORLD}/let-the-first-go"
+MAIN_TRACE="$STUB_TRACE"
+(cd "$STUB_REPO" && ./deploy/deploy.sh --no-pull >"${WORLD}/out-first" 2>&1; echo $? >"${WORLD}/rc-first") &
+HOLDER=$!
+wait_for_file "${STUB_STATE}/holding" 60 \
+    && ok "a deploy is part way through, inside its dump" \
+    || bad "the first deploy never reached its dump: $(tail -3 "${WORLD}/out-first")"
+grep -q "kind=deploy" "$HQ_DEPLOY_LOCK" 2>/dev/null \
+    && ok "...and has written who holds the host lock" \
+    || bad "the running deploy should record itself in ${HQ_DEPLOY_LOCK}: '$(lock_record)'"
+
+BEFORE=$(snapshot)
+export STUB_TRACE="${WORLD}/trace-beside"; : > "$STUB_TRACE"
+RC=$(run_deploy)
+isnt "a second deploy while one is running is refused"          "$RC" "0"
+grep -q "another deploy or rollback is already running on this host" "${WORLD}/out" \
+    && ok "...saying so" || bad "the refusal should say another release is running: $(tail -2 "${WORLD}/out")"
+grep -q "pid=[0-9]* kind=deploy started=" "${WORLD}/out" \
+    && ok "...and naming the one that holds the lock: its pid, kind and start" || bad "the refusal should name the holder: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+: > "$STUB_TRACE"
+RC=$(run_rollback "$OLD_HEAD")
+isnt "a rollback while a deploy is running is refused"          "$RC" "0"
+grep -q "another deploy or rollback is already running on this host" "${WORLD}/out" \
+    && ok "...by the same lock" || bad "the rollback should be refused by the lock: $(tail -2 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+: > "$STUB_TRACE"
+RC=$(run_verify --no-pull)
+isnt "the preflight fails while a deploy is running"            "$RC" "0"
+grep -q "FAIL .*a deploy or rollback is running on this host now" "${WORLD}/out" && grep -q "FAIL .*kind=deploy" "${WORLD}/out" \
+    && ok "...and names it" || bad "the preflight should FAIL naming the running release: $(grep -E 'FAIL|lock' "${WORLD}/out" | head -3)"
+is   "...and itself moves nothing"                              "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+export STUB_TRACE="$MAIN_TRACE"
+touch "${WORLD}/let-the-first-go"
+wait "$HOLDER"
+is   "the deploy that held the lock completed normally"         "$(cat "${WORLD}/rc-first" 2>/dev/null)" "0"
+is   "...and cleared its record as it ended"                    "$(lock_record)" ""
+RC=$(cd "$STUB_REPO" && ./deploy/deploy.sh --no-pull >"${WORLD}/out" 2>&1; echo $?)
+is   "once it has finished, the next deploy takes the lock and proceeds" "$RC" "0"
+RC=$(run_verify --no-pull)
+grep -q "ok    no deploy or rollback holds the host lock" "${WORLD}/out" \
+    && ok "...and the preflight then reports the lock free" || bad "the preflight should report the lock free: $(grep -i lock "${WORLD}/out" | head -3)"
+cleanup
+
+# The same lock the other way round: a rollback part way through refuses a deploy.
+new_world
+RC=$(run_deploy)
+export STUB_BACKUP_HOLD="${WORLD}/let-the-rollback-go"
+MAIN_TRACE="$STUB_TRACE"
+(cd "$STUB_REPO" && ./deploy/rollback.sh "$OLD_HEAD" >"${WORLD}/out-rollback" 2>&1; echo $? >"${WORLD}/rc-rollback") &
+HOLDER=$!
+wait_for_file "${STUB_STATE}/holding" 60 \
+    && ok "a rollback is part way through, inside its dump" \
+    || bad "the rollback never reached its dump: $(tail -3 "${WORLD}/out-rollback")"
+grep -q "kind=rollback" "$HQ_DEPLOY_LOCK" 2>/dev/null \
+    && ok "...and has written who holds the host lock" || bad "the running rollback should record itself: '$(lock_record)'"
+BEFORE=$(snapshot)
+export STUB_TRACE="${WORLD}/trace-beside"; : > "$STUB_TRACE"
+RC=$(run_deploy)
+isnt "a deploy while a rollback is running is refused"          "$RC" "0"
+grep -q "kind=rollback" "${WORLD}/out" && ok "...naming the rollback" || bad "the refusal should name the rollback: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+export STUB_TRACE="$MAIN_TRACE"
+touch "${WORLD}/let-the-rollback-go"
+wait "$HOLDER"
+is   "the rollback that held the lock completed normally"       "$(cat "${WORLD}/rc-rollback" 2>/dev/null)" "0"
+is   "...and cleared its record as it ended"                    "$(lock_record)" ""
+cleanup
+
+# ── 26b. A record left by a run that was killed ─────────────────────────────────────────────────
+# `flock` is released by the kernel when its process dies, however it dies; only the record line can
+# be left behind. It must neither block the next release nor read as a release in progress.
+new_world
+( : ) & DEAD=$!; wait "$DEAD"
+printf 'pid=%s kind=deploy started=2026-09-21T06:00:00Z checkout=%s\n' "$DEAD" "$OLD_HEAD" > "$HQ_DEPLOY_LOCK"
+RC=$(run_verify --no-pull)
+grep -q "WARN  .*no longer running" "${WORLD}/out" \
+    && ok "a record left by a killed run is a WARNING in the preflight" || bad "the preflight should WARN about a stale record: $(grep -i lock "${WORLD}/out" | head -3)"
+grep -q "FAIL .*running on this host now" "${WORLD}/out" \
+    && bad "a stale record must not read as a release in progress" || ok "...and is not reported as a release in progress"
+RC=$(run_deploy)
+is   "...and does not stop the next deploy: its lock died with it" "$RC" "0"
+is   "...which clears the old line when it ends"                "$(lock_record)" ""
+cleanup
+
+# ── 26c. A lock that cannot be opened is a refusal, not a release without a lock ────────────────
+new_world
+export HQ_DEPLOY_LOCK="${WORLD}/no-such-dir/deploy.lock"
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(run_deploy)
+isnt "a deploy whose host lock cannot be opened is refused"     "$RC" "0"
+grep -q "cannot open the host lock" "${WORLD}/out" && ok "...with the reason" || bad "should say the lock cannot be opened: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+: > "$STUB_TRACE"
+RC=$(run_rollback "$OLD_HEAD")
+grep -q "cannot open the host lock" "${WORLD}/out" && ok "a rollback is refused the same way" || bad "the rollback should be refused for the lock: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(any_mutations)" "0"
+RC=$(run_verify --no-pull)
+grep -q "FAIL .*host lock .*cannot be opened" "${WORLD}/out" \
+    && ok "the preflight FAILs on it, as deploy.sh would refuse" || bad "the preflight should FAIL on a lock that cannot be opened: $(grep -i lock "${WORLD}/out" | head -3)"
+cleanup
+
+# ── 26d. The preflight neither creates nor takes the lock ───────────────────────────────────────
+new_world
+RC=$(run_verify --no-pull)
+is   "the preflight creates no lock file"                       "$( [ -e "$HQ_DEPLOY_LOCK" ] && echo exists || echo absent )" "absent"
+grep -q "ok    no deploy or rollback holds the host lock" "${WORLD}/out" \
+    && ok "...and says no release holds it" || bad "the preflight should report the host lock: $(grep -i lock "${WORLD}/out" | head -3)"
+cleanup
+
+# ── 27. A stray RUN_MIGRATIONS in deploy/.env (docs/81 C.9) ─────────────────────────────────────
+# Every PHP service reads deploy/.env; only `app` sets RUN_MIGRATIONS itself. A 1 there would make
+# horizon and the scheduler migrate at the same moment as app. The rollback already refuses it.
+verify_world
+echo 'RUN_MIGRATIONS=1' >> "${STUB_REPO}/deploy/.env"
+verify_fails "deploy/.env setting RUN_MIGRATIONS to 1" "deploy/.env sets RUN_MIGRATIONS"
+grep -Eq "RUN_MIGRATIONS=1" "${WORLD}/out" && bad "the preflight should name the key, never print KEY=value" || ok "...naming the key without printing the line"
+cleanup
+
+verify_world
+echo 'RUN_MIGRATIONS="0"' >> "${STUB_REPO}/deploy/.env"
+RC=$(run_verify)
+is   "a RUN_MIGRATIONS of 0 in deploy/.env does not fail the preflight" "$RC" "0"
+grep -q "WARN  .*deploy/.env sets RUN_MIGRATIONS" "${WORLD}/out" \
+    && ok "...but is a WARNING: a second place deciding whether a container migrates" || bad "a 0 should still be a WARN: $(grep RUN_MIGRATIONS "${WORLD}/out" | head -2)"
+cleanup
+
+new_world
+echo 'RUN_MIGRATIONS=1' >> "${STUB_REPO}/deploy/.env"
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(run_deploy)
+isnt "deploy.sh refuses a deploy/.env that sets RUN_MIGRATIONS to 1" "$RC" "0"
+grep -q "deploy/.env sets RUN_MIGRATIONS" "${WORLD}/out" && ok "...with the reason" || bad "should say why: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+cleanup
 
 echo
 echo "  ${PASS} passed, ${FAIL} failed"

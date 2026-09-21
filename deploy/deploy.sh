@@ -8,7 +8,8 @@
 #
 # ORDER, and it is the whole point of this script:
 #
-#   backup boundary verified -> dump taken -> dump verified -> ONLY THEN the checkout moves
+#   the host lock (one release at a time, docs/81 C.9)
+#   -> backup boundary verified -> dump taken -> dump verified -> ONLY THEN the checkout moves
 #   -> build -> up -> migrate (app entrypoint) -> horizon restart -> smoke and verify -> record
 #   -> release state (deploy/release-state/, docs/80 C.4)
 #
@@ -55,7 +56,25 @@ fi
 . deploy/release-state-lib.sh
 # shellcheck source=deploy/backup-first-lib.sh
 . deploy/backup-first-lib.sh
+# shellcheck source=deploy/host-lock-lib.sh
+. deploy/host-lock-lib.sh
 [ "$(stat -c %a deploy/.env)" = "600" ] || die "deploy/.env must be mode 600"
+
+# ── One deploy or rollback at a time (docs/81 C.9) ──────────────────────────────────────────────
+#
+# Taken before anything this run decides on is read, held until it ends. A second release started
+# meanwhile refuses here, names this one, and has moved nothing.
+hl_acquire deploy
+
+# ── A stray RUN_MIGRATIONS in deploy/.env (docs/81 C.9) ─────────────────────────────────────────
+#
+# Every PHP service reads deploy/.env through `env_file`; only `app` sets RUN_MIGRATIONS itself. A
+# value other than 0 there reaches horizon and the scheduler too, whose entrypoints would then run
+# `migrate --force` at the same moment as app's. rollback.sh refuses the same line; so does this.
+STRAY_RUN_MIGRATIONS=$(grep -E '^[[:space:]]*(export[[:space:]]+)?RUN_MIGRATIONS[[:space:]]*=' deploy/.env | tail -1 | cut -d= -f2- | tr -d " \"'\r" || true)
+if grep -Eq '^[[:space:]]*(export[[:space:]]+)?RUN_MIGRATIONS[[:space:]]*=' deploy/.env && [ "$STRAY_RUN_MIGRATIONS" != "0" ]; then
+    die "deploy/.env sets RUN_MIGRATIONS to a value other than 0: every PHP container reads that file, so horizon and the scheduler would migrate at the same moment as app. Remove the line (app sets its own). Refusing to deploy; nothing has moved."
+fi
 
 # ── What is actually running, before anything moves ────────────────────────────────────────────
 #
@@ -109,7 +128,8 @@ record_failed_release() {
         || log "WARNING: could not write ${RELEASE_STATE_DIR}/release.json"
     return 0
 }
-trap record_failed_release EXIT
+# Replaces hl_acquire's trap, so it clears the host lock's record itself.
+trap 'record_failed_release; hl_release' EXIT
 
 STACK_IS_UP=0
 if bf_stack_is_up; then
