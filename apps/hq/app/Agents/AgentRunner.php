@@ -10,6 +10,7 @@ use App\Ai\RoutingContext;
 use App\Autonomy\AutonomyDecision;
 use App\Autonomy\AutonomyRequest;
 use App\Autonomy\AutonomyResolver;
+use App\Autonomy\Evidence\EvidenceProducer;
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
 use App\Execution\EffectiveExecutionContext;
@@ -224,6 +225,7 @@ final class AgentRunner
         private readonly TaskScopeResolver $taskScope,
         private readonly ProhibitedCapability $prohibitedCapability,
         private readonly ExecutionContextResolver $contexts,
+        private readonly EvidenceProducer $evidence,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -267,6 +269,9 @@ final class AgentRunner
             'autonomy_level' => $decision->level->value,
             'autonomy_reason' => $decision->boundBy,
             'autonomy_constraints' => $decision->constraints,
+            // ADR-048: the policy version and the evidence the level was judged on; null when no policy
+            // was active, so a run made without one is exactly what it was.
+            'autonomy_evidence' => $decision->evidence,
             // Derived, never passed in: shadow IS "the resolved level does not permit acting".
             'shadow' => ! $decision->level->allowsExecution(),
             'status' => 'running',
@@ -853,13 +858,25 @@ final class AgentRunner
         return $descriptor->readWrite === ReadWrite::Write || $descriptor->riskTier->atLeast(RiskTier::R3);
     }
 
+    /**
+     * ADR-048: the evidence producer is asked first. With no active autonomy evidence policy it
+     * answers null after one lookup, and the request is exactly what it was before; with one, the
+     * resolver receives the clean measured rates a grant may compare with and the policy's ceiling,
+     * which can only lower the answer.
+     */
     private function resolveAutonomy(Agent $agent, AgentRunRequest $request, ContextBundle $bundle): AutonomyDecision
     {
+        $evidence = $this->evidence->forRunner($agent);
+
         return $this->autonomy->resolve(new AutonomyRequest(
             agentKey: $agent->key,
             businessId: $request->businessId,
             brandId: $request->brandId,
             environment: (string) app()->environment(),
+            agreementRate: $evidence?->agreementRate,
+            dimensionRates: $evidence?->dimensionRates ?? [],
+            suiteRates: $evidence?->suiteRates ?? [],
+            evidence: $evidence,
             context: $bundle,
             agentCeiling: $agent->max_autonomy_level,
         ));

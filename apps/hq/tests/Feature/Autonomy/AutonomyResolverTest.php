@@ -2,6 +2,7 @@
 
 use App\Autonomy\AutonomyRequest;
 use App\Autonomy\AutonomyResolver;
+use App\Autonomy\Evidence\RunnerEvidence;
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
 use App\Gateway\Descriptor\AutonomyLevel;
@@ -151,8 +152,61 @@ it('requires measured evidence when the grant asks for it', function () {
 
     // No measurement is not a passing measurement.
     expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: null))->level)->toBe(AutonomyLevel::A0);
-    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.90))->level)->toBe(AutonomyLevel::A0);
-    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.96))->level)->toBe(AutonomyLevel::A2);
+
+    // ADR-048 (docs/81 C.4 finding 3): the grant names suite safety.core, so it is compared with
+    // THAT suite's figure. A pooled 0.96 says nothing about safety.core on its own: until 21 September
+    // the resolver read the pooled figure here and answered A2.
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.96))->level)->toBe(AutonomyLevel::A0);
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.96,
+        suiteRates: ['behaviour.executive' => ['overall' => 0.99, 'dimensions' => []]]))->level)->toBe(AutonomyLevel::A0);
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.99,
+        suiteRates: ['safety.core' => ['overall' => 0.90, 'dimensions' => []]]))->level)->toBe(AutonomyLevel::A0);
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 0.10,
+        suiteRates: ['safety.core' => ['overall' => 0.96, 'dimensions' => []]]))->level)->toBe(AutonomyLevel::A2);
+});
+
+it('compares a grant naming a suite AND a dimension with that suite\'s dimension figure alone', function () {
+    grant([
+        'name' => 'earned in one place', 'max_level' => AutonomyLevel::A2->value,
+        'min_agreement_rate' => 0.95, 'min_agreement_dimension' => 'tool_selection', 'evaluation_suite_key' => 'safety.core',
+    ]);
+    $resolver = app(AutonomyResolver::class);
+
+    // Pooled tool selection is perfect and safety.core's overall is perfect: neither is the figure named.
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(), agreementRate: 1.0, dimensionRates: ['tool_selection' => 1.0],
+        suiteRates: ['safety.core' => ['overall' => 1.0, 'dimensions' => ['reasoning' => 1.0]]]))->level)->toBe(AutonomyLevel::A0);
+    expect($resolver->resolve(new AutonomyRequest(descriptor: autonomyTool(),
+        suiteRates: ['safety.core' => ['overall' => 0.5, 'dimensions' => ['tool_selection' => 0.95]]]))->level)->toBe(AutonomyLevel::A2);
+});
+
+it('lets the evidence policy ceiling lower the answer and never raise it, and records it only when a policy was applied', function () {
+    $evidence = fn (AutonomyLevel $level) => new RunnerEvidence($level, [
+        'policy' => ['policy_id' => 7, 'version' => 3, 'digest' => str_repeat('a', 64)], 'evidence_counted' => true, 'ceiling' => $level->value,
+    ]);
+    $resolver = app(AutonomyResolver::class);
+
+    // No grant: A0 whatever the policy allows. The policy is necessary, never sufficient.
+    $none = $resolver->resolve(new AutonomyRequest(agentKey: 'agent-a', evidence: $evidence(AutonomyLevel::A4)));
+    expect($none->level)->toBe(AutonomyLevel::A0)
+        ->and($none->toArray()['evidence_policy']['policy']['version'])->toBe(3);
+
+    grant(['name' => 'broad', 'max_level' => AutonomyLevel::A3->value]);
+
+    $capped = $resolver->resolve(new AutonomyRequest(agentKey: 'agent-a', evidence: $evidence(AutonomyLevel::A1)));
+    expect($capped->level)->toBe(AutonomyLevel::A1)
+        ->and($capped->boundBy)->toBe('the autonomy evidence policy (version 3) allows at most A1 on the measured evidence')
+        ->and(collect($capped->constraints)->pluck('source'))->toContain('evidence_policy')
+        ->and($capped->evidence['ceiling'])->toBe('a1');
+
+    $generous = $resolver->resolve(new AutonomyRequest(agentKey: 'agent-a', evidence: $evidence(AutonomyLevel::A4)));
+    expect($generous->level)->toBe(AutonomyLevel::A3)
+        ->and($generous->boundBy)->toBe('the lowest matching grant');
+
+    // With no active policy there is no evidence object, and the record has no new key at all.
+    $plain = $resolver->resolve(new AutonomyRequest(agentKey: 'agent-a'));
+    expect($plain->level)->toBe(AutonomyLevel::A3)
+        ->and($plain->toArray())->toBe(['level' => 'a3', 'bound_by' => 'the lowest matching grant',
+            'constraints' => $plain->constraints, 'grant_ids' => $plain->grantIds]);
 });
 
 it('honours a time window in the grant\'s own timezone', function () {
