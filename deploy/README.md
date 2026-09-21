@@ -183,6 +183,35 @@ recorded as UNVERIFIED because `3314c54`'s health names no commit. That is expec
    the deploy-time fetch still refreshes `main.json` at each release.
 3. **Look at the monitor.** `tail /var/log/hq-monitor.log` shows no `release-state` error.
 
+### ⛔ NOT YET APPLIED TO PRODUCTION: OpenAI as the model provider (docs/81 C.7, ADR-049), after the deploy
+
+The release that carries branch `ai/openai-provider` switches nothing on: the OpenAI driver is
+registered, but no OpenAI row exists until the seeder runs, and a seeded OpenAI row is created OFF.
+Anthropic keeps serving until a person moves it. Every line below runs on the VPS, in
+`/opt/bordeguna-hq`, with `C="docker compose -f deploy/docker-compose.yml --env-file deploy/.env"`.
+
+1. **Seed the rows, switched off.** `$C exec -T app php artisan db:seed --class='Database\Seeders\ModelTierSeeder' --force`,
+   then `$C exec -T app php artisan hq:ai:provider`: it must say `serving: anthropic` and list four
+   `openai` rows as `off` (Luna low, Terra medium, Sol medium at priority 90, Sol high).
+2. **Joy stores the key** on https://hq.bordeguna.com/credentials (hard-reload first) as provider
+   `openai_api_key`, account ref `hq`, type `api_key`, and checks that the new row is listed
+   (`docs/runbooks/openai-billing.md`).
+3. **Dry run, then the switch, under Joy's name.** `$C exec -T app php artisan hq:ai:provider openai`
+   lists every row it would switch; then
+   `$C exec -T app php artisan hq:ai:provider openai --apply --by=<Joy's HQ email> --reason="Owner decision 21 Sep: OpenAI serves while the Anthropic account is blocked"`.
+   It refuses while a shadow period is open, without the key, or without a row at each chat tier. It
+   touches no switch, agent or grant; `ai.runtime` stays off.
+4. **Verify the key**, one call of 16 output tokens: `$C exec -T app php artisan hq:credentials:health --verify-model`.
+   The `hq` row must name `openai_api_key` and read `verified`. `provider_blocked_by_credit` means the
+   account needs credit or a higher limit (the key is fine); `credential_invalid` means store it again.
+5. **The gate.** `deploy/gate/run.sh` now checks the serving provider's key at its bypass step, prints
+   the serving provider and OpenAI's reasoning effort in its dry probe, and after the runtime is on runs
+   `hq:ai:probe --live --schema --task=operator_question`, stopping before any case if the provider does
+   not handle the agent schema. Gate 11 attempt 2 is then the first gate that measures an OpenAI model
+   (`gpt-5.6-terra` for the Executive's turns).
+6. **Going back to Anthropic** later is step 3 with `anthropic`, after its account has credit, and needs
+   its own complete gate before any shadow week runs on it.
+
 ## Rollback
 
 ```bash

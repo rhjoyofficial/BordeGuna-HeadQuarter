@@ -12,6 +12,7 @@ written for Joy and for whoever helps him; the design behind each is in the numb
 | [Readiness and credentials](readiness.md) | Reading the readiness table, replacing a token, and what each state means |
 | [The model provider is blocked](provider-blocked.md) | Every AI call fails with a credit, key or outage message |
 | [HQ's AI and the Anthropic bill](anthropic-billing.md) | Reading the billing page, and the credit and spend limit HQ needs (state on 17 September) |
+| [HQ's AI on OpenAI](openai-billing.md) | Setting up the OpenAI account, credit, limit and key, storing the key in HQ, and how HQ switches to it (the owner's decision of 21 September) |
 | [Alerts, dashboards and retention](alerts-and-retention.md) | An alert opened, you want the dashboards, or you want to know what old records become |
 | [Ask HQ and scheduling in words](ask-hq-and-scheduling-in-words.md) | Asking an agent a question, or creating a job from a sentence (both switched off for now) |
 

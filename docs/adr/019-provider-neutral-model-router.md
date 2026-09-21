@@ -42,3 +42,10 @@ A grep test asserts no model id appears in `app/` outside the driver layer. `ai_
 `actual_cost_usd`, `cost_source` and `degraded_from_tier`, so an estimate is never silently mixed
 with provider-reported billing and a downgrade is visible in the data rather than only in a log line.
 Adding a provider is a driver class plus rows, not a refactor.
+
+## Amendment (21 Sep 2026, ADR-049)
+
+A second provider now exists (OpenAI, `docs/81` C.7). The cross-provider fallback above stays, and it
+cannot mix two models inside a measurement any more: which provider serves is which rows are active,
+only `hq:ai:provider --apply --by=<person>` moves it, and a gate or a shadow period refuses to run on
+more than one. See ADR-049.

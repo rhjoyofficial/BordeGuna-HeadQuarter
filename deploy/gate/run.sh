@@ -11,8 +11,10 @@
 #   0. posture before, from the database
 #   1. corpus seeded, so every case in the release exists on production
 #   2. dry probe (credential configured, breaker closed, budget)
-#   3. the api.anthropic.com BYPASS TEST with the vault's key - stops here if it is not HTTP 200
-#   4. ai.runtime ON, the gate's agent ACTIVE, both audited (refused when it names no enabling user); live probe
+#   3. the model provider's BYPASS TEST with the vault's key, on the provider that serves (docs/81 C.7) - stops
+#      here if it is not HTTP 200, and when more than one provider serves
+#   4. ai.runtime ON, the gate's agent ACTIVE, both audited (refused when it names no enabling user); live probe;
+#      a structured-reply probe under the agent schema, which stops the run before any case if it fails
 #   5. hq:agent:evaluate $GATE_AGENT
 #   6. the agent PAUSED, ai.runtime OFF, both audited; posture after
 #
@@ -71,6 +73,13 @@ restore() { echo "== 6. runtime OFF + $GATE_AGENT paused"; T off; echo "== gate 
 trap restore EXIT
 
 echo "== 4b. live probe"; $C exec -T app php artisan hq:ai:probe --live
+
+# docs/81 C.7: one reply under the agent response schema, on the tier the agent's turns use, before any
+# case runs. A provider that refuses HQ's schema would otherwise turn every case into a provider error;
+# stopping here leaves no measurement at all, and the EXIT trap turns everything off again.
+echo "== 4c. structured-reply probe"
+$C exec -T app php artisan hq:ai:probe --live --schema --task=operator_question \
+    || { echo "the structured-reply probe failed; stopping before the evaluation, nothing was measured"; exit 1; }
 
 echo "== 5. evaluate"
 $C exec -T app php artisan hq:agent:evaluate "$GATE_AGENT" --triggered-by="$GATE"

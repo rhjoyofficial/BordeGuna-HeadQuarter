@@ -10,6 +10,7 @@ use App\Execution\Requester;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\AiModel;
 use App\Models\AuditLog;
 use App\Models\AutonomyGrant;
 use App\Models\Business;
@@ -152,6 +153,9 @@ it('refuses from any posture that is not inert', function (Closure $breakPosture
     'ceiling above a0' => [fn () => Agent::where('key', 'executive')->update(['max_autonomy_level' => 'a1']), 'ceiling is a1, not a0'],
     'an effect tool' => [fn () => Agent::where('key', 'executive')->update(['allowed_tools' => ['facts.query_orders', 'messaging.send_reply']]), 'is customer-facing'],
     'no enabling user' => [fn () => Agent::where('key', 'executive')->update(['enabling_user_id' => null]), 'names no enabling user'],
+    // docs/81 C.7: a period's evidence is about one provider's model from open to close.
+    'two model providers' => [fn () => aiModel('fixture2', 'second-provider-model', ModelTier::Medium), 'more than one model provider serves (fixture, fixture2)'],
+    'no model provider' => [fn () => AiModel::query()->update(['is_active' => false]), 'no model provider serves'],
 ]);
 
 it('shadows only the Executive in this milestone', function () {

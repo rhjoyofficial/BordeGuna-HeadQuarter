@@ -3,6 +3,7 @@
 namespace App\Agents\Shadow;
 
 use App\Agents\PromptLibrary;
+use App\Ai\ServingProvider;
 use App\Gateway\Descriptor\AutonomyLevel;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\ToolGateway;
@@ -52,6 +53,7 @@ final class ShadowPeriods
         private readonly ToolGateway $gateway,
         private readonly PlatformRegistry $platforms,
         private readonly ShadowProbes $probes,
+        private readonly ServingProvider $serving,
     ) {}
 
     /**
@@ -106,6 +108,11 @@ final class ShadowPeriods
         }
         if ($this->platforms->platforms() !== []) {
             $out[] = 'A messaging provider is registered ('.implode(', ', $this->platforms->platforms()).'); outbound must not exist.';
+        }
+        // docs/81 C.7: a period's evidence is about one provider's model from open to close, and
+        // `hq:ai:provider` refuses to move traffic while a period is open.
+        if ($this->serving->state() !== ServingProvider::SINGLE) {
+            $out[] = 'Model provider: '.$this->serving->describe().'.';
         }
 
         return $out;

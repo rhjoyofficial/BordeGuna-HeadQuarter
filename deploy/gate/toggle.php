@@ -7,10 +7,12 @@
  *
  * GATE_ACTION is one of:
  *   posture  read the AI posture from the database: flag row AND Features, agents, grants, consent, case counts
- *   bypass   the api.anthropic.com bypass test (docs/54): one 8-token call with the vault's key, from inside the
+ *   bypass   the model provider's bypass test (docs/54): one tiny call with the vault's key, from inside the
  *            container, so "bad key" is separated from "bad code" before HQ's own code is asked to work.
  *            The key is opened in a vault scope and never printed. Since docs/77 E.1 the answer is also recorded
  *            as the credential's health (App\Ai\ProviderCheck), so a credit refusal shows on the readiness table.
+ *            Since docs/81 C.7 it checks the provider that SERVES (Anthropic or OpenAI), the JSON ends with that
+ *            provider's name, and when more than one provider serves it checks nothing ("http":null).
  *   on       ai.runtime ON + the gate's agent ACTIVE, each audited with a reason naming the gate
  *   off      the gate's agent PAUSED + ai.runtime OFF, each audited
  *   shadow   the agents with an open A0 shadow period (docs/77), so run.sh can refuse before touching anything

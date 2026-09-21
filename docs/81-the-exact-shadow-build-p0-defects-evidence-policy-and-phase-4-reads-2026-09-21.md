@@ -532,6 +532,7 @@ only in the combined tree).
 | H. Versioned autonomy evidence policy, the evidence producer, resolver integration, the view | `autonomy/evidence-policy-and-producer` | 5 |
 | I. Phase 4 read side: product, variant, price, stock and eligibility lookups through governed reads | `p4/erp-read-foundation` (HQ) and a branch in the ERP repository | 9 |
 | J. Defects found during the milestone (Horizon before 2FA, cached kill switches, the executor's decision rule, the edit's redaction, an email on the agents index, housekeeping), fixed before the candidate | `fix/pre-candidate-defects` | `docs/RESUME-HERE-2026-09-21.md` section 9 |
+| K. OpenAI as the model provider, by the owner's decision of 21 September (a driver, the rows, one serving provider, an audited lever, readiness that follows it) | `ai/openai-provider` | 10, 17 (owner decision, C.7) |
 
 Rules every stream keeps: a correction is watched failing first; no prompt file changes; nothing is
 switched on; no grant, flag row or scheduled job is created; historical rows are never rewritten;
@@ -2017,3 +2018,325 @@ declares `CACHE_STORE` once.
    if one ever does, the place for a memo is that one request, never the shared class.
 
 **Found on the way, not fixed (outside this stream).** None beyond what C.6.1 lists.
+
+### C.7 Stream K: OpenAI as the model provider (owner decision, 21 September) (branch `ai/openai-provider`)
+
+#### C.7.1 The decision
+
+Joy, 21 September, verbatim: "i want to skip the antropic api for now, interested to chatgpt api to use,
+guide me, i will add for you. i will use antropic after, i will let you know."
+
+So: HQ gains an OpenAI driver, OpenAI serves the model calls until Joy says otherwise, and Anthropic stays
+registered and untouched, so that returning to it is an operator step and not a rebuild. This is an owner
+decision about the provider, not a change to any prompt, policy or safety rule. Its consequence for the
+gate is recorded in C.7.4 point 14: **Gate 11 attempt 2 would be the first gate to measure an OpenAI
+model** (gates 1 to 11 attempt 1 all measured Claude), and returning to Anthropic later needs a fresh gate.
+
+#### C.7.2 Today's behaviour (read from the code before any change, 21 September; paths under `apps/hq`)
+
+- **The seam exists.** `app/Ai/Providers/ModelProvider.php` is the one interface (`key`, `available`,
+  `complete`, `credentialPair`); ADR-019 says a second provider is "a driver class plus rows, not a
+  refactor". `ProviderRegistry` is filled from `config/hq.php` `ai.providers`, which lists
+  `AnthropicProvider` alone.
+- **`AnthropicProvider::complete()`** reads the key only through `CredentialVault::secret()` inside the
+  scope `ModelRuntime::call()` opens, sends the Messages API body, maps a schema to `output_config.format`,
+  puts a `cache_control` breakpoint on the system block, and maps 429 and 5xx to `ProviderUnavailable`,
+  every other 4xx to `ProviderRefused`. Usage: cache reads and writes are added to `input_tokens`, so both
+  are subsets of `inputTokens` (the contract `ModelResponse` and `CostCalculator` depend on).
+- **`ModelRouter`** picks, per tier, the active `model_tiers` row with the best priority, then the
+  cheaper input price, whose provider has a driver, a credential and a closed breaker.
+  `ModelRuntime::run()` then tries up to three models: a `ProviderUnavailable` falls through to the next
+  candidate, **a different provider first** (`ModelRouter::candidates()`, docs/48 J.2); a
+  `ProviderRefused` stops at once. Anthropic's credit refusal is a 400, so it is refused and never falls
+  through. ⚠ So today two providers with active rows would share traffic: by priority and price for the
+  first choice, and on any 429 or 5xx for the fallback. Nothing makes "one provider per measurement" true
+  except that only one provider exists.
+- **`StructuredOutput`** checks the reply with `ArgumentValidator` and allows one repair.
+  `AgentResponseSchema` (every agent turn) keeps to a subset: object, `properties`, `required`,
+  `additionalProperties: false`, and per property only `type` and `enum`; its three arrays (`facts`,
+  `inferences`, `tool_calls`) carry no `items`, deliberately. `JobSpecSchema` (the NL scheduler) keeps to
+  the same subset and has no arrays.
+- **`CostCalculator`** prices fresh input, output, cache reads and cache writes from the row, and falls
+  back to the input price when a cache price is null.
+- **`ModelTierSeeder`** upserts four Anthropic rows by (provider, model id, tier) and sets `is_active` only
+  on create, so it never re-activates a row an operator switched off (`ModelTierSeederTest`).
+- **Readiness.** `ProviderCheck::run()` reads the Anthropic credential by name, sends
+  `AnthropicCheck::send()` and classifies the status (`classify()`: 401 invalid, 400 naming the credit
+  balance blocked by credit, 403 unauthorized, 429 and 5xx unavailable). ⚠ `AnthropicCheck` picks
+  `AiModel::where('tier','low')->where('is_active',true)->orderBy('priority')` with **no provider filter**:
+  a second provider's low row at the same priority could send an OpenAI model id to Anthropic.
+  `CapabilityReadiness::inventory()` always adds one `hq` row named `anthropic_api_key`, and
+  `verifyModel()` always runs the Anthropic check; `hq:credentials:health --verify-model` goes through it.
+  The gate toggle's `bypass` action (`deploy/gate/toggle.php`) prints `ProviderCheck::run('gate_bypass')`,
+  and `deploy/gate/run.sh` stops unless that line contains `"http":200`.
+- **Guards.** `AiSafetyPostureTest`: no model id literal in `app/` outside an allow-list naming
+  `AnthropicProvider.php`; no `api.anthropic.com` outside `app/Ai/Providers/`; the driver reads the key only
+  through the vault. `hq:ai:probe` is dry by default and sends no schema.
+- **Shadow.** `ShadowPeriods::refusals()` knows nothing of the model provider, so a period could open
+  while two providers serve, and nothing stops the provider changing under an open period.
+
+#### C.7.3 What OpenAI's own pages say (read on developers.openai.com on 21 September, not recalled)
+
+- **Models** (the three model pages): `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, each with a 1,050,000
+  context window, 922,000 maximum input tokens, 128,000 maximum output tokens, structured outputs, the
+  Responses API, reasoning tokens, and `reasoning.effort` none, low, medium (the default), high, xhigh and
+  max. Terra "roughly corresponds to the mini model tier used in earlier GPT-5 families"; Luna to the nano
+  tier; Sol to the unsuffixed tier.
+- **Prices** (pricing page, standard tier, short context, per 1M tokens): Luna $0.20 input, $0.02 cached,
+  $0.25 cache writes, $1.20 output; Terra $2.00, $0.20, $2.50, $12.00; Sol $4.00, $0.40, $5.00, $20.00, and
+  Sol's "promotional pricing is available at least through November 21, 2026" (the model page: a 20% cut in
+  input and 33% in output, so normally $5 and $30). "Prompts with >272K input tokens are priced at 2x input
+  and 1.5x output for the full request." ⚠ **Cache writes are billed**: "For GPT-5.6 and later, cache writes
+  cost 1.25x the standard, uncached input-token rate", and "input tokens use the uncached-input,
+  cached-input, or cache-write rate" (so both are subsets of `input_tokens`, as HQ's contract already
+  assumes). The brief said there is no cache-write premium; the provider's page says otherwise, so the rows
+  carry the page's cache-write price.
+- **Responses API** (`POST /v1/responses`): `instructions`, `input` (messages with role user, assistant,
+  developer), `max_output_tokens` ("including visible output tokens and reasoning tokens"), `store`
+  ("Defaults to true when omitted"), `reasoning.effort`, `text.format` (`json_schema` with `name`, `schema`,
+  `strict`), `prompt_cache_options.mode` implicit or explicit. The reply: `status` completed, failed,
+  incomplete and others; `incomplete_details.reason` `max_output_tokens` or `content_filter`; `output[]`
+  message items whose content is `output_text` or `refusal` parts; `usage.input_tokens`,
+  `usage.input_tokens_details.cached_tokens` and `.cache_write_tokens`, `usage.output_tokens` with
+  `output_tokens_details.reasoning_tokens`. `output_text` is "SDK-only".
+- **Caching** (GPT-5.6): implicit mode places a breakpoint at the end of the latest eligible message, which
+  for HQ is the user message, so every call would write its whole prompt at 1.25x and a different case would
+  not reuse it. "Top-level `instructions` cannot contain an explicit breakpoint. To mark reusable developer
+  instructions, place them in an `input_text` block inside a developer message", with
+  `prompt_cache_breakpoint: {"mode": "explicit"}` and `prompt_cache_options: {"mode": "explicit"}`. The
+  minimum cacheable prefix is 1,024 tokens.
+- **Structured outputs, strict** (the guide's "Supported schemas"): the root is an object and not `anyOf`;
+  every object sets `additionalProperties: false`; "all fields must be `required`"; the supported keywords
+  are listed (for strings `pattern` and `format`; for numbers `multipleOf`, `maximum`, `exclusiveMaximum`,
+  `minimum`, `exclusiveMinimum`; for arrays `minItems`, `maxItems`; `enum`, `anyOf`, definitions and
+  recursion); `allOf`, `not`, `if`/`then`/`else` and others are not; at most 5000 properties, 10 levels of
+  nesting and 1000 enum values; and "If you turn on Structured Outputs by supplying `strict: true` and call
+  the API with an unsupported JSON Schema, you will receive an error."
+- **Errors** (the error-codes guide): 401 for a wrong key, a missing organisation, or "IP not authorized" (a
+  project allow-list, not the key); 403 for an unsupported country or region; **429 is shared by throttling
+  and billing**: `credit_balance_exhausted`, `organization_spend_limit_exceeded`,
+  `project_spend_limit_exceeded`, `organization_usage_limit_exceeded`, and "the broader `error.type` can
+  still be `insufficient_quota`"; "Retrying billing, spend, or quota errors won't restore API access"; 500
+  server error; 503 `server_is_overloaded`.
+
+#### C.7.4 The design (written before the code)
+
+1. **`App\Ai\Providers\OpenAiProvider`** (key `openai`, credential `openai_api_key` / `hq`). The Responses
+   API with `store: false` (nothing kept at OpenAI for 30 days), the model id off the row, the key as a
+   Bearer header read only through the vault inside the runtime's scope, never in a body, URL, log or
+   error. `max_output_tokens` from the request, `reasoning.effort` from config (point 3).
+2. **Structured output.** A `json_schema` format named `hq_reply`. `strict: true` only when
+   `OpenAiStrictSchema::compatible()` proves the schema is inside the documented strict subset (an
+   allow-list, so an unknown keyword is never assumed supported); otherwise `strict: false`, which sends the
+   schema to the model without the guarantee. **Measured on HQ's two schemas:** `JobSpecSchema` is
+   compatible, so the NL scheduler gets `strict: true`; `AgentResponseSchema` is NOT (its three arrays have
+   no `items`, and `tool_calls[].args` is an open object that strict mode cannot express), so every agent
+   turn gets `strict: false`. The agent schema is not changed to suit OpenAI: it is the contract every
+   earlier gate measured, and AgentRuntimeTest pins its subset. HQ's own `ArgumentValidator` plus one repair
+   stays the check on every reply, exactly as for Anthropic. ⚠ That OpenAI accepts a non-strict
+   `json_schema` holding array schemas without `items` is documented only by omission, so it is proved
+   before any gate by `hq:ai:probe --live --schema` (point 12), which sends the agent schema itself.
+3. **Reasoning effort** is a setting, `hq.ai.openai.reasoning_effort` (env `HQ_OPENAI_REASONING_EFFORT`),
+   default **`low`**. It is part of what a gate measures, so it is fixed before the gate and printed by the
+   dry probe into the gate log. Why `low`: the default `medium` spends reasoning tokens out of the same
+   `max_output_tokens` (OpenAI suggests reserving 25,000 when starting) and HQ's agent turn asks for 8,192,
+   so medium risks the truncation that failed gate 3 (ADR-038); `none` gives a mini-tier model no
+   deliberation at all on exactly the judgement calls the safety corpus is made of. A decision to revisit;
+   never tuned after a gate result.
+4. **Caching**, the same choice as the Anthropic driver makes: with `cacheSystem` the system prompt goes as
+   a developer message whose one `input_text` block carries an explicit breakpoint, and
+   `prompt_cache_options.mode` is `explicit`, so only the stable prefix is written (once, at 1.25x) and read
+   by later calls at 0.1x; the changing messages after it are billed at the plain rate with no write charge.
+   Without `cacheSystem` the system prompt goes as `instructions` with `mode: explicit` and no breakpoint,
+   which the page says "does not use prompt caching or create cache writes".
+5. **Errors.** A connection failure, a 5xx and a throttling 429 are `ProviderUnavailable`. A billing 429
+   (any of the four codes, or type `insufficient_quota`) is `ProviderRefused`: retrying cannot help, it is
+   not an outage, the breaker is not touched and nothing falls through, the same as Anthropic's credit 400.
+   Every other 4xx is `ProviderRefused`. A 200 with `status: failed` is `ProviderUnavailable` for
+   `server_error` and `rate_limit_exceeded`, refused otherwise. The error detail is trimmed and never
+   carries the header.
+6. **Stop reason and usage.** `completed` is `end_turn`; `incomplete` with `max_output_tokens` is
+   `max_tokens`, so ADR-038's single raise works unchanged; `content_filter`, and a reply that is only a
+   `refusal` part, are recorded as `content_filter` and `refusal` (the schema check then treats the empty
+   text as malformed, which is the truthful record). `inputTokens` = `input_tokens`; `cachedTokens` and
+   `cacheWriteTokens` from `input_tokens_details` (subsets); `outputTokens` = `output_tokens`, reasoning
+   included, because it is billed as output; `rawUsage` kept whole.
+7. **Rows.** `ModelTierSeeder` gains OpenAI rows with the page's prices and `pricing_verified_on`
+   2026-09-21: LOW Luna, MEDIUM Terra, HIGH Sol, and Sol again at MEDIUM with priority 90, the same
+   degrade-upward fallback the Anthropic rows have with Opus. `context_window` is registered as **272,000**,
+   the short-context price band: above it OpenAI bills the whole request at 2x input and 1.5x output, which
+   `CostCalculator` does not model, so HQ refuses a larger prompt rather than under-report it (the notes say
+   the model itself takes 922,000). No embedding model. **A new row is created active only when its provider
+   already serves** (or, when nothing serves yet, only for Anthropic, the provider every existing install
+   runs on): seeding OpenAI on production switches nothing on, and a fresh install behaves exactly as today.
+   Existing rows are never touched on `is_active`, as before.
+8. **`App\Ai\ServingProvider`**: which providers have an active row at a chat tier. One is `single` (that
+   provider serves), none is `none`, more than one is `mixed`. Everything that must know "the provider a
+   measurement runs on" reads this.
+9. **The lever, `hq:ai:provider`.** Without an argument it prints, per registered provider, its credential,
+   its readiness state and its rows per tier, and which provider serves. `hq:ai:provider openai` is a
+   **dry run** listing every row it would switch on and off. `--apply --by=<email> --reason="..."` does it
+   in one transaction: every chat-tier row of the chosen provider on, every chat-tier row of every other
+   provider off, and one audit row `ai.provider_selected` under the named person (human actor) with the
+   before and after row sets. It refuses, changing nothing, when: `--by` is missing or names a user who does
+   not exist or is disabled (every environment); the reason is empty; the provider has no driver; it has no
+   stored credential; it lacks a row at any of the low, medium and high tiers; or **a shadow period is
+   open** (changing the model under a shadow would make its evidence about two models). Selecting the
+   provider that already serves alone changes and audits nothing. The lever switches on ALL of the chosen
+   provider's chat rows, including one an operator had switched off; the dry run names each row so that is
+   seen before it happens (a decision to revisit). It touches no `ai.runtime`, agent, grant or flag.
+10. **Readiness follows the serving provider.** `OpenAiCheck` beside `AnthropicCheck` (both in the driver
+    layer): one call to the provider's low row (an active one first, else any row of that provider, so a
+    key can be verified BEFORE the lever moves traffic to it), 16 output tokens, no reasoning,
+    `store: false`. `AnthropicCheck` gains the provider filter it lacked. `ProviderCheck::run($source,
+    $provider = null)` checks the named provider, else the serving one, else Anthropic; when two serve it
+    refuses without a call (`"http":null`, the reason in words), so the gate's bypass step stops before
+    anything is enabled. `classify()` learns the billing 429 (blocked by credit, never invalid) and the 401
+    "IP not authorized" (unauthorized, the key not condemned); Anthropic's rules are unchanged. The JSON
+    still opens with `"http"` and now ends with the provider it checked. `CapabilityReadiness` gives the
+    `hq` row for each serving provider (Anthropic when none serves, so today's table is the same), and
+    `verifyModel()` checks that row's provider; the alert fingerprint therefore names the provider that
+    serves. `run.sh` wording loses "api.anthropic.com".
+11. **Shadow.** `ShadowPeriods::refusals()` adds one refusal: exactly one model provider must serve. With
+    the lever's own refusal, a period's evidence is about one provider from open to close.
+12. **Probe.** `hq:ai:probe` (dry) prints the serving provider and, for OpenAI, the reasoning effort.
+    `--schema` (with `--live`) sends one small agent-shaped request with `AgentResponseSchema` and 512
+    output tokens, so the structured path of point 2 is proven with the real provider before a gate.
+13. **Not changed:** no prompt file, TaskGrounding, TaskScope, detector, gateway policy, agent schema,
+    `ai.runtime`, grant, flag row or scheduled job; no migration; the stamps `executive.v8+18d60e98` and
+    `support.v1+0f4a195b`; the identity-case digests; ADR-038's recovery; the Anthropic driver's wire shape.
+14. **Gate consequences, for the report.** After the release: seed the rows, Joy stores the key,
+    `hq:credentials:health --verify-model` (or the gate's bypass) proves it, `hq:ai:provider openai --apply
+    --by=<joy> --reason=...` moves traffic, and `hq:ai:probe --live --schema` proves the structured path.
+    Gate 11 attempt 2 then measures `gpt-5.6-terra` (the Executive's turns route as `operator_question`, the
+    medium tier) at reasoning effort `low`: the first OpenAI measurement. A later return to Anthropic is the
+    lever the other way, and needs its own complete gate before any shadow runs on it.
+
+Tests are written first and watched failing on the unmodified code: the driver's wire contract (Bearer
+header only, body, developer message and breakpoint, strict and non-strict schema, `store: false`, effort),
+the reply mapping (text, usage subsets, stop reasons, refusal), the error classes (throttle, billing,
+server, failed status), the strict-subset checker on both real schemas, the seeder (rows, prices, inactive
+on create, never re-activated), the serving provider, the lever (dry run, every refusal, the switch, the
+audit under the person, the no-op), routing after the switch (no fallback to Anthropic), the readiness row
+and the bypass for OpenAI (a billing 429 is blocked by credit, not invalid), the Anthropic check's provider
+filter, the shadow refusal, and the probe's `--schema`.
+
+#### C.7.5 As built (21 September)
+
+No migration. No prompt file, TaskGrounding, TaskScope, detector, gateway policy, agent schema or ADR-038
+recovery touched; `ai.runtime`, agents, grants and flag rows untouched; no scheduled job. No real call was
+made to any provider: every wire shape below is held against OpenAI's documentation, not against a live
+answer.
+
+**The driver.** `app/Ai/Providers/OpenAiProvider.php`: `complete()` (`:96`) sends `POST /v1/responses`
+with the key from `CredentialVault::secret()` as a Bearer header only. `body()` (`:155`) carries the row's
+model id, `max_output_tokens`, `store: false` (`:165`), `reasoning.effort` from `reasoningEffort()` (`:82`,
+config `hq.ai.openai.reasoning_effort`, default `low`), `prompt_cache_options.mode: explicit`, and the
+system prompt as a developer message whose `input_text` block carries the one explicit breakpoint (`:180`),
+or as `instructions` when caching is off. A schema becomes `text.format` `json_schema` named `hq_reply`
+with `strict` = `OpenAiStrictSchema::compatible()` (`:194`). `failure()` (`:201`) and `isBillingBlock()`
+(`:90`): a 429 carrying `credit_balance_exhausted`, either spend-limit code, the usage-limit code, or type
+`insufficient_quota` is `ProviderRefused` naming it a billing block; any other 429 and every 5xx are
+`ProviderUnavailable`; every other 4xx is refused. A 200 with `status: failed` is an outage for
+`server_error` and `rate_limit_exceeded`, refused otherwise. `stopReason()` (`:221`): `max_output_tokens`
+is `max_tokens`, `content_filter` and a refusal-only reply are recorded as such. Usage: `input_tokens` as
+given (cached and written are already inside it), `cached_tokens` and `cache_write_tokens` from
+`input_tokens_details`, `output_tokens` including reasoning.
+
+**The strict subset.** `app/Ai/Providers/OpenAiStrictSchema.php` (`compatible()` `:49`) is an allow-list
+from the guide's "Supported schemas": object root and no root `anyOf`; per type only the listed keywords
+(so `minLength`, `maxLength`, `allOf`, `not`, `if` and any unlisted keyword make a schema non-strict);
+`additionalProperties: false` and every property required on every object (`:131`); an array must describe
+its `items`; the listed string formats only; at most 10 levels, 5000 properties, 1000 enum values.
+**Finding, on HQ's two real schemas:** `JobSpecSchema` is strict-compatible; `AgentResponseSchema` is not
+(`facts`, `inferences` and `tool_calls` have no `items`, and a tool call's `args` is an open object that
+strict mode cannot express). Every agent turn is therefore sent `strict: false` and stays checked by
+`ArgumentValidator` with one repair, exactly as for Anthropic. That OpenAI accepts a non-strict schema whose
+arrays lack `items` is not stated in its documentation either way; the gate runner now proves it with the
+real provider before any case (below).
+
+**One serving provider.** `app/Ai/ServingProvider.php` (`active()` `:30`, `current()` `:46`, `state()`
+`:53`, `describe()` `:63`). `database/seeders/ModelTierSeeder.php`: four OpenAI rows with the pricing
+page's prices of 21 September, cache writes included (Luna 0.20 / 0.02 / 0.25 / 1.20, Terra 2.00 / 0.20 /
+2.50 / 12.00, Sol 4.00 / 0.40 / 5.00 / 20.00, Sol again at medium with priority 90), `context_window`
+272,000, `max_output_tokens` 128,000, `pricing_verified_on` 2026-09-21; a new row is active only when its
+provider already serves (`:66`, `:188`). The Anthropic rows are unchanged.
+
+**The lever.** `app/Ai/ProviderSelection.php`: `refusals()` (`:47`: no driver, no stored key, a chat tier
+with no row, an open shadow period), `personRefusals()` (`:75`: `--by` missing, unknown or disabled, in
+every environment; no reason), `plan()` (`:102`), `select()` (`:119`: one transaction with the rows locked,
+every chat-tier row of the chosen provider on and every other provider's off, one `ai.provider_selected`
+audit row under the named person with the before and after row sets; a no-op when it already serves alone).
+`app/Console/Commands/AiProvider.php` is `hq:ai:provider`: the state without an argument, a dry run naming
+every row it would switch, `--apply --by --reason` to switch. It touches no switch, agent or grant.
+
+**Readiness.** `app/Ai/Providers/ReadinessCall.php` (the interface), `AnthropicCheck` (now its OWN low row,
+active first: before, it took the best active low row of any provider), `OpenAiCheck` (Luna, 16 output
+tokens, `reasoning.effort: none`, `store: false`). `app/Ai/ProviderCheck.php`: `run($source, $provider)`
+(`:60`) checks the named provider, else the serving one, else Anthropic; when two serve it checks nothing
+(`:62`) and says why; the JSON still opens with `"http"` and now ends with `"provider"`. `classify()`
+(`:120`) adds the billing 429 (blocked by credit) and the 401 "IP not authorized" (unauthorized), both
+never condemning the key; Anthropic's rules are unchanged. `CapabilityReadiness` gives one `hq` row per
+serving provider, Anthropic when none serves (`:86`), and `verifyModel()` checks that row's provider
+(`:146`). `deploy/gate/toggle.php` and `run.sh` wording follow.
+
+**Shadow and probe.** `ShadowPeriods::refusals()` (`:115`) refuses unless exactly one provider serves.
+`hq:ai:probe` prints the serving provider (or "MORE THAN ONE provider serves") and OpenAI's reasoning
+effort; `--live --schema` asks for one reply under `AgentResponseSchema` with 512 output tokens and says
+whether it validated; `--schema` without `--live` is refused. `deploy/gate/run.sh` step 4c runs
+`hq:ai:probe --live --schema --task=operator_question` after the runtime is on and **stops before any case**
+when it fails, so a provider that cannot handle the agent schema leaves no measurement rather than a gate
+of provider errors; the EXIT trap turns everything off as before.
+
+**Docs.** ADR-049 (and an amendment on ADR-019), `docs/32` line 049, `docs/runbooks/openai-billing.md`
+(forwardable; Joy's account, credit, limit, project and key, and where the key goes), the runbooks index,
+the OpenAI row in `docs/70` section M, and the by-hand steps after the deploy in `deploy/README.md` ("NOT
+YET APPLIED TO PRODUCTION: OpenAI as the model provider").
+
+**Deviations from the brief, with the evidence.** (1) The brief said there is no cache-write premium; the
+pricing page lists "cache writes" at 1.25x input for all three models and the prompt-caching guide says so
+in words, so the rows carry $0.25, $2.50 and $5.00. (2) `context_window` is 272,000, not the model's
+1,050,000, because above 272K the whole request bills at 2x input and 1.5x output and `CostCalculator`
+does not model that. (3) Sol is registered twice (high, and medium at priority 90), mirroring Opus. (4) The
+readiness call uses 16 output tokens, not 8, and no reasoning.
+
+**Watched failing first.** The 75 tests written before the code all failed on the unmodified tree (one run,
+75 failed and 37 passed, the 37 being ShadowPeriodTest's existing tests): `OpenAiProviderTest` 40 (with
+datasets), `ProviderSelectionTest` 18, `OpenAiReadinessTest` 15, and the two new `ShadowPeriodTest` dataset
+rows. One more (`it keeps the key out of a refusal too`) was split out of a test whose second `Http::fake()`
+could never take effect, the trap `AiSafetyPostureTest` already records. `AiSafetyPostureTest`'s two
+guards (model ids only in the driver layer; endpoints only there) were widened to name OpenAI and passed
+before and after, as guards.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** On the branch
+before main moved: full Pest in one run on `hq_test_f`, **1122 passed, 9624 assertions**, 240.6 s (base 1046,
+plus 76). Main then gained streams G, H, I and J; merged into the branch (the only conflicts were the
+`docs/32` index and the `docs/81` table and record): **1189 passed, 10692 assertions**, 271.7 s.
+`vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npm run build` built. `bash -n deploy/gate/run.sh`
+clean; the deploy-safety suite does not read the gate runner and was not re-run. The identity-case digests
+stayed green without re-pinning; the stamps `executive.v8+18d60e98` and `support.v1+0f4a195b` are unchanged
+(no prompt file moved).
+
+**Cost of a gate on OpenAI, estimated.** The recorded Anthropic gates averaged about 10,300 input and 1,430
+output tokens per call and about $2 per gate (8.6M in, 1.2M out, $19.38 for 837 Sonnet calls; gates 9 to 11
+cost $5.64). Terra prices input, cache reads and cache writes the same as Sonnet 5 and output at $12 against
+$10, and adds reasoning tokens at effort `low`; with 20 to 50% more output, a gate is about **$2.50 to $3**,
+say $2 to $4. Nothing measured yet: the first gate's `ai_runs` will say.
+
+**Decisions to revisit.**
+
+1. Reasoning effort `low` for every OpenAI call. Measured by the first gate, never tuned after its result.
+2. The Executive's turns run on Terra, which OpenAI describes as the mini tier of the family; the earlier
+   gates measured Sonnet 5. Moving the medium tier to Sol is a row change through the same lever's rules,
+   and a new measurement.
+3. The lever switches on ALL of the chosen provider's chat rows, including one an operator had switched
+   off; the dry run names them. A per-row memory of "parked by the lever" would need a column.
+4. The cross-provider fallback of ADR-019 stays; with one provider's rows active it cannot fire.
+5. `ai_runs` does not record the reasoning effort a call ran at; the gate log carries it from the probe.
+6. The agent schema stays non-strict on OpenAI. Giving its arrays `items` would let OpenAI enforce more of
+   it, but it changes the contract every earlier gate measured.
+
+**Found on the way, not fixed.** Anthropic's own "monthly spend limit reached" answer is not one of the two
+phrases `classify()` reads for Anthropic (it knows "credit balance" and "purchase credits"), so it would
+read as `connector_error`; its exact wording was not checked here. The provider-blocked runbook still speaks
+of Anthropic only.

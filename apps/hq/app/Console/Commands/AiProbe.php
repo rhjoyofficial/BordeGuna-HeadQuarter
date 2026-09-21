@@ -2,12 +2,15 @@
 
 namespace App\Console\Commands;
 
+use App\Agents\AgentResponseSchema;
 use App\Ai\Budget\AiBudget;
 use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\ModelRuntime;
+use App\Ai\Providers\OpenAiProvider;
 use App\Ai\Providers\ProviderRegistry;
 use App\Ai\RoutingContext;
+use App\Ai\ServingProvider;
 use App\Ai\TaskType;
 use App\Models\AiModel;
 use Illuminate\Console\Command;
@@ -19,11 +22,17 @@ use Throwable;
  * ⚠ `--dry` is the DEFAULT. Running this command must never spend money by accident, so a real call
  * needs `--live` typed deliberately. Dry mode reports exactly what would happen: which provider, which
  * model, why, what the breaker thinks, and what the budget looks like.
+ *
+ * docs/81 C.7: it also says which provider SERVES (one, none, or more than one) and, for OpenAI, the
+ * reasoning effort, because both are part of what a gate measures and the gate log carries this
+ * output. `--live --schema` sends one agent-shaped request under `AgentResponseSchema` itself, so a
+ * provider's handling of HQ's structured replies is proven before a gate depends on it.
  */
 class AiProbe extends Command
 {
     protected $signature = 'hq:ai:probe
         {--live : Actually call the provider. Costs a fraction of a cent. Without this, nothing is sent.}
+        {--schema : With --live, ask for one reply under the agent response schema and check it}
         {--task=diagnostic : The TaskType to route}
         {--business= : Route as this business id, so per-business budget applies}';
 
@@ -35,7 +44,14 @@ class AiProbe extends Command
         ModelRuntime $runtime,
         CircuitBreaker $breaker,
         AiBudget $budget,
+        ServingProvider $serving,
     ): int {
+        if ($this->option('schema') && ! $this->option('live')) {
+            $this->error('--schema needs --live: a structured check is only worth anything as a real call.');
+
+            return self::FAILURE;
+        }
+
         $task = TaskType::tryFrom((string) $this->option('task'));
         if ($task === null) {
             $this->error('Unknown task. One of: '.implode(', ', array_column(TaskType::cases(), 'value')));
@@ -54,6 +70,16 @@ class AiProbe extends Command
                 $available ? 'configured' : 'NOT CONFIGURED',
                 $breaker->state($key),
             ));
+        }
+
+        $current = $serving->current();
+        $this->line('  serving provider: '.match ($serving->state()) {
+            ServingProvider::SINGLE => (string) $current,
+            ServingProvider::NONE => 'none (no active row at a chat tier)',
+            default => 'MORE THAN ONE provider serves ('.implode(', ', $serving->active()).'); a gate measures exactly one, choose it with hq:ai:provider',
+        });
+        if ($current === OpenAiProvider::PROVIDER) {
+            $this->line('  reasoning effort: '.OpenAiProvider::reasoningEffort().' (hq.ai.openai.reasoning_effort)');
         }
 
         $registered = AiModel::query()->orderBy('tier')->orderBy('priority')->get();
@@ -104,15 +130,28 @@ class AiProbe extends Command
         $this->newLine();
         $this->line('<comment>Live call</comment>');
 
+        $withSchema = (bool) $this->option('schema');
+
         try {
-            $outcome = $runtime->run(
-                task: $task,
-                system: 'You are a connectivity probe for an internal operations system. Answer in one short sentence.',
-                messages: [['role' => 'user', 'content' => 'Reply with exactly: HQ model router is working.']],
-                context: $context,
-                maxOutputTokens: (int) config('hq.ai.probe.max_output_tokens', 64),
-                promptVersion: 'probe/1',
-            );
+            $outcome = $withSchema
+                ? $runtime->run(
+                    task: $task,
+                    system: 'You are a connectivity probe for an internal operations system. Reply with one JSON object only.',
+                    messages: [['role' => 'user', 'content' => 'Reply with a JSON object: status "answer", task "probe", authority_request "none", '
+                        .'answer "HQ model router is working.", refusal_reason "", and facts, inferences and tool_calls as empty arrays.']],
+                    context: $context,
+                    jsonSchema: AgentResponseSchema::schema(),
+                    maxOutputTokens: (int) config('hq.ai.probe.schema_max_output_tokens', 512),
+                    promptVersion: 'probe/schema-1',
+                )
+                : $runtime->run(
+                    task: $task,
+                    system: 'You are a connectivity probe for an internal operations system. Answer in one short sentence.',
+                    messages: [['role' => 'user', 'content' => 'Reply with exactly: HQ model router is working.']],
+                    context: $context,
+                    maxOutputTokens: (int) config('hq.ai.probe.max_output_tokens', 64),
+                    promptVersion: 'probe/1',
+                );
         } catch (Throwable $e) {
             $this->error(get_class($e));
             $this->error($e->getMessage());
@@ -136,6 +175,11 @@ class AiProbe extends Command
             return self::FAILURE;
         }
 
+        if ($withSchema) {
+            // The runtime has already validated the object against the schema (one repair at most);
+            // reaching here means the provider handled HQ's agent schema end to end.
+            $this->info('  structured reply valid against the agent response schema: status '.($outcome->data['status'] ?? '?'));
+        }
         $this->info('  reply: '.trim($outcome->text));
         $this->line('  '.$outcome->provenance());
         $this->line("  ai_run #{$outcome->run->id}, status {$outcome->run->status}, correlation {$outcome->run->correlation_id}");
