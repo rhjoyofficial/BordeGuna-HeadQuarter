@@ -4,7 +4,6 @@ namespace App\Gateway\Registry;
 
 use App\Models\ToolRegistration;
 use App\Tools\ToolRegistry;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * The two-switch model (docs/48 D.2), and the reason it has no ordering problem.
@@ -19,13 +18,13 @@ use Illuminate\Support\Facades\Cache;
  * removes the startup-ordering trap: a newly deployed tool works immediately, a sync is never
  * load-bearing, and a `tools` table wiped by a bad restore fails OPEN to exactly the set of
  * capabilities the deployed code contains, which is a set a human already reviewed.
+ *
+ * ⚠ The switches are read from the table on every call and never cached (docs/81 C.6). They used to
+ * sit in the shared store for 30 seconds, so a tool switched off by anything but the screen, a raw
+ * write or a restore, stayed on at the gateway for that long. A kill switch that lags is not one.
  */
 final class ToolAvailability
 {
-    private const CACHE_KEY = 'hq:tool_switches';
-
-    private const CACHE_TTL_SECONDS = 30;
-
     public function __construct(private readonly ToolRegistry $registry) {}
 
     public function registered(string $key): bool
@@ -97,26 +96,25 @@ final class ToolAvailability
         return array_values(array_diff(array_keys($this->switches()), $this->registry->keys()));
     }
 
-    public function forget(): void
-    {
-        Cache::forget(self::CACHE_KEY);
-    }
+    /**
+     * Nothing to forget: the switches are never cached. Kept because the writers of a switch call it,
+     * and the call says what they mean if a cache is ever brought back.
+     */
+    public function forget(): void {}
 
     /** @return array<string, array{enabled: bool, enabled_businesses: ?array, disabled_reason: ?string, disabled_at: ?string}> */
     private function switches(): array
     {
-        return Cache::remember(self::CACHE_KEY, self::CACHE_TTL_SECONDS, static function () {
-            $out = [];
-            foreach (ToolRegistration::query()->get(['key', 'enabled', 'enabled_businesses', 'disabled_reason', 'disabled_at']) as $row) {
-                $out[$row->key] = [
-                    'enabled' => (bool) $row->enabled,
-                    'enabled_businesses' => $row->enabled_businesses,
-                    'disabled_reason' => $row->disabled_reason,
-                    'disabled_at' => $row->disabled_at?->toIso8601String(),
-                ];
-            }
+        $out = [];
+        foreach (ToolRegistration::query()->get(['key', 'enabled', 'enabled_businesses', 'disabled_reason', 'disabled_at']) as $row) {
+            $out[$row->key] = [
+                'enabled' => (bool) $row->enabled,
+                'enabled_businesses' => $row->enabled_businesses,
+                'disabled_reason' => $row->disabled_reason,
+                'disabled_at' => $row->disabled_at?->toIso8601String(),
+            ];
+        }
 
-            return $out;
-        });
+        return $out;
     }
 }
