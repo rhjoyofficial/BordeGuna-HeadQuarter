@@ -4,7 +4,6 @@ namespace App\Autonomy\Evidence;
 
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationDimension;
-use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\AutonomyEvidenceHardCheck;
 use App\Models\AutonomyEvidencePolicy;
 use App\Models\AutonomyEvidencePolicyEvent;
@@ -137,6 +136,21 @@ final class EvidencePolicies
         if (trim((string) $reason) === '') {
             $refusals[] = 'no reason given (--reason)';
         }
+
+        return [...$refusals, ...$this->structuralRefusals($policy)];
+    }
+
+    /**
+     * What in the version itself stops it becoming active, whoever asks: no requirement, an
+     * undecided (NULL) field, an unknown measured state, a gap in the ladder. Empty means the
+     * version is complete, which is necessary for activation and never sufficient.
+     *
+     * @return list<string>
+     */
+    public function structuralRefusals(AutonomyEvidencePolicy $policy): array
+    {
+        $policy->loadMissing(['requirements', 'hardChecks']);
+        $refusals = [];
 
         if ($policy->requirements->isEmpty()) {
             $refusals[] = 'the version has no requirement row, so it would make nothing eligible and nothing explicit';
