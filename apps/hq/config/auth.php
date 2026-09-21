@@ -63,7 +63,9 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
+            // docs/81 P0-1: the Eloquent provider that returns nobody for a disabled account
+            // (App\Auth\ActiveUserProvider, registered in AppServiceProvider).
+            'driver' => 'active-eloquent',
             'model' => env('AUTH_MODEL', User::class),
         ],
 

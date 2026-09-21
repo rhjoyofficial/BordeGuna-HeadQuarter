@@ -22,7 +22,6 @@ use App\Models\Store;
 use App\Models\ToolCall;
 use App\Models\User;
 use App\Models\UserBusinessScope;
-use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
 use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
@@ -94,7 +93,6 @@ function eecOperator(array $businessSlugs = [], ?array $permissions = null): Use
     foreach ($businessSlugs as $slug) {
         UserBusinessScope::create(['user_id' => $user->id, 'business_id' => Business::where('slug', $slug)->value('id'), 'access' => 'read']);
     }
-    app(BusinessScope::class)->forget($user);
 
     return $user;
 }

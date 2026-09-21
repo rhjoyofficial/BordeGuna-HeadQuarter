@@ -100,6 +100,8 @@ final class RecentEventsTool implements Tool
             ->select('type', 'status')
             ->selectRaw('count(*) as total')
             ->orderBy('type')
+            // And the status, or `by_status` lists its keys in whichever order the plan produced.
+            ->orderBy('status')
             ->get();
 
         $byType = [];

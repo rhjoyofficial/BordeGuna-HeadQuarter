@@ -41,6 +41,11 @@ type Approval = {
     consumed_at: string | null;
     created_at: string | null;
     requested_by: string | null;
+    /** The enabling user of the agent that parked it; null for a person, a job, and a row from before the split. */
+    enabled_by: string | null;
+    requester_kind: string | null;
+    /** False for an agent's row whose requester column still holds the enabling user (docs/81 P0-4). */
+    requester_recorded: boolean;
     decided_by: string | null;
     delegated_to: string | null;
     decidable: boolean;
@@ -184,6 +189,7 @@ export default function ApprovalsIndex({
                                                     <span className="text-amber-700 dark:text-amber-300">proposed by the {a.agent_key} agent</span>
                                                 )}
                                                 {a.requested_by && !a.agent_key && <span>asked by {a.requested_by}</span>}
+                                                {a.requested_by && a.agent_key && a.requester_recorded && <span>asked by {a.requested_by}</span>}
                                                 {a.delegated_to && (
                                                     <span className="text-sky-700 dark:text-sky-300">delegated to {a.delegated_to}</span>
                                                 )}

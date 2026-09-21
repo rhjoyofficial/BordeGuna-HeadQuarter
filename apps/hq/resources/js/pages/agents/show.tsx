@@ -1,3 +1,4 @@
+import { ExecutionContextPanel, type ExecutionContext } from '@/components/agents/execution-context-panel';
 import { runStatus } from '@/components/agents/run-status';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -106,11 +107,13 @@ const VERDICTS: { key: string; label: string; hint: string }[] = [
 
 export default function AgentRunShow({
     run,
+    execution_context,
     tool_calls,
     model_calls,
     can,
 }: {
     run: Run;
+    execution_context: ExecutionContext;
     tool_calls: ToolCall[];
     model_calls: ModelCall[];
     can: { review: boolean };
@@ -241,6 +244,8 @@ export default function AgentRunShow({
                         </div>
                     </dl>
                 </section>
+
+                <ExecutionContextPanel context={execution_context} />
 
                 <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
                     <SectionHeader title="Your review" />

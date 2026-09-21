@@ -5,7 +5,6 @@ namespace App\Support\Authorization;
 use App\Models\User;
 use App\Models\UserBusinessScope;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Cache;
 
 /**
  * The one place that answers "which businesses may this human see" (docs/48 E.4).
@@ -22,11 +21,17 @@ use Illuminate\Support\Facades\Cache;
  * The rule the gateway enforces on top of this: a tool whose scope is `business` or `store` must
  * name a business, and a restricted user may not name one outside their rows. A tool whose scope is
  * `hq` needs no business, and if it reads across businesses it is that tool's job to call `all()`.
+ *
+ * ⛔ **Nothing here is cached, and nothing may be** (docs/81 P0-2). The rows were once kept for 60
+ * seconds in the shared cache store. Nothing in HQ writes `user_business_scopes` (rows are made by
+ * hand), so no invalidation could ever be hung on a write; the store is shared by every container;
+ * and because "no rows" was cached as an empty list, a person given their FIRST row stayed
+ * group-wide for a minute, at the gateway too. Every answer is now read from the table: one indexed
+ * query. A memo on this object would be wrong as well, because a queue worker and an agent run
+ * keep one object across many decisions.
  */
 final class BusinessScope
 {
-    private const CACHE_TTL_SECONDS = 60;
-
     /**
      * The business ids a user is limited to, or null for group-wide.
      *
@@ -34,11 +39,7 @@ final class BusinessScope
      */
     public function all(User $user): ?array
     {
-        $ids = Cache::remember(
-            "hq:business_scope:{$user->getKey()}",
-            self::CACHE_TTL_SECONDS,
-            static fn () => UserBusinessScope::query()->where('user_id', $user->getKey())->pluck('business_id')->all(),
-        );
+        $ids = UserBusinessScope::query()->where('user_id', $user->getKey())->orderBy('business_id')->pluck('business_id')->all();
 
         return $ids === [] ? null : array_map('intval', $ids);
     }
@@ -74,10 +75,5 @@ final class BusinessScope
         $scope = $this->all($user);
 
         return $scope === null ? $query : $query->whereIn($column, $scope);
-    }
-
-    public function forget(User $user): void
-    {
-        Cache::forget("hq:business_scope:{$user->getKey()}");
     }
 }

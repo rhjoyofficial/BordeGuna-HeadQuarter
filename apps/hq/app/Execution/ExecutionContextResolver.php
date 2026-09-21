@@ -92,8 +92,9 @@ final class ExecutionContextResolver
      * gateway call. Null when it does; otherwise why not.
      *
      * A run lasts seconds to minutes and holds the models it started with. Without this, a person
-     * disabled or deleted mid-run, an agent paused mid-run, or an agent handed to another enabling
-     * user mid-run would all keep working until the run ended.
+     * disabled or deleted mid-run, a person narrowed to fewer businesses mid-run, an agent paused
+     * mid-run, or an agent handed to another enabling user mid-run would all keep working until the
+     * run ended.
      */
     public function stillStands(EffectiveExecutionContext $context): ?string
     {
@@ -109,9 +110,25 @@ final class ExecutionContextResolver
         $alive = User::query()->whereIn('id', $ids)->get(['id', 'is_active'])
             ->reject(fn (User $u) => $u->is_active === false)->count();
 
-        return $alive === count($ids)
-            ? null
-            : "A person this run's authority rests on was disabled or removed, so the run may call nothing further.";
+        if ($alive !== count($ids)) {
+            return "A person this run's authority rests on was disabled or removed, so the run may call nothing further.";
+        }
+
+        // docs/81 P0-2: business scope, read again from the table. The context stands only while
+        // its business set still lies inside what each person may read NOW; a group-wide context
+        // does not survive either person gaining rows. A context is never widened here: a row added
+        // since shows at the next resolve.
+        foreach ($ids as $id) {
+            $now = $this->businessScope->all($id === (int) $context->enabler->getKey() ? $context->enabler : $context->requesterUser);
+            if ($now === null) {
+                continue;
+            }
+            if ($context->businessIds === null || array_diff($context->businessIds, $now) !== []) {
+                return "A person this run's authority rests on was narrowed after this run was resolved, so the run may call nothing further.";
+            }
+        }
+
+        return null;
     }
 
     private function intersect(Agent $agent, ?Requester $requester, string $entryPoint, ?int $businessId, ?int $brandId, bool $requireActive): EffectiveExecutionContext
