@@ -531,6 +531,7 @@ only in the combined tree).
 | G. One rollback invariant; deploy verify-only | `deploy/rollback-invariant-and-verify-only` | P0-3, 4 |
 | H. Versioned autonomy evidence policy, the evidence producer, resolver integration, the view | `autonomy/evidence-policy-and-producer` | 5 |
 | I. Phase 4 read side: product, variant, price, stock and eligibility lookups through governed reads | `p4/erp-read-foundation` (HQ) and a branch in the ERP repository | 9 |
+| J. Defects found during the milestone (Horizon before 2FA, cached kill switches, the executor's decision rule, the edit's redaction, an email on the agents index, housekeeping), fixed before the candidate | `fix/pre-candidate-defects` | `docs/RESUME-HERE-2026-09-21.md` section 9 |
 
 Rules every stream keeps: a correction is watched failing first; no prompt file changes; nothing is
 switched on; no grant, flag row or scheduled job is created; historical rows are never rewritten;
@@ -1009,3 +1010,124 @@ no local HQ database other than the test one, which the suite wipes. The panel u
 `min-w-0` and `break-words`/`break-all` as the rest of the page; that is construction, not evidence.
 
 **Verification (20 September, local; GitHub Actions deferred until the 1 October reset).** Full Pest suite on Postgres `hq_test_f`: **1012 passed, 8282 assertions, 0 failed** (base 977, plus 35: 15 approval requester identity, 14 deterministic ordering, 6 run page context). `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean. `npm run build`: built. The identity-case digests: green, not re-pinned.
+
+### C.6 Stream J: defects found during the milestone, fixed before the candidate (branch `fix/pre-candidate-defects`)
+
+The eight defects listed in `docs/RESUME-HERE-2026-09-21.md` section 9: found by streams E and F or
+after the `docs/80` report, in none of the five briefs, and fixed here because the release candidate
+is the build the Executive's A0 shadow will run. Base: `main` at `074ffae`, 1046 tests.
+
+#### C.6.1 Today's behaviour (read from the code before any change, 21 September; paths under `apps/hq`)
+
+**(1) Horizon is reachable before the 2FA challenge.** Every HQ page sits in
+`routes/web.php:36` behind `['auth', '2fa.enabled', '2fa.verified']`; the only routes a person
+reaches with the password alone are the challenge and the mandatory setup (`routes/web.php:22-33`)
+and the starter kit's `routes/auth.php:32-50` (email verification, password confirmation, logout).
+Horizon is in neither file. It registers its own group `horizon` =
+`[SentinelMiddleware:horizon, ...config('horizon.middleware')]`
+(`vendor/laravel/horizon/src/HorizonServiceProvider.php:24-27`), and `config/horizon.php:86` sets
+that to `['web']`, then adds its own `Authenticate`, which asks the gate `viewHorizon` =
+`can('hq.horizon.view')` (`app/Providers/HorizonServiceProvider.php:29`). The gate resolves the
+session's user whether or not the challenge was passed, so a person past the password step and NOT
+past the challenge opens the dashboard and its API (retry a failed job, delete a monitored tag) if
+they hold the permission, and so does a person who has never set 2FA up. The route enumeration of
+stream E (`tests/Feature/Security/DisabledAccountTest.php:267`) proves the account check is on every
+route and says nothing about 2FA. `route:list` confirms it: apart from the challenge, the setup and
+the starter-kit routes named above, the 22 `horizon/*` routes are the only routes that authenticate
+somebody and carry neither 2FA middleware.
+
+**(2) Two shared caches of kill switches.** `app/Gateway/Registry/ToolAvailability.php:25-27` and
+`:106-121` cache every row of `tools` under `hq:tool_switches` for 30 seconds in the default store,
+which is Redis in production and so shared by the web containers, Horizon and the scheduler. The
+gateway asks it on every call (`app/Gateway/ToolGateway.php:101`). `forget()` (`:100`) is called by
+`ToolSwitch.php:42` and `:60` (the screen's toggle) and `ToolRegistrySync.php:48`.
+`app/Support/Features/Features.php:16` and `:40-50` cache every row of `feature_flags` under
+`hq:feature_flags` for 60 seconds; the class is a process singleton
+(`app/Providers/AppServiceProvider.php:47`), and `forget()` (`:34`) is called by the flag screen
+(`AdminController.php:195`, `:206`), the shadow period (`ShadowPeriods.php:100`, `:221`, `:363`) and
+`ShadowTick.php:61`. The flags it answers include `ai.runtime` (`ModelRuntime.php:336`, the switch
+that stops every model call) and `ai.freeze` (`PolicyEngine.php:41`, `:63`, the switch that freezes
+every agent action). So a switch changed by SQL, by a restore, or by any process that does not call
+`forget()` keeps its old answer for up to 30 or 60 seconds, at the gateway too. The dangerous cases
+are a tool turned off that stays on, `ai.runtime` turned off that stays on, and a freeze turned on
+that stays off. It is the family of the business-scope cache stream E removed (C.1.1), with one
+difference: here a `forget()` exists and its callers use it, so the screens were right and
+everything else was not.
+
+**(3) The executor checks separation but not the rest of "who may decide".**
+`app/Models/Approval.php:172-182` `isDecidableBy()` is three rules: the decide permission, the
+separation rule of stream F (`:153`), and delegation (`:181`: once delegated, only the delegate).
+`app/Gateway/Approval/ApprovalExecutor.php:52` enforces the separation rule alone. The controller
+enforces all three (`ApprovalController.php:223-234`, plus the route's `permission:` middleware), and
+it is today the only caller, so nothing is exploitable now; a future caller of the executor that
+skipped the controller (a queued decision, a command, an agent-facing approval tool) could approve
+an approval delegated to somebody else, or approve without the decide permission.
+`ApprovalService::approveWithEdit()` (`ApprovalService.php:180`) and `reject()` (`:228`) check
+nothing about the person at all, and the successor an edit creates (`:189-196`) does not copy the
+delegation, so an edit by the delegate leaves a successor that anybody with the permission may decide.
+
+**(4) An edited payload is redacted without the tool's own paths.** `park()` stores
+`$this->redactor->redact($args, $descriptor->redact)` (`ApprovalService.php:62`), the tool's declared
+paths plus the leaf deny list. `approveWithEdit()` stores `$this->redactor->redact($editedArgs)`
+(`:187`), the deny list only. A tool that declares a sensitive argument whose key is not on the deny
+list (say `customer.phone`) has it masked in the original and stored in clear in the successor, which
+is then hashed and executed as stored. No registered approval-gated tool declares such a path today,
+so no stored row is affected.
+
+**(5) The agents index sends an email.** `app/Http/Controllers/Agents/AgentController.php:78` loads
+`enablingUser:id,email` and `:87` sends `enabling_user` as the email;
+`resources/js/pages/agents/index.tsx:21` and `:102` print it. The run page names people by name and
+user id and never by email (stream F, C.2.3), and holds that by a test.
+
+**(6)** `resources/js/pages/agents/show.tsx` fails `prettier --check` on `main`.
+
+**(7)** `docs/32-architecture-decisions.md:25-26` jumps from ADR-019 to ADR-047; ADR-020 to ADR-046
+exist in `docs/adr/` and are not indexed.
+
+**(8)** `phpunit.xml:24` and `:30` both declare `CACHE_STORE` = `array`.
+
+#### C.6.2 The design (written before the code)
+
+**(1)** `config/horizon.php` becomes `['web', '2fa.enabled', '2fa.verified']`: the same two
+middlewares, in the same order, that every HQ page has. `auth` is deliberately NOT added: a guest
+keeps today's 403 from Horizon's own gate (and `HorizonAccessTest` keeps holding it), while a person
+signed in without 2FA set up is sent to the setup and a person who has not passed the challenge is
+sent to the challenge, exactly as on `/dashboard`. `EnsureAccountIsActive` stays first (it is in the
+`web` group and in the priority list), so a disabled account still ends at the login page. The route
+enumeration gains a second assertion: every route that authenticates a person (by `auth` or by
+Horizon's `Authenticate`) carries both 2FA middlewares, except a named list of the routes that exist
+precisely for the person who has not finished 2FA (the challenge, the setup and its actions, logout,
+and the starter kit's email-verification and password-confirmation routes), and the list is checked
+to name only routes that exist.
+
+**(2)** Both caches are removed, for the reasons of C.1.2: a shared store makes invalidation a
+cross-process problem; a raw write or a restore is never seen by one; a process-singleton memo would
+be wrong in a Horizon worker; and no evidence says the query matters (`tools` and `feature_flags`
+hold a few dozen rows). `switches()` and `all()` read their table on every call. `forget()` stays on
+both classes as a documented no-op, because the production callers and the tests of the other
+streams call it; removing it would touch files outside this stream for no behaviour. Tests plant the
+old key in a persistent `file` store, as another process would have left it, and require it to be
+ignored; and a switch written by SQL is honoured by the next gateway call.
+
+**(3)** One method on the model, `Approval::decisionRefusalReason(User)`, answers null or the reason:
+the separation rule first (its sentence unchanged), then the decide permission, then delegation.
+`isDecidableBy()` becomes "that reason is null", so the screen is what it was. The executor calls it
+before the guard and the claim (a refusal leaves the approval pending and undecided),
+`approveWithEdit()` and `reject()` call it and throw before they write anything, and the successor of
+an edit copies `delegated_to_user_id`, `delegated_by_user_id` and `delegated_at`, so a delegation
+survives the edit. The controller's `assertDecidable` reads the same method, so its 403 says which
+rule refused.
+
+**(4)** `ApprovalService` receives the `ToolRegistry`, and `approveWithEdit()` redacts with the stored
+tool's descriptor paths, exactly as `park()` does; a tool no longer registered is refused (the
+controller already refuses it first). `CanonicalPayload`, the hash, the guard and the claim are
+untouched: the hash is still taken over what is stored.
+
+**(5)** `enabling_user` becomes `{user_id, name}` (or null), printed the way the run page prints a
+person: "Name (user #id)". A test holds that the page's props contain no email.
+
+**(6)** Prettier on that one file. **(7)** Twenty-seven rows from each ADR's own title and status
+line. **(8)** The second declaration goes.
+
+Nothing here touches a prompt, TaskGrounding, TaskScope, a detector, a policy rule, a migration, a
+flag row, a grant or a scheduled job.
