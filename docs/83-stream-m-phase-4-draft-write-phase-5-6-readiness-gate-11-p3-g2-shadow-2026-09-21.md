@@ -471,7 +471,51 @@ Recorded in `docs/81` C.9 (it was planned under that milestone); its merge is re
 
 ### C.2 The scheduler incident as a standing invariant (point 2)
 
-To be written: each of point 2's seven items against the check that holds it.
+Each item of point 2 against what holds it, read on 21 September. The monitoring stays the one
+architecture it was: `/api/health` inside HQ, the host monitor outside it, and the deploy scripts that
+read the same endpoint. Nothing new was added to watch; one gap in the tests was closed.
+
+1. **Init/supervision semantics for the scheduler container.** `deploy/docker-compose.yml`, service
+   `scheduler`, `init: true` (stream L). Held by deploy-safety section 24, which reads the service block
+   and fails without the line. On production at 07:06 UTC: PID 1 `/sbin/docker-init`, then
+   `php artisan schedule:work`, 2 processes in all. The ERP's scheduler, built the same way, got the
+   same line the same day (ERP `e3e39cf`, deployed 21 September behind a tested dump; `init=true`
+   read back from the running container).
+2. **No zombie build-up from background children.** The same line: docker-init reaps what
+   `runInBackground` leaves behind. Measured, not assumed: 2 processes 34 minutes after the release,
+   against the 2 a minute the unreaped container gathered before.
+3. **Pids exhaustion cannot silently consume the container.** It can still happen in principle (a
+   real leak of live processes), but it can no longer be silent: a scheduler that cannot fork writes no
+   heartbeat, `/api/health` then answers 503 naming the scheduler, and the host monitor, which runs
+   OUTSIDE the container and so does not die with it, texts `ALERT hq_scheduler` with the detail.
+   Held by deploy-safety section 25 (the real monitor against stubs) and, since this milestone, by the
+   application test below. HQ's own `hq:alerts:check` runs inside the scheduler and cannot report the
+   scheduler's death; that is why the host monitor is the watcher of record for this failure.
+4. **Deploy, rollback and verify-only keep the failure body.** Stream L: each reads health with
+   `ignore_errors` and names the failing component in its FAIL or UNVERIFIED line. Held by
+   deploy-safety sections 12 (deploy), 16b (rollback) and 23 (preflight).
+5. **The host monitor keeps the 503's body and component name.** Held by section 25: a 503 naming
+   the scheduler alerts `hq_scheduler` with "no tick recorded", never `hq_reachable`; the fallback
+   through the app container still names it; only nothing answering at all is "unreachable".
+6. **Health names the failing component.** `app/Http/Controllers/Health/HealthController.php`: each
+   component carries its own status, the scheduler its `detail` or `last_tick_age_seconds`; any `fail`
+   makes the whole answer 503.
+7. **Scheduler health stays observable.** The same endpoint, the Platform dashboard that reads it, and
+   the monitor.
+
+**The gap, closed.** The deploy-safety suite exercises every reader against a STUB that answers 503
+with `{"scheduler": {"status": "fail", "detail": "no tick recorded"}}`, but no application test held
+the endpoint itself to that shape: the one existing test (`TwoFactorAndRbacTest`) checks only that the
+keys exist, because on this laptop Redis and Horizon are absent and the endpoint answers 503 for them
+anyway. New `tests/Feature/Observe/SchedulerHealthTest.php` pins Redis and Horizon healthy and
+proves: a fresh tick answers 200 with its age; no tick answers 503 with exactly
+`{"status": "fail", "detail": "no tick recorded"}` and every other component `ok`; a tick older than the
+stale budget answers 503 with its age; the boundary (180 seconds alive, 181 failed, on a clock frozen to
+a whole second, because the heartbeat is stored without microseconds). The behaviour already existed,
+so the four tests passed first and are guards; their teeth were shown by mutation, each applied to the
+controller, the file run, the controller restored: health answering 200 whatever failed (3 of 4
+fail), the detail renamed (1 fails, the one the monitor's text depends on), the stale budget ignored
+(2 fail). `vendor/bin/pint --test` passed; `tests/Feature/Observe` 93 passed.
 
 ### C.3 Stream N: the Phase 4 draft write, inert
 
@@ -480,7 +524,73 @@ as-built record.
 
 ### C.4 The owner's steps
 
-To be written.
+Each is Joy's because it needs his accounts, his 2FA session, or a production write this session's
+permission classifier refuses. Each says why. None bypasses a readiness check; nothing here is a
+made-up credential.
+
+**1. The OpenAI key, from the account that has the credit (blocks Gate 11).** Why: the key stored as
+row #18 belongs to another OpenAI account with no credit, so every model call answers 429
+`credit_balance_exhausted`. The Bor de Guna organisation (sign-in `bordeguna@gmail.com`, credit about
+$20.52, auto-reload off, organisation limit $100) is the business's own account, which also answers
+the provider-ownership note of point 6: the gate's key belongs to the business, not to a person.
+On platform.openai.com, in organisation "Bor de Guna", project "Bor de Guna HQ Automation": API keys,
+create a secret key named `bordeguna-hq` (or use the existing "HQ Production" key ending `7j4A` if it
+was kept). On https://hq.bordeguna.com/credentials (hard reload first): provider `openai_api_key`,
+account ref `hq`, type `api_key`, group-wide, save. Storing is replacing: the row #18 is revoked in the
+same transaction. Then, on the OpenAI account the old key came from, delete that key. After he says it
+is stored, I run `hq:credentials:health --verify-model` (one call of 16 output tokens); it must read
+`verified`, and that exact key is the one the gate uses.
+
+**2. The P3-G1 production replay (one line).** Why: it proves on production's own database that the
+conversation core's invariants hold (33 scenarios, two replays, rolled back, no model, no provider);
+this session's classifier refuses it as a remote write although nothing survives the rollback.
+
+```
+! ssh vps 'cd /opt/bordeguna-hq && docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T app php artisan hq:conversation:simulate --repeat=2'
+```
+
+Expected: every scenario passed, the two replays identical, no row-count difference, exit 0.
+
+**3. The ERP read token for the Phase 4 reads.** Why: the five read tools answer 403 until HQ's ERP
+token carries `inventory.view` and `sales.view`. Run it in HIS OWN terminal, not with `!`, so the token
+is not printed into this chat:
+
+```
+ssh vps
+cd /opt/bordeguna-erp/deploy
+docker compose exec -T app php artisan hq:api:token hq@bordeguna.com 4 --name=hq-p4 --abilities=inventory.reports.view,sales.reports.view,crm.tickets.view,inventory.view,sales.view
+```
+
+The token prints once. On /credentials store it with the same provider and account as the current
+`erp_api_token` row (#1, business `bor-de-guna`); storing replaces #1. Tell me, and I run
+`hq:erp:probe` (a read). Only after the probe answers ok, revoke the old token:
+`docker compose exec -T app php artisan hq:api:token hq@bordeguna.com 4 --revoke` (the default name
+removes only the old `hq:business:4` token, never `hq-p4`).
+
+**4. Meta Business Verification (Phase 3 live, and Phase 5).** Why: Messenger and Instagram inbound
+cannot be switched on for real customers without it, and it takes days to weeks. As in `docs/82` S1.
+
+**5. The browser walk, under his 2FA.** Why: no page added since 16 September has been seen in a real
+browser by a person (this session cannot pass his 2FA). About ten minutes, reporting anything that
+looks wrong:
+- `/agents/runs/{any run}`: the execution-context panel (who asked, who enabled, businesses, tools);
+- `/observe/autonomy-evidence`: "No autonomy evidence policy is active";
+- `/observe/platform`: production `87d8658`, verified release, main ahead by documents only;
+- `/observe/alerts`: what the first alert checks found after the release;
+- `/approvals`: the requester and the enabler shown apart;
+- `/credentials`: the OpenAI row after step 1, reading `verified`;
+- `/horizon` in a fresh private window, signed in with password but BEFORE the 2FA code: it must send
+  him back to the 2FA challenge.
+
+**6. For Hudhud, the ERP's assistant (not HQ; recorded so all his steps are in one place).** The ERP
+now runs Hudhud on OpenAI with its tools (ERP `2d4b66b`, deployed 21 September). A separate key from
+the same organisation, project "Bor de Guna ERP Hudhud", pasted at
+https://erp.bordeguna.com/settings/ai-providers (provider OpenAI (ChatGPT), model Provider default);
+switch the Anthropic row off (Anthropic is still preferred while its row is active); press Test; ask
+one question in English and one in Bangla.
+
+**7. Later, after Stream M merges: its release (blocks Gate 11).** Why: Gate 11 must measure the build
+the shadow week will run, and Stream M changes PHP. The lines are added here when it merges.
 
 ### C.5 Stream O: the Phase 5 and 6 readiness packets
 
