@@ -534,6 +534,7 @@ only in the combined tree).
 | J. Defects found during the milestone (Horizon before 2FA, cached kill switches, the executor's decision rule, the edit's redaction, an email on the agents index, housekeeping), fixed before the candidate | `fix/pre-candidate-defects` | `docs/RESUME-HERE-2026-09-21.md` section 9 |
 | K. OpenAI as the model provider, by the owner's decision of 21 September (a driver, the rows, one serving provider, an audited lever, readiness that follows it) | `ai/openai-provider` | 10, 17 (owner decision, C.7) |
 | L. The scheduler's zombie leak (a production outage found by the candidate's preflight) and the health readers that could not read a 503 | `fix/scheduler-reaper-and-health-readers` | found on 21 September (C.8) |
+| M. One deploy or rollback at a time, and the residuals the milestone found (the deleted ERP host in the template and seed, a stray `RUN_MIGRATIONS`, Anthropic's spend limit as a credit block, `retire()` on a fresh row) | `fix/deploy-lock-and-residuals` | found during the milestone (C.9) |
 
 Rules every stream keeps: a correction is watched failing first; no prompt file changes; nothing is
 switched on; no grant, flag row or scheduled job is created; historical rows are never rewritten;
@@ -2621,6 +2622,112 @@ has no `flock(1)`, so the suite installs a stand-in only when the real one is mi
 `flock(2)` call on the inherited descriptor, through `perl`, which is how `flock -n 9` itself works
 (the lock belongs to the open file description, so it outlives the helper and holds while the script
 keeps the descriptor open). Items 3, 5 and 6 in Pest.
+
+#### C.9.3 As built
+
+**The host lock.** `deploy/host-lock-lib.sh` (new, sourced, mode 644 like `backup-first-lib.sh`):
+`hl_acquire deploy|rollback` refuses without `flock`, opens `${HQ_DEPLOY_LOCK:-/tmp/bordeguna-hq-deploy.lock}`
+on descriptor 9 for append (a failed open is a refusal: "cannot open the host lock"), and on `flock -n 9`
+failing reads the holder's line and dies with "another deploy or rollback is already running on this
+host (pid=... kind=... started=... checkout=...). Refusing to <verb>; nothing has moved." The holder
+truncates the file and writes that line, and `hl_release` clears it on exit. `deploy.sh` takes it right
+after the mode-600 check, before `running_release` and everything that decides; its EXIT trap is now
+`record_failed_release; hl_release`. `rollback.sh` takes it right after sourcing the libraries, before
+the target is read; its trap is `record_failed_rollback; hl_release`. `--verify-only` is still handed
+over before either. The lock is on a descriptor, so the rollback's `git checkout` replacing the script
+on disk does not touch it. Tested on Git Bash, by hand, before the suite: perl's `flock` on an
+inherited descriptor holds across processes while the shell keeps the descriptor, and is released
+when the shell ends.
+
+**The preflight** (`verify-only.sh`, new section "host lock", right after the checkout): reads the
+record with `head` and never opens, creates or locks the file. A pid that is alive (`kill -0`, or
+`/proc/<pid>`) and, where `/proc/<pid>/cmdline` is readable, is a `deploy.sh` or `rollback.sh`: FAIL
+naming the record. A record whose process is gone: WARN, the lock is free. A lock the user could not
+open, or no `flock`: FAIL. Otherwise `ok no deploy or rollback holds the host lock`. The header's list
+of what it runs names the new reads.
+
+**The stray `RUN_MIGRATIONS`.** The preflight's `deploy/.env` section FAILs on a `RUN_MIGRATIONS` line
+(with or without `export`, quoted or not; the last one wins, as `env_file` reads it) whose value is not
+0, and WARNs on a 0, naming the key and never printing the line. `deploy.sh` refuses the non-zero case
+after taking the lock and before anything is read or moved. That refusal goes a step past the brief,
+which named the preflight only: the preflight is optional, and the hazard is the deploy. Production's
+`deploy/.env` had no such line on 21 September (C.3.2), so this refuses nothing that runs today.
+
+**The ERP host.** `deploy/.env.example` and `config/hq-seed.php` (`erp-counter`) now name
+`https://erp.bordeguna.com`. `tests/Feature/Foundation/DeletedErpHostTest.php` (3 tests) reads every
+`config/*.php` with its comments stripped by the PHP tokenizer (so `config/hq.php`'s history comment is
+allowed), and `deploy/.env.example` with its comment lines skipped, and requires the seed's
+`erp-counter` URL. The comments in `config/hq.php` and `deploy/hq-monitor.sh` that record the old host,
+and every numbered document, are unchanged. Production's `stores` row keeps the dead URL until the
+`DomainSeeder` is next run there, which then writes the right one; nothing reads that row's URL today
+(`erp_pos` has no connector).
+
+**Anthropic's spend limit.** `ProviderCheck::classify()` reads a 400 containing "api usage limit" as
+`provider_blocked_by_credit`, with the measured wording in the comment. A plain bad request is still
+`connector_error` (the dataset case and a new assertion). `docs/runbooks/provider-blocked.md` is
+rewritten per provider: which one serves (`hq:ai:provider`), Anthropic's table with both billing 400s
+and the note that the usage limit used to read as `connector_error`, OpenAI's table with its five
+billing codes, the IP allow-list and region cases, and a warning that a key answers for the
+organisation it was made in (on 21 September the stored key answered `credit_balance_exhausted` while
+the Bor de Guna organisation showed credit).
+
+**`retire()`.** The whole act runs in one transaction: the version is read again by id with
+`lockForUpdate()`, the refusals are judged on that row (a missing row is refused too), that row is
+retired, audited and returned. The caller's instance is not touched. The console command
+`hq:autonomy-policy:retire` needed no change.
+
+**Watched failing first.** The deploy-safety suite with its 53 new checks, run against the unmodified
+scripts of `d2f0e30` (this branch's plan commit; the scripts are those of `6739fe5`): **275 passed,
+38 failed**. All 38 are new checks; every one of the 260 existing checks passed. Most of the 15 new
+checks that pass there are guards that must hold before and after: the worlds are set up as intended (a
+deploy or a rollback really is part way through, inside its dump), the preflight creates no lock file,
+a preflight refusing a stray line still changes nothing and prints no `KEY=value`, a `RUN_MIGRATIONS`
+of 0 does not fail the preflight, and the release that was part way through completes. One passed for
+an unrelated reason: the old deploy beside the held rollback failed at its own `up`, so "is refused"
+held without any lock. The failures show the defect itself: the second deploy
+and the rollback beside a running deploy both ran to the end and moved the checkout, the rollback
+released `61b589d` while the held deploy was still inside its dump, and the held deploy then carried on
+over it. The same run exposed a defect in the suite: the `sleep` wrapper looked up the real `sleep` on
+a PATH that still carried the previous world's `bin/`, whose removal on NTFS can lag behind a process
+that has just ended, and a vanished wrapper made one rollback exit 127. The wrapper now looks it up on
+the system PATH only; `lock_record` no longer prints a redirection error for a missing file. In Pest, the
+6 new tests failed on the unchanged code for the stated reasons: `hq-seed.php` (and only it) named the
+host in a value, the template line named it, the seed URL was the dead host, the spend limit read
+`connector_error`, the retirement with an unsaved edit raised the trigger's `QueryException`, and the
+stale copy raised a `QueryException` instead of the refusal.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset; Linux parity
+unproven).** Full Pest suite in one run: **1195 passed, 10,715 assertions, 0 failed, 271 s** (1189 plus
+the 6 new). `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npx vite build` built. The
+deploy-safety suite: **313 passed, 0 failed** (260 plus 53), on Git Bash with the NTFS `stat` shim of
+stream G (never committed) and the suite's own `flock` stand-in; on Linux the real `flock(1)` is used
+and the stand-in is not installed. `bash -n` clean on every `deploy/*.sh`, `deploy/gate/*.sh` and
+`deploy/tests/*.sh`. `deploy/README.md`: the release order names the lock and the refusal, a paragraph
+says what the lock message means and that nothing is ever removed by hand, and the preflight's list of
+checks names both new ones.
+
+**Decisions to revisit.**
+
+1. The lock lives in `/tmp`, beside the gate runner's, because `/tmp` exists on every host and the gate
+   has used it on the VPS. `/run/lock` would clear the record on a reboot; with `flock` the lock itself
+   never outlives its process, so only the record could be stale, and the preflight reads that as a
+   WARN.
+2. The lock covers `deploy.sh` and `rollback.sh` only. The gate runner has its own; `restore.sh` runs
+   inside the backup container and is a deliberate act with its own confirmation; the release-state
+   refresher only reads and writes `main.json`. A gate launched during a release is not refused.
+3. A missing `flock` is a refusal in both scripts and a FAIL in the preflight, but no check shows it:
+   the suite always has either the real `flock` or its stand-in.
+4. The first release after this merges is run by production's copy of `deploy.sh`, which takes no
+   lock; the protection starts with the release after it.
+
+**Found on the way, not fixed.**
+
+- `EvidencePolicies::activate()` has the shape `retire()` had: it judges the in-memory model and
+  saves the caller's instance. The trigger re-checks everything an activation needs, so it fails
+  closed, but a caller's unsaved edit to a proposed version would be activated with it.
+- `deploy/README.md` still heads the 21 September release steps "NOT YET APPLIED TO PRODUCTION",
+  although production runs `87d8658` since 06:32 UTC that day (C.8, D). Left for the merge step.
+- The local PostgreSQL was stopped after the power cut and was started again for this run (`pg_ctl`).
 
 ## D. Merge record, the combined tree, and the release candidate (21 September)
 
