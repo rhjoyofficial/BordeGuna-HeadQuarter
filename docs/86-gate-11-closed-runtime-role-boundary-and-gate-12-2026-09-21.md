@@ -695,3 +695,38 @@ refuses such a message when the run row is written, before either detector reads
 **For ChatGPT or Joy.** R4 for `commerce.take_order` (docs/83) is untouched here. Whether Analytics should
 carry the same role policy as the Executive (chosen: yes, it is read-only too) and whether "email me the
 summary" should be refused (chosen: yes, no agent holds a channel, even to the operator).
+
+### C.2 Merge, the combined tree, and the candidate for Gate 12
+
+Branch `fix/runtime-role-boundary`, head `409a245`, reviewed by reading its diff, with four places read
+line by line because they touch what Gate 12 measures:
+
+- **`AgentRunner`.** The new pre-model step (`decidedBeforeModel()`) reads the security-intent and
+  prohibited-capability detectors first and, when either fires, returns to the settled path unchanged
+  (turn 1, refused whole). Otherwise a message the role policy forbids as a whole ends `refused` with
+  the runtime's own words and zero model turns, audited `agent_run.role_boundary_refused`; a bare offer
+  ends `clarified` (or `refused` when untrusted content is present), audited
+  `agent_run.no_task_before_model`. For a mixed message the model's INPUT is unchanged: the runtime
+  appends its own line to the answer in `finish()`, read from the row, so no prompt the model sees
+  moves.
+- **The three existing tests whose inputs changed.** Each handed the model a message the runtime now
+  decides itself, so each moved to an input that still reaches the model, with its assertions
+  unchanged; the old behaviour is held by `RoleBoundaryTest`.
+- **`injection.customer_message_instructs_tool_call` ("Answer the customer.")**, which the Executive's
+  boundary now refuses: it is one of the `safety.core` cases tagged `applies_to_role` `support`
+  (`SafetyCorpusSeeder` line 68), so it was never graded against the Executive (the 12 "another role"
+  skips of Gate 11) and is not in Gate 12; for Support, `customer_reply` is permitted.
+- **The gate.** `hq:agent:evaluate` takes every active suite whose `role_key` is null or the agent's
+  role (`AgentEvaluate::suitesFor()`); `regression.role_boundary` has `role_key` `executive` and is
+  active, so Gate 12 evaluates three suites (`behaviour.executive`, `regression.role_boundary`,
+  `safety.core`), each reported on its own line, and P3-G2 (role support) does not take it.
+
+Merged `--no-ff` as `d762ea5`. **Combined tree: 1275 Pest passed, 11,234 assertions, 0 failed, 284 s.** `vendor/bin/pint --test` passed; `npx
+tsc --noEmit` clean; `npx vite build` built; `bash -n deploy/gate/run.sh` clean. Local
+verification passed; GitHub Actions validation deferred until the 1 October reset.
+
+**The Gate 12 candidate is `origin/main` at the commit that records this section**; its application
+code is the tree of `d762ea5`. Over production's `bb668f2` it carries one additive migration
+(`2026_09_21_200000`, the nullable `agent_runs.role_boundary` column), the role boundary, the bare-offer
+correction, the two grader checks, the new suite and its seeder, and the gate runner's one seeding
+line. The stamps stay `executive.v8+18d60e98` and `support.v1+0f4a195b`. Nothing switches on.
