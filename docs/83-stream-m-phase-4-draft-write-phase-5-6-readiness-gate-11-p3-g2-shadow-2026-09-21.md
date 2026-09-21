@@ -594,4 +594,46 @@ the shadow week will run, and Stream M changes PHP. The lines are added here whe
 
 ### C.5 Stream O: the Phase 5 and 6 readiness packets
 
-To be written.
+Merged `--no-ff` as `65c0c2b` (branch `docs/phase-5-6-readiness`, head `e35d288`); documents only,
+no code, migration, flag or job, so no suite changes.
+
+- **`docs/84`, Phase 5, marketing and ads (600 lines).** Built on what HQ already has
+  (`Platform/Contracts/AdsPlatform.php` with its six operations, the capability router's refusal of
+  two equally valid ad accounts, the descriptor vocabulary, V.1's approval for every R4 and R5). One
+  section per bullet of point 4, in order, mapped at the end. Capabilities sketched: reading campaigns
+  and insights R2; preparing a paused campaign, pausing, lowering a budget and uploading a creative
+  R4; raising a budget and switching a campaign on R5; a customer-list upload R5 with per-person
+  marketing consent and not in the first release. Gates P5-G0 (readiness) to P5-G5 (the first
+  guardrail, a pause only). One correction made openly: `docs/16`'s examples that ran without approval
+  ("budget up to 20%", "auto-pause") give way to V.1 until measured evidence exists.
+- **`docs/85`, Phase 6, content factory and research engine (442 lines).** One section per bullet of
+  point 5, plus the four rules at its end mapped to mechanisms (memory is not truth; model output is not
+  trusted; untrusted content creates no authority; no open browsing: fetching only from the task's
+  list and its own results). Research search and fetch R2; filing an artifact, a draft, an image or a
+  card R3; a draft post R4; publishing and deleting a post R5, one approval per exact post, read back.
+  Gates P6-G0 to P6-G5.
+- **ADR-050** (paid media moves money only by a person's decision; billing, payment methods, the ad
+  account spending limit, accounts, people, legal identity fields and deletion are never tools; the
+  owner's spending limit in Meta is a ceiling HQ reads and never writes) and **ADR-051** (research is
+  evidence, never truth; product facts in published content come only from the ERP or the shop),
+  both proposed and indexed in `docs/32`.
+- **External facts** were read from the providers' own pages on 21 September and cited; what could
+  not be verified is marked in the text: bKash as a Meta ads payment method (press only; Meta's
+  Bangladesh page lists cards and PayPal), special ad category rules for a Bangladesh-only campaign,
+  VAT on Meta's invoices in Bangladesh, the data-protection position on hashed customer data in the
+  Conversions API, an idempotency key in the Marketing API, Meta's verification document list for
+  Bangladesh, App Review for publishing to the group's own Pages, Instagram story publishing and
+  container lifetime, Tavily's storage terms, a Page publishing rate limit, LinkedIn's access process.
+- **Found in the records:** the ad account records disagree (`docs/16` has one account billed in
+  BDT; the LaLaDia hilsa account shows a $10-a-day budget).
+- **Owner prerequisites added:** `docs/70` E5 to E7 (a system user in the business portfolio with its
+  token on HQ; each ad account's brand, currency and spending limit; whether bKash is offered) and F7
+  to F9 (Page publishing permissions and tokens; Instagram professional accounts; a content brief and
+  claims policy per product line); `docs/82` S1 sourced (Meta: "may take up to 14 business days") and
+  sections 5 and 7 (decisions 6 and 7: the ads money and the content claims).
+- **Left for Joy:** which ad account belongs to each brand and its currency; the monthly ads budget
+  per business; whether delivered purchases are sent to Meta and with which customer fields; the
+  claims policy per product line; the search provider and a plan that allows storing results; the
+  source list; who approves posts per brand; how long unapproved drafts are kept. **For ChatGPT:**
+  whether V.1 replaces `docs/16`'s automatic examples; publishing at R5 (proposed) or R4; whether
+  switching a campaign on may ever rise above A2.
