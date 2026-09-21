@@ -166,19 +166,31 @@ class Approval extends Model
     }
 
     /**
-     * Who may decide this one: the delegate when there is one, otherwise anybody holding the
-     * decide permission. Delegation NARROWS, it never widens.
+     * Who may decide this one, as the reason a person may NOT, or null when they may: the delegate
+     * when there is one, otherwise anybody holding the decide permission, and never the person the
+     * separation rule bars. Delegation NARROWS, it never widens.
+     *
+     * The one rule for every door to a decision (docs/81 C.6): the screen, the executor, an edit and
+     * a rejection all read it, so a caller that skips the controller meets the same answer.
      */
-    public function isDecidableBy(User $user): bool
+    public function decisionRefusalReason(User $user): ?string
     {
-        if (! $user->can('hq.approvals.decide')) {
-            return false;
+        if (($barred = $this->separationOfDutiesReason($user)) !== null) {
+            return $barred;
         }
-        if ($this->separationOfDutiesReason($user) !== null) {
-            return false;
+        if (! $user->can('hq.approvals.decide')) {
+            return 'You do not hold the permission to decide approvals.';
+        }
+        if ($this->delegated_to_user_id !== null && (int) $this->delegated_to_user_id !== (int) $user->getKey()) {
+            return 'This approval is delegated to somebody else.';
         }
 
-        return $this->delegated_to_user_id === null || $this->delegated_to_user_id === $user->getKey();
+        return null;
+    }
+
+    public function isDecidableBy(User $user): bool
+    {
+        return $this->decisionRefusalReason($user) === null;
     }
 
     /** What a screen may show. Contains no secret: the payload was redacted before it was stored. */

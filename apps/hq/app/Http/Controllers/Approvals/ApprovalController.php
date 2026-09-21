@@ -225,11 +225,8 @@ final class ApprovalController extends Controller
         if ($approval->status !== ApprovalStatus::Pending) {
             throw ValidationException::withMessages(['approval' => "This approval is {$approval->status->label()}."]);
         }
-        if (($barred = $approval->separationOfDutiesReason($request->user())) !== null) {
+        if (($barred = $approval->decisionRefusalReason($request->user())) !== null) {
             abort(403, $barred);
-        }
-        if (! $approval->isDecidableBy($request->user())) {
-            abort(403, 'This approval is delegated to somebody else.');
         }
     }
 }
