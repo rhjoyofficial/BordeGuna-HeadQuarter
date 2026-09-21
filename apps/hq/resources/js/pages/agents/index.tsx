@@ -18,7 +18,7 @@ type AgentCard = {
     model_tier: string | null;
     max_autonomy_level: string | null;
     allowed_tools: string[];
-    enabling_user: string | null;
+    enabling_user: { user_id: number; name: string | null } | null;
     runs: number;
     awaiting_review: number;
 };
@@ -99,7 +99,15 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                                 <dd>{AUTONOMY[agent.max_autonomy_level ?? 'a0'] ?? agent.max_autonomy_level?.toUpperCase()}</dd>
                                 <dt className="text-muted-foreground">Acts as</dt>
                                 <dd className="truncate">
-                                    {agent.enabling_user ?? <span className="text-muted-foreground">nobody, so it is inert</span>}
+                                    {agent.enabling_user ? (
+                                        agent.enabling_user.name ? (
+                                            `${agent.enabling_user.name} (user #${agent.enabling_user.user_id})`
+                                        ) : (
+                                            `user #${agent.enabling_user.user_id}`
+                                        )
+                                    ) : (
+                                        <span className="text-muted-foreground">nobody, so it is inert</span>
+                                    )}
                                 </dd>
                                 <dt className="text-muted-foreground">Model tier</dt>
                                 <dd>{agent.model_tier ?? 'default'}</dd>
