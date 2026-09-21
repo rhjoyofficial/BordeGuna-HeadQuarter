@@ -55,9 +55,21 @@ new_world() {
     # The release-state pieces deploy.sh sources and calls (docs/80 C.4), and rollback.sh, which
     # records itself the same way. The real files, as shipped.
     cp "${REPO_ROOT}/deploy/release-state-lib.sh" "${REPO_ROOT}/deploy/release-state-refresh.sh" "${REPO_ROOT}/deploy/rollback.sh" deploy/
+    # The backup-first functions both scripts share, and the preflight (docs/81 C.3).
+    for f in backup-first-lib.sh verify-only.sh; do
+        [ -f "${REPO_ROOT}/deploy/${f}" ] && cp "${REPO_ROOT}/deploy/${f}" deploy/
+    done
     chmod +x deploy/deploy.sh deploy/release-state-refresh.sh deploy/rollback.sh
-    : > deploy/docker-compose.yml
-    echo "APP_KEY=x" > deploy/.env; chmod 600 deploy/.env
+    # ⭐ The REAL compose file and the real .env template. The stub resolves RUN_MIGRATIONS from the
+    # compose files a command is given, so "a deploy migrates, a rollback does not" is measured
+    # against what docker-compose.yml actually says, not against a copy of the expectation.
+    cp "${REPO_ROOT}/deploy/docker-compose.yml" "${REPO_ROOT}/deploy/.env.example" deploy/
+    printf '%s
+' APP_KEY=x APP_ENV=production APP_URL=https://hq.test DB_CONNECTION=pgsql DB_HOST=db         DB_DATABASE=hq DB_USERNAME=hq DB_PASSWORD=x REDIS_HOST=redis REDIS_PASSWORD=x > deploy/.env
+    chmod 600 deploy/.env
+    # As in the real repository: the host's own files are not tracked.
+    printf '%s
+' deploy/.env deploy/RELEASES.md deploy/release-state/ > .gitignore
     echo one > file.txt
     git add -A >/dev/null; git commit -qm one; git push -q origin main
     OLD_HEAD=$(git rev-parse --short HEAD)
@@ -88,6 +100,8 @@ new_world() {
     export STUB_LAST_STATUS=0 STUB_DUMP_PRESENT=0
     unset STUB_LAST_OK 2>/dev/null || true
     unset STUB_BUILD_EXIT STUB_UP_D_EXIT STUB_UP_EXIT STUB_HEALTH_STATUS STUB_HEALTH_RELEASE STUB_FAST_SLEEP 2>/dev/null || true
+    unset STUB_IGNORE_OVERRIDE STUB_CONFIG_EXIT STUB_BACKUP_INODE STUB_RELEASE_STATE_INODE STUB_RELEASE_STATE_MOUNTED 2>/dev/null || true
+    unset VERIFY_MIN_FREE_MB VERIFY_MAX_DUMP_AGE_HOURS VERIFY_REMOTE_TIMEOUT 2>/dev/null || true
     unset RELEASE_STATE_DIR HEALTH_TRIES HEALTH_WAIT FETCH_MIN_INTERVAL RS_FETCHED_NOW 2>/dev/null || true
 }
 
@@ -390,6 +404,363 @@ is   "the rollback is recorded as a rollback"                   "$(field "$(STAT
 is   "...of the target commit"                                  "$(field "$(STATE)/release.json" commit)" "$OLD_HEAD"
 is   "...from the release it replaced"                          "$(field "$(STATE)/release.json" previous)" "$NEW_HEAD"
 is   "a verified rollback becomes the last verified release"    "$(field "$(STATE)/last-verified.json" commit)" "$OLD_HEAD"
+cleanup
+
+# ═══ One rollback invariant (docs/81 C.3) ════════════════════════════════════════════════════════
+#
+#   A rollback changes code and nothing else. It never runs a migration, and it happens only behind
+#   a verified dump, exactly like a deploy.
+#
+# Until docs/81 C.3 rollback.sh set RUN_MIGRATIONS=0 on `build`, where it reaches nothing, the
+# compose file hardcodes "1", and the old image's entrypoint ran `migrate --force`. It also moved
+# the checkout with no dump. The stub resolves RUN_MIGRATIONS from the compose files each command
+# is really given, and records it at every `up` that starts `app`.
+migrations_at_last_up() { cat "${STUB_STATE}/app-run-migrations" 2>/dev/null || echo "never-started"; }
+# Everything a refused run must leave alone, as one digest: HEAD, every ref, the index against the
+# tree, and every file under deploy/ (RELEASES.md and release-state/ among them) byte for byte.
+snapshot() {
+    (cd "$STUB_REPO" && git rev-parse HEAD && git for-each-ref && GIT_OPTIONAL_LOCKS=0 git status --porcelain \
+        && cksum .git/FETCH_HEAD .git/index 2>/dev/null; find deploy -type f | sort | xargs cksum) 2>&1
+}
+# What the stub saw that CHANGES containers or images: a compose lifecycle subcommand, or a
+# horizon terminate or a migration run inside a container. ⚠ Lines that `exec` a command are read for
+# the command only: the backup mount probe runs `rm -f` INSIDE the backup container, which is not a
+# container being removed.
+count_lines()       { grep -cE "$1" 2>/dev/null || true; }
+lifecycle_calls()   { grep -vE ' exec ' "$STUB_TRACE" | count_lines ' (up|build|stop|start|restart|down|rm|run|kill|pull)( |$)'; }
+release_mutations() { echo $(( $(lifecycle_calls) + $(count_lines 'horizon:terminate|migrate' < "$STUB_TRACE") )); }
+# ...or anything at all, the dump and the mount probe included.
+any_mutations()     { echo $(( $(release_mutations) + $(count_lines 'backup\.sh once|mount-probe' < "$STUB_TRACE") )); }
+
+echo
+echo "one rollback invariant"
+echo
+
+# ── 17. A deploy migrates; a rollback does not ──────────────────────────────────────────────────
+new_world
+RC=$(run_deploy)
+is   "a normal deploy still starts app with migrations ON"      "$(migrations_at_last_up)" "1"
+export STUB_FAST_SLEEP=1
+: > "$STUB_TRACE"; rm -f "${STUB_STATE}/head-at-backup"
+RC=$(run_rollback "$OLD_HEAD")
+is   "a rollback succeeds"                                      "$RC" "0"
+is   "a rollback starts app with migrations OFF"                "$(migrations_at_last_up)" "0"
+is   "...and only the DEPLOY ever started app with them on"     "$(grep -c '^1$' "${STUB_STATE}/app-run-migrations-history" 2>/dev/null)" "1"
+grep -q "app started with RUN_MIGRATIONS=0: no migration was run" "${WORLD}/out" \
+    && ok "the rollback READS BACK the started container and says no migration ran" \
+    || bad "the rollback should state what the started container's environment was: $(tail -3 "${WORLD}/out")"
+grep -q "No migration was run and the database was not restored" "${WORLD}/out" \
+    && ok "...and says plainly that the schema and data were not rolled back" \
+    || bad "the rollback should say the schema is not rolled back"
+# Backup first, the same invariant as deploy.sh.
+is   "the rollback took a dump"                                 "$(grep -c 'backup.sh once' "$STUB_TRACE")" "1"
+is   "...BEFORE the checkout moved"                             "$(cat "${STUB_STATE}/head-at-backup" 2>/dev/null)" "$NEW_HEAD"
+is   "the checkout then moved to the target"                    "$(head_now)" "$OLD_HEAD"
+is   "release.json records the dump the rollback stood behind"  "$(field "$(STATE)/release.json" dump)" "/backups/daily/hq-20260910-000000.dump"
+is   "...and a predecessor read from the running image, so KNOWN" "$(rawfield "$(STATE)/release.json" previous_known)" "true"
+grep -q "ROLLBACK to ${OLD_HEAD} | from ${NEW_HEAD} | code only, no migrations run" "${STUB_REPO}/deploy/RELEASES.md" \
+    && ok "RELEASES.md says: code only, no migrations run" \
+    || bad "RELEASES.md should record the rollback as code only: $(tail -1 "${STUB_REPO}/deploy/RELEASES.md")"
+# And forward again is a DEPLOY, which migrates by design.
+(cd "$STUB_REPO" && git checkout -q main)
+RC=$(cd "$STUB_REPO" && ./deploy/deploy.sh --no-pull >"${WORLD}/out" 2>&1; echo $?)
+is   "returning to main with deploy.sh --no-pull succeeds"      "$RC" "0"
+is   "...and starts app with migrations ON again"               "$(migrations_at_last_up)" "1"
+cleanup
+
+# ── 18. A rollback whose backup fails moves NOTHING ─────────────────────────────────────────────
+new_world
+RC=$(run_deploy)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+export STUB_BACKUP_EXIT=1
+RC=$(run_rollback "$OLD_HEAD")
+isnt "a rollback whose dump fails is refused"                   "$RC" "0"
+is   "...the checkout, refs, RELEASES.md and release state are byte-identical" "$(snapshot)" "$BEFORE"
+is   "...and no container or image was touched"                 "$(release_mutations)" "0"
+grep -q 'checkout has NOT moved' "${WORLD}/out" && ok "...and it says the checkout has not moved" || bad "the refusal should say the checkout has not moved"
+cleanup
+
+new_world
+RC=$(run_deploy)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+export STUB_MOUNT_EXIT=1 STUB_MOUNT_REPAIRABLE=0 STUB_FAST_SLEEP=1
+rm -f "${STUB_STATE}/backup-recreated"
+RC=$(run_rollback "$OLD_HEAD")
+isnt "a rollback over a dead, unrepairable backup mount is refused" "$RC" "0"
+is   "...and moves the checkout, RELEASES.md and release state nowhere" "$(snapshot)" "$BEFORE"
+is   "...and never takes a dump it cannot store"                "$(grep -c 'backup.sh once' "$STUB_TRACE")" "0"
+is   "...and never reaches a build"                             "$(grep -c ' build ' "$STUB_TRACE")" "0"
+cleanup
+
+# ── 19. Targets that are refused, each moving nothing at all (not even a dump) ──────────────────
+new_world
+RC=$(run_deploy)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(run_rollback "$NEW_HEAD")
+isnt "a rollback to the release that is already running is refused" "$RC" "0"
+grep -q "already what is running" "${WORLD}/out" && ok "...with the reason" || bad "should say it is already running: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+: > "$STUB_TRACE"
+RC=$(run_rollback "0123abc")
+isnt "a rollback to a commit this checkout does not know is refused" "$RC" "0"
+grep -q "is not a commit this checkout knows" "${WORLD}/out" && ok "...with the reason" || bad "should say the commit is unknown: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+: > "$STUB_TRACE"
+RC=$(cd "$STUB_REPO" && ./deploy/rollback.sh >"${WORLD}/out" 2>&1; echo $?)
+isnt "a rollback with no target is refused"                     "$RC" "0"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+
+# A commit on another line: never released, not an ancestor of what runs. It may carry migrations
+# production has never seen, so releasing it is a deploy, not a rollback.
+(cd "${WORLD}/other" && git checkout -q -b side "$OLD_HEAD" && echo side > side.txt && git add -A && git commit -qm side && git push -q origin side)
+(cd "$STUB_REPO" && git fetch -q origin)
+SIDE=$(cd "$STUB_REPO" && git rev-parse --short origin/side)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(run_rollback "$SIDE")
+isnt "a rollback to a commit that is neither an ancestor nor a recorded release is refused" "$RC" "0"
+grep -q "neither an ancestor of the running release" "${WORLD}/out" && ok "...with the reason" || bad "should say it is not an ancestor: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+
+# A hand edit on the production checkout.
+(cd "$STUB_REPO" && echo "edited by hand" >> file.txt)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(run_rollback "$OLD_HEAD")
+isnt "a rollback over a hand-edited checkout is refused"        "$RC" "0"
+grep -q "tracked files are modified on this checkout: file.txt" "${WORLD}/out" && ok "...naming the file" || bad "should name the modified file: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+cleanup
+
+# A release that IS on record may be rolled back to even when it is not an ancestor of what runs
+# (after a rollback, the newer release is such a commit).
+new_world
+RC=$(run_deploy)
+export STUB_FAST_SLEEP=1
+RC=$(run_rollback "$OLD_HEAD")
+RC=$(run_rollback "$NEW_HEAD")
+is   "a commit RELEASES.md names as released is accepted though it is not an ancestor" "$RC" "0"
+is   "...and it too starts with migrations OFF"                 "$(migrations_at_last_up)" "0"
+cleanup
+
+# ── 20. If the override would NOT take effect, nothing moves ────────────────────────────────────
+new_world
+RC=$(run_deploy)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+export STUB_IGNORE_OVERRIDE=1
+RC=$(run_rollback "$OLD_HEAD")
+isnt "a rollback whose resolved configuration still says RUN_MIGRATIONS=1 is refused" "$RC" "0"
+grep -q "does not resolve RUN_MIGRATIONS to 0" "${WORLD}/out" && ok "...with the reason" || bad "should say the configuration still migrates: $(tail -1 "${WORLD}/out")"
+is   "...the checkout, RELEASES.md and release state are byte-identical" "$(snapshot)" "$BEFORE"
+is   "...and no container or image was touched"                 "$(release_mutations)" "0"
+# The configuration is READ before the dump, like every other refusal, so a refused rollback takes
+# nothing at all.
+is   "...not even a dump or a mount probe: the check is a read, made before the backup" "$(any_mutations)" "0"
+grep -q 'compose.* config' "$STUB_TRACE" && ok "...and the configuration really was resolved through compose" || bad "rollback.sh should resolve the target's configuration with docker compose config"
+cleanup
+
+# The same check on a real target: the TARGET's own compose file is what is resolved (read out of
+# git, never checked out), so a target that hardcodes a different value is caught before it runs.
+new_world
+RC=$(run_deploy)
+: > "$STUB_TRACE"
+export STUB_FAST_SLEEP=1
+mkdir -p "${WORLD}/tmp"
+RC=$(TMPDIR="${WORLD}/tmp" run_rollback "$OLD_HEAD")
+is   "a rollback succeeds"                                      "$RC" "0"
+grep -qE 'compose -f [^ ]*target-compose\.yml -f [^ ]*no-migrations\.override\.yml .*config' "$STUB_TRACE" \
+    && ok "the rollback resolves the TARGET's compose file together with its override" \
+    || bad "the rollback should resolve the target's compose file with the override: $(grep config "$STUB_TRACE" | head -2)"
+grep -qE 'compose -f deploy/docker-compose\.yml -f [^ ]*no-migrations\.override\.yml --env-file deploy/\.env up -d --no-deps app' "$STUB_TRACE" \
+    && ok "...and passes the same override on the up that starts app" \
+    || bad "the up that starts app should carry the override: $(grep ' up ' "$STUB_TRACE" | tail -2)"
+grep -q "${WORLD}/tmp/hq-rollback" "$STUB_TRACE" && ok "the override is written outside the checkout, under TMPDIR" || bad "the override should live under TMPDIR, outside the checkout"
+is   "...and is gone afterwards"                                "$(ls -A "${WORLD}/tmp" | wc -l | tr -d ' ')" "0"
+is   "...and nothing was left in the checkout"                  "$(cd "$STUB_REPO" && git status --porcelain | grep -v '^?? deploy/' | wc -l | tr -d ' ')" "0"
+cleanup
+
+# ── 21. deploy.sh refuses an argument it does not know ──────────────────────────────────────────
+new_world
+BEFORE=$(snapshot)
+RC=$(cd "$STUB_REPO" && ./deploy/deploy.sh --nopull >"${WORLD}/out" 2>&1; echo $?)
+isnt "deploy.sh --nopull (a typing mistake) is refused, not read as 'pull'" "$RC" "0"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+cleanup
+
+# ═══ deploy.sh --verify-only (docs/81 C.3) ═══════════════════════════════════════════════════════
+#
+# A preflight that changes NOTHING: not the checkout, not a ref, not a container, not the database,
+# not RELEASES.md, not the release state, not the backup root. Proved in a passing world and in each
+# failing one by the same digest, plus the backup root and the stub's record of every docker call.
+run_verify() { (cd "$STUB_REPO" && ./deploy/deploy.sh --verify-only "$@" >"${WORLD}/out" 2>&1); echo $?; }
+seed_backups() {
+    mkdir -p "${HOST_BACKUP_DIR}/daily" "${HOST_BACKUP_DIR}/weekly"
+    echo "a verified dump" > "${HOST_BACKUP_DIR}/daily/hq-20260910-000000.dump"
+    echo 0 > "${HOST_BACKUP_DIR}/LAST_STATUS"; date -u +%FT%TZ > "${HOST_BACKUP_DIR}/LAST_RUN"
+    echo "/backups/daily/hq-20260910-000000.dump" > "${HOST_BACKUP_DIR}/LAST_OK"
+}
+full_snapshot() { snapshot; (cd "$HOST_BACKUP_DIR" 2>/dev/null && find . | sort && find . -type f | sort | xargs cksum) 2>&1; }
+# A released, verified world with two commits waiting on main, already fetched (as the cron
+# refresher would have), one of them a migration that DROPS a column.
+verify_world() {
+    new_world
+    RC=$(run_deploy)
+    seed_backups
+    push_commit 'add a table' apps/hq/database/migrations/2026_09_21_000001_create_things_table.php
+    (cd "${WORLD}/other" && printf '%s\n' '<?php' 'return new class extends Migration {' \
+        '    public function up(): void { Schema::table("things", function ($t) { $t->dropColumn("legacy"); }); }' \
+        '    public function down(): void { Schema::table("things", function ($t) { $t->string("legacy")->nullable(); }); }' \
+        '};' > apps/hq/database/migrations/2026_09_21_000002_drop_a_column.php \
+        && git add -A && git commit -qm 'drop a column' && git push -q origin main)
+    (cd "$STUB_REPO" && git fetch -q origin)
+    TIP=$(cd "$STUB_REPO" && git rev-parse --short origin/main)
+    export VERIFY_MIN_FREE_MB=1
+    : > "$STUB_TRACE"
+}
+assert_nothing_changed() { # assert_nothing_changed <label> <before>
+    is "$1: checkout, refs, index, RELEASES.md, release state and backup root are byte-identical" "$(full_snapshot)" "$2"
+    is "$1: the stub recorded no docker mutation, no dump and no probe"                          "$(any_mutations)" "0"
+}
+
+echo
+echo "deploy.sh --verify-only"
+echo
+
+# ── 22. The passing case ────────────────────────────────────────────────────────────────────────
+verify_world
+BEFORE=$(full_snapshot)
+RC=$(run_verify)
+is   "verify-only passes on a healthy host"                     "$RC" "0"
+assert_nothing_changed "passing" "$BEFORE"
+is   "...the checkout did not move though main is ahead"        "$(head_now)" "$NEW_HEAD"
+grep -q "It is not a deployment" "${WORLD}/out" && grep -q "NOTHING WAS RELEASED" "${WORLD}/out" \
+    && ok "it says, top and bottom, that it is not a deployment" || bad "verify-only must say it is not a deployment"
+grep -q "running release is ${NEW_HEAD}" "${WORLD}/out"         && ok "it names the running release, from the image label" || bad "should name the running release"
+grep -q "/api/health names the running commit" "${WORLD}/out"   && ok "it checks that health names the running commit"   || bad "should check health names the commit"
+grep -q "the bind mount is live" "${WORLD}/out"                 && ok "it checks the backup bind mount without writing through it" || bad "should check the backup mount"
+grep -q "is a fast-forward of the checkout" "${WORLD}/out"      && ok "it checks origin/main is a fast-forward"         || bad "should check fast-forward"
+grep -q "2 commit(s) between the running release" "${WORLD}/out" && ok "it lists the commits the release would bring"  || bad "should list pending commits: $(grep -n 'commit' "${WORLD}/out" | head -3)"
+grep -q "2026_09_21_000001_create_things_table.php" "${WORLD}/out" && ok "it lists the pending migration files"        || bad "should list pending migrations"
+grep -q "DESTRUCTIVE statement in the up() of 2026_09_21_000002_drop_a_column.php" "${WORLD}/out" \
+    && ok "a pending migration that drops a column is a WARNING, with the file named" || bad "should warn about the destructive migration"
+grep -q "DESTRUCTIVE statement in the up() of 2026_09_21_000001" "${WORLD}/out" \
+    && bad "an additive migration was called destructive" || ok "...and an additive migration is not"
+grep -Eq "(APP_KEY|DB_PASSWORD|REDIS_PASSWORD)=" "${WORLD}/out" && bad "a KEY=value line from deploy/.env was printed" || ok "no KEY=value from deploy/.env is printed"
+
+# The same world, with --no-pull: origin is not consulted at all.
+: > "$STUB_TRACE"
+RC=$(run_verify --no-pull)
+is   "verify-only --no-pull passes"                             "$RC" "0"
+assert_nothing_changed "passing, --no-pull" "$BEFORE"
+grep -q "origin is not consulted" "${WORLD}/out" && ok "...and describes releasing the checked-out commit" || bad "--no-pull should not consult origin"
+
+# A copy of the preflight run from OUTSIDE the checkout, with HQ_ROOT naming it: how it is run on
+# production before the first deploy that carries it (deploy/README.md). Same checks, same promise.
+mkdir -p "${WORLD}/elsewhere"
+cp "${STUB_REPO}/deploy/verify-only.sh" "${WORLD}/elsewhere/hq-verify-only.sh"
+: > "$STUB_TRACE"
+RC=$(cd / && HQ_ROOT="$STUB_REPO" bash "${WORLD}/elsewhere/hq-verify-only.sh" >"${WORLD}/out" 2>&1; echo $?)
+is   "a copy run from elsewhere with HQ_ROOT passes"            "$RC" "0"
+grep -q "running release is ${NEW_HEAD}" "${WORLD}/out" && ok "...and checks the checkout HQ_ROOT names" || bad "HQ_ROOT should name the checkout: $(head -12 "${WORLD}/out")"
+assert_nothing_changed "a copy run from elsewhere" "$BEFORE"
+RC=$(cd / && HQ_ROOT="${WORLD}/no-such-checkout" bash "${WORLD}/elsewhere/hq-verify-only.sh" >"${WORLD}/out" 2>&1; echo $?)
+isnt "an HQ_ROOT that is not a directory is refused"            "$RC" "0"
+grep -q "cannot enter the checkout" "${WORLD}/out" && ok "...with the reason" || bad "should say it cannot enter the checkout: $(tail -1 "${WORLD}/out")"
+
+# Main has moved past what this checkout has fetched: said, never fetched.
+push_commit 'not fetched yet'
+: > "$STUB_TRACE"
+RC=$(run_verify)
+is   "with main ahead of the last fetch it still passes"        "$RC" "0"
+grep -q "which this checkout has NOT fetched" "${WORLD}/out" && ok "...and SAYS the listing is of the last fetched main" || bad "should say main has moved past the last fetch"
+assert_nothing_changed "main ahead of the last fetch (no fetch happened)" "$BEFORE"
+cleanup
+
+# ── 23. The failing cases: a specific reason, a non-zero exit, and still nothing changed ────────
+verify_fails() { # verify_fails <label> <pattern>
+    BEFORE=$(full_snapshot); : > "$STUB_TRACE"
+    RC=$(run_verify)
+    isnt "$1: verify-only exits non-zero"                       "$RC" "0"
+    grep -q "FAIL .*$2" "${WORLD}/out" && ok "$1: the reason is named" || bad "$1: expected a FAIL naming '$2': $(grep FAIL "${WORLD}/out" | head -3)"
+    grep -q "RESULT: FAILED" "${WORLD}/out" && ok "$1: the result line says FAILED" || bad "$1: should end RESULT: FAILED"
+    assert_nothing_changed "$1" "$BEFORE"
+}
+
+verify_world
+(cd "$STUB_REPO" && echo "edited by hand" >> file.txt)
+verify_fails "a hand edit on the production checkout" "tracked files are MODIFIED"
+grep -q "M file.txt" "${WORLD}/out" && ok "...and the file is named" || bad "the modified file should be named"
+cleanup
+
+verify_world
+sed -i '/^DB_PASSWORD=/d' "${STUB_REPO}/deploy/.env"
+verify_fails "a required key missing from deploy/.env" "required keys: DB_PASSWORD"
+cleanup
+
+verify_world
+export STUB_BACKUP_INODE=1
+verify_fails "a dead backup bind mount" "DEAD BIND MOUNT"
+cleanup
+
+verify_world
+rm -rf "$HOST_BACKUP_DIR"
+verify_fails "a deleted backup root" "DOES NOT EXIST on the host"
+is   "...and it did NOT recreate the directory (deploy.sh would)" "$( [ -e "$HOST_BACKUP_DIR" ] && echo yes || echo no )" "no"
+cleanup
+
+verify_world
+echo 1 > "${HOST_BACKUP_DIR}/LAST_STATUS"
+verify_fails "a last backup run that failed" "last backup run reported FAILURE"
+cleanup
+
+verify_world
+export VERIFY_MIN_FREE_MB=999999999
+verify_fails "too little free disk" "under the minimum of 999999999 MB"
+cleanup
+
+verify_world
+export STUB_HEALTH_STATUS=fail
+verify_fails "an unhealthy stack" "/api/health is 'fail'"
+cleanup
+
+verify_world
+export STUB_HEALTH_RELEASE=deadbeef
+verify_fails "health naming another commit" "names deadbeef but the running image label says"
+cleanup
+
+verify_world
+export STUB_UP_EXIT=1
+verify_fails "/up not answering" "/up does NOT answer"
+cleanup
+
+verify_world
+export STUB_CONFIG_EXIT=15
+verify_fails "an invalid compose file" "does not pass 'compose config -q'"
+cleanup
+
+verify_world
+(cd "$STUB_REPO" && git remote set-url origin "${WORLD}/no-such-remote.git")
+verify_fails "an unreachable origin" "origin is NOT reachable"
+cleanup
+
+verify_world
+(cd "$STUB_REPO" && git reset -q --hard "$OLD_HEAD" && echo local > local.txt && git add local.txt && git commit -qm 'a local commit')
+verify_fails "a checkout that origin/main is not a fast-forward of" "is NOT a fast-forward"
+cleanup
+
+# The mode-600 guard, where the filesystem can show a mode at all (not under the NTFS stat shim).
+verify_world
+chmod 644 "${STUB_REPO}/deploy/.env"
+if [ "$(stat -c %a "${STUB_REPO}/deploy/.env")" = "644" ]; then
+    verify_fails "deploy/.env readable by others" "must be 600"
+else
+    echo "  (skipped: this filesystem reports 600 whatever chmod is given, so the mode FAIL cannot be shown here)"
+fi
 cleanup
 
 echo
