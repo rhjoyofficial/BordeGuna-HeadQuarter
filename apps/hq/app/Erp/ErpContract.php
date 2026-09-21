@@ -78,6 +78,24 @@ final class ErpContract
         }
     }
 
+    /**
+     * An order-read body must say which contract it speaks and which business it answers for.
+     *
+     * A body from another contract version is a changed interface, and one for another business is
+     * a scoping fault at the ERP; either read as an answer would put another shape, or another
+     * business's product and price, into a reply about this one. Both refuse, loudly.
+     */
+    public static function requireOrderReadsContract(array $meta, string $contract, int $erpBusinessId, string $operation): void
+    {
+        $spoken = $meta['contract'] ?? null;
+        if ($spoken !== $contract) {
+            throw new Unsupported("ERP {$operation}: the response speaks contract [".(is_scalar($spoken) ? (string) $spoken : 'none')."], and HQ reads [{$contract}].");
+        }
+        if (array_key_exists('business_id', $meta) && (int) $meta['business_id'] !== $erpBusinessId) {
+            throw new Unsupported("ERP {$operation}: the response is for business {$meta['business_id']}, and this connector asked for business {$erpBusinessId}.");
+        }
+    }
+
     private static function keys(array $a): string
     {
         return $a === [] ? '(none)' : implode(', ', array_keys($a));
