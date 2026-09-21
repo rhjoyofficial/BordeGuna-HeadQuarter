@@ -68,6 +68,22 @@ trap cleanup EXIT
 # functions write.
 health_status()  { printf '%s' "${1:-}" | grep -o '^{"status":"[a-z]*"' | cut -d'"' -f4 || true; }
 health_release() { printf '%s' "${1:-}" | grep -o '"release":"[^"]*"' | head -1 | cut -d'"' -f4 || true; }
+# The components a health answer says are not ok, with their detail: "scheduler fail (no tick
+# recorded)". A copy of rs_health_failing in release-state-lib.sh, because this script runs alone from
+# a copy on a host whose checkout may not carry the library yet.
+health_failing() {
+    local part name st why out=""
+    while IFS= read -r part; do
+        [ -n "$part" ] || continue
+        name=$(printf '%s' "$part" | cut -d'"' -f2)
+        st=$(printf '%s' "$part" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)
+        why=$(printf '%s' "$part" | grep -oE '"(detail|error)":"[^"]*"' | head -1 | cut -d'"' -f4)
+        out="${out:+${out}, }${name} ${st}${why:+ (${why})}"
+    done <<EOF
+$(printf '%s' "${1:-}" | grep -oE '"[a-z_]+":\{"status":"(fail|degraded)"[^}]*' || true)
+EOF
+    printf '%s' "$out"
+}
 same_commit() {
     local a=${1:-} b=${2:-}
     [ "${#a}" -ge 7 ] && [ "${#b}" -ge 7 ] || return 1
@@ -176,11 +192,16 @@ else
     if $COMPOSE exec -T web wget -qO- http://127.0.0.1/up >/dev/null 2>&1; then ok "/up answers"
     else fail "/up does NOT answer on the running stack. Look: $COMPOSE ps ; $COMPOSE logs --tail 50 web app"; fi
 
-    HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health") ?: "{}";' 2>/dev/null || echo '{}')
+    # ⚠ `ignore_errors` (docs/81 C.8): /api/health answers 503 when a component fails, and without it PHP
+    # hands over false instead of the body that says which component. On 21 September this line said
+    # "'unreadable' ... {}" while the body named the scheduler.
+    HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health", false, stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 10]])) ?: "{}";' 2>/dev/null || echo '{}')
     H_STATUS=$(health_status "$HEALTH"); H_STATUS=${H_STATUS:-unreadable}
     HEALTH_NAMES=$(health_release "$HEALTH")
+    H_FAILING=$(health_failing "$HEALTH")
     if [ "$H_STATUS" = "ok" ]; then ok "/api/health is ok"
-    else fail "/api/health is '${H_STATUS}', not ok, BEFORE any deploy: ${HEALTH:0:300}"; fi
+    elif [ "$H_STATUS" = "unreadable" ]; then fail "/api/health gave no readable answer BEFORE any deploy (nothing answered, it timed out, or the body is not the health JSON): ${HEALTH:0:300}"
+    else fail "/api/health is '${H_STATUS}', not ok, BEFORE any deploy${H_FAILING:+; failing: ${H_FAILING}}. Body: ${HEALTH:0:300}"; fi
 
     if [ -z "$HEALTH_NAMES" ]; then
         warn "/api/health names no commit (a release older than docs/80 C.4 does not), so nothing observed says which image answered"

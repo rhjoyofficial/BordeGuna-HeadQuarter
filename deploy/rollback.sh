@@ -175,7 +175,8 @@ YAML
     HEALTH_TRIES=${HEALTH_TRIES:-18}
     HEALTH_WAIT=${HEALTH_WAIT:-5}
     for i in $(seq 1 "$HEALTH_TRIES"); do
-        HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health") ?: "{}";' 2>/dev/null || echo '{}')
+        # `ignore_errors` keeps the body of a 503, which names the failing component (docs/81 C.8).
+        HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health", false, stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 10]])) ?: "{}";' 2>/dev/null || echo '{}')
         VER_HEALTH=$(rs_health_status "$HEALTH"); VER_HEALTH=${VER_HEALTH:-unreadable}
         VER_HEALTH_RELEASE=$(rs_health_release "$HEALTH")
         VER_AT=$(rs_now)
@@ -185,7 +186,8 @@ YAML
     if [ "$VER_STATUS" = "passed" ]; then
         log "verified: health ok and names ${SHORT}"
     else
-        log "WARNING: rollback to ${SHORT} is UNVERIFIED: health ${VER_HEALTH}, names '${VER_HEALTH_RELEASE:-none}'"
+        VER_FAILING=$(rs_health_failing "$HEALTH")
+        log "WARNING: rollback to ${SHORT} is UNVERIFIED: health ${VER_HEALTH}${VER_FAILING:+ (failing: ${VER_FAILING})}, names '${VER_HEALTH_RELEASE:-none}'"
     fi
 
     STAGE=record

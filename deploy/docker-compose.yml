@@ -109,6 +109,11 @@ services:
     <<: *app
     # The tick. Separate from horizon so a stuck worker can never stop scheduling.
     command: ["php", "artisan", "schedule:work"]
+    # ⛔ A reaper as PID 1 (docs/81 C.8). `runInBackground` commands are orphaned the moment they start
+    # and re-parented to PID 1; `schedule:work` never reaps them, so each one stayed a zombie. On
+    # 21 September this container held 9,482 of them against a pids.max of 9,483, could not fork, and
+    # had run nothing for three days. Docker's init reaps them. horizon and app reap their own children.
+    init: true
     deploy:
       resources:
         limits: { cpus: "0.25", memory: 192M }
