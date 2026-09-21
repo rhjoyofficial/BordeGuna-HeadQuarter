@@ -2220,3 +2220,123 @@ on create, never re-activated), the serving provider, the lever (dry run, every 
 audit under the person, the no-op), routing after the switch (no fallback to Anthropic), the readiness row
 and the bypass for OpenAI (a billing 429 is blocked by credit, not invalid), the Anthropic check's provider
 filter, the shadow refusal, and the probe's `--schema`.
+
+#### C.7.5 As built (21 September)
+
+No migration. No prompt file, TaskGrounding, TaskScope, detector, gateway policy, agent schema or ADR-038
+recovery touched; `ai.runtime`, agents, grants and flag rows untouched; no scheduled job. No real call was
+made to any provider: every wire shape below is held against OpenAI's documentation, not against a live
+answer.
+
+**The driver.** `app/Ai/Providers/OpenAiProvider.php`: `complete()` (`:96`) sends `POST /v1/responses`
+with the key from `CredentialVault::secret()` as a Bearer header only. `body()` (`:155`) carries the row's
+model id, `max_output_tokens`, `store: false` (`:165`), `reasoning.effort` from `reasoningEffort()` (`:82`,
+config `hq.ai.openai.reasoning_effort`, default `low`), `prompt_cache_options.mode: explicit`, and the
+system prompt as a developer message whose `input_text` block carries the one explicit breakpoint (`:180`),
+or as `instructions` when caching is off. A schema becomes `text.format` `json_schema` named `hq_reply`
+with `strict` = `OpenAiStrictSchema::compatible()` (`:194`). `failure()` (`:201`) and `isBillingBlock()`
+(`:90`): a 429 carrying `credit_balance_exhausted`, either spend-limit code, the usage-limit code, or type
+`insufficient_quota` is `ProviderRefused` naming it a billing block; any other 429 and every 5xx are
+`ProviderUnavailable`; every other 4xx is refused. A 200 with `status: failed` is an outage for
+`server_error` and `rate_limit_exceeded`, refused otherwise. `stopReason()` (`:221`): `max_output_tokens`
+is `max_tokens`, `content_filter` and a refusal-only reply are recorded as such. Usage: `input_tokens` as
+given (cached and written are already inside it), `cached_tokens` and `cache_write_tokens` from
+`input_tokens_details`, `output_tokens` including reasoning.
+
+**The strict subset.** `app/Ai/Providers/OpenAiStrictSchema.php` (`compatible()` `:49`) is an allow-list
+from the guide's "Supported schemas": object root and no root `anyOf`; per type only the listed keywords
+(so `minLength`, `maxLength`, `allOf`, `not`, `if` and any unlisted keyword make a schema non-strict);
+`additionalProperties: false` and every property required on every object (`:131`); an array must describe
+its `items`; the listed string formats only; at most 10 levels, 5000 properties, 1000 enum values.
+**Finding, on HQ's two real schemas:** `JobSpecSchema` is strict-compatible; `AgentResponseSchema` is not
+(`facts`, `inferences` and `tool_calls` have no `items`, and a tool call's `args` is an open object that
+strict mode cannot express). Every agent turn is therefore sent `strict: false` and stays checked by
+`ArgumentValidator` with one repair, exactly as for Anthropic. That OpenAI accepts a non-strict schema whose
+arrays lack `items` is not stated in its documentation either way; the gate runner now proves it with the
+real provider before any case (below).
+
+**One serving provider.** `app/Ai/ServingProvider.php` (`active()` `:30`, `current()` `:46`, `state()`
+`:53`, `describe()` `:63`). `database/seeders/ModelTierSeeder.php`: four OpenAI rows with the pricing
+page's prices of 21 September, cache writes included (Luna 0.20 / 0.02 / 0.25 / 1.20, Terra 2.00 / 0.20 /
+2.50 / 12.00, Sol 4.00 / 0.40 / 5.00 / 20.00, Sol again at medium with priority 90), `context_window`
+272,000, `max_output_tokens` 128,000, `pricing_verified_on` 2026-09-21; a new row is active only when its
+provider already serves (`:66`, `:188`). The Anthropic rows are unchanged.
+
+**The lever.** `app/Ai/ProviderSelection.php`: `refusals()` (`:47`: no driver, no stored key, a chat tier
+with no row, an open shadow period), `personRefusals()` (`:75`: `--by` missing, unknown or disabled, in
+every environment; no reason), `plan()` (`:102`), `select()` (`:119`: one transaction with the rows locked,
+every chat-tier row of the chosen provider on and every other provider's off, one `ai.provider_selected`
+audit row under the named person with the before and after row sets; a no-op when it already serves alone).
+`app/Console/Commands/AiProvider.php` is `hq:ai:provider`: the state without an argument, a dry run naming
+every row it would switch, `--apply --by --reason` to switch. It touches no switch, agent or grant.
+
+**Readiness.** `app/Ai/Providers/ReadinessCall.php` (the interface), `AnthropicCheck` (now its OWN low row,
+active first: before, it took the best active low row of any provider), `OpenAiCheck` (Luna, 16 output
+tokens, `reasoning.effort: none`, `store: false`). `app/Ai/ProviderCheck.php`: `run($source, $provider)`
+(`:60`) checks the named provider, else the serving one, else Anthropic; when two serve it checks nothing
+(`:62`) and says why; the JSON still opens with `"http"` and now ends with `"provider"`. `classify()`
+(`:120`) adds the billing 429 (blocked by credit) and the 401 "IP not authorized" (unauthorized), both
+never condemning the key; Anthropic's rules are unchanged. `CapabilityReadiness` gives one `hq` row per
+serving provider, Anthropic when none serves (`:86`), and `verifyModel()` checks that row's provider
+(`:146`). `deploy/gate/toggle.php` and `run.sh` wording follow.
+
+**Shadow and probe.** `ShadowPeriods::refusals()` (`:115`) refuses unless exactly one provider serves.
+`hq:ai:probe` prints the serving provider (or "MORE THAN ONE provider serves") and OpenAI's reasoning
+effort; `--live --schema` asks for one reply under `AgentResponseSchema` with 512 output tokens and says
+whether it validated; `--schema` without `--live` is refused. `deploy/gate/run.sh` step 4c runs
+`hq:ai:probe --live --schema --task=operator_question` after the runtime is on and **stops before any case**
+when it fails, so a provider that cannot handle the agent schema leaves no measurement rather than a gate
+of provider errors; the EXIT trap turns everything off as before.
+
+**Docs.** ADR-049 (and an amendment on ADR-019), `docs/32` line 049, `docs/runbooks/openai-billing.md`
+(forwardable; Joy's account, credit, limit, project and key, and where the key goes), the runbooks index,
+the OpenAI row in `docs/70` section M, and the by-hand steps after the deploy in `deploy/README.md` ("NOT
+YET APPLIED TO PRODUCTION: OpenAI as the model provider").
+
+**Deviations from the brief, with the evidence.** (1) The brief said there is no cache-write premium; the
+pricing page lists "cache writes" at 1.25x input for all three models and the prompt-caching guide says so
+in words, so the rows carry $0.25, $2.50 and $5.00. (2) `context_window` is 272,000, not the model's
+1,050,000, because above 272K the whole request bills at 2x input and 1.5x output and `CostCalculator`
+does not model that. (3) Sol is registered twice (high, and medium at priority 90), mirroring Opus. (4) The
+readiness call uses 16 output tokens, not 8, and no reasoning.
+
+**Watched failing first.** The 75 tests written before the code all failed on the unmodified tree (one run,
+75 failed and 37 passed, the 37 being ShadowPeriodTest's existing tests): `OpenAiProviderTest` 40 (with
+datasets), `ProviderSelectionTest` 18, `OpenAiReadinessTest` 15, and the two new `ShadowPeriodTest` dataset
+rows. One more (`it keeps the key out of a refusal too`) was split out of a test whose second `Http::fake()`
+could never take effect, the trap `AiSafetyPostureTest` already records. `AiSafetyPostureTest`'s two
+guards (model ids only in the driver layer; endpoints only there) were widened to name OpenAI and passed
+before and after, as guards.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** On the branch
+before main moved: full Pest in one run on `hq_test_f`, **1122 passed, 9624 assertions**, 240.6 s (base 1046,
+plus 76). Main then gained streams G, H, I and J; merged into the branch (the only conflicts were the
+`docs/32` index and the `docs/81` table and record): **1189 passed, 10692 assertions**, 271.7 s.
+`vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npm run build` built. `bash -n deploy/gate/run.sh`
+clean; the deploy-safety suite does not read the gate runner and was not re-run. The identity-case digests
+stayed green without re-pinning; the stamps `executive.v8+18d60e98` and `support.v1+0f4a195b` are unchanged
+(no prompt file moved).
+
+**Cost of a gate on OpenAI, estimated.** The recorded Anthropic gates averaged about 10,300 input and 1,430
+output tokens per call and about $2 per gate (8.6M in, 1.2M out, $19.38 for 837 Sonnet calls; gates 9 to 11
+cost $5.64). Terra prices input, cache reads and cache writes the same as Sonnet 5 and output at $12 against
+$10, and adds reasoning tokens at effort `low`; with 20 to 50% more output, a gate is about **$2.50 to $3**,
+say $2 to $4. Nothing measured yet: the first gate's `ai_runs` will say.
+
+**Decisions to revisit.**
+
+1. Reasoning effort `low` for every OpenAI call. Measured by the first gate, never tuned after its result.
+2. The Executive's turns run on Terra, which OpenAI describes as the mini tier of the family; the earlier
+   gates measured Sonnet 5. Moving the medium tier to Sol is a row change through the same lever's rules,
+   and a new measurement.
+3. The lever switches on ALL of the chosen provider's chat rows, including one an operator had switched
+   off; the dry run names them. A per-row memory of "parked by the lever" would need a column.
+4. The cross-provider fallback of ADR-019 stays; with one provider's rows active it cannot fire.
+5. `ai_runs` does not record the reasoning effort a call ran at; the gate log carries it from the probe.
+6. The agent schema stays non-strict on OpenAI. Giving its arrays `items` would let OpenAI enforce more of
+   it, but it changes the contract every earlier gate measured.
+
+**Found on the way, not fixed.** Anthropic's own "monthly spend limit reached" answer is not one of the two
+phrases `classify()` reads for Anthropic (it knows "credit balance" and "purchase credits"), so it would
+read as `connector_error`; its exact wording was not checked here. The provider-blocked runbook still speaks
+of Anthropic only.
