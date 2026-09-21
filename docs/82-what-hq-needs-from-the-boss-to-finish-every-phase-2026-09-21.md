@@ -45,7 +45,7 @@ utility bill or bank statement in the business name, the business phone, a bank 
 
 | # | What | Lead time | Cost | Needed for |
 | --- | --- | --- | --- | --- |
-| S1 | **Meta Business Verification** of the business portfolio | 1 to 4 weeks | No fee seen (the paid "Meta Verified" badge is a different thing) | Phase 3: without it only admins can message the app |
+| S1 | **Meta Business Verification** of the business portfolio | 1 to 4 weeks (Meta, read 21 Sep: a decision "may take up to 14 business days"; the legal name, address, phone and an HTTPS website must match the business exactly) | No fee seen (the paid "Meta Verified" badge is a different thing) | Phase 3: without it only admins can message the app |
 | S2 | **Meta Developer app** with Messenger, Instagram Messaging and Webhooks, then **App Review** for the messaging permissions | 1 day to create; review days to weeks after S1 | Free | Phase 3: answering real customers |
 | S3 | **WhatsApp Business (Cloud API)** with a **new SIM** that is on no WhatsApp app | After S1 | Customer-started replies free until 30 Sep; from 1 Oct about $0.0037 a message (first 1,000 a month free per number); marketing messages about $0.07 to $0.08 | Phase 3: the channel Bangladeshi customers use most |
 | S4 | **Dual-currency card** (dollar-endorsed) from the business bank | Days | The bank's yearly fee | Paying Meta, OpenAI and other dollar bills in the business name |
@@ -59,9 +59,13 @@ utility bill or bank statement in the business name, the business phone, a bank 
 | --- | --- | --- |
 | 5, ads | Meta Marketing API on the same Meta app (after S1); Google Ads API only if search ads are wanted | API free; ad spend separate |
 | 5, ads | The LaLaDia hilsa campaign's two empty fields (advertiser and payer) in Ads Manager | Minutes, no cost |
-| 6, content | Images: the OpenAI account above already covers it (`gpt-image-1`) | About $0.011 to $0.167 an image by quality |
+| 5, ads | A **system user** in the official business portfolio with the ads permissions on the ad accounts, its token stored on HQ (`docs/84` C.8) | Free, an hour |
+| 5, ads | Confirm which ad account belongs to which brand and its **currency** (the records disagree), and set an **ad account spending limit** on each: the money ceiling HQ can read and never change (`docs/84` C.2, C.11, ADR-050) | Free, minutes |
+| 5, ads | Payment method for ads: Meta's own Bangladesh page (read 21 Sep) lists Visa, Mastercard, Amex cards and PayPal; check in Ads Manager whether bKash is offered (reported in the press, not on Meta's page) | The S4 card until confirmed |
+| 6, content | Images: the OpenAI account above already covers it (`gpt-image-1`) | About $0.011 to $0.167 an image by quality (17 Sep); on 21 Sep OpenAI's page prices image models per million tokens, e.g. `gpt-image-1-mini` $2.50 in / $8 out |
 | 6, content | Video (Google Veo or Kling), optional | Veo $0.05 to $0.40 a second |
-| 6, content | Web search for the research engine: Brave or Tavily | About 1,000 searches a month free, then about $5 per 1,000 |
+| 6, content | Web search for the research engine: Brave or Tavily (read 21 Sep) | Brave $5 per 1,000 searches with $5 free credit a month (storing results needs a plan with storage rights); Tavily 1,000 free credits a month, then $0.008 a credit |
+| 6, content | Page publishing permissions and a Page token per brand; Instagram **professional** accounts linked per brand (`docs/85` C.13) | Free |
 | 7, voice | Speech to text in Bangladeshi Bangla: Google Speech-to-Text | About $0.016 a minute |
 | 7, voice | A natural Bangla voice: ElevenLabs (or Azure's Bangla voices, cheaper) | ElevenLabs $22 to $99 a month |
 | 7, voice | A Bangladeshi phone number from a BTRC-licensed provider (SLOW; only when voice moves to phone calls) | Provider quote |
@@ -89,7 +93,13 @@ run in shadow (answers drafted, not sent), which costs the same per message.
 3. **Autonomy numbers:** the pass rates and sample sizes an agent must show before it may act without asking
    (`docs/81` C.4). HQ ships none; they are the owner's.
 4. **Phase 8:** whose face and voice the avatar uses, with written consent.
-5. **The accountant:** how wallet and gateway receipts are recorded (and VAT on them) before AI orders take money.
+5. **The accountant:** how wallet and gateway receipts are recorded (and VAT on them) before AI orders take money,
+   and whether Meta's ad invoices carry VAT in Bangladesh (not verified, `docs/84` C.21).
+6. **Advertising money (Phase 5):** a monthly ads budget per business that HQ checks against, and the spending
+   limit on each ad account (`docs/84` C.11). HQ never changes the limit or the payment method (ADR-050).
+7. **Content (Phase 6):** a claims policy per product line (what may and may not be said, for example about
+   mustard oil and health), the source list the research engine may read, and who approves posts per brand
+   (`docs/85` section I).
 
 ## 8. The order to do them in
 

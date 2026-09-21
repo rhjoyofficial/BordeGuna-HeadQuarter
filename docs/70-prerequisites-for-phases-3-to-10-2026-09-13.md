@@ -63,6 +63,9 @@ which phase they serve.
 | E2 | **The LaLaDia hilsa campaign's blocked fields** (advertiser and payer names) | Minutes | Fill them in Ads Manager | It has been sitting in draft since August for exactly this |
 | E3 | **Google Ads API** (developer token, basic access) | 1 to 2 weeks | A Google Ads manager account, the token application | Only if search ads are wanted; optional for the first release |
 | E4 | **Meta Conversions API** | none extra | Pixel already on the shops? Confirm | Server-side purchase events so ad reporting is honest |
+| E5 | **A system user in the official business portfolio**, assigned to the ad accounts with `ads_management` and `ads_read`, and its token stored on HQ's `/credentials` (added 21 Sep, `docs/84` C.8) | 1 hour, after C1 | A portfolio admin creates it | The ads connection belongs to the business, never to a person's Facebook profile. Meta's Limited access tier is enough to start on the group's own accounts; Full access follows after 500 clean calls in 15 days |
+| E6 | **Confirm each ad account's brand and currency, and set an ad account spending limit on each** (added 21 Sep, `docs/84` C.2, C.11) | Minutes | Read in Ads Manager; set the limit in Payment settings | The records disagree (BDT in `docs/16`, $10 a day on the LaLaDia hilsa account). The spending limit is the outer money ceiling HQ reads and never writes (ADR-050). Meta: not available on an account that pays from prepaid funds |
+| E7 | **Check whether bKash is offered as a payment method in Ads Manager billing** (added 21 Sep) | Minutes | Look at Billing, Add payment method | Meta's own Bangladesh page (read 21 Sep) lists cards and PayPal only; a newspaper reported bKash. Until confirmed, C5's card is the route |
 
 ## F. Phase 6, the content factory and the research engine
 
@@ -74,6 +77,9 @@ which phase they serve.
 | F4 | **Anthropic Batch API + prompt caching** | none | Nothing to buy; already on the key | Half-price bulk generation for content, and cheaper long system prompts. I switch the content jobs to it |
 | F5 | **Bangla fonts** | none | Nothing; free (Noto Serif Bengali, SolaimanLipi already in the ERP PDFs) | Rendering |
 | F6 | **A stock-photo API** (Pexels, free) | minutes | Key | Filler imagery |
+| F7 | **Page publishing permissions and a system-user Page token per brand Page** (`pages_manage_posts`, `pages_manage_engagement`; added 21 Sep, `docs/85` C.13) | 1 hour, after C1 and C2 | A portfolio admin | HQ publishes as the brand's Page. Whether the group's own Pages need App Review for this was not verified |
+| F8 | **Instagram professional account linked per brand** (added 21 Sep) | Minutes each | Confirm which brands have one (`docs/18` marks it unknown) | Only professional accounts can publish by API; Instagram allows 100 API-published posts a day and JPEG images only |
+| F9 | **The first content brief per brand, with a claims policy per product line** (added 21 Sep, `docs/85` C.15) | An afternoon | Joy writes what may and may not be said about each product | HQ never infers a claim; a draft outside the policy fails |
 
 ## G. Phase 7, voice (Bangla)
 
