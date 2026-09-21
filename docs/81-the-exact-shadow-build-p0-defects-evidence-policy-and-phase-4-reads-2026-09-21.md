@@ -1142,3 +1142,133 @@ policy; the runner recording the evidence; no seeder writes a grant or a policy;
 to watch failing: the overall rate substituted for a missing dimension; unmeasured counted as a pass;
 one satisfied dimension treated as enough; a policy with a NULL field activated; evidence on an old
 prompt stamp accepted.
+
+#### C.4.1 As built (21 September)
+
+The branch took `main` first (merge `0bb4072`: streams E and F), so everything below was built and
+verified on top of the disabled-account, fresh-scope, `--by` and approval-requester changes. No
+prompt file, TaskGrounding, TaskScope or detector file changed; the agent stamps are still
+`executive.v8+18d60e98` and `support.v1+0f4a195b`. Nothing switched on: no policy version, no grant,
+no flag row, no scheduled job was created, and no seeder or migration writes any of them.
+
+**The schema** is the plan's, one migration (`2026_09_21_100000_create_autonomy_evidence_policy_tables`):
+four tables, `agent_runs.autonomy_evidence`, the partial unique index for "at most one active", and
+three plpgsql functions bound by five triggers (the policy guard, the two child-row guards, the two
+append-only event guards). Rehearsed on Postgres `hq_test_h`: applied (4 tables, the column, 5
+triggers, 3 functions, the index present), rolled back (all of them gone), re-applied (all back). No
+number is defaulted anywhere in it.
+
+**Governance.** `App\Autonomy\Evidence\EvidencePolicies` is the one writer: `propose()` (numbers may be
+null), `activate()` (a named, enabled person holding `hq.policies.manage`, a reason, no undecided
+field, at least one requirement, no gap in the ladder; retires the previous version in the same
+transaction; content digest written), `retire()`, `snapshot()`, `digest()` (the rules alone, so the
+same rules give the same digest whatever the row ids), `structuralRefusals()` (what in the version
+itself blocks activation, shown on the page and by `show`). Console only:
+`hq:autonomy-policy:propose {file}`, `:activate {version}`, `:retire {version}`, each a dry run until
+`--apply`, and `:show {version?}` (reads only). Every act writes an event row with a snapshot and an
+audit row under the named person.
+
+**The producer.** `App\Autonomy\Evidence\EvidenceProducer` and the value objects `MeasuredEvidence` and
+`RunnerEvidence`:
+
+- `measure(Agent)`: the recount the evidence view did, moved unchanged (applicable suites, the latest
+  finished run per suite, the role-applicable results of those runs WITH their `checks`, the declared
+  cases, every figure with its run and result ids, the stored figure beside the recount), plus
+  `checkSources()` (a grader check recounted from `evaluation_results.checks`, never from
+  `check_rates`) and `digest()` (exactly what was counted). More than `MAX_RESULT_ROWS` (20,000)
+  result rows is refused: nothing is counted and nothing is met.
+- `judge(evidence, policy, now)`: per level A1 to A4 every requirement and hard check beside its
+  measured value, `met` or the exact reasons, cumulative eligibility, and the evidence ceiling with
+  the reasons it goes no higher. The rules are the plan's rules 3 to 5, each failing closed.
+- `forRunner(Agent)`: null when no policy is active (one query). With an active policy and no live
+  grant that could name the agent: the version is recorded, `evidence_counted: false`, ceiling A0,
+  no evaluation table read. Otherwise the ceiling, and the clean rates (overall, per dimension, per
+  suite) floored to thousandths.
+
+**The resolver** (`AutonomyResolver`): the policy enters as one more ceiling (`evidence_policy`),
+combined by minimum; a grant naming `evaluation_suite_key` is compared with that suite's own figure
+(`AutonomyRequest::$suiteRates`) and never the pooled one; the decision carries the policy and
+evidence it was judged under (`AutonomyDecision::$evidence`, key `evidence_policy` in `toArray()`)
+only when a policy was applied, on every path including the floors.
+
+**The runner** (`AgentRunner::resolveAutonomy()`) asks `forRunner()` first and passes what it returns;
+`agent_runs.autonomy_evidence` stores the record (policy id, uuid, version, digest; evidence digest;
+run ids; prompt stamp; ceiling and its reasons; the rates; when it was judged), null when no policy
+was active.
+
+**The view** (same GET route, still write-free, now built on the producer): the active version with
+its rules, digest and activator, or "No autonomy evidence policy is active, so evidence cannot widen
+autonomy."; every proposed version listed as not in force with what blocks it; per agent the policy's
+judgement level by level; and the resolver asked exactly the way the runner asks it.
+
+**Tests watched failing first, then passing.**
+
+- `AutonomyResolverTest`: 3 of 16 failed on the unmodified resolver (the suite-named grant, which
+  answered A2 on a pooled 0.96; the suite-and-dimension grant; the policy ceiling). ⚠ The existing
+  test "requires measured evidence when the grant asks for it" was amended: it asserted that a
+  pooled 0.96 satisfies a grant naming `safety.core`, which is finding 3 itself. It now asserts A0
+  for a pooled figure, A0 for another suite's figure or a low suite figure, A2 for the suite's own.
+- `AutonomyEvidenceRunnerTest` (5): 4 failed on the unmodified runner. The fifth (no policy, nothing
+  recorded, the grant decides as before) passed first, as it must.
+- `AutonomyEvidencePolicyViewTest` (3): all 3 failed against the view as it was before the policy
+  section. The 13 older `AutonomyEvidenceTest` tests are unchanged and green on the producer.
+- `EvidencePolicyTest` (9) and `EvidenceProducerTest` (12) test classes that did not exist, so their
+  first failure proves nothing. Their teeth were shown by mutation instead, each applied to the
+  built code, the three files run, and the code restored:
+
+| Mutation | Caught by |
+| --- | --- |
+| the overall rate substituted for a missing dimension | 5 producer tests |
+| an unmeasured result counted as a pass | the unmeasured test |
+| one satisfied dimension treated as enough for a level | the every-requirement test and the hard-check test |
+| a policy with a NULL field activated (domain check removed) | 3 policy tests (the trigger still refused underneath) |
+| evidence on an old prompt stamp accepted | the producer stamp test and the runner stamp test |
+
+`ExecutionContextIdentityCaseTest` stayed green WITHOUT re-pinning.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** Base 1046.
+Full Pest suite in one run on Postgres `hq_test_h`: **1077 passed, 9718 assertions, 0 failed**, 259 s (1046 on the base plus 31: resolver +2, runner 5, view 3, policy 9, producer 12). `vendor/bin/pint --test`:
+passed. `npx tsc --noEmit`: clean. `npm run build`: built. The page was
+Prettier-formatted (it was clean on the base commit).
+
+**The decisions left for the owner (every one of them undecided today, and no version exists).**
+
+1. Which levels get requirements at all (a level the policy says nothing about is unreachable
+   through evidence, and levels are cumulative).
+2. Per level, which of the six dimensions are required (reasoning, tool selection, policy,
+   enforcement, execution, outcome).
+3. Per requirement: `min_agreement_rate`, `min_sample_count`, `max_evidence_age_days`.
+4. Per level, which of the seventeen grader checks are hard checks, and per hard check
+   `min_sample_count` and `max_evidence_age_days`.
+5. Who activates it (`--by`) and why (`--reason`). Activating it is not granting anything: every
+   grant is still a separate owner decision, and production grants stay at zero.
+
+**Decisions to revisit.**
+
+1. Rates reach a grant only while a policy is active. With none, a grant requiring evidence stays
+   unmatched, exactly as before; the owner cannot use a rate-gated grant without first activating a
+   policy. Chosen because the policy is where "clean evidence" is decided.
+2. "Clean" for the rates handed to a grant means current stamp, passed gate, zero unmeasured,
+   recount agreeing, every declaring suite run. Age is not in it: age belongs to the policy's
+   requirements, and the policy's ceiling bounds the level anyway.
+3. A hard check applies the stamp, age and zero-unmeasured rules (plan rule 5), not the gate and
+   recount rules a requirement applies. A run that failed its gate for another case can still show a
+   hard check at 100 percent.
+4. `MAX_RESULT_ROWS` = 20,000 is a cost bound, not an autonomy threshold; above it nothing is
+   counted. The latest runs hold a few hundred rows today.
+5. `propose` is also a dry run until `--apply`, which the plan did not ask for; `--by` is optional
+   on a proposal (it records the proposer when given).
+6. A retired version is never reactivated; a change of mind is a new version.
+7. The view's "what the agent may do now" panel now asks the resolver with the producer's evidence,
+   as the runner does; with no policy its text is what it was.
+
+**Found on the way, not fixed (outside this stream).**
+
+- Locally, `php artisan migrate:fresh` against a worktree database fails with a Redis connection
+  error unless `CACHE_STORE=array` is set, because the worktree `.env` names Redis and this PC has
+  no Redis. The suite is unaffected (`phpunit.xml` sets the array store).
+- `EvidencePolicies::retire()` saves the model it is given, so a caller holding a model with other
+  unsaved changes is refused by the trigger (fail closed; seen once as a test artefact).
+
+**Not done.** The page was not walked in a browser (needs Joy's 2FA session). `docs/68` is left for
+the merge step.
