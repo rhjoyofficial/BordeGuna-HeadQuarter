@@ -422,10 +422,15 @@ snapshot() {
     (cd "$STUB_REPO" && git rev-parse HEAD && git for-each-ref && GIT_OPTIONAL_LOCKS=0 git status --porcelain \
         && cksum .git/FETCH_HEAD .git/index 2>/dev/null; find deploy -type f | sort | xargs cksum) 2>&1
 }
-# What the stub saw that CHANGES containers or images.
-release_mutations() { grep -cE ' (up|build|stop|start|restart|down|rm|run|kill|pull) |horizon:terminate|migrate' "$STUB_TRACE" || true; }
+# What the stub saw that CHANGES containers or images: a compose lifecycle subcommand, or a
+# horizon terminate or a migration run inside a container. ⚠ Lines that `exec` a command are read for
+# the command only: the backup mount probe runs `rm -f` INSIDE the backup container, which is not a
+# container being removed.
+count_lines()       { grep -cE "$1" 2>/dev/null || true; }
+lifecycle_calls()   { grep -vE ' exec ' "$STUB_TRACE" | count_lines ' (up|build|stop|start|restart|down|rm|run|kill|pull)( |$)'; }
+release_mutations() { echo $(( $(lifecycle_calls) + $(count_lines 'horizon:terminate|migrate' < "$STUB_TRACE") )); }
 # ...or anything at all, the dump and the mount probe included.
-any_mutations()     { grep -cE ' (up|build|stop|start|restart|down|rm|run|kill|pull) |horizon:terminate|migrate|backup\.sh once|mount-probe' "$STUB_TRACE" || true; }
+any_mutations()     { echo $(( $(release_mutations) + $(count_lines 'backup\.sh once|mount-probe' < "$STUB_TRACE") )); }
 
 echo
 echo "one rollback invariant"
@@ -552,6 +557,30 @@ isnt "a rollback whose resolved configuration still says RUN_MIGRATIONS=1 is ref
 grep -q "does not resolve RUN_MIGRATIONS to 0" "${WORLD}/out" && ok "...with the reason" || bad "should say the configuration still migrates: $(tail -1 "${WORLD}/out")"
 is   "...the checkout, RELEASES.md and release state are byte-identical" "$(snapshot)" "$BEFORE"
 is   "...and no container or image was touched"                 "$(release_mutations)" "0"
+# The configuration is READ before the dump, like every other refusal, so a refused rollback takes
+# nothing at all.
+is   "...not even a dump or a mount probe: the check is a read, made before the backup" "$(any_mutations)" "0"
+grep -q 'compose.* config' "$STUB_TRACE" && ok "...and the configuration really was resolved through compose" || bad "rollback.sh should resolve the target's configuration with docker compose config"
+cleanup
+
+# The same check on a real target: the TARGET's own compose file is what is resolved (read out of
+# git, never checked out), so a target that hardcodes a different value is caught before it runs.
+new_world
+RC=$(run_deploy)
+: > "$STUB_TRACE"
+export STUB_FAST_SLEEP=1
+mkdir -p "${WORLD}/tmp"
+RC=$(TMPDIR="${WORLD}/tmp" run_rollback "$OLD_HEAD")
+is   "a rollback succeeds"                                      "$RC" "0"
+grep -qE 'compose -f [^ ]*target-compose\.yml -f [^ ]*no-migrations\.override\.yml .*config' "$STUB_TRACE" \
+    && ok "the rollback resolves the TARGET's compose file together with its override" \
+    || bad "the rollback should resolve the target's compose file with the override: $(grep config "$STUB_TRACE" | head -2)"
+grep -qE 'compose -f deploy/docker-compose\.yml -f [^ ]*no-migrations\.override\.yml --env-file deploy/\.env up -d --no-deps app' "$STUB_TRACE" \
+    && ok "...and passes the same override on the up that starts app" \
+    || bad "the up that starts app should carry the override: $(grep ' up ' "$STUB_TRACE" | tail -2)"
+grep -q "${WORLD}/tmp/hq-rollback" "$STUB_TRACE" && ok "the override is written outside the checkout, under TMPDIR" || bad "the override should live under TMPDIR, outside the checkout"
+is   "...and is gone afterwards"                                "$(ls -A "${WORLD}/tmp" | wc -l | tr -d ' ')" "0"
+is   "...and nothing was left in the checkout"                  "$(cd "$STUB_REPO" && git status --porcelain | grep -v '^?? deploy/' | wc -l | tr -d ' ')" "0"
 cleanup
 
 # ── 21. deploy.sh refuses an argument it does not know ──────────────────────────────────────────
@@ -629,6 +658,19 @@ RC=$(run_verify --no-pull)
 is   "verify-only --no-pull passes"                             "$RC" "0"
 assert_nothing_changed "passing, --no-pull" "$BEFORE"
 grep -q "origin is not consulted" "${WORLD}/out" && ok "...and describes releasing the checked-out commit" || bad "--no-pull should not consult origin"
+
+# A copy of the preflight run from OUTSIDE the checkout, with HQ_ROOT naming it: how it is run on
+# production before the first deploy that carries it (deploy/README.md). Same checks, same promise.
+mkdir -p "${WORLD}/elsewhere"
+cp "${STUB_REPO}/deploy/verify-only.sh" "${WORLD}/elsewhere/hq-verify-only.sh"
+: > "$STUB_TRACE"
+RC=$(cd / && HQ_ROOT="$STUB_REPO" bash "${WORLD}/elsewhere/hq-verify-only.sh" >"${WORLD}/out" 2>&1; echo $?)
+is   "a copy run from elsewhere with HQ_ROOT passes"            "$RC" "0"
+grep -q "running release is ${NEW_HEAD}" "${WORLD}/out" && ok "...and checks the checkout HQ_ROOT names" || bad "HQ_ROOT should name the checkout: $(head -12 "${WORLD}/out")"
+assert_nothing_changed "a copy run from elsewhere" "$BEFORE"
+RC=$(cd / && HQ_ROOT="${WORLD}/no-such-checkout" bash "${WORLD}/elsewhere/hq-verify-only.sh" >"${WORLD}/out" 2>&1; echo $?)
+isnt "an HQ_ROOT that is not a directory is refused"            "$RC" "0"
+grep -q "cannot enter the checkout" "${WORLD}/out" && ok "...with the reason" || bad "should say it cannot enter the checkout: $(tail -1 "${WORLD}/out")"
 
 # Main has moved past what this checkout has fetched: said, never fetched.
 push_commit 'not fetched yet'

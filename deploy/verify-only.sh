@@ -3,6 +3,7 @@
 #
 #   cd /opt/bordeguna-hq && ./deploy/deploy.sh --verify-only             # what `deploy.sh` would meet
 #   cd /opt/bordeguna-hq && ./deploy/deploy.sh --verify-only --no-pull   # what `deploy.sh --no-pull` would meet
+#   HQ_ROOT=/opt/bordeguna-hq bash /tmp/hq-verify-only.sh                # a copy, run against the checkout
 #
 # It walks as much of the real deployment preflight as can be walked without touching anything, says
 # `ok`, `WARN` or `FAIL` for each check with the reason, and exits 1 if anything FAILED.
@@ -28,7 +29,11 @@
 # with the inode of the host directory: a deleted-and-recreated host directory has a new inode while
 # the container still holds the old one. Reading only, so it can say "dead" but cannot repair.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+# Normally run as `./deploy/deploy.sh --verify-only` from the checkout. HQ_ROOT names the checkout
+# when this file is run from anywhere else: before the first deploy that carries it, production's
+# checkout does not have this file yet, so it is run from a copy read out of git (deploy/README.md,
+# "NOT YET APPLIED TO PRODUCTION").
+cd "${HQ_ROOT:-$(dirname "$0")/..}" 2>/dev/null || { echo "verify-only: cannot enter the checkout '${HQ_ROOT:-$(dirname "$0")/..}'. Nothing was changed."; exit 2; }
 # ⚠ Even `git status` writes: it refreshes .git/index when it can take the lock. Not here.
 export GIT_OPTIONAL_LOCKS=0
 COMPOSE="docker compose -f deploy/docker-compose.yml --env-file deploy/.env"
