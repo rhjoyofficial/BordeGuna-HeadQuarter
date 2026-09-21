@@ -1,5 +1,13 @@
 # RESUME HERE: the state of the `docs/81` milestone when work was paused (21 September 2026)
 
+> ⚠ **SUPERSEDED later on 21 September.** Every stream this file calls paused (G, H, I) finished, and two
+> more were added and finished: J (the section 9 defects, all eight fixed) and K (OpenAI as the model
+> provider, the owner's decision of 21 September, which replaces the Anthropic top-up of section 7.1).
+> All seven are merged; main was verified as a whole (1189 Pest passed, Pint, tsc, Vite) and the release
+> candidate is named in **`docs/81` section D**, which also holds the next steps in order. The ERP side
+> of stream I is deployed on ERP production (`5bfb709`). Production HQ is still `3314c54`, inert. Read
+> `docs/81` D instead of sections 3 to 7 below; the standing constraints of section 8 still hold.
+
 **Paused on Joy's word** ("stop all agent, make a resume point for all, start when we resume") in the
 middle of the `docs/81` milestone. Nothing is half-applied: every branch is committed, `main` is
 consistent and pushed, and the three unfinished streams are parked at labelled checkpoints.

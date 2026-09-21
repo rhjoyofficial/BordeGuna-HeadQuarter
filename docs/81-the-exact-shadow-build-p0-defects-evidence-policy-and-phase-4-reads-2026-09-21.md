@@ -2340,3 +2340,80 @@ say $2 to $4. Nothing measured yet: the first gate's `ai_runs` will say.
 phrases `classify()` reads for Anthropic (it knows "credit balance" and "purchase credits"), so it would
 read as `connector_error`; its exact wording was not checked here. The provider-blocked runbook still speaks
 of Anthropic only.
+
+
+## D. Merge record, the combined tree, and the release candidate (21 September)
+
+### D.1 Merge record
+
+Every stream was built in its own worktree and test database, reviewed by reading its diff and
+re-running its suite, and merged to main with `--no-ff`, one at a time, with the full suite run on the
+combined tree before each push:
+
+| Order | Stream | Merge | Full Pest on the combined tree |
+| --- | --- | --- | --- |
+| 1, 2 | E, F | `074ffae` | 1046 |
+| 3 | J (pre-candidate defects) | `22688b6` | 1066 |
+| 4 | I (Phase 4 reads, HQ side) | `69112b8` | 1082 |
+| 5 | H (autonomy evidence policy and producer) | `c7725ce` | 1113 |
+| 6 | G (rollback invariant, verify-only) | `33e6c5e` | 1113 (G adds deploy-safety checks, no Pest tests) |
+| 7 | K (OpenAI as the model provider) | `675d5dd` | 1189 |
+
+K merged main into its branch first (`61297f4`), so the tree of `675d5dd` is byte-identical to K's
+tested head `8ebc5d3`.
+
+**A power cut stopped the session after the K merge and before its push.** Nothing was lost: every
+worktree was clean, and the merge commit was on disk. On resuming, the whole verification was run again
+on `675d5dd` before it was pushed: **full Pest suite in one run, 1189 passed, 10,692 assertions, 0
+failed, 248 s**; `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npx vite build` built.
+Deploy-safety suite: 238 checks on Git Bash with a `stat` shim (stream G), not re-run since, because
+nothing after G touched `deploy/*.sh` except the gate runner, which it does not read (`bash -n` clean).
+**Local verification passed; GitHub Actions validation, and the deploy-safety suite on Linux, deferred
+until the 1 October reset.**
+
+### D.2 The release candidate
+
+**The candidate is `origin/main` at the commit that adds this section D.** Its application code is
+byte-identical to `675d5dd`, the tree verified above; this section is the only difference.
+
+What it carries over production's `3314c54` (113 commits):
+
+- **Nine additive migrations:** `2026_09_16_100000` shadow periods, `2026_09_16_200000` pairing,
+  `2026_09_16_300000` retention and alerts, `2026_09_17_100000` Ask HQ, `2026_09_17_200000` connector
+  call correlation, `2026_09_20_100000` briefings, `2026_09_20_200000` execution context on agent runs,
+  `2026_09_21_100000` autonomy evidence policy tables, `2026_09_21_160000` requester identity on
+  approvals. None drops or rewrites anything.
+- **New scheduled commands:** `hq:alerts:check` every 5 minutes, `hq:retention:run` 08:15 Dhaka,
+  `hq:conversation:compare-sweep` 01:00 Dhaka, and the shadow commands (`hq:shadow:tick` 09:00 and
+  17:00, `hq:shadow:evidence --check` hourly and `--store` 00:15), each doing nothing while no shadow
+  period is open. ⚠ The first `hq:alerts:check` pages Telegram for any REAL open condition it finds; on
+  a blank HQ it opens the provider-readiness incident. Read the Alerts page right after the deploy.
+- **No prompt file, TaskGrounding, TaskScope, detector or agent schema changed.** The stamps are still
+  `executive.v8+18d60e98` and `support.v1+0f4a195b`.
+- **Nothing switches on.** `ai.runtime` stays off, the three agents stay paused at A0, no grant, no
+  flag row, no autonomy policy, no shadow period. The OpenAI rows do not exist until the seeder runs,
+  and are created off.
+
+**The ERP side of stream I is on ERP production.** ERP branch `feature/hq-api-order-reads` was
+fast-forwarded to ERP master `5bfb709` and deployed on 21 September behind a gzip-tested dump of the
+ERP database (`/root/backups/bordeguna-erp/erp-pre-deploy-20260921-0457.sql.gz`, 254 tables, the whole
+application database). Code only: nothing to migrate. After the deploy: `/login` 200, the five
+`order-reads` routes registered, an unauthenticated call refused with 401, no failed jobs, no error in
+the app log. The endpoints stay unreachable to HQ until a new ERP token carrying their abilities is
+issued (`deploy/README.md`); the gate does not need them.
+
+### D.3 What happens next, in order
+
+1. Joy stores the OpenAI key on `/credentials` (`openai_api_key`, account `hq`, type `api_key`,
+   group-wide). Production's form takes the provider as free text (read from `3314c54`), so this can be
+   done before the deploy; nothing on `3314c54` reads it.
+2. Joy deploys the candidate: `deploy/README.md`, "the next deploy, and exactly what Joy types"
+   (preflight from a copy of `verify-only.sh`, the deploy by the old script, then `--verify-only
+   --no-pull` and `--no-pull` by the new one).
+3. The OpenAI steps after the deploy (`deploy/README.md`, "OpenAI as the model provider"): the seeder,
+   the dry run, `hq:ai:provider openai --apply --by=<Joy> --reason=...`, then
+   `hq:credentials:health --verify-model` must read `verified`.
+4. ONE Gate 11 attempt 2 on the candidate, now measuring `gpt-5.6-terra` for the Executive's turns.
+   The runner proves the structured reply before any case and stops without a measurement if it fails.
+5. A complete pass only: the seven-day A0 shadow, opened with `--by <a real person>`. Anything else:
+   everything stays inert.
