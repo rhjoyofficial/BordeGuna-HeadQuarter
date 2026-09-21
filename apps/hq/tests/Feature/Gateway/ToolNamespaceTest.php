@@ -49,6 +49,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'briefing.compose',
         // Phase 4 read side (docs/81 C.5): five live ERP reads, R2, read-only, held by no agent.
         'erp.lookup_product', 'erp.lookup_sku', 'erp.read_price', 'erp.read_availability', 'erp.check_order_eligibility',
+        // Phase 4 draft write (docs/83 C.3): R4, approval-required, held by no agent, no store admitted.
+        'commerce.take_order',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

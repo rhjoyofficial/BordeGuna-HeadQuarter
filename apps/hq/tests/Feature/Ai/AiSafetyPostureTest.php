@@ -131,7 +131,13 @@ it('lets an agent execute only reads below R3, and nothing that reaches a person
     $highRisk = $descriptors->filter(fn ($d) => in_array($d->riskTier->value, ['r4', 'r5'], true))
         ->map(fn ($d) => $d->key)->values()->all();
 
-    expect($highRisk)->toBe(['demo.request_approval']);
+    // docs/83 C.3: the second R4 is `commerce.take_order`, named rather than the line moved. It is not
+    // agent-executable (so the loops above never reach it) and admits no store, so the gateway
+    // refuses every call.
+    expect($highRisk)->toBe(['demo.request_approval', 'commerce.take_order']);
+    $take = $descriptors->firstWhere('key', 'commerce.take_order');
+    expect($take->agentExecutable)->toBeFalse()
+        ->and($take->supportedStores)->toBe([]);
 });
 
 it('gives the model runtime no way to reach a tool, a shop, the ERP or the database', function () {

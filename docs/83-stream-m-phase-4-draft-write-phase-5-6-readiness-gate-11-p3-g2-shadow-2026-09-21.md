@@ -553,8 +553,287 @@ fail), the detail renamed (1 fails, the one the monitor's text depends on), the 
 
 ### C.3 Stream N: the Phase 4 draft write, inert
 
-To be written by the stream: today's behaviour read from both codebases, the design, then the
-as-built record.
+Branches: HQ `p4/take-order-draft-inert` (from `ed86b8f`), ERP `feature/hq-sales-order-draft` (from
+ERP master `e3e39cf`, which is ERP production).
+
+#### C.3.1 Today's behaviour, read from both codebases (21 September, before any change)
+
+**The ERP has no draft sales order.** `SalesOrderStatus` has five cases, `open`,
+`partially_delivered`, `delivered`, `closed`, `cancelled`; there is no `draft`. The one way an order
+is written, `CreateSalesOrder::handle()` (`app/Modules/Sales/Actions/CreateSalesOrder.php`), does
+four things a draft must not do:
+
+1. It writes the order `open`, a live commitment that the delivery screen can act on once approved.
+2. It takes the next number of the business's sequence (`nextNumber()`, `SO-FY2026-0001`), so an
+   order that is never meant to exist would still consume a number and leave a gap.
+3. It opens an approval request (`submitForApproval`), and self-approves it when the creator holds
+   `sales.orders.approve`: an approved order is deliverable (`SalesOrder::isDeliverable()`).
+4. It notifies every holder of `sales.orders.approve` (`NotifyApprovers`, outside the transaction).
+
+What it does NOT do, by its own docblock and by reading: move stock, post a journal, take a payment.
+Nothing in the ERP reserves stock for an open order either: `Availability::decide()` looks at stock
+on hand and the channel's policy and "reserves nothing"; `CartRules::refusalFor()` asks published,
+priced and sellable. The website path, `PlaceWebsiteOrder`, calls `CreateSalesOrder` and adds three
+more effects: it creates a customer when the phone matches nobody (`identify()`), locks and spends a
+coupon, and marks the basket converted. **So no existing path creates a draft, and using either one
+would take a number, open an approval, notify people and possibly create a customer.** The draft
+therefore cannot be a `sales_orders` row; it is its own record.
+
+The ERP's HQ API (`routes/api.php`, `HqApiContext`) has no write besides `tickets`; `HqApiToken`
+issues only `READ_ABILITIES` (thirteen read names and `crm.tickets.manage`) and refuses anything
+else; the order-reads (stream I) read products, prices (`ResolveSellingPrice` through
+`CataloguePublishing::priceFor` for a store), availability (`CartRules`, `Availability`) and the
+customer a phone names (`identify`'s rule, creating nobody).
+
+**HQ has no order write.** `config/hq.php` registers no `commerce.take_order`; `ErpConnector` has one
+write (`openTicket`); `RiskTier::R4` is "external side effect, recoverable" with the baseline
+`ApprovalRequired`, R3 is "internal write" with the baseline `Auto`. `ToolDescriptor::supportedStores`
+is checked by the gateway only when a store was resolved (`ToolGateway::checkScope()`), and an empty
+list supports no store. The approval separation rule (`Approval::separationOfDutiesReason()`) bars a
+requester only when the requester is not the agent's enabler; a person who asks for an approval
+directly may decide it today. The approval stores the redacted payload and executes exactly that
+(ADR-018), so a redacted argument would not reach the ERP. `ErpConnector::throwForStatus()` maps a 409
+to "unexpected HTTP 409" (`Unavailable`), which a write would wrongly retry.
+
+#### C.3.2 The design (written before the code)
+
+**ERP: a draft is its own immutable record, `sales_order_drafts`, never a sales order.**
+
+1. Two additive tables: `sales_order_drafts` (business, store, status `draft` only, the
+   idempotency key unique per business, the sha256 of the request payload, the HQ proposal
+   fingerprint, the HQ references, the resolved customer id or none, the buyer and the destination as
+   given, payment method, the priced totals, the correlation id and token id, who created it) and
+   `sales_order_draft_lines` (SKU, product, quantity, the engine's unit price and its explanation, the
+   line total, the availability verdict at draft time). Rehearsed on a scratch MySQL database: apply,
+   roll back, re-apply.
+2. `SalesOrderDraft` refuses every update and every delete in the model (an immutable record), and a
+   source test holds that nothing under `app/` writes the table except the one action. There is no
+   method that moves a draft out of `draft`, and no route that could.
+3. `CreateSalesOrderDraft` (the action) re-asks the ERP itself, never the caller: the store must be
+   this business's and **live**; each line's SKU names an active, stocked product; `CartRules`
+   (published, priced, sellable at this store); the quantity a whole number from 1 to
+   `CartRules::MAX_QUANTITY`, as the website takes it; the price `CataloguePublishing::priceFor` at the
+   store, at that quantity; the delivery charge `DeliveryQuote::for(store, district)`, refused when the
+   store cannot quote; the destination `SalesOrderDestination::fromInput`; the buyer's phone must
+   normalise (`PhoneIdentity`), and the customer is the one `identify` would pick, or none (**nobody is
+   created**: `customer_resolution` says `existing` or `new`); payment `cod` only (online payment is a
+   link the customer follows, a later decision). Then every figure HQ proposed (each line's unit price,
+   the goods total, the delivery charge, the agreed total) must equal the ERP's to the paisa, or the
+   request is refused with **422 `quote_mismatch`** naming each field, proposed against the ERP's
+   figure. Nothing is ever rewritten to make it match. No coupon, no bundle, no note in this version:
+   a body with any unknown key is refused.
+4. Idempotency: the key comes in the body and must equal the `Idempotency-Key` header when both are
+   sent. Same key and the same payload digest: **200 with the stored draft and `replayed: true`**,
+   without re-pricing (the draft answers what was agreed then). Same key, different payload: **409
+   `idempotency_key_reused`**, and no second draft. A race on the unique index reads the winner and
+   answers the same way.
+5. What it does not do, each proved by a test that counts before and after: no `sales_orders`, lines
+   or address row, no order number, no approval request, no notification (database, mail or
+   broadcast), no customer, no stock batch or movement, no journal, no coupon use, no queued job.
+6. Two routes under `/api/hq/v1/{business}/`: `POST sales-order-drafts` and
+   `GET sales-order-drafts/{idempotency_key}` (the read-back HQ reconciles with; 404 `not_found` is an
+   answer). Both need a NEW token ability, `sales.orders.draft`, which no token holds: `HqApiToken`
+   gains `WRITE_ABILITIES` and issues a write ability only with an explicit `--write`, never by
+   default. Every body is an explicit field list, stamped with the contract `hq-sales-order-drafts.v1`
+   and an `effects` block that states, for the reader, that no order, number, approval, customer,
+   reservation or notification came of it.
+7. The ERP test writes the response bodies as fixtures and pins a contract digest; HQ carries a copy
+   and pins the same digest (stream I's pattern).
+
+**HQ: `commerce.take_order`, registered, approval-required, refused for every caller today.**
+
+1. `ErpConnector::createSalesOrderDraft()` and `readSalesOrderDraft()`: a connection failure on the
+   POST is `Uncertain` (the draft may exist; the key makes a read-back and a retry safe); 409 is
+   `Refused`; 422 `ValidationFailed` with the ERP's sentences; 403 `Unsupported` (the token lacks
+   `sales.orders.draft`, a readiness state, not a refusal by HQ); a body from another contract or
+   another business is refused.
+2. `TakeOrderTool` (`app/Tools/Commerce`): the descriptor of `docs/79` section D at **R4**,
+   `hq.tools.commerce.write`, write, business scope with the store named, `agentExecutable: false`,
+   customer-facing, `MonetaryImpact::High`, personal data, compensable by
+   `commerce.cancel_sales_order` (named by the design and not built: until it exists nothing follows a
+   draft, so there is nothing to compensate), idempotent with no replay window, and
+   **`supportedStores` read from `config('hq.orders.take_order_stores')`, which ships empty**: every
+   call names a store, and the gateway refuses every store. Admitting one is a deploy and the P4-G2
+   gate, not a switch. Previewable (the approval card says what would be written and that nothing
+   follows it).
+3. Execution follows ADR-031: the ERP key is derived from the gateway's idempotency key and the
+   business (so `reconcile()` finds the same draft), the proposal fingerprint is
+   `CanonicalPayload::hash` of the executed arguments (the approval's own payload hash when an
+   approval ran it), the draft is created, then **read back** by key, and the result is `succeeded`
+   only when the read-back agrees with the proposal; a disagreement is `uncertain` with the
+   discrepancies named, never `succeeded`. `reconcile()` reads back by key before anything is sent
+   again.
+4. `DraftReconciliation` compares the proposed order, the approved intent (the approval's payload
+   hash) and the ERP draft: fingerprint, store, each line's SKU, quantity and price, the totals,
+   payment method, phone and district. It returns discrepancies; it repairs nothing.
+5. The requester may never decide: a new descriptor field, `requesterMayDecide` (default true, so no
+   existing tool changes), is false on `take_order`, and `Approval::separationOfDutiesReason()`, the
+   one rule every door reads (`docs/81` C.6), bars the requester of such an approval whoever they are.
+   With one operator today, nobody can approve an order, which is the intended state.
+6. No agent holds it, no grant names it, no prompt changes, no scheduled job, no flag row; no route or
+   command reaches the tool except through the gateway (a source test).
+
+**Tests** (HQ): the descriptor as registered; the production refusal (no supported store); with a
+store admitted in the test, an owner is sent to approval, never allowed; the requester cannot decide
+at the executor or the service; an approval for different arguments does not run it; the ADR-031
+sequence against a simulated ERP: created and read back, replayed, 409, 422 price mismatch named, a
+connection failure left `uncertain` and resolved by `reconcile()` reading back, a read-back that
+disagrees left `uncertain`; the reconciliation's discrepancies; the contract copy; no agent's
+catalogue carries it. (ERP): created, replayed, 409, each refusal, the no-side-effect counts, the
+immutability, the ability and `--write`, the other business, the fixtures.
+
+#### C.3.3 As built (21 September)
+
+Two branches, neither merged, nothing deployed: ERP `feature/hq-sales-order-draft` at `0fe39af`
+(on ERP master `e3e39cf`, which is ERP production), HQ `p4/take-order-draft-inert` (on `ed86b8f`).
+
+**ERP.** One additive migration in the Sales module,
+`2026_09_21_100000_hq_can_leave_a_draft_order_that_becomes_nothing_on_its_own`: `sales_order_drafts`
+(status `draft` only; `idempotency_key` unique per business as `so_drafts_business_key_unique`;
+`payload_digest`; `hq_proposal_fingerprint` indexed with the business; `hq_reference` JSON; the
+customer id or none and `customer_resolution`; ONE person, the recipient, as on the website, because
+whether an HQ order may name a recipient other than the buyer is the open question `docs/79` H.7;
+the destination parts with the derived postcode; payment method; goods, delivery, discount and agreed
+totals; `priced_at`; correlation id, token id, creator) and `sales_order_draft_lines` (SKU, product,
+whole quantity, the engine's unit price to four places, the line total, the engine's explanation, and
+whether the line was made to order at that moment).
+
+- `SalesOrderDraft` and `SalesOrderDraftLine` refuse every update and delete (`LogicException`), and
+  a draft can only be created as `draft`.
+- `CreateSalesOrderDraft`: replay or 409 first (the stored digest against this request's, keys sorted
+  at every depth); then the store (this business's, and LIVE); the destination through
+  `SalesOrderDestination`; the phone through `PhoneIdentity` against `^01[3-9]\d{8}$` (`docs/79` C.7);
+  each line: SKU of this business, stocked, `CartRules::refusalFor` (published, priced, sellable), a
+  SKU named once; the price from `ResolveSellingPrice::find` with the store's price group at that
+  quantity (what `CataloguePublishing::priceFor` asks, with its explanation kept); delivery from
+  `DeliveryQuote`. Refusals come back together as 422 `refused`; only when there are none are HQ's
+  figures compared, each line's price to four places and the three totals in paisa through `Money`,
+  and every difference comes back as 422 `quote_mismatch` with both figures. The customer is the one
+  `identify` would pick (active, not the walk-in row, first by id) or none: nobody is created. A race
+  on the unique index is answered as a replay or a 409, never a second row.
+- `HqSalesOrderDraftController`: `POST /api/hq/v1/{business}/sales-order-drafts` and
+  `GET .../sales-order-drafts/{key}`, both behind `sales.orders.draft`; unknown top-level keys refused
+  (no coupon, no note, no override in this version); `payment_method` only `cod`; quantities whole,
+  1 to 99; the `Idempotency-Key` header must equal the body's key. Every body is an explicit field
+  list stamped `hq-sales-order-drafts.v1`, with an `effects` block (no sales order, no number, no
+  approval, no customer, no reservation, no journal, no notification) and `next_step: None`.
+- `HqApiToken`: `WRITE_ABILITIES = ['sales.orders.draft']`, issued only when named AND `--write` is
+  given; `--write` widens nothing else.
+- The routes file names the new write in its header, and says there is no route that confirms,
+  changes or cancels a draft.
+
+**What a draft did before, and what the new path does not do.** Before, no path made a draft: the
+only order write takes a number, opens an approval, notifies approvers, and through the website may
+create a customer and spend a coupon (C.3.1). The new path touches none of those tables: the first
+test counts `sales_orders`, its lines and addresses, `approval_requests`, `approval_decisions`,
+`notifications`, `customers`, `stock_batches`, `stock_movements`, `journals`, `journal_lines`,
+`store_coupons`, `carts`, `crm_tickets`, `jobs`, `products` and `product_prices` before and after, and
+fakes notifications, mail and the queue: all unchanged, nothing sent, nothing pushed.
+
+**Scratch MySQL rehearsal** (the rule of `feedback_scratch_mysql_before_deploy`, done on the local
+MySQL 8.4.3 of this PC, not on production's container, because this stream may not touch the VPS;
+production is MySQL 8.0.46, so parity on identifiers and JSON is expected but not proven): a fresh
+database, every ERP migration applied, the new one included (its indexes and foreign keys read back
+with `SHOW CREATE TABLE`), rolled back one step (both tables gone), re-applied (both back); then the
+draft tests run against MySQL. **They found a MySQL-only defect:** MySQL stores a JSON object with its
+keys re-sorted, so `hq_reference` came back in another order than it went in, and the contract body
+differed between SQLite and MySQL. The body now rebuilds `hq_reference` in a fixed order. After the
+fix every body matched on MySQL except the auto-increment ids, which InnoDB does not roll back between
+tests (the order-reads fixtures would differ the same way); the scratch database was dropped.
+
+**HQ.**
+
+- `ErpConnector::createSalesOrderDraft()` (the key in the header and the body; a connection failure
+  is `Uncertain`; 409 is `Refused`; 422 `ValidationFailed` with the ERP's `errors`; 403 `Unsupported`)
+  and `readSalesOrderDraft()` (404 `not_found` is an answer); both refuse a body of another contract,
+  another business, or whose status is not `draft`. `SALES_ORDER_DRAFTS_CONTRACT`.
+- `TakeOrderTool` (`commerce.take_order`, `app/Tools/Commerce`): the descriptor of `docs/79` D at R4
+  (C.3.2 point 2), `supportedStores` from `config('hq.orders.take_order_stores')`, shipped `[]` in
+  `config/hq.php`; `policyClass` `TakeOrderPolicy`; `scopeFrom` store then business; the ERP credential;
+  `redact: []` because the approval executes its stored payload; `requesterMayDecide: false`.
+  `execute()` checks the inner shape again, derives the ERP key as
+  `hq:` + sha256(gateway key + business), fingerprints the executed arguments with
+  `CanonicalPayload::hash` (for an approved call, the approval's own payload hash), writes the draft,
+  READS IT BACK, and asks `DraftReconciliation`: `succeeded` only on agreement. A failed read-back, a
+  missing draft and a disagreement are `uncertain` with the reason. `reconcile()` reads back by the same
+  key and judges against the arguments the uncertain call recorded. The output carries no name, phone
+  or address. Previewable: the approval card says what would be written and that nothing follows.
+- `TakeOrderShape` (the inner shape: destination, lines, totals; the gateway's validator checks only
+  the top level) and `TakeOrderPolicy` (refuses a malformed order, or a store of another business,
+  BEFORE an approval is parked; can only tighten).
+- `DraftReconciliation`: approval hash, fingerprint, status, store, payment method, phone, district,
+  thana, every line's quantity and price, lines missing on either side, the three totals. Reports; the
+  inputs are left as they were.
+- `ToolDescriptor::$requesterMayDecide` (default true; in `toArray()`), read by
+  `Approval::separationOfDutiesReason()` from the DEPLOYED descriptor: when false, whoever asked never
+  decides, owner included. A descriptor that cannot be built reads as false; an unregistered tool
+  keeps today's rule (the gateway will not run it anyway).
+- **Found and fixed on the way: the gateway's reconcile ran with the vault closed.**
+  `ToolGateway::replay()` asked `$tool->reconcile()` before step 8 opened any credential, so no tool
+  with an effect outside HQ could ever look its effect up: it would fail on the credential, not on the
+  question. Every tool until now returned null, so nothing noticed. `replay()` now resolves the tool's
+  declared credentials the way step 8 does and opens exactly those around `reconcile()`.
+- Six posture guards named the second R4 tool and the second customer-facing tool instead of being
+  loosened: `ApprovalCenterTest`, `PolicyEngineTest`, `ToolGatewayTest` and `AiSafetyPostureTest` (the R4 list is
+  `demo.request_approval` and `commerce.take_order`, and take_order admits no store),
+  `ToolNamespaceTest` (the key list), `SharedFoundationSafetyTest` (`commerce.take_order` is
+  customer-facing on an internal channel with no consent class, not agent-executable, no store).
+
+**Tests.** ERP `tests/Feature/HqApi/HqSalesOrderDraftTest.php`, 15: the draft and nothing else; a new
+buyer created as nobody and never the walk-in row; replay (not re-priced after a price change, key
+order irrelevant) and 409; the read-back and 404; `quote_mismatch` naming four fields; a quantity
+break priced by the engine; the website's refusals (unknown SKU, a service, out of stock on a strict
+product, a SKU twice, a store not live, an unknown store, an unknown thana, a bad phone); a store that
+cannot quote; cash on delivery only and no unknown key; the ability on both routes; `--write`; each
+business to itself (the same key in another business is another draft); immutability; one writer and
+exactly two routes; the fixtures with digest
+`414fdaa6dae0d89a260e3af7db2838211d2b7898cd32c72d4afc714862d2a02f`. HQ
+`tests/Feature/Erp/SalesOrderDraftContractTest.php`, 5 (the unedited copy and the same digest; every
+body read; the refusals by class; a POST with no answer is uncertain; another contract, business or
+status refused) and `tests/Feature/Commerce/TakeOrderTest.php`, 17 (the descriptor; refused in
+production's state before approval and the ERP; no agent holds it or can run it; an owner is sent to
+approval with exactly the proposal parked; a malformed order or another business's store refused before
+approval; the requester cannot decide at the executor or by rejecting; the rule changes nothing for
+other tools; approved by another person, written and read back, the key derived from the approval, no
+personal data in the stored output; replay and the same key for another order; a token without the
+ability; a moved price reported and not retried; a POST with no answer settled by reading back, with
+no second POST; a failed read-back and a disagreeing read-back both `uncertain`; an altered approval
+payload never runs; the reconciliation's every field; no other class names the tool).
+
+**Watched failing, and teeth.** Every class but the gateway, the approval rule and the connector's 409
+is new, so its tests' first failure proves nothing; their teeth were shown by mutation, each applied,
+the files run, and the code restored. ERP: totals comparison removed (1 test fails), line price
+comparison removed (2), key reuse replayed instead of 409 (2), a store that is not live accepted (2),
+the walk-in row matched (1), the draft updatable (1), a write ability without `--write` (1). HQ: the
+requester rule removed (2), reconcile with the vault closed, i.e. the gateway as it was (1: the
+uncertain write cannot be settled, which is how the defect was found, watched failing with
+`Unsupported` before the fix), the 201 trusted without a read-back (4), quantity not compared (1),
+the policy never refusing (1), every store admitted (2), a 409 read as an outage (2).
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** ERP: the full
+suite in parallel (8 processes), 4,026 passed (4,011 before, plus 15); Pint on the named files; no
+TypeScript changed. HQ: the full Pest suite in one run on `hq_test_f`, **1211 passed, 10,888
+assertions, 0 failed** (1189 on the base plus 22), 282 s; `vendor/bin/pint --test` passed; `npx tsc
+--noEmit` clean; `npx vite build` built. The first full run failed one test, a sixth posture guard
+(`AiSafetyPostureTest`: the R4 list), amended like the other five.
+
+**Found on the way, not fixed.**
+
+- `config/hq-seed.php` still names the deleted ERP host for the `erp-counter` store's `base_url`
+  (stream M's item 2 covers such files).
+- The draft carries `approval_uuid` and `tool_call_id` as null from HQ: `ToolContext` knows neither.
+  The link is the fingerprint (the approval's payload hash) and the correlation id the connector sends;
+  adding the approval to `ToolContext` is a gateway change for when a draft is confirmed.
+- The ERP draft is not visible on any ERP screen. It is a record HQ reads back; a screen belongs with
+  the step that confirms a draft.
+
+**Open questions for Joy or ChatGPT.**
+
+1. R4 kept against the instruction's R3 (C.3.2 point 2 and section B): confirm.
+2. `docs/79` H.7 (may an HQ order name a recipient other than the buyer?) decides whether the draft
+   gains a separate buyer; today it is one person, as on the website.
+3. Who will be the second person able to decide an order approval? Until one exists, no order can be
+   approved, by design.
 
 ### C.4 The owner's steps
 
