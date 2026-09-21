@@ -123,6 +123,23 @@ return [
         'take_order_stores' => [],
     ],
 
+    // docs/86: what each agent ROLE may not do, whatever it is asked (`App\Agents\RolePolicy`, read by
+    // the runtime's `RoleBoundary` on the operator's own words BEFORE the model is called). Code, not a
+    // switch: changing a role is a reviewed release. A kind not forbidden is NOT thereby a capability;
+    // the Support agent's customer reply still runs only through its gated reply tool.
+    //   outbound_message: send, message, text, email, WhatsApp, contact, tell or ask a party outside HQ
+    //   publication:      post, publish or put up content on a page, feed, account or site; run an ad
+    //   customer_reply:   answer or reply to a customer, or draft that reply
+    'roles' => [
+        'version' => 'v1',
+        'forbidden_actions' => [
+            'executive' => ['outbound_message', 'publication', 'customer_reply'],
+            'analytics' => ['outbound_message', 'publication', 'customer_reply'],
+            // Answering the customer on their own thread IS the support role (docs/72).
+            'support' => ['outbound_message', 'publication'],
+        ],
+    ],
+
     // docs/80 C.1: the Executive Briefing capability. The contract is code (its trusted task, its
     // input and its evidence surface are constants on the class); what is here is deployment tuning.
     //

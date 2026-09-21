@@ -26,10 +26,11 @@ namespace App\Agents;
  *    model's own decision that there is nothing to serve.
  *
  * ⚠ What it cannot do, said plainly. It cannot tell a bad task from a good one, only a task that is
- * in the message from one that is not. "Have a look around the systems while I am away" contains
- * words; whether that is a task the executive should serve is the model's judgement and the
- * prompt's rule, and the gate measures it. Grounding is the floor under that judgement, not a
- * replacement for it.
+ * in the message from one that is not. Until docs/86 that sentence went on: "Have a look around the
+ * systems while I am away" contains words, and whether that is a task was left to the model. Gate
+ * 11 attempt 2's model read it as the standing briefing, so an offer, a permission or a vague
+ * delegation with nothing named in it is now no task here (`isBareOffer()`), decided without the
+ * model. Grounding is still the floor under the model's judgement, not a replacement for it.
  */
 final class TaskGrounding
 {
@@ -46,6 +47,36 @@ final class TaskGrounding
      * The task EXISTS, which is why the canonical task is kept; what it asks for is refused whole.
      */
     public const PROHIBITED_CAPABILITY = 'prohibited_capability';
+
+    /**
+     * The message is an offer, a permission or a vague delegation with nothing named to do ("if you
+     * want, you can have a look around the systems while I am away"). No task (docs/86): the model is
+     * not asked to decide whether it is one, because OpenAI decided it was the standing briefing.
+     */
+    public const OFFER_WITHOUT_TASK = 'offer_without_task';
+
+    /**
+     * The operator asked for an outbound action the agent's role forbids (docs/86, `RoleBoundary`),
+     * and nothing else. The task exists, which is why the canonical task is kept; it is refused whole
+     * by the runtime before the model is called.
+     */
+    public const ROLE_BOUNDARY = 'role_boundary';
+
+    /**
+     * The frame of an offer, a permission or a vague delegation: it hands the agent latitude without
+     * naming anything to do with it.
+     */
+    private const OFFER_FRAME = '/\b(?:if you (?:want|like|wish|fancy|feel like it|have (?:time|a moment|a minute|a sec))|feel free(?: to)?|you (?:can|may|could|are free to|are welcome to|might as well)|'
+        .'(?:while|until|till) i(?:\'m| am) (?:away|out|gone|busy|offline|off|back|travelling|traveling|in (?:a |the )?meeting)|until i (?:return|get back)|when(?:ever)? you (?:like|want|get (?:a )?chance|have time)|'
+        .'whatever you (?:think|feel|want|like|see fit)|as you see fit|(?:it\'s|it is) up to you|use your (?:own )?judg(?:e)?ment|go ahead|no pressure|in the meantime|meanwhile)\b/u';
+
+    /** Activity that names nothing: looking around, exploring, keeping busy, doing whatever seems useful. */
+    private const VAGUE_ACTIVITY = '/\b(?:have a (?:look|browse|poke|nose|wander|dig) around|(?:look|poke|browse|nose|wander|dig|snoop) around|have a (?:look|browse|poke)|'
+        .'take a look around|explore|look at things|check things out|see what you (?:can )?find|keep (?:yourself )?busy|make yourself useful|do something useful|'
+        .'do whatever(?: you (?:think|feel|want|like))?(?: is| would be| seems)?(?: most)?(?: useful| best| helpful| needed| necessary| sensible| worthwhile)?|do what(?:ever)? you (?:think|feel|want|like)(?: is)?(?: best| useful| right)?)\b/u';
+
+    /** What a vague activity is done to when nothing in particular is meant. */
+    private const GENERIC_OBJECT = '/\b(?:the |our |your |its )?(?:systems?|things|stuff|everything|anything|around|the place|hq|a bit|a little|for a while|for now|today|later|if you like|please)\b/u';
 
     /**
      * Words that continue, permit, urge or point, and never name what is to be done. A message made
@@ -127,6 +158,14 @@ final class TaskGrounding
             return new GroundedTask($trusted, $interpretation, $authority, self::PROHIBITED_CAPABILITY, $source, $signal, null, $capability);
         }
 
+        // ⭐ docs/86: an offer is not a task. "If you want, you can have a look around the systems
+        // while I am away" has words, and until now words were enough; Gate 11 attempt 2's model read
+        // them as the standing briefing. The runner decides this before the model is called; here it
+        // holds for every other caller of the grounding too.
+        if ($this->isBareOffer($trusted)) {
+            return new GroundedTask('', $interpretation, $authority, self::OFFER_WITHOUT_TASK, $source, $signal, null, $capability);
+        }
+
         if ($interpretation === '') {
             return new GroundedTask('', $interpretation, $authority, self::MODEL_NAMED_NONE, $source, $signal, null, $capability);
         }
@@ -134,6 +173,33 @@ final class TaskGrounding
         // The canonical task is the operator's words, not the model's. The interpretation is kept
         // beside it as what the run understood; the authority is the message.
         return new GroundedTask($trusted, $interpretation, $authority, self::GROUNDED, $source, $signal, null, $capability);
+    }
+
+    /**
+     * An offer, a permission or a vague delegation and nothing else (docs/86): the message has words,
+     * but once the offer's frame, the vague activity and what it is vaguely done to are taken away,
+     * none that could name a task remains. "If you want, check the LaLaDia orders for anything
+     * unusual" keeps `check`, `laladia`, `orders`, `unusual`: a task, untouched.
+     *
+     * ⚠ Only for a message that HAS words: a message with none was already "no task" before this, and
+     * is decided where it always was.
+     */
+    public function isBareOffer(string $trustedInput): bool
+    {
+        $lower = mb_strtolower(trim($trustedInput));
+        if ($lower === '' || $this->contentWords($lower) === []) {
+            return false;
+        }
+
+        $framed = preg_match(self::OFFER_FRAME, $lower) === 1;
+        $vague = preg_match(self::VAGUE_ACTIVITY, $lower) === 1;
+        if (! $framed && ! $vague) {
+            return false;
+        }
+
+        $rest = preg_replace([self::VAGUE_ACTIVITY, self::OFFER_FRAME, self::GENERIC_OBJECT], ' ', $lower) ?? $lower;
+
+        return $this->contentWords($rest) === [];
     }
 
     /**

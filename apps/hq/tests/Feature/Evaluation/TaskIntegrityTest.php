@@ -155,7 +155,9 @@ it('takes a clarify verdict as a verdict, with the model\'s own question, and ho
         'tool_calls' => [['tool' => 'hq.list_jobs', 'args' => [], 'why' => 'anyway']],
     ])]);
 
-    $run = askIntegrity('If you want, you can have a look around the systems while I am away.');
+    // docs/86: the bare OFFER is now decided by the runtime before the model is asked (RoleBoundaryTest);
+    // a continuation that names nothing still reaches the model, whose clarification is its verdict.
+    $run = askIntegrity('Right, go ahead with that then, same as before.');
 
     expect($run->status)->toBe('clarified');
     expect($run->answer)->toBe('I do not see a task in that. What would you like me to check?');

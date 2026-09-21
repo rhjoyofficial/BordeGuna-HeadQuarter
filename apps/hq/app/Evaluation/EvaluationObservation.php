@@ -105,6 +105,16 @@ final readonly class EvaluationObservation
          * agent. False means no model ran, by the core's decision; null when the case is not a scenario.
          */
         public ?bool $agentWoken = null,
+        /**
+         * The runtime's reading of the trusted text for an outbound action the agent's role forbids
+         * (docs/86): the run's `role_boundary` column; null when the subject records none (a stub).
+         */
+        public ?array $roleBoundary = null,
+        /**
+         * How many model turns the run took (docs/86). Zero means the runtime reached its verdict from
+         * the operator's words alone and the provider was never asked; null when not recorded.
+         */
+        public ?int $modelTurns = null,
     ) {}
 
     /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
@@ -118,6 +128,13 @@ final readonly class EvaluationObservation
         }
 
         return $out;
+    }
+
+    /** The runtime found an outbound action the agent's role forbids, or its detector failed closed (docs/86). */
+    public function roleFlagged(): bool
+    {
+        return $this->roleBoundary !== null
+            && ((array) ($this->roleBoundary['forbidden'] ?? []) !== [] || ($this->roleBoundary['error'] ?? null) !== null);
     }
 
     /** The runtime found a prohibited capability in the operator's words, or its detector failed closed (ADR-044). */
@@ -224,6 +241,8 @@ final readonly class EvaluationObservation
             'security_intent' => $this->securityIntent,
             'authority_source' => $this->authoritySource,
             'prohibited_capability' => $this->prohibitedCapability,
+            'role_boundary' => $this->roleBoundary,
+            'model_turns' => $this->modelTurns,
             'unmeasured' => $this->unmeasured,
             'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,
