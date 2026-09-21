@@ -1131,3 +1131,82 @@ line. **(8)** The second declaration goes.
 
 Nothing here touches a prompt, TaskGrounding, TaskScope, a detector, a policy rule, a migration, a
 flag row, a grant or a scheduled job.
+
+#### C.6.3 As built (21 September)
+
+No migration. No prompt file, TaskGrounding, TaskScope, detector or policy rule touched. Nothing
+switched on; no flag row, grant or scheduled job created. The agent stamps are unchanged
+(`executive.v8+18d60e98`, `support.v1+0f4a195b`) and the `ExecutionContextIdentityCaseTest`
+digests stayed green without re-pinning.
+
+**(1) Horizon.** `config/horizon.php:90` is `['web', '2fa.enabled', '2fa.verified']`. Measured on
+the new tree: every one of the 22 `horizon/*` routes carries the account check, then both 2FA
+checks, then Horizon's gate, in that order. A person past the password step is sent to
+`two-factor.challenge` from the page, the API and a retry; a person who never set 2FA up is sent to
+`two-factor.setup`; a verified person with the permission opens it; a guest still gets 403.
+`tests/Feature/Security/TwoFactorEveryRouteTest.php` holds that every route that authenticates a
+person (by `auth` or by Horizon's gate) carries both checks, except ten URIs that exist to finish 2FA
+(the challenge, the setup and its actions, logout, email verification, password confirmation), and
+that each of the ten still exists. The exemption is by URI, not by name, because `POST
+confirm-password` has no name.
+
+**(2) Kill switches.** `ToolAvailability::switches()` (`app/Gateway/Registry/ToolAvailability.php:106`)
+and `Features::all()` (`app/Support/Features/Features.php:43`) read their table on every call; the
+keys, the TTLs and the `Cache` import are gone. `forget()` stays on both (`:103`, `:40`) as a
+documented no-op, and its callers were not touched. A tool switched off by SQL is refused at the
+very next gateway call (`unavailable`, "disabled at runtime"), a tool switched back on is offered at
+the next call, `ai.freeze` set by SQL denies the next call, `ai.runtime` cleared by SQL reads off at
+once, and a stale `hq:tool_switches` / `hq:feature_flags` planted in a persistent `file` store is
+ignored.
+
+**(3) Who may decide.** `Approval::decisionRefusalReason()` (`app/Models/Approval.php:176`) answers
+the separation rule (its sentence unchanged), then "You do not hold the permission to decide
+approvals.", then "This approval is delegated to somebody else."; `isDecidableBy()` (`:191`) is that
+reason being null. It is read by the executor before the guard and the claim
+(`ApprovalExecutor.php:53`), by `approveWithEdit()` (`ApprovalService.php:193`) and `reject()`
+(`:253`) before they write, and by the controller's `assertDecidable` (`ApprovalController.php:228`),
+whose 403 now names the rule. The successor of an edit copies the three delegation columns (`:214`).
+`cancel` and `delegate` are unchanged.
+
+**(4) The edit's redaction.** `ApprovalService` takes the `ToolRegistry` (`:41`); `approveWithEdit()`
+redacts with the stored tool's descriptor paths (`:199`) and refuses a tool no longer registered.
+The hash is still `CanonicalPayload::hash()` over what is stored, and a test holds it.
+
+**(5)** `AgentController.php:88` sends `enabling_user` as `{user_id, name}` or null; the page prints
+"Name (user #id)" (`resources/js/pages/agents/index.tsx:21`, `:102`). **(6)** `show.tsx` formatted
+by Prettier, nothing else. **(7)** `docs/32` has the rows ADR-020 to ADR-046. **(8)** `phpunit.xml`
+declares `CACHE_STORE` once.
+
+**Tests watched failing on the unmodified code, then passing.**
+
+- `tests/Feature/Security/TwoFactorEveryRouteTest.php` (4): 3 failed first (the unverified person
+  and the person without 2FA both got 200 from Horizon; the enumeration stopped at
+  `horizon/api/stats`). The fourth (a verified person opens it, a guest gets 403) passed first and
+  is the behaviour kept.
+- `tests/Feature/Security/KillSwitchFreshnessTest.php` (6): 5 failed first, each on the stale answer
+  (the call `succeeded`, the flag read on). The sixth (`forget()` callable and harmless) passed first.
+- `tests/Feature/Gateway/ApprovalDecisionRuleTest.php` (9) with the test tool
+  `tests/Support/Tools/RedactingGatedTool.php` (R4, declares `customer_phone`, which the deny list does
+  not know): 7 failed first (the executor executed after a delegation and without the permission; an
+  edit and a rejection by somebody who may not decide went through; the successor had no delegation;
+  the edited phone number was stored in clear; the unregistered tool was edited). The two that
+  passed first keep a delegate and the undelegated owner deciding as before.
+- `tests/Feature/Agents/AgentsIndexPeopleTest.php` (1): failed first on the email it received.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** Full Pest suite in one run on Postgres `hq_test_e`: **1066 passed, 9771 assertions, 0 failed**, 315 s (base 1046, plus 20: 4 two-factor, 6 kill switch, 9 approval decision rule, 1 agents index). Along the way: Gateway, Foundation, Security, Agents and Ai folders 480 passed after item 2; the Gateway folder 198 passed after items 3 and 4. `vendor/bin/pint --test` passed. `npx tsc --noEmit` clean. `npm run build` built. `npx prettier --check` passes on `agents/show.tsx` and `agents/index.tsx`. That 1066 is the number the next merge must not reduce.
+
+**Decisions the owner may want to revisit.**
+
+1. Horizon does not get `auth`, so a guest still sees Horizon's 403 rather than the login page. The
+   alternative (redirect a guest to login) changes a tested behaviour for no security gain.
+2. `forget()` is kept as a no-op rather than removed with its callers. If a cache is ever brought
+   back it must be invalidated across processes, and these calls mark the places that write.
+3. A rejection now needs the same right as an approval. Before, the service would reject for anybody
+   who reached it; only the controller stopped them.
+4. An edit made by the delegate keeps the delegation on the successor, so the original approver
+   still cannot decide the edited proposal. Undelegating is not a feature today.
+5. Every call to `Features::enabled()` and to the gateway's availability check is one small query.
+   A page that asks for several flags asks the table several times. No measurement says this matters;
+   if one ever does, the place for a memo is that one request, never the shared class.
+
+**Found on the way, not fixed (outside this stream).** None beyond what C.6.1 lists.
