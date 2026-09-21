@@ -30,9 +30,14 @@ use App\Tools\Conversation\SendReplyTool;
 use App\Tools\Diagnostics\ApprovalDemoTool;
 use App\Tools\Diagnostics\FailingTool;
 use App\Tools\Diagnostics\NoopTool;
+use App\Tools\Erp\CheckOrderEligibilityTool;
+use App\Tools\Erp\LookupProductTool;
+use App\Tools\Erp\LookupSkuTool;
 use App\Tools\Erp\PollErpLowStockTool;
 use App\Tools\Erp\PollErpOverviewTool;
+use App\Tools\Erp\ReadAvailabilityTool;
 use App\Tools\Erp\ReadErpSnapshotTool;
+use App\Tools\Erp\ReadPriceTool;
 use App\Tools\Erp\RunErpReportTool;
 use App\Tools\Facts\QueryOrdersTool;
 use App\Tools\Facts\SnapshotFreshnessTool;
@@ -91,6 +96,16 @@ return [
         // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
         // model while narration is off, which is the shipped state. No scheduled job runs it.
         ComposeBriefingTool::class,
+
+        // Phase 4 read side (docs/81 C.5, docs/79): what HQ must know before it could ever take an
+        // order, read live from the ERP. Every one is R2 and read-only. ⛔ NO agent holds any of them
+        // (agents.allowed_tools is untouched), no order write exists, and `take_order` is registered
+        // nowhere. The eligibility check names a person from a phone and is not agent-executable.
+        LookupProductTool::class,
+        LookupSkuTool::class,
+        ReadPriceTool::class,
+        ReadAvailabilityTool::class,
+        CheckOrderEligibilityTool::class,
     ],
 
     // docs/80 C.1: the Executive Briefing capability. The contract is code (its trusted task, its
