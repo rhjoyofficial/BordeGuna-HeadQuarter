@@ -183,6 +183,23 @@ recorded as UNVERIFIED because `3314c54`'s health names no commit. That is expec
    the deploy-time fetch still refreshes `main.json` at each release.
 3. **Look at the monitor.** `tail /var/log/hq-monitor.log` shows no `release-state` error.
 
+**Added by `docs/81` C.8 (the scheduler's zombie leak, found 21 September):**
+
+4. **The scheduler gains a reaper (`init: true`), so `up` recreates it.** Until then its PID 1 was
+   `schedule:work`, which never reaped the orphans of `runInBackground`: on 21 September it held
+   9,482 zombies against a `pids.max` of 9,483, could not fork, and had run nothing since about
+   18 September 11:40 UTC. It was restarted on 21 September at 05:06 UTC and leaks about 2.1 processes a
+   minute (3,000 a day; the ceiling is reached in about 72 hours), so **if this deploy has not happened
+   by 23 September, restart it once more**
+   (`$C restart scheduler`; it switches nothing on, and the daily jobs skip missed slots). After the
+   deploy, `docker stats --no-stream --format '{{.PIDs}} {{.Name}}' | grep hq-scheduler` should stay flat,
+   in single or low double digits, over a day, and NOT climb by about 2 a minute as it did before; and `docker top bordeguna-hq-scheduler-1` shows `docker-init`
+   as the first process.
+5. **The monitor now reads HQ's 503.** From the first `*/5` run after the deploy, `/var/log/hq-monitor.log`
+   names failing components (`hq_scheduler`, `hq_queue`, with the detail) instead of
+   `hq_reachable ... unreachable`. (The 18 September `hq_reachable` alert already recovered at 05:10 UTC
+   on 21 September: once the restarted scheduler made health 200, the old busybox fallback could read it.)
+
 ### ⛔ NOT YET APPLIED TO PRODUCTION: OpenAI as the model provider (docs/81 C.7, ADR-049), after the deploy
 
 The release that carries branch `ai/openai-provider` switches nothing on: the OpenAI driver is
@@ -284,7 +301,9 @@ $C start app horizon scheduler
 ## Health and monitoring
 
 - `/up`: liveness (Traefik/docker health). `/api/health`: application, database, redis, queue (Horizon
-  master supervisors), scheduler (tick heartbeat < 180 s). 503 when any component fails.
+  master supervisors), scheduler (tick heartbeat < 180 s). 503 when any component fails, and the body
+  of that 503 says which component: every reader here keeps it (`ignore_errors` in PHP, `curl` without
+  `-f`), never busybox `wget -q`, which prints nothing on a non-2xx answer (docs/81 C.8).
 - `deploy/hq-monitor.sh` (cron, 5 min): RAM, swap, disk, load, OOM kills, container restarts, unhealthy
   containers, HQ components, ERP reachability, local backup freshness. Alerts on state change only, daily heartbeat 08:00 UTC.
   It also refreshes `deploy/release-state/main.json` (never an alert; see "Release state" above).

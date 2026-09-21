@@ -312,6 +312,9 @@ grep -q '"verification":{"status":"failed","up":"ok","health":"fail"' "$(STATE)/
 is   "an unverified release never becomes the last verified one" "$( [ -e "$(STATE)/last-verified.json" ] && echo yes || echo no )" "no"
 grep -q "UNVERIFIED" "${WORLD}/out" && ok "the operator is told, loudly" || bad "the deploy should warn that the release is UNVERIFIED"
 grep -q "verification failed" "${STUB_REPO}/deploy/RELEASES.md" && ok "RELEASES.md says so too" || bad "RELEASES.md should say 'verification failed'"
+# docs/81 C.8: the endpoint answers 503 when a component fails, and the body says which one.
+grep -q "UNVERIFIED.*failing: scheduler fail (no tick recorded)" "${WORLD}/out"     && ok "...and the warning names the part that failed: scheduler fail (no tick recorded)"     || bad "the UNVERIFIED line should name the failing component: $(grep UNVERIFIED "${WORLD}/out")"
+grep -q '"scheduler":{"status":"fail"' "${WORLD}/out"     && ok "...and the deploy log carries the body of the 503, not {}"     || bad "the deploy log should print the body of the 503: $(grep 'health:' "${WORLD}/out")"
 cleanup
 
 new_world
@@ -404,6 +407,16 @@ is   "the rollback is recorded as a rollback"                   "$(field "$(STAT
 is   "...of the target commit"                                  "$(field "$(STATE)/release.json" commit)" "$OLD_HEAD"
 is   "...from the release it replaced"                          "$(field "$(STATE)/release.json" previous)" "$NEW_HEAD"
 is   "a verified rollback becomes the last verified release"    "$(field "$(STATE)/last-verified.json" commit)" "$OLD_HEAD"
+cleanup
+
+# ── 16b. A rollback onto a failing component says which one (docs/81 C.8) ────────────────────────
+new_world
+RC=$(run_deploy)
+export STUB_FAST_SLEEP=1 STUB_HEALTH_STATUS=fail HEALTH_TRIES=2 HEALTH_WAIT=0
+RC=$(run_rollback "$OLD_HEAD")
+is   "a rollback onto a failing component still completes (the stack is up)" "$RC" "0"
+grep -q '"verification":{"status":"failed","up":"ok","health":"fail"' "$(STATE)/release.json"     && ok "...recorded as health 'fail', read from the body of the 503, not 'unreadable'"     || bad "a failing component should be recorded as health fail: $(cat "$(STATE)/release.json")"
+grep -q "UNVERIFIED.*failing: scheduler fail (no tick recorded)" "${WORLD}/out"     && ok "...and the warning names the failing component"     || bad "the rollback's UNVERIFIED line should name the failing component: $(grep UNVERIFIED "${WORLD}/out")"
 cleanup
 
 # ═══ One rollback invariant (docs/81 C.3) ════════════════════════════════════════════════════════
@@ -726,6 +739,15 @@ cleanup
 verify_world
 export STUB_HEALTH_STATUS=fail
 verify_fails "an unhealthy stack" "/api/health is 'fail'"
+# docs/81 C.8: on 21 September this read said "'unreadable', not ok ... {}" on production, where the
+# body of the 503 named the scheduler.
+grep -q "FAIL .*failing: scheduler fail (no tick recorded)" "${WORLD}/out"     && ok "...and names the failing component, read from the body of the 503"     || bad "the health FAIL should name the failing component: $(grep 'FAIL' "${WORLD}/out" | head -3)"
+grep -q "unreadable" "${WORLD}/out"     && bad "a 503 that carries a body must not be called unreadable: $(grep unreadable "${WORLD}/out")"     || ok "...and never calls a 503 that carries a body 'unreadable'"
+cleanup
+
+verify_world
+export STUB_HEALTH_STATUS=unreadable
+verify_fails "a health endpoint that gives no readable answer" "gave no readable answer"
 cleanup
 
 verify_world
@@ -762,6 +784,131 @@ else
     echo "  (skipped: this filesystem reports 600 whatever chmod is given, so the mode FAIL cannot be shown here)"
 fi
 cleanup
+
+# ═══ The scheduler's reaper and the host monitor's health read (docs/81 C.8) ═════════════════════
+#
+# On 21 September production's scheduler container held 9,482 zombie processes against a pids.max of
+# 9,483 and had run nothing for three days: PID 1 was `php artisan schedule:work`, which never reaps
+# the orphaned children of `runInBackground`. The host monitor said "HQ /api/health unreachable",
+# because both of its reads threw away the body of the 503 that named the scheduler.
+
+echo
+echo "the scheduler's reaper and the monitor's health read"
+echo
+
+# ── 24. The scheduler runs an init as PID 1 ─────────────────────────────────────────────────────
+SCHED_BLOCK=$(awk '/^  scheduler:/{f=1; next} f && /^  [a-z]/{f=0} f' "${REPO_ROOT}/deploy/docker-compose.yml")
+echo "$SCHED_BLOCK" | grep -qE '^    init: true([[:space:]]|$)' \
+    && ok "the scheduler service has init: true, so the orphans of runInBackground are reaped" \
+    || bad "the scheduler service in docker-compose.yml should set init: true"
+
+# ── 25. The monitor reads the body of HQ's 503 ──────────────────────────────────────────────────
+#
+# The REAL hq-monitor.sh, run with its state, config and host overridden, against stubs that behave as
+# measured on production on 21 September: HTTP on port 80 is Traefik's 301 before any router; busybox
+# `wget -qO-` prints nothing and exits 1 on a non-2xx answer; PHP's file_get_contents returns false on
+# one unless the call asks for `ignore_errors`; curl prints the body whatever the status.
+#   MON_HEALTH  ok | fail   what HQ's /api/health says (fail = HTTP 503, the scheduler failing)
+#   MON_DIRECT  up | down   whether the HTTPS read pinned to this machine answers at all
+#   MON_APP     up | down   whether the app container's PHP can reach web at all
+mon_world() {
+    MW=$(mktemp -d); mkdir -p "$MW/bin" "$MW/state"
+    cp "${REPO_ROOT}/deploy/hq-monitor.sh" "$MW/hq-monitor.sh"
+    export HQ_MONITOR_STATE_DIR="$MW/state" HQ_MONITOR_ENV="$MW/monitor.env" HQ_HOST=hq.bordeguna.com
+    printf 'TELEGRAM_BOT_TOKEN=t\nTELEGRAM_CHAT_ID=c\n' > "$MW/monitor.env"
+    export MON_TRACE="$MW/trace" MON_TG="$MW/telegram"; : > "$MON_TRACE"; : > "$MON_TG"
+    export MON_HEALTH=fail MON_DIRECT=up MON_APP=up
+    cat > "$MW/bin/health-body" <<'STUB'
+#!/bin/bash
+if [ "$MON_HEALTH" = "fail" ]; then s='fail'; sched='{"status":"fail","detail":"no tick recorded"}'
+else s='ok'; sched='{"status":"ok","last_tick_age_seconds":20}'; fi
+echo "{\"status\":\"$s\",\"checked_at\":\"x\",\"checks\":{\"application\":{\"status\":\"ok\"},\"database\":{\"status\":\"ok\",\"latency_ms\":1},\"redis\":{\"status\":\"ok\",\"latency_ms\":0},\"queue\":{\"status\":\"ok\",\"supervisors\":1},\"scheduler\":$sched}}"
+STUB
+    cat > "$MW/bin/curl" <<'STUB'
+#!/bin/bash
+echo "curl $*" >> "$MON_TRACE"
+case "$*" in
+    *api.telegram.org*)
+        prev=""; for a in "$@"; do [ "$prev" = "--data-urlencode" ] && echo "${a#text=}" >> "$MON_TG"; prev="$a"; done
+        exit 0 ;;
+    *"http://127.0.0.1/api/health"*) echo "Moved Permanently"; exit 0 ;;   # Traefik on port 80
+    *"https://${HQ_HOST}/api/health"*)
+        [ "$MON_DIRECT" = "up" ] || exit 7
+        health-body; exit 0 ;;                                            # curl prints a 503's body
+    *"%{http_code}"*) echo 200; exit 0 ;;                                 # the ERP's /up
+esac
+exit 0
+STUB
+    cat > "$MW/bin/docker" <<'STUB'
+#!/bin/bash
+echo "docker $*" >> "$MON_TRACE"
+NAMES='bordeguna-hq-web-1 bordeguna-hq-app-1 bordeguna-hq-scheduler-1'
+case "$*" in
+    "ps -a --format {{.Names}} {{.RestartCount}}") for n in $NAMES; do echo "$n 0"; done; exit 0 ;;
+    *"health=unhealthy"*) exit 0 ;;
+    "ps --format {{.Names}}"|"ps -a --format {{.Names}}") for n in $NAMES; do echo "$n"; done; exit 0 ;;
+    inspect*) echo 0; exit 0 ;;
+    *"exec bordeguna-hq-web-1 wget"*)
+        # busybox wget -q: nothing at all on a non-2xx answer
+        [ "$MON_APP" = "up" ] && [ "$MON_HEALTH" = "ok" ] && { health-body; exit 0; }
+        exit 1 ;;
+    *"exec bordeguna-hq-app-1 php -r"*)
+        [ "$MON_APP" = "up" ] || exit 0
+        if [ "$MON_HEALTH" = "fail" ]; then
+            case "$*" in *ignore_errors*) health-body ;; esac                # false without the option
+        else health-body; fi
+        exit 0 ;;
+esac
+exit 0
+STUB
+    printf '#!/bin/bash\necho "              total        used        free      shared  buff/cache   available"\necho "Mem:           7937        3000        1000         100        3937        4500"\necho "Swap:          2047           0        2047"\n' > "$MW/bin/free"
+    printf '#!/bin/bash\necho "Use%%"\necho " 40%%"\n' > "$MW/bin/df"
+    printf '#!/bin/bash\nexit 0\n' > "$MW/bin/journalctl"
+    chmod +x "$MW/bin/"*
+}
+run_monitor() { (PATH="$MW/bin:$PATH" bash "$MW/hq-monitor.sh" > "$MW/out" 2>&1); }
+mon_cleanup() { cd /; rm -rf "$MW"; unset HQ_MONITOR_STATE_DIR HQ_MONITOR_ENV HQ_HOST MON_TRACE MON_TG MON_HEALTH MON_DIRECT MON_APP; }
+
+# A 503 naming the scheduler, read directly.
+mon_world
+run_monitor
+grep -q "ALERT hq_scheduler: HQ scheduler status=fail (no tick recorded)" "$MW/out" \
+    && ok "a 503 naming the scheduler alerts hq_scheduler, with its detail" \
+    || bad "the monitor should alert hq_scheduler with its detail: $(grep ALERT "$MW/out" | head -3)"
+grep -q "ALERT hq_reachable" "$MW/out" \
+    && bad "a 503 that carries a body is not 'unreachable': $(grep 'ALERT hq_reachable' "$MW/out")" \
+    || ok "...and does not call HQ unreachable"
+grep -q "hq_scheduler: HQ scheduler status=fail (no tick recorded)" "$MON_TG" \
+    && ok "...and the Telegram message says so" \
+    || bad "the Telegram message should name the scheduler: $(cat "$MON_TG" | head -3)"
+is   "...and the monitor records HQ as reachable"             "$(cat "$MW/state/hq_reachable.state" 2>/dev/null)" "0"
+# The same monitor, the next tick, after the scheduler came back.
+export MON_HEALTH=ok
+run_monitor
+grep -q "RECOVERED hq_scheduler" "$MW/out" && ok "a scheduler that comes back is reported recovered" || bad "hq_scheduler should recover: $(grep -E 'ALERT|RECOVERED' "$MW/out" | head -3)"
+grep -q "wget" "$MON_TRACE" \
+    && bad "the monitor should never read health through busybox wget -q, which prints nothing on a 503" \
+    || ok "...and health was never read through busybox wget -q"
+mon_cleanup
+
+# The direct read gets no answer; the fallback through the app container still reads the 503's body.
+mon_world
+export MON_DIRECT=down
+run_monitor
+grep -q "ALERT hq_scheduler: HQ scheduler status=fail (no tick recorded)" "$MW/out" \
+    && ok "through the fallback, the 503's body still names the scheduler" \
+    || bad "the fallback should read the body of the 503: $(grep ALERT "$MW/out" | head -3)"
+grep -q "ALERT hq_reachable" "$MW/out" && bad "...the fallback read the body, so HQ is reachable" || ok "...and HQ is not called unreachable"
+mon_cleanup
+
+# Nothing answers at all: that IS unreachable.
+mon_world
+export MON_DIRECT=down MON_APP=down
+run_monitor
+grep -q "ALERT hq_reachable: HQ /api/health unreachable" "$MW/out" \
+    && ok "when nothing answers at all, the monitor still alerts hq_reachable" \
+    || bad "no answer at all should alert hq_reachable: $(grep ALERT "$MW/out" | head -3)"
+mon_cleanup
 
 echo
 echo "  ${PASS} passed, ${FAIL} failed"

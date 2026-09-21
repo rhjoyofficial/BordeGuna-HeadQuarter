@@ -533,6 +533,7 @@ only in the combined tree).
 | I. Phase 4 read side: product, variant, price, stock and eligibility lookups through governed reads | `p4/erp-read-foundation` (HQ) and a branch in the ERP repository | 9 |
 | J. Defects found during the milestone (Horizon before 2FA, cached kill switches, the executor's decision rule, the edit's redaction, an email on the agents index, housekeeping), fixed before the candidate | `fix/pre-candidate-defects` | `docs/RESUME-HERE-2026-09-21.md` section 9 |
 | K. OpenAI as the model provider, by the owner's decision of 21 September (a driver, the rows, one serving provider, an audited lever, readiness that follows it) | `ai/openai-provider` | 10, 17 (owner decision, C.7) |
+| L. The scheduler's zombie leak (a production outage found by the candidate's preflight) and the health readers that could not read a 503 | `fix/scheduler-reaper-and-health-readers` | found on 21 September (C.8) |
 
 Rules every stream keeps: a correction is watched failing first; no prompt file changes; nothing is
 switched on; no grant, flag row or scheduled job is created; historical rows are never rewritten;
@@ -2341,6 +2342,192 @@ phrases `classify()` reads for Anthropic (it knows "credit balance" and "purchas
 read as `connector_error`; its exact wording was not checked here. The provider-blocked runbook still speaks
 of Anthropic only.
 
+
+### C.8 Stream L: the scheduler's zombie leak and the health readers that could not read a 503 (branch `fix/scheduler-reaper-and-health-readers`)
+
+Found on 21 September by the read-only preflight of the candidate named in section D, before any
+deploy. The preflight FAILed on production's health, and following that FAIL found a production
+outage that had been silent for three days.
+
+#### C.8.1 Today's behaviour, and what production showed (21 September, read-only unless stated)
+
+**The outage.** `/api/health` answered HTTP 503 with `"scheduler":{"status":"fail","detail":"no tick
+recorded"}`. The scheduler container was up (5 days) and its log showed `schedule:work` starting
+commands every minute, yet `Cache::get('hq:scheduler:last_tick')` was null in both the app and the
+scheduler containers, and a plain `sh` inside the scheduler container failed with `can't fork:
+Resource temporarily unavailable`. `docker stats` counted **9,482 processes** in it against a cgroup
+`pids.max` of **9,483** (`ulimit -u` unlimited). The last `job_runs` row was 17 September 22:05 UTC
+(five runs a day on every day before: the LaLaDia and Bionic reconciliations, the fact integrity check,
+the two ERP snapshots). So from about 18 September 11:37 UTC (the monitor saw the heartbeat stale at 11:40) nothing scheduled ran: not the minute tick
+that dispatches HQ's own jobs, not event delivery, not the approval sweep.
+
+**Why.** `routes/console.php` runs most of HQ's commands with `->runInBackground()`. Laravel starts
+those as `sh -c "(php artisan <cmd> ; php artisan schedule:finish ...) > /dev/null 2>&1 &"`: the `sh`
+exits at once and its background subshell is re-parented to PID 1 of the container. PID 1 is
+`php artisan schedule:work` (the entrypoint `exec`s it; the service has no `init`), and it never calls
+`wait()` for children it did not start, so every finished background command stays as a zombie.
+Measured after the restart below (the container's own `StartedAt` is 05:06:09 UTC): 3 processes at
+start, 32 at 05:20, 49 at 05:28 and 52 at 05:29, about 2.1 a minute or 3,000 a day, which reaches 9,483
+in about 72 to 75 hours. The first failure fits: the container was started on 15 September 11:45 UTC,
+and the monitor saw health fail (a heartbeat older than 180 s) at 11:40 UTC on 18 September, 72 hours
+later. The daily jobs place it the same way: the last to run was 17 September 22:05 UTC, and the next
+one due, 18 September 20:00 UTC, never ran.
+
+**Horizon and app do not leak.** Horizon's master and supervisors start their children through
+Symfony Process and wait for them (8 processes after 5 days); php-fpm's master reaps its workers
+(3 processes). The ERP's scheduler has the same shape (PID 1 `php artisan schedule:work`, no init) and
+6 `runInBackground` commands, but they run daily or less, so it gathers a handful a day and every
+deploy recreates it (2 processes on 21 September). It is recorded here, not changed: another
+repository.
+
+**The restart (21 September, 05:06 UTC).** `docker compose restart scheduler`, on the owner-delegated
+operational authority, to put production back into its designed state; nothing was switched on. Right
+after: 3 processes, `/api/health` 200 with the scheduler `ok` and a tick 24 seconds old. The five
+daily jobs have `missed_policy` skip, so their missed slots were skipped and they run again tonight
+(20:00 to 22:05 UTC). **Without a fix the restarted container dies again about 72 hours after 05:06 UTC on 21 September,
+early on 24 September UTC, so it must be restarted again on 23 September if the fix is not deployed**,
+and a seven-day A0 shadow period, whose ticks run on this scheduler, could never complete.
+
+**Why nobody was told the right thing.** `/api/health` answers 503 whenever a component fails
+(`HealthController`: overall `fail` is 503, `degraded` is 200). Every reader of it discards the body of
+a 503, each measured on production on 21 September:
+
+1. `deploy/hq-monitor.sh:118` asks `http://127.0.0.1/api/health` with a `Host` header. Port 80 is
+   Traefik's HTTP entrypoint and answers **301** to HTTPS before any router (measured), so this read
+   never reaches HQ at all.
+2. Its fallback, `:119`, is `docker exec bordeguna-hq-web-1 wget -qO- http://127.0.0.1/api/health`.
+   Busybox `wget` prints **nothing** and exits 1 on a non-2xx answer (measured with a 404).
+3. So `HQ_JSON` is empty and the monitor alerts `hq_reachable`: "HQ /api/health unreachable" (sent on
+   18 September 11:40 UTC, once, because alerts are state changes), and the daily heartbeat has said
+   `HQ unknown` since. The scheduler component check never ran.
+4. `deploy/verify-only.sh:179`, `deploy/deploy.sh:182` and `deploy/rollback.sh:178` read health with
+   `php -r 'echo @file_get_contents("http://web/api/health") ?: "{}";'`. Without the `ignore_errors`
+   context option PHP returns false on a non-2xx answer (measured: a 404 gives `{}`; the same call with
+   `ignore_errors` gives the body). So the preflight said `/api/health is 'unreadable', not ok ... {}`
+   instead of naming the scheduler, and a deploy or rollback onto a failing component records
+   `health: unreadable` and says nothing about which part failed.
+
+**Why the suite did not catch it.** `deploy/tests/docker-stub.sh` answers every `php -r` health read
+with the JSON body whatever the status, so it plays a PHP that reads a 503 body, which real PHP without
+`ignore_errors` does not do. The suite's "an unhealthy stack fails with /api/health is 'fail'" check
+passes against a script that on production prints 'unreadable'.
+
+#### C.8.2 The design (written before the code)
+
+1. **A reaper for the scheduler.** `init: true` on the `scheduler` service in
+   `deploy/docker-compose.yml`: Docker runs its bundled init (tini) as PID 1, the entrypoint and
+   `schedule:work` become its children, and every orphaned background command is re-parented to the
+   init, which reaps it. Only the scheduler: horizon and app were measured not to leak, and a change
+   to their PID 1 is a change nobody asked for. After the deploy, `docker stats` should show the
+   scheduler's process count staying in single or low double digits for a day.
+2. **Every health read keeps the body of a non-2xx answer.** The three PHP one-liners pass
+   `stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 10]])`. No answer at all
+   (connection refused, a timeout) still gives `{}` and is still `unreadable` (measured).
+3. **The failing parts are named.** A helper beside the existing health parsers (`rs_health_failing`
+   in `release-state-lib.sh`, `health_failing` in `verify-only.sh`, which runs standalone from a copy)
+   lists every component whose status is not ok, with its detail or error:
+   `scheduler fail (no tick recorded)`. The preflight's FAIL, the deploy's and the rollback's UNVERIFIED
+   line print it. `release.json` keeps its schema: the component list goes to the operator's output
+   and to the deploy log, which already prints the health body.
+4. **The monitor asks HQ itself.** `curl -s -m 10 --resolve hq.bordeguna.com:443:127.0.0.1
+   https://hq.bordeguna.com/api/health` (curl prints the body whatever the status, and `--resolve`
+   keeps it on this machine, the same way the ERP check has asked since 13 September); the fallback
+   goes through the app container's PHP with `ignore_errors`, never busybox `wget -q`. The component
+   message carries the detail: `HQ scheduler status=fail (no tick recorded)`. `STATE_DIR`, the config
+   file and the host name become overridable by environment (defaults unchanged) so the suite can run
+   the real script.
+5. **No retry is added to the deploy's verification for the scheduler.** The heartbeat is in Redis,
+   which a deploy does not recreate, with a 600 s TTL and a 180 s staleness limit; the old scheduler
+   keeps ticking through the build and the new one ticks within a minute of `up`, and the verification
+   already retries for 90 s (18 x 5 s). A scheduler that reads `fail` after that is a real failure.
+6. **Tests first, in `deploy/tests/deploy-safety-test.sh`, the one file CI runs.** The stub is made
+   faithful (a failing health is HTTP 503; the `php -r` read gets the body only when it asks for
+   `ignore_errors`, else `{}`; the body names `scheduler fail` with its detail). Then: the preflight on
+   a failing stack names the scheduler and never says `unreadable`; a deploy and a rollback onto a
+   failing stack record `health: fail` and print the failing component; the compose file's `scheduler`
+   service has `init: true`; and a new section runs the real `hq-monitor.sh` against stubbed `curl`,
+   `docker`, `free`, `df` and `journalctl` that behave as measured (port 80 answers 301, busybox `wget`
+   prints nothing on a 503, PHP without `ignore_errors` gives nothing): a 503 with a failing scheduler
+   alerts `hq_scheduler` with its detail and not `hq_reachable`, through the direct read and through the
+   fallback, and nothing answering at all still alerts `hq_reachable`. Each new check is watched failing
+   against the scripts of `f736a52` before the change.
+
+#### C.8.3 As built (21 September)
+
+No PHP file, migration, prompt, schedule or application behaviour changed; nothing was switched on.
+Only the stack definition, the four host scripts that read health, their test suite, and the docs.
+
+**The reaper.** `deploy/docker-compose.yml:116`: `init: true` on the `scheduler` service, with the
+incident in its comment. Resolved with the real Docker Compose on the VPS (v5.3.1, read-only: the
+branch's file copied to `/tmp`, `config --format json` with production's project directory and env
+file, only the `init` key of each service printed, the copy removed): `scheduler: True`, every other
+service `None`. Production's own compose file was not touched.
+
+**The health reads.** `deploy/verify-only.sh:198`, `deploy/deploy.sh:183` and `deploy/rollback.sh:179`
+read `/api/health` with `stream_context_create(["http" => ["ignore_errors" => true, "timeout" =>
+10]])`. `rs_health_failing()` (`deploy/release-state-lib.sh:108`) and its standalone copy
+`health_failing()` (`deploy/verify-only.sh:74`) list every component whose status is `fail` or
+`degraded` with its detail or error: on the 503 body production gave on 21 September it prints
+`scheduler fail (no tick recorded)`, and on the same body with a queue failure added,
+`queue fail (RedisException), scheduler fail (no tick recorded)`. The preflight's FAIL now reads `/api/health is
+'fail', not ok, BEFORE any deploy; failing: scheduler fail (no tick recorded). Body: ...`, and a read
+that gets nothing says `gave no readable answer (nothing answered, it timed out, or the body is not the
+health JSON)` (`:203`). The deploy's and the rollback's UNVERIFIED lines carry `(failing: ...)`
+(`deploy.sh:198`, `rollback.sh:189`). `release.json` is unchanged in shape.
+
+**The monitor.** `deploy/hq-monitor.sh:15-17`: `HQ_MONITOR_STATE_DIR`, `HQ_MONITOR_ENV` (and `HQ_HOST`
+at `:130`) override the state directory, the config file and the host, defaults as before; the cron
+line sets none of them. `:131` asks `https://hq.bordeguna.com/api/health` with `curl -s -m 10 --resolve
+hq.bordeguna.com:443:127.0.0.1`; `:132` falls back to the app container's PHP with `ignore_errors`;
+busybox `wget` is no longer used for health. `:140` adds the component's detail to its message:
+`HQ scheduler status=fail (no tick recorded)`.
+
+**Found on the way, while the monitor still ran the old script:** after the restart at 05:06 UTC the
+monitor sent `RECOVERED hq_reachable` at 05:10 UTC, because a healthy 200 was readable even through
+busybox. The alert of 18 September and this recovery are the only two messages the incident produced;
+the component that failed was never named.
+
+**Tests, in `deploy/tests/deploy-safety-test.sh` (the file CI runs) and `docker-stub.sh`.** The stub now
+hands a failing health (HTTP 503, the scheduler failing with its detail) to a `php -r` read only when
+that read asks for `ignore_errors`, else the script's `{}`, as measured. New checks: section 12 (a
+deploy onto a failing component names it in the UNVERIFIED line, and the deploy log carries the 503's
+body), 16b (a rollback onto a failing component records `health: fail`, not `unreadable`, and names
+it), 23 (the preflight names the component, never calls a readable 503 `unreadable`, and a health that
+gives nothing says "gave no readable answer"), 24 (the compose file's `scheduler` service has `init:
+true`), and 25, which runs the REAL `hq-monitor.sh` against stubbed `curl`, `docker`, `free`, `df` and
+`journalctl` behaving as measured (port 80 answers 301; busybox `wget -q` prints nothing on a 503; PHP
+without `ignore_errors` gives nothing): a 503 naming the scheduler alerts `hq_scheduler` with its detail,
+texts it, does not call HQ unreachable and records HQ reachable; the next tick with the scheduler back
+reports `RECOVERED hq_scheduler`; health is never read through `wget`; the fallback through the app
+container still names the scheduler when the direct read gets nothing; and nothing answering at all is
+still `hq_reachable`.
+
+**Watched failing first.** The new suite and stub were run against the unmodified scripts of
+`f736a52` (the suite copies its scripts from the tree it sits in, so a tree of `f736a52`'s `deploy/`
+with the new `tests/` in it): **242 passed, 18 failed**. The 18 are 16 of the 22 new checks, and two
+existing checks that had passed only because the old stub handed over a 503's body: section 12's
+"verification recorded as FAILED" (the old deploy recorded `health: unreadable`) and section 23's "an
+unhealthy stack" (the old preflight said `'unreadable', not ok ... {}`, word for word what production
+printed that morning). The six new checks that pass there are guards that must hold before and after:
+a rollback onto a failing component still completes, a preflight whose health gives nothing still exits
+non-zero with `RESULT: FAILED` and changes nothing, and nothing answering at all still alerts
+`hq_reachable`.
+
+**Verification (local; GitHub Actions validation deferred until the 1 October reset).** The
+deploy-safety suite on the branch: **260 passed, 0 failed** (238 on `f736a52`, plus the 22 new checks), on Git Bash with the NTFS `stat`
+shim of stream G, never committed; **Linux parity is unproven**. `bash -n` clean on every
+`deploy/*.sh`, `deploy/gate/*.sh` and `deploy/tests/*.sh`. No PHP changed, so no Pest run was needed:
+the application tree is still the one verified in section D (1189 passed).
+
+**Decisions to revisit.**
+
+1. The ERP's scheduler has the same PID 1 and six `runInBackground` commands. It gathers a handful of
+   zombies a day and every ERP deploy recreates it, so it cannot reach a limit now; `init: true` there is
+   a one-line change in the ERP repository when next touched.
+2. The monitor does not watch a container's process count. With a reaper in place the health read is
+   enough: it would have paged `HQ scheduler status=fail (no tick recorded)` on 18 September.
+3. `schedule:work` could be replaced by a cron-style `schedule:run` loop in a shell that reaps, but the
+   init is the smaller change and keeps `schedule:work`'s sub-minute behaviour.
 
 ## D. Merge record, the combined tree, and the release candidate (21 September)
 

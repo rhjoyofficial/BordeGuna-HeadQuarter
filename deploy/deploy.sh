@@ -179,7 +179,8 @@ HEALTH_TRIES=${HEALTH_TRIES:-18}
 HEALTH_WAIT=${HEALTH_WAIT:-5}
 HEALTH='{}'
 for i in $(seq 1 "$HEALTH_TRIES"); do
-    HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health") ?: "{}";' 2>/dev/null || echo '{}')
+    # `ignore_errors` keeps the body of a 503, which names the failing component (docs/81 C.8).
+    HEALTH=$($COMPOSE exec -T app php -r 'echo @file_get_contents("http://web/api/health", false, stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 10]])) ?: "{}";' 2>/dev/null || echo '{}')
     VER_HEALTH=$(rs_health_status "$HEALTH")
     VER_HEALTH=${VER_HEALTH:-unreadable}
     VER_HEALTH_RELEASE=$(rs_health_release "$HEALTH")
@@ -194,7 +195,8 @@ log "health: ${HEALTH:0:400}"
 if [ "$VER_STATUS" = "passed" ]; then
     log "verified: /up ok, health ok, health names ${NEW}"
 else
-    log "WARNING: release ${NEW} is UNVERIFIED: /up ${VER_UP}, health ${VER_HEALTH}, health names release '${VER_HEALTH_RELEASE:-none}' (want ${NEW}). The stack is up; look at /api/health, then re-run with --no-pull once it is ok."
+    VER_FAILING=$(rs_health_failing "$HEALTH")
+    log "WARNING: release ${NEW} is UNVERIFIED: /up ${VER_UP}, health ${VER_HEALTH}${VER_FAILING:+ (failing: ${VER_FAILING})}, health names release '${VER_HEALTH_RELEASE:-none}' (want ${NEW}). The stack is up; look at /api/health, then re-run with --no-pull once it is ok."
 fi
 $COMPOSE ps
 

@@ -103,6 +103,21 @@ rs_mark_verified() {
 # ⚠ `|| true`: the callers run under `set -e -o pipefail`, and "no match" is an answer, not an error.
 rs_health_status()  { printf '%s' "${1:-}" | grep -o '^{"status":"[a-z]*"' | cut -d'"' -f4 || true; }
 rs_health_release() { printf '%s' "${1:-}" | grep -o '"release":"[^"]*"' | head -1 | cut -d'"' -f4 || true; }
+# The components a health answer says are not ok, each with its detail or error when it gives one:
+# "scheduler fail (no tick recorded)". Empty when every component is ok or the answer is unreadable.
+rs_health_failing() {
+    local part name st why out=""
+    while IFS= read -r part; do
+        [ -n "$part" ] || continue
+        name=$(printf '%s' "$part" | cut -d'"' -f2)
+        st=$(printf '%s' "$part" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)
+        why=$(printf '%s' "$part" | grep -oE '"(detail|error)":"[^"]*"' | head -1 | cut -d'"' -f4)
+        out="${out:+${out}, }${name} ${st}${why:+ (${why})}"
+    done <<EOF
+$(printf '%s' "${1:-}" | grep -oE '"[a-z_]+":\{"status":"(fail|degraded)"[^}]*' || true)
+EOF
+    printf '%s' "$out"
+}
 
 # The same commit, whatever length each side abbreviated it to.
 rs_same_commit() {

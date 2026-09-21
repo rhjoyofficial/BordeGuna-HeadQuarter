@@ -10,8 +10,11 @@
 # Config: /root/.hq-monitor.env with TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (mode 600). Without it,
 # the script logs only.
 set -uo pipefail
-STATE_DIR=/var/lib/hq-monitor; mkdir -p "$STATE_DIR"
-[ -f /root/.hq-monitor.env ] && . /root/.hq-monitor.env
+# The state directory, the config file and HQ's host name can be overridden by environment so the
+# deploy-safety suite runs this very script (docs/81 C.8). The cron line sets none of them.
+STATE_DIR=${HQ_MONITOR_STATE_DIR:-/var/lib/hq-monitor}; mkdir -p "$STATE_DIR"
+HQ_MONITOR_ENV=${HQ_MONITOR_ENV:-/root/.hq-monitor.env}
+[ -f "$HQ_MONITOR_ENV" ] && . "$HQ_MONITOR_ENV"
 HOST=$(hostname)
 
 RAM_MIN_MB=${RAM_MIN_MB:-1024}
@@ -114,9 +117,19 @@ docker ps -a --format '{{.Names}} {{.RestartCount}}' > "$R_F" 2>/dev/null || doc
 UNHEALTHY=$(docker ps --filter health=unhealthy --format '{{.Names}}' | tr '\n' ' ')
 check unhealthy $([ -n "$UNHEALTHY" ] && echo 1 || echo 0) "unhealthy containers: ${UNHEALTHY:-none}"
 
-# HQ application health (through Traefik by Host header; falls back to the web container)
-HQ_JSON=$(curl -s -m 10 -H 'Host: hq.bordeguna.com' http://127.0.0.1/api/health 2>/dev/null)
-echo "$HQ_JSON" | grep -q '"checks"' || HQ_JSON=$(docker exec bordeguna-hq-web-1 wget -qO- http://127.0.0.1/api/health 2>/dev/null)
+# HQ application health.
+#
+# ⛔⛔ /api/health answers 503 whenever a component fails, and until 21 September both reads here threw
+# that answer away (docs/81 C.8). The first asked plain HTTP on port 80, which Traefik answers with a
+# 301 before any router, so it never reached HQ; the fallback was busybox `wget -qO-`, which prints
+# nothing on a non-2xx answer. So from 18 September the monitor said "HQ /api/health unreachable" while
+# the body said the scheduler had stopped, and the component checks below never ran. Now the first
+# read asks HQ over HTTPS pinned to this machine (curl prints the body whatever the status, the way
+# the ERP check below has asked since 13 September), and the fallback goes through the app container's
+# PHP with `ignore_errors`.
+HQ_HOST=${HQ_HOST:-hq.bordeguna.com}
+HQ_JSON=$(curl -s -m 10 --resolve "${HQ_HOST}:443:127.0.0.1" "https://${HQ_HOST}/api/health" 2>/dev/null)
+echo "$HQ_JSON" | grep -q '"checks"' || HQ_JSON=$(docker exec bordeguna-hq-app-1 php -r 'echo @file_get_contents("http://web/api/health", false, stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 10]])) ?: "";' 2>/dev/null)
 echo "$HQ_JSON" | grep -q '"checks"' || HQ_JSON=""
 if ! docker ps --format '{{.Names}}' | grep -q '^bordeguna-hq-web-1$'; then
     log "HQ stack not deployed yet; skipping HQ checks"
@@ -124,7 +137,8 @@ if ! docker ps --format '{{.Names}}' | grep -q '^bordeguna-hq-web-1$'; then
 elif [ -n "$HQ_JSON" ]; then
     for comp in database redis queue scheduler; do
         st=$(echo "$HQ_JSON" | grep -o "\"$comp\":{\"status\":\"[a-z]*\"" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)
-        check "hq_$comp" $([ "$st" = "ok" ] && echo 0 || echo 1) "HQ ${comp} status=${st:-unknown}. Look: docker compose -f /opt/bordeguna-hq/deploy/docker-compose.yml logs --tail 100 ${comp/queue/horizon}"
+        why=$(echo "$HQ_JSON" | grep -o "\"$comp\":{[^}]*" | grep -oE '"(detail|error)":"[^"]*"' | head -1 | cut -d'"' -f4)
+        check "hq_$comp" $([ "$st" = "ok" ] && echo 0 || echo 1) "HQ ${comp} status=${st:-unknown}${why:+ (${why})}. Look: docker compose -f /opt/bordeguna-hq/deploy/docker-compose.yml logs --tail 100 ${comp/queue/horizon}"
     done
     overall=$(echo "$HQ_JSON" | grep -o '^{"status":"[a-z]*"' | cut -d'"' -f4)
     check hq_overall $([ "$overall" = "ok" ] && echo 0 || echo 1) "HQ overall=${overall:-unknown}"

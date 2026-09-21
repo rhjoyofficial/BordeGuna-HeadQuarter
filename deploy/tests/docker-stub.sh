@@ -121,11 +121,23 @@ case "${ALL}" in
 
     # ── the rest of a release, which these tests do not exercise beyond "it was reached" ─────────
     *"php -r"*)
-        # /api/health as the released image would answer it: an overall status, and the commit the
-        # image was built from. `unreadable` is a 503 or no answer at all, which deploy.sh sees as {}.
+        # /api/health as the released image would answer it, and as PHP hands it over (docs/81 C.8):
+        # an overall status, the commit the image was built from, and the components. A failing
+        # component makes the endpoint answer HTTP 503, and `file_get_contents` returns false on a
+        # non-2xx answer unless the call asks for the `ignore_errors` context option, so the script
+        # prints its `{}`. Measured on production on 21 September: the same read of a 404 gives `{}`
+        # without the option and the body with it. Until docs/81 C.8 this stub handed over the body of
+        # a 503 whatever the call asked for, which is how a script that printed 'unreadable' on
+        # production passed "an unhealthy stack is 'fail'" here.
+        # `unreadable` is nothing answering at all (refused, timed out), which is {} either way.
         if [ "${STUB_HEALTH_STATUS:-ok}" = "unreadable" ]; then echo '{}'; exit 0; fi
+        sched='{"status":"ok","last_tick_age_seconds":20}'
+        if [ "${STUB_HEALTH_STATUS:-ok}" = "fail" ]; then
+            case "${ALL}" in *ignore_errors*) ;; *) echo '{}'; exit 0 ;; esac
+            sched='{"status":"fail","detail":"no tick recorded"}'
+        fi
         rel=${STUB_HEALTH_RELEASE-$(cat "${STUB_STATE}/released" 2>/dev/null)}
-        echo "{\"status\":\"${STUB_HEALTH_STATUS:-ok}\",\"checked_at\":\"x\",\"checks\":{\"application\":{\"status\":\"ok\",\"release\":\"${rel}\"}}}"
+        echo "{\"status\":\"${STUB_HEALTH_STATUS:-ok}\",\"checked_at\":\"x\",\"checks\":{\"application\":{\"status\":\"ok\",\"release\":\"${rel}\"},\"database\":{\"status\":\"ok\",\"latency_ms\":1},\"scheduler\":${sched}}}"
         exit 0 ;;
     *"wget"*)
         exit "${STUB_UP_EXIT:-0}" ;;

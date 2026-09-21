@@ -27,6 +27,7 @@ Where to look: **Observe, Alerts** in HQ (the badge counts the alerts HQ itself 
 | A capability cannot be used | [readiness](readiness.md); a credit block is about credit, never the key |
 | Shadow period stopped | [shadow-week](shadow-week.md); nothing restarts on its own |
 | Disk or memory | The host monitor texts these already; `docker system df`, `docker stats --no-stream` |
+| HQ scheduler failing (host monitor, `hq_scheduler`, "no tick recorded") | Nothing scheduled is running, this alert rule included. `docker stats --no-stream --format '{{.PIDs}} {{.Name}}' \| grep hq-scheduler`: thousands of processes is the zombie leak of docs/81 C.8 (the service must have `init: true`); `docker compose ... logs --tail 100 scheduler`; `docker compose ... restart scheduler` switches nothing on |
 | Webhook signature failures | A changed secret on the shop or Meta side, or someone probing; nothing was accepted |
 
 Alerts marked "paged by" on the page (the host monitor, the model runtime, the approvals sweep) are
