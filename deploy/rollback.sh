@@ -15,10 +15,11 @@
 #
 # ORDER:
 #
-#   target known and refusable -> backup boundary verified -> dump taken -> dump verified
-#   -> the resolved compose configuration says RUN_MIGRATIONS=0 for `app`
-#   -> ONLY THEN the checkout moves -> build -> up (migrations OFF) -> the started container's
-#   environment is read back -> smoke and verify -> record (kind: rollback)
+#   target known and refusable -> the resolved compose configuration says RUN_MIGRATIONS=0
+#   (both are reads: a refused rollback takes nothing, not even a dump) -> backup boundary
+#   verified -> dump taken -> dump verified -> ONLY THEN the checkout moves -> build -> up
+#   (migrations OFF) -> the started container's environment is read back -> smoke and verify
+#   -> record (kind: rollback)
 #
 # ⛔ Until docs/81 C.3 this script said "Do NOT run migrations" and ran them: it set RUN_MIGRATIONS=0
 # on `docker compose build`, where it reaches nothing, while docker-compose.yml hardcodes "1" on
@@ -95,12 +96,10 @@ main() {
 
     bf_stack_is_up || die "the database container is not running, so no dump can be taken. Refusing to roll back; nothing has moved. Starting a stack is ./deploy/deploy.sh --no-pull"
 
-    # ── 2. Backup first, through the same functions as deploy.sh ───────────────────────────────
-    local DUMP="" DUMP_AT=""
-    ensure_backup_boundary
-    take_verified_dump
-
-    # ── 3. Migrations OFF, observed before anything moves ──────────────────────────────────────
+    # ── 2. Migrations OFF, observed before anything moves ──────────────────────────────────────
+    #
+    # A read, like every refusal above, so it runs before the dump: a rollback that is going to be
+    # refused takes nothing, not even a backup.
     local TMP OVERRIDE TARGET_COMPOSE resolved
     TMP=$(mktemp -d "${TMPDIR:-/tmp}/hq-rollback.XXXXXX")
     # From here the EXIT trap removes the temporary directory. It records nothing until STAGE is
@@ -127,6 +126,11 @@ YAML
     fi
     log "resolved configuration for ${SHORT}: app RUN_MIGRATIONS=0 (no migration will run)"
     local COMPOSE_NO_MIGRATE="docker compose -f deploy/docker-compose.yml -f ${OVERRIDE} --env-file deploy/.env"
+
+    # ── 3. Backup first, through the same functions as deploy.sh ───────────────────────────────
+    local DUMP="" DUMP_AT=""
+    ensure_backup_boundary
+    take_verified_dump
 
     # ── 4. Only now may the checkout move ──────────────────────────────────────────────────────
     log "rolling back ${PREV} -> ${SHORT}"
