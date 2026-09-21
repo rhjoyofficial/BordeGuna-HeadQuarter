@@ -26,6 +26,7 @@ use App\Tools\Briefing\ComposeBriefingTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
+use App\Tools\Commerce\TakeOrderTool;
 use App\Tools\Conversation\ReadThreadTool;
 use App\Tools\Conversation\SendReplyTool;
 use App\Tools\Diagnostics\ApprovalDemoTool;
@@ -107,6 +108,19 @@ return [
         ReadPriceTool::class,
         ReadAvailabilityTool::class,
         CheckOrderEligibilityTool::class,
+
+        // Phase 4 draft write (docs/83 C.3, docs/79): `take_order`, R4, approval-required, the requester
+        // never decides it, not agent-executable, held by no agent. ⛔ INERT: it leaves only a DRAFT in
+        // the ERP, the ERP token holds no ability for it, and `orders.take_order_stores` below is empty,
+        // so the gateway refuses every store.
+        TakeOrderTool::class,
+    ],
+
+    // docs/83 C.3: the HQ stores `commerce.take_order` may write a draft for. ⛔ EMPTY, and it stays
+    // empty until a store lives on the ERP's own website module (docs/79 F, ADR-046 point 3) and gate
+    // P4-G2 is run. Admitting a store is a deploy, never a switch or an env value.
+    'orders' => [
+        'take_order_stores' => [],
     ],
 
     // docs/80 C.1: the Executive Briefing capability. The contract is code (its trusted task, its

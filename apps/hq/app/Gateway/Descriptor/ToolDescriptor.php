@@ -116,6 +116,17 @@ final readonly class ToolDescriptor
          * `OnePerStore`, and the agent catalogue writes that out as a sentence the model reads.
          */
         public ToolCardinality $cardinality = ToolCardinality::HqWide,
+        /**
+         * Whether the person who asked for an approval of this tool may also decide it (docs/83 C.3).
+         *
+         * True is every tool's behaviour until now: a person who asks directly may approve their own
+         * request, and only an agent's requester who is not its enabler is barred (docs/81 C.2).
+         * False makes the separation absolute for this tool: whoever asked, directly or through an
+         * agent, never decides. `Approval::separationOfDutiesReason()`, the one rule every door
+         * reads, applies it. With one operator, a tool that says false can be approved by nobody,
+         * which is the intended state for an order write before a second approver exists.
+         */
+        public bool $requesterMayDecide = true,
     ) {
         // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
         // at construction means the mistake fails the build at the line that made it, rather than
@@ -224,6 +235,7 @@ final readonly class ToolDescriptor
             'reversibility' => $this->reversibility->value,
             'compensating_tool' => $this->compensatingTool,
             'data_class' => $this->dataClass->value,
+            'requester_may_decide' => $this->requesterMayDecide,
         ];
     }
 }

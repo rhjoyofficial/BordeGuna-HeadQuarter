@@ -37,6 +37,9 @@ final class ErpConnector
     /** The version the ERP's order-reads stamp on every body (`meta.contract`), docs/81 C.5. */
     public const ORDER_READS_CONTRACT = 'hq-order-reads.v1';
 
+    /** The version the ERP stamps on every draft sales order body (`meta.contract`), docs/83 C.3. */
+    public const SALES_ORDER_DRAFTS_CONTRACT = 'hq-sales-order-drafts.v1';
+
     /** The only product filters the ERP's order-reads accept; anything else is refused before it is sent. */
     public const PRODUCT_FILTERS = ['q', 'sku', 'id', 'barcode', 'brand', 'status'];
 
@@ -131,8 +134,9 @@ final class ErpConnector
     }
 
     /**
-     * The one write. `idempotencyKey` is sent as the ERP's idempotency_key so a retried call gets
-     * the same ticket back (replayed=true) instead of opening a second one.
+     * A write (the other is the draft sales order below). `idempotencyKey` is sent as the ERP's
+     * idempotency_key so a retried call gets the same ticket back (replayed=true) instead of opening
+     * a second one.
      */
     public function openTicket(array $ticket, string $idempotencyKey): ErpTicketResult
     {
@@ -210,6 +214,71 @@ final class ErpConnector
     {
         return $this->orderRead($this->path('order-reads/customer-eligibility'), 'checkCustomerEligibility', ['phone' => $phone],
             answering: [], method: 'post');
+    }
+
+    // ---- Phase 4 draft write (docs/83 C.3). A DRAFT and nothing after it. -------------------------
+
+    /**
+     * Leave a draft sales order in the ERP: priced and checked by the ERP, with no order, number,
+     * approval, customer, stock, journal or notification after it (the ERP says so in `effects`).
+     *
+     * ⚠⚠ The outcome of a POST that never answered is UNKNOWN, not failed: the draft may exist. That
+     * is `Uncertain`, and the caller reads the draft back by the same key (`readSalesOrderDraft`)
+     * before anything is sent again. A 409 is the ERP refusing a key already used for a different
+     * draft, `Refused`, never retried; a 422 is `ValidationFailed` with the ERP's own sentences (a
+     * price that moved, a product no longer sellable); a 403 is `Unsupported` (the token lacks
+     * `sales.orders.draft`, a readiness state).
+     *
+     * @param  array<string, mixed>  $draft  the request body, `idempotency_key` included
+     */
+    public function createSalesOrderDraft(array $draft): ErpOrderRead
+    {
+        $key = (string) ($draft['idempotency_key'] ?? '');
+        if ($key === '') {
+            throw new \InvalidArgumentException('createSalesOrderDraft needs an idempotency_key.');
+        }
+
+        return $this->logger->call($this->connectorName(), 'createSalesOrderDraft', function () use ($draft, $key) {
+            try {
+                $response = $this->client()->withHeaders(['Idempotency-Key' => $key])
+                    ->post($this->url($this->path('sales-order-drafts')), $draft);
+            } catch (ConnectionException $e) {
+                throw new Uncertain('ERP unreachable while leaving a draft sales order: '.$e->getMessage(), 0, $e);
+            }
+            if ($response->status() === 409) {
+                throw new Refused('ERP createSalesOrderDraft: '.(string) ($response->json('error.message') ?? 'the key was used for a different draft'), 409);
+            }
+            $this->throwForStatus($response, 'createSalesOrderDraft');
+
+            return $this->draftRead($response->json() ?? [], 'createSalesOrderDraft');
+        }, $key);
+    }
+
+    /** The draft left under this key, or the ERP saying there is none (an answer, not a failure). */
+    public function readSalesOrderDraft(string $idempotencyKey): ErpOrderRead
+    {
+        return $this->logger->call($this->connectorName(), 'readSalesOrderDraft', function () use ($idempotencyKey) {
+            $response = $this->send(fn (PendingRequest $c) => $c->get($this->url($this->path('sales-order-drafts/'.rawurlencode($idempotencyKey)))));
+            if ($response->status() === 404 && $response->json('error.code') === 'not_found') {
+                return ErpOrderRead::notFound('not_found', (string) ($response->json('error.message') ?? 'not_found'));
+            }
+            $this->throwForStatus($response, 'readSalesOrderDraft');
+
+            return $this->draftRead($response->json() ?? [], 'readSalesOrderDraft');
+        }, null, $idempotencyKey);
+    }
+
+    /** A draft body must carry `data`, the drafts contract version, this business, and the status `draft`. */
+    private function draftRead(array $body, string $operation): ErpOrderRead
+    {
+        $data = ErpContract::requireDataArray($body, $operation);
+        $meta = is_array($body['meta'] ?? null) ? $body['meta'] : [];
+        ErpContract::requireOrderReadsContract($meta, self::SALES_ORDER_DRAFTS_CONTRACT, $this->erpBusinessId, $operation);
+        if (($data['status'] ?? null) !== 'draft') {
+            throw new Unsupported("ERP {$operation}: the answer is not a draft (status [".(is_scalar($data['status'] ?? null) ? (string) $data['status'] : 'none').']).');
+        }
+
+        return new ErpOrderRead(found: true, data: $data, meta: $meta);
     }
 
     public function pendingApprovals(): array

@@ -387,5 +387,8 @@ it('gives no tool to an agent, and registers exactly one R4 tool with no externa
         }
     }
 
-    expect($r4OrAbove)->toBe(['demo.request_approval']);
+    // docs/83 C.3: `commerce.take_order` is the second, not agent-executable (asserted above) and inert:
+    // no store is admitted, so the gateway refuses every call.
+    expect($r4OrAbove)->toBe(['demo.request_approval', 'commerce.take_order'])
+        ->and(gateway()->descriptors()['commerce.take_order']->supportedStores)->toBe([]);
 });

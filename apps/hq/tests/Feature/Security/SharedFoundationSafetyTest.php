@@ -241,8 +241,23 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
     // consent-gated BY DECLARATION, which is what makes the gateway check consent before it runs;
     // and it cannot execute for anyone, because the platform registry holds no messaging provider
     // (the test below this one). An agent naming it at A0 produces a proposal and nothing else.
+    //
+    // ⚠ docs/83 C.3 added a SECOND, of another kind, also named rather than loosened:
+    // `commerce.take_order` is customer-facing because a parcel and a cash-on-delivery demand reach a
+    // person (docs/79 D), and it sends NO message: internal channel, no consent class. It is not
+    // agent-executable and admits no store, so the gateway refuses every call to it.
     $customerFacing = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
+        if ($key === 'commerce.take_order') {
+            $customerFacing[] = $key;
+            expect($descriptor->customerFacing)->toBeTrue()
+                ->and($descriptor->channel->isOutbound())->toBeFalse()
+                ->and($descriptor->consentRequired)->toBeNull()
+                ->and($descriptor->agentExecutable)->toBeFalse()
+                ->and($descriptor->supportedStores)->toBe([]);
+
+            continue;
+        }
         if ($descriptor->customerFacing) {
             $customerFacing[] = $key;
             expect($descriptor->consentRequired)->not->toBeNull("[{$key}] is customer-facing and declares no consent")
@@ -260,7 +275,7 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
                 ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
         }
     }
-    expect($customerFacing)->toBe(['messaging.send_reply']);
+    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order']);
 
     // And the AI runtime is still off, exactly as M4 left it.
     expect(app(Features::class)->enabled('ai.runtime'))->toBeFalse();

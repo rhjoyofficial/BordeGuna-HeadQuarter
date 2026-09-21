@@ -191,7 +191,7 @@ final class ToolGateway
             permittedBusinessIds: $this->permittedBusinesses($request),
         );
 
-        if (($replayed = $this->replay($call, $request, $descriptor, $tool, $context, $key, $decision)) !== null) {
+        if (($replayed = $this->replay($call, $request, $descriptor, $tool, $context, $key, $decision, $args, $scope)) !== null) {
             return $replayed;
         }
 
@@ -272,6 +272,8 @@ final class ToolGateway
         ToolContext $context,
         string $key,
         PolicyDecision $decision,
+        array $args = [],
+        ?ResolvedScope $scope = null,
     ): ?ToolOutcome {
         $explicit = $request->idempotencyKey !== null && $request->idempotencyKey !== '';
         $window = $descriptor->replayWithinSeconds;
@@ -308,7 +310,15 @@ final class ToolGateway
         // Uncertain: the effect may have landed. Ask the tool to look it up before anything is
         // attempted again. A tool with nothing outside HQ to reconcile returns null, and an
         // idempotent tool is then safe to run.
-        $recovered = $tool->reconcile($context);
+        //
+        // ⚠ With the tool's declared credentials open, exactly as for execution (docs/83 C.3). Looking
+        //   an effect up outside HQ is a call to the far side, and until then no tool could make one
+        //   here: the vault was still closed, so every external reconcile would have failed on the
+        //   credential rather than on the question. What is opened is only what the descriptor
+        //   declares, resolved the same way step 8 resolves it; nothing is opened for a tool that
+        //   declares nothing.
+        $found = $scope === null ? [] : $this->credentials->resolve($descriptor, $request, $args, $scope)->found;
+        $recovered = $this->vault->open($found, fn () => $tool->reconcile($context));
         if ($recovered !== null) {
             $status = $recovered->status === ToolResult::STATUS_SUCCEEDED ? OutcomeStatus::Succeeded : OutcomeStatus::Uncertain;
             $this->recorder->complete($call, $status, output: $recovered->output, error: $recovered->error,

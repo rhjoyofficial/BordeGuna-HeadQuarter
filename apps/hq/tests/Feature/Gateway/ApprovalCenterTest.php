@@ -439,5 +439,8 @@ it('keeps every real Phase 1 tool below the approval tier', function () {
         }
     }
 
-    expect($r4OrAbove)->toBe([DEMO]);
+    // docs/83 C.3: the second is `commerce.take_order`, which writes a DRAFT in the ERP and is inert
+    // by construction: no store is admitted, so the gateway refuses every call.
+    expect($r4OrAbove)->toBe([DEMO, 'commerce.take_order'])
+        ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([]);
 });

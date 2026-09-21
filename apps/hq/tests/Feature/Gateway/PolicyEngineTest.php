@@ -384,5 +384,8 @@ it('keeps every tool out of agent hands, and allows exactly one R4 registration'
         }
     }
 
-    expect($r4OrAbove)->toBe(['demo.request_approval']);
+    // docs/83 C.3: `commerce.take_order` is the second, not agent-executable (asserted above) and inert:
+    // no store is admitted, so the gateway refuses every call.
+    expect($r4OrAbove)->toBe(['demo.request_approval', 'commerce.take_order'])
+        ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([]);
 });

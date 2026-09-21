@@ -5,11 +5,13 @@ namespace App\Models;
 use App\Gateway\Approval\ApprovalStatus;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\Descriptor\RiskTier;
+use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Throwable;
 
 /**
  * One human decision, bound to one exact action (ADR-018).
@@ -149,9 +151,19 @@ class Approval extends Model
      * the split, nothing changes, because docs/48 G.4 (Q22) keeps the owner able to decide
      * everything. The enabling user MAY decide what somebody else asked: requester and approver
      * are then already two people.
+     *
+     * ⛔ A tool may make the rule absolute (docs/83 C.3): when its descriptor says
+     * `requesterMayDecide: false` (an order write), whoever asked never decides, directly or through
+     * an agent, owner included. That is read from the deployed descriptor, never from the row, so no
+     * stored value can switch it off.
      */
     public function separationOfDutiesReason(User $user): ?string
     {
+        if ($this->requested_by_user_id !== null && (int) $this->requested_by_user_id === (int) $user->getKey()
+            && ! $this->toolLetsRequesterDecide()) {
+            return 'You asked for this, and this action must be decided by somebody other than the person who asked. You may still withdraw it.';
+        }
+
         if ($this->enabled_by_user_id === null || $this->requested_by_user_id === null) {
             return null;
         }
@@ -163,6 +175,25 @@ class Approval extends Model
         }
 
         return 'You asked for this through an agent that acts under another person\'s authority, so the decision belongs to somebody else. You may still withdraw it.';
+    }
+
+    /**
+     * What the deployed tool says about its requester deciding. A tool whose descriptor cannot be
+     * built is answered with the stricter reading. A tool that is no longer registered keeps today's
+     * rule: the gateway refuses to run an unregistered tool whatever is decided here.
+     */
+    private function toolLetsRequesterDecide(): bool
+    {
+        $registry = app(ToolRegistry::class);
+        if (! $registry->has((string) $this->tool_key)) {
+            return true;
+        }
+
+        try {
+            return $registry->get((string) $this->tool_key)->descriptor()->requesterMayDecide;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**
