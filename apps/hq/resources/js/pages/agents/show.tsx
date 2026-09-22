@@ -438,7 +438,7 @@ export default function AgentRunShow({
                                                 <StatusBadge status={m.status} />
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap tabular-nums">
-                                                {(m.input_tokens ?? 0).toLocaleString()} in, {(m.output_tokens ?? 0).toLocaleString()} out
+                                                {(m.input_tokens ?? 0).toLocaleString('en-US')} in, {(m.output_tokens ?? 0).toLocaleString('en-US')} out
                                             </td>
                                             <td className="px-3 py-2 text-right text-xs whitespace-nowrap tabular-nums">
                                                 {humanUsd(m.estimated_cost_usd)}
@@ -471,7 +471,7 @@ export default function AgentRunShow({
                                     <tr key={b.id} className="border-t">
                                         <td className="px-3 py-2 text-xs">{humanKey(b.provenance)}</td>
                                         <td className="px-3 py-2 font-mono text-xs">{b.source}</td>
-                                        <td className="px-3 py-2 text-right text-xs tabular-nums">{b.bytes.toLocaleString()}</td>
+                                        <td className="px-3 py-2 text-right text-xs tabular-nums">{b.bytes.toLocaleString('en-US')}</td>
                                         <td className="px-3 py-2 text-xs">
                                             {b.trusted ? (
                                                 <StatusBadge status="yes">trusted</StatusBadge>

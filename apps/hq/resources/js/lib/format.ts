@@ -22,7 +22,7 @@ export function timeAgo(value: string | null | undefined, now: number = Date.now
 
     if (s < 45) return future ? 'in a moment' : 'just now';
     if (s >= DAY && s < 2 * DAY) return future ? 'tomorrow' : 'yesterday';
-    if (s >= 30 * DAY) return new Date(value).toLocaleDateString();
+    if (s >= 30 * DAY) return new Date(value).toLocaleDateString('en-GB');
 
     let words: string;
     if (s < 90) words = '1 min';
@@ -39,7 +39,8 @@ export function formatDateTime(value: string | null | undefined): string {
     if (!value) return '-';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    // en-GB, never the browser's locale: English digits on every screen, in both languages (Joy's rule).
+    return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 /** Seconds as "5 min", "1 h 30 min", "2 days". */

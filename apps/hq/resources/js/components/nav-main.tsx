@@ -1,6 +1,7 @@
 import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { CountPill } from '@/components/ui/status-badge';
 import { type NavItem } from '@/types';
+import { useT } from '@/lib/i18n';
 import { Link, usePage } from '@inertiajs/react';
 
 export type NavSectionItem = NavItem & { count?: number; external?: boolean };
@@ -14,24 +15,25 @@ function isActive(url: string, current: string): boolean {
 
 export function NavMain({ sections = [] }: { sections: NavSection[] }) {
     const page = usePage();
+    const t = useT();
     return (
         <>
             {sections.map((section) => (
                 <SidebarGroup key={section.label} className="px-2 py-0">
-                    <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+                    <SidebarGroupLabel>{t(section.label)}</SidebarGroupLabel>
                     <SidebarMenu>
                         {section.items.map((item) => (
                             <SidebarMenuItem key={item.title}>
-                                <SidebarMenuButton asChild isActive={isActive(item.url, page.url)} tooltip={item.title}>
+                                <SidebarMenuButton asChild isActive={isActive(item.url, page.url)} tooltip={t(item.title)}>
                                     {item.external ? (
                                         <a href={item.url} target="_blank" rel="noopener noreferrer">
                                             {item.icon && <item.icon />}
-                                            <span>{item.title}</span>
+                                            <span>{t(item.title)}</span>
                                         </a>
                                     ) : (
                                         <Link href={item.url} prefetch>
                                             {item.icon && <item.icon />}
-                                            <span>{item.title}</span>
+                                            <span>{t(item.title)}</span>
                                             <CountPill count={item.count ?? 0} className="group-data-[collapsible=icon]:hidden" />
                                         </Link>
                                     )}

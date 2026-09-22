@@ -33,7 +33,7 @@ type Customer = {
     identities: Identity[];
 };
 
-const taka = (v: string | number) => `৳${Number(v).toLocaleString()}`;
+const taka = (v: string | number) => `৳${Number(v).toLocaleString('en-US')}`;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (

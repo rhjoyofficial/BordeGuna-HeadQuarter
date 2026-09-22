@@ -30,7 +30,7 @@ export function Pagination({ links, total, noun }: { links: PageLink[]; total?: 
             )}
             {total !== undefined && (
                 <span className="text-muted-foreground ml-auto text-xs">
-                    {total.toLocaleString()} {noun ?? 'rows'}
+                    {total.toLocaleString('en-US')} {noun ?? 'rows'}
                 </span>
             )}
         </nav>
