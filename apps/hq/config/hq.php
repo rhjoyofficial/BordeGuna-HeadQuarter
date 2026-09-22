@@ -322,6 +322,41 @@ return [
         'quiet_hours' => ['start' => 23, 'end' => 8],
     ],
 
+    // Phase 7 (docs/88 A point 6, stream U): speech. ⛔ Nothing here switches anything on: the providers
+    // are registered nowhere (`SpeechProviders` ships empty) and hold no credential. These are the
+    // settings an adapter reads once a person registers it at gate P7-G2. No env() on purpose: a value
+    // appears in deploy/.env only when that gate names it.
+    'voice' => [
+        // Customer voice notes are personal data: kept this many days, then eligible for deletion.
+        'retention_days' => 90,
+        // Below this provider confidence a transcript is flagged `low_confidence` on the message.
+        'low_confidence' => 0.6,
+        'google' => [
+            // The Google Cloud project that owns the service account; empty means the adapter refuses.
+            'project' => '',
+            // Chirp 2 locations read 22 Sep: us-central1, europe-west4, asia-southeast1 (closest to Dhaka).
+            'location' => 'asia-southeast1',
+            'model' => 'chirp_2',
+            'language' => 'bn-BD',
+            // Synchronous recognize is for short audio; a voice note, not a recording.
+            'max_bytes' => 10 * 1024 * 1024,
+            'timeout' => 30,
+        ],
+        'elevenlabs' => [
+            // The models page lists Bengali for eleven_v3, not for eleven_multilingual_v2 (read 22 Sep).
+            'model' => 'eleven_v3',
+            'output_format' => 'mp3_44100_128',
+            'language_code' => null,
+            'timeout' => 60,
+        ],
+        'azure' => [
+            'region' => 'southeastasia',
+            'voice' => 'bn-BD-NabanitaNeural',
+            'output_format' => 'ogg-24khz-16bit-mono-opus',
+            'timeout' => 60,
+        ],
+    ],
+
     // docs/78 B.3: the agents Ask HQ puts an operator's question to. The support agent answers
     // customers and is not one of them; widening this list is a decision, not a setting.
     'ask' => [
