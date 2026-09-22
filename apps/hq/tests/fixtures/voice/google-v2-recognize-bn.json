@@ -1,0 +1,24 @@
+{
+    "_note": "Shaped on Google's documented Speech-to-Text V2 recognize response (read 22 September 2026: results[].alternatives[].transcript and confidence, results[].languageCode, results[].resultEndOffset, metadata.totalBilledDuration, metadata.requestId). Not a recording of a real call: no real audio has been sent to Google.",
+    "results": [
+        {
+            "alternatives": [
+                {"transcript": "আসসালামু আলাইকুম, আমার অর্ডারটা কোথায় আছে?", "confidence": 0.91}
+            ],
+            "resultEndOffset": "3.200s",
+            "languageCode": "bn-bd"
+        },
+        {
+            "alternatives": [
+                {"transcript": "ইলিশের আচারের বোতলটা কবে পাবো?", "confidence": 0.85},
+                {"transcript": "ইলিশের আচারের বোতল কবে পাব", "confidence": 0.62}
+            ],
+            "resultEndOffset": "6.100s",
+            "languageCode": "bn-bd"
+        }
+    ],
+    "metadata": {
+        "requestId": "fixture-request-0001",
+        "totalBilledDuration": "7s"
+    }
+}

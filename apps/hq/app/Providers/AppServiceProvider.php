@@ -24,6 +24,7 @@ use App\Support\Audit\Auditor;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
 use App\Tools\ToolRegistry;
+use App\Voice\SpeechProviders;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -63,6 +64,10 @@ class AppServiceProvider extends ServiceProvider
         // code for this" and "this account may do anything" can never be the same answer.
         $this->app->singleton(PlatformRegistry::class, fn () => new PlatformRegistry);
         $this->app->singleton(CapabilityResolver::class);
+
+        // Phase 7 (docs/88 A point 6): the speech providers ship EMPTY for the same reason. A voice note
+        // is kept without a transcript until a person registers a provider at gate P7-G2.
+        $this->app->singleton(SpeechProviders::class, fn () => new SpeechProviders);
 
         // Local disk is the only driver today. Everything above it names a driver and an opaque
         // key, so swapping this binding is the whole migration to object storage.
