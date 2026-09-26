@@ -36,12 +36,26 @@ final class TakeOrderShape
     private const AMOUNT = '/^\d{1,13}(\.\d{1,2})?$/';
 
     /**
+     * The shape of a `commerce.quote_order` request (docs/88 A point 3): the same destination and
+     * lines, with no price on a line (the quote is what asks the ERP for one) and no totals.
+     *
+     * @param  array<string, mixed>  $args
+     * @return list<string>
+     */
+    public static function quoteProblems(array $args): array
+    {
+        return self::problems($args, priced: false);
+    }
+
+    /**
      * @param  array<string, mixed>  $args  the validated top-level arguments
+     * @param  bool  $priced  whether each line must carry the ERP's quoted price and the totals must be proposed
      * @return list<string> what is wrong, in sentences; empty when the shape is sound
      */
-    public static function problems(array $args): array
+    public static function problems(array $args, bool $priced = true): array
     {
         $out = [];
+        $lineKeys = $priced ? self::LINE_KEYS : ['sku', 'quantity'];
 
         $destination = $args['destination'] ?? null;
         if (! is_array($destination) || array_is_list($destination)) {
@@ -74,11 +88,11 @@ final class TakeOrderShape
             $skus = [];
             foreach ($lines as $i => $line) {
                 if (! is_array($line) || array_is_list($line)) {
-                    $out[] = "[lines.{$i}] must be an object with sku, quantity and unit_price.";
+                    $out[] = "[lines.{$i}] must be an object with ".implode(', ', $lineKeys).'.';
 
                     continue;
                 }
-                foreach (array_diff(array_keys($line), self::LINE_KEYS) as $extra) {
+                foreach (array_diff(array_keys($line), $lineKeys) as $extra) {
                     $out[] = "[lines.{$i}.{$extra}] is not taken on an order line.";
                 }
                 $sku = $line['sku'] ?? null;
@@ -93,10 +107,14 @@ final class TakeOrderShape
                 if (! is_int($quantity) || $quantity < 1 || $quantity > self::MAX_QUANTITY) {
                     $out[] = "[lines.{$i}.quantity] must be a whole number from 1 to ".self::MAX_QUANTITY.'.';
                 }
-                if (! is_string($line['unit_price'] ?? null) || preg_match(self::PRICE, $line['unit_price']) !== 1) {
+                if ($priced && (! is_string($line['unit_price'] ?? null) || preg_match(self::PRICE, $line['unit_price']) !== 1)) {
                     $out[] = "[lines.{$i}.unit_price] must be the ERP's quoted price as a decimal string.";
                 }
             }
+        }
+
+        if (! $priced) {
+            return $out;
         }
 
         $proposed = $args['proposed'] ?? null;

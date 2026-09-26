@@ -133,11 +133,14 @@ it('lets an agent execute only reads below R3, and nothing that reaches a person
 
     // docs/83 C.3: the second R4 is `commerce.take_order`, named rather than the line moved. It is not
     // agent-executable (so the loops above never reach it) and admits no store, so the gateway
-    // refuses every call.
-    expect($highRisk)->toBe(['demo.request_approval', 'commerce.take_order']);
-    $take = $descriptors->firstWhere('key', 'commerce.take_order');
-    expect($take->agentExecutable)->toBeFalse()
-        ->and($take->supportedStores)->toBe([]);
+    // refuses every call. docs/88 A point 3: the third is its compensating tool,
+    // `commerce.cancel_sales_order`, inert the same two ways.
+    expect($highRisk)->toBe(['demo.request_approval', 'commerce.take_order', 'commerce.cancel_sales_order']);
+    foreach (['commerce.take_order', 'commerce.cancel_sales_order'] as $key) {
+        $write = $descriptors->firstWhere('key', $key);
+        expect($write->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable")
+            ->and($write->supportedStores)->toBe([], "[{$key}] must admit no store");
+    }
 });
 
 it('gives the model runtime no way to reach a tool, a shop, the ERP or the database', function () {

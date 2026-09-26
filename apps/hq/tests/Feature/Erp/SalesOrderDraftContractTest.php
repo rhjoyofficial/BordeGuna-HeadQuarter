@@ -26,7 +26,9 @@ use Illuminate\Support\Facades\Http;
 const DRAFTS_ERP = 'https://erp.drafts.test';
 
 /** The contract identity, the same value the ERP test pins as DRAFTS_CONTRACT_DIGEST. */
-const ERP_DRAFTS_CONTRACT_DIGEST = '414fdaa6dae0d89a260e3af7db2838211d2b7898cd32c72d4afc714862d2a02f';
+// ⚠ Re-pinned by docs/88 A point 3 (ERP feature/hq-sales-order-confirm): the drafts' `next_step` sentence
+// now names `POST sales-orders` as the one way a draft becomes an order. Nothing else in the bodies moved.
+const ERP_DRAFTS_CONTRACT_DIGEST = 'ef78eece9e857c0aa88dd785ff698a5ef232b0c98d18bca75bd1f31f3e9b23da';
 
 function draftsFixture(string $name): array
 {

@@ -246,9 +246,13 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
     // `commerce.take_order` is customer-facing because a parcel and a cash-on-delivery demand reach a
     // person (docs/79 D), and it sends NO message: internal channel, no consent class. It is not
     // agent-executable and admits no store, so the gateway refuses every call to it.
+    //
+    // ⚠ docs/88 A point 3 added its compensating tool, `commerce.cancel_sales_order`, of the same kind:
+    // customer-facing because the parcel the person expected will not come; no message, no consent
+    // class, not agent-executable, the same empty store list.
     $customerFacing = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        if ($key === 'commerce.take_order') {
+        if (in_array($key, ['commerce.take_order', 'commerce.cancel_sales_order'], true)) {
             $customerFacing[] = $key;
             expect($descriptor->customerFacing)->toBeTrue()
                 ->and($descriptor->channel->isOutbound())->toBeFalse()
@@ -275,7 +279,7 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
                 ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
         }
     }
-    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order']);
+    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order', 'commerce.cancel_sales_order']);
 
     // And the AI runtime is still off, exactly as M4 left it.
     expect(app(Features::class)->enabled('ai.runtime'))->toBeFalse();

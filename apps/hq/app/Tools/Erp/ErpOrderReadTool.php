@@ -71,6 +71,12 @@ abstract class ErpOrderReadTool implements Tool
         return true;
     }
 
+    /** The ERP contract this tool's answers speak; the order-reads' unless a subclass reads another. */
+    protected function contract(): string
+    {
+        return ErpConnector::ORDER_READS_CONTRACT;
+    }
+
     protected function dataClass(): DataClass
     {
         return DataClass::Internal;
@@ -173,7 +179,7 @@ abstract class ErpOrderReadTool implements Tool
         return [
             'business' => $business->slug,
             'source' => 'erp',
-            'contract' => ErpConnector::ORDER_READS_CONTRACT,
+            'contract' => $this->contract(),
             'as_of' => $read->asOf(),
             'read_live_at' => CarbonImmutable::now((string) config('hq.timezone', 'Asia/Dhaka'))->toIso8601String(),
         ];
