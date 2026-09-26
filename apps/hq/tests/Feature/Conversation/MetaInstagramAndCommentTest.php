@@ -93,7 +93,7 @@ it('accepts an Instagram envelope at the webhook and files the event under the a
     IntegrationCredential::create(['provider' => 'meta_app_secret', 'account_ref' => 'meta', 'credential_type' => 'api_key', 'payload' => ['value' => 'meta-app-secret'], 'status' => 'active']);
 
     metaPost($this, igFixture('instagram_text'))->assertStatus(202)->assertJsonPath('duplicate', false);
-    metaPost($this, ['object' => 'whatsapp_business_account', 'entry' => []])->assertStatus(422);
+    metaPost($this, ['object' => 'user', 'entry' => []])->assertStatus(422); // docs/88 stream Q: a WhatsApp envelope is accepted now, so the malformed example is another object
 
     $event = DomainEvent::where('type', 'conversation.inbound_received')->latest('id')->firstOrFail();
     expect($event->business_id)->toBe(Brand::where('code', 'LLD')->sole()->business_id)

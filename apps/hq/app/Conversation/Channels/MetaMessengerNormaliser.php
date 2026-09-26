@@ -32,6 +32,54 @@ final class MetaMessengerNormaliser implements InboundChannelAdapter
     }
 
     /**
+     * Messenger's delivery and read signals for messages the Page sent (docs/88 A point 2, ADR-031).
+     *
+     * A `delivery` item names delivered message ids in `mids` ("may not be present", Meta) and always a
+     * `watermark`: every message before it was delivered. A `read` item carries only a watermark. The
+     * item's sender is the customer and its recipient the Page, the reverse of an echo. Kept apart from
+     * `normalise()` for the same reason echoes are: no caller can take a receipt for a customer's words.
+     *
+     * @return iterable<DeliveryStatus|DeliveryWatermark>
+     */
+    public function deliveries(array $payload): iterable
+    {
+        if (($payload['object'] ?? null) !== 'page') {
+            return;
+        }
+
+        foreach ((array) ($payload['entry'] ?? []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            foreach ((array) ($entry['messaging'] ?? []) as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $customer = (string) data_get($item, 'sender.id', '');
+                $page = (string) (data_get($item, 'recipient.id') ?? $entry['id'] ?? '');
+
+                foreach (['delivery' => DeliveryStatus::DELIVERED, 'read' => DeliveryStatus::READ] as $key => $status) {
+                    $signal = $item[$key] ?? null;
+                    if (! is_array($signal)) {
+                        continue;
+                    }
+                    $watermark = $signal['watermark'] ?? null;
+                    $at = is_numeric($watermark) ? CarbonImmutable::createFromTimestampMs((int) $watermark) : CarbonImmutable::now();
+
+                    foreach ((array) ($signal['mids'] ?? []) as $mid) {
+                        if (is_string($mid) && $mid !== '') {
+                            yield new DeliveryStatus(Channel::Messenger, $mid, $status, $at, $customer !== '' ? $customer : null);
+                        }
+                    }
+                    if (is_numeric($watermark) && $customer !== '' && $page !== '') {
+                        yield new DeliveryWatermark($page, $customer, $status, $at);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * The Page's own messages as Meta echoes them (`is_echo`), for the P3-G3 pairing (docs/78 B.1):
      * what the n8n bot or a person actually sent. Kept apart from `normalise()`, which yields only
      * what customers wrote, so no caller can mistake one for the other.

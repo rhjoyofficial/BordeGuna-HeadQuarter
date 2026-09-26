@@ -51,6 +51,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'erp.lookup_product', 'erp.lookup_sku', 'erp.read_price', 'erp.read_availability', 'erp.check_order_eligibility',
         // Phase 4 draft write (docs/83 C.3): R4, approval-required, held by no agent, no store admitted.
         'commerce.take_order',
+        // Phase 3 channel adapters (docs/88 A point 2): the WhatsApp reply, its own tool, not agent-executable, no provider registered.
+        'messaging.send_whatsapp_reply',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

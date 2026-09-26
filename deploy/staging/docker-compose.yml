@@ -1,0 +1,140 @@
+# BordeGuna-HeadQuarter STAGING stack (docs/70 J4, docs/72 §F, docs/88 A point 2). DEFINED, NOT STARTED.
+#
+# Why it exists: a public webhook with real customers must not be first exercised on production. Before
+# gate P3-G3 the Meta app's test Page (development mode) points here, never at hq.bordeguna.com.
+#
+# ⛔ Nothing starts this file. deploy.sh, rollback.sh and verify-only.sh name deploy/docker-compose.yml
+# only; this is a separate compose PROJECT (`bordeguna-hq-staging`) with its own database, redis and
+# storage volumes and its own domain, so it can share nothing with production by accident. Starting it
+# is a person's decision after the server upgrade (docs/82 N3), with the lines in deploy/staging/README.md.
+#
+# Run from the repository root, only when that decision is made:
+#   docker compose -f deploy/staging/docker-compose.yml --env-file deploy/staging/.env up -d
+
+name: bordeguna-hq-staging
+
+x-app: &app
+  image: bordeguna-hq-staging:latest
+  restart: unless-stopped
+  env_file: [.env]
+  volumes:
+    - storage:/var/www/html/storage
+  networks: [internal]
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  app:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    environment:
+      RUN_MIGRATIONS: "1"
+    volumes:
+      - storage:/var/www/html/storage
+      - public:/var/www/html/public-volume
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\", 9000) ? 0 : 1);'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ../nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - public:/var/www/html/public:ro
+    networks: [internal]
+    depends_on: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/up >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 96M }
+    labels:
+      # The staging host name comes from deploy/staging/.env (HQ_STAGING_DOMAIN); it is never hq.bordeguna.com.
+      - traefik.enable=true
+      - traefik.http.routers.hq-staging.entrypoints=websecure
+      - traefik.http.routers.hq-staging.rule=Host(`${HQ_STAGING_DOMAIN:?set HQ_STAGING_DOMAIN in deploy/staging/.env}`)
+      - traefik.http.routers.hq-staging.tls.certresolver=letsencrypt
+      - traefik.http.services.hq-staging.loadbalancer.server.port=80
+
+  horizon:
+    <<: *app
+    command: ["php", "artisan", "horizon"]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 384M }
+
+  scheduler:
+    <<: *app
+    command: ["php", "artisan", "schedule:work"]
+    init: true
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redisdata:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 160M }
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  dbdata:
+  redisdata:
+  storage:
+  public:

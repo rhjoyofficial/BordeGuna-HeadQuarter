@@ -1,0 +1,25 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {"display_phone_number": "8801700000000", "phone_number_id": "106540352242922"},
+            "statuses": [
+              {"id": "wamid.sent.by.hq.1", "status": "sent", "timestamp": "1758513700", "recipient_id": "8801711223344",
+               "conversation": {"id": "6ceb9d929c9bdc4f90e967a32f8639b4", "origin": {"type": "service"}}, "pricing": {"billable": true, "pricing_model": "CBP", "category": "service"}},
+              {"id": "wamid.sent.by.hq.1", "status": "delivered", "timestamp": "1758513710", "recipient_id": "8801711223344"},
+              {"id": "wamid.sent.by.hq.2", "status": "failed", "timestamp": "1758513720", "recipient_id": "8801711223344",
+               "errors": [{"code": 131049, "title": "This message was not delivered to maintain healthy ecosystem engagement.", "message": "This message was not delivered to maintain healthy ecosystem engagement.", "error_data": {"details": "In order to maintain a healthy ecosystem engagement, the message failed to be delivered."}, "href": "/documentation/business-messaging/whatsapp/support/error-codes"}]},
+              {"id": "wamid.sent.by.someone.else", "status": "read", "timestamp": "1758513730", "recipient_id": "8801999999999"}
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

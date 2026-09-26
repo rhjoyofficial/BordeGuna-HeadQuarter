@@ -29,6 +29,7 @@ use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Commerce\TakeOrderTool;
 use App\Tools\Conversation\ReadThreadTool;
 use App\Tools\Conversation\SendReplyTool;
+use App\Tools\Conversation\SendWhatsAppReplyTool;
 use App\Tools\Diagnostics\ApprovalDemoTool;
 use App\Tools\Diagnostics\FailingTool;
 use App\Tools\Diagnostics\NoopTool;
@@ -114,6 +115,11 @@ return [
         // the ERP, the ERP token holds no ability for it, and `orders.take_order_stores` below is empty,
         // so the gateway refuses every store.
         TakeOrderTool::class,
+
+        // Phase 3 channel adapters (docs/88 A point 2): the WhatsApp reply, its own tool (ADR-026). ⛔ INERT: not
+        // agent-executable, held by no agent, and no WhatsApp provider is registered in PlatformRegistry, so the
+        // capability is absent and it fails for everyone, human included.
+        SendWhatsAppReplyTool::class,
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write a draft for. ⛔ EMPTY, and it stays
@@ -320,6 +326,29 @@ return [
         'per_thread_hourly_cap' => (int) env('HQ_OUTBOUND_THREAD_HOURLY_CAP', 6),
         'reply_window_hours' => 24,
         'quiet_hours' => ['start' => 23, 'end' => 8],
+    ],
+
+    // docs/88 A point 2: the Meta and WhatsApp send adapters. ⛔ None is registered in PlatformRegistry, so
+    // nothing here is reached outside tests. The version is the one Meta's send pages show on 22 September
+    // 2026; the rates are HQ's own ceiling per sending account, below Meta's, refused locally before a request.
+    'messaging' => [
+        'meta' => [
+            'graph_base' => 'https://graph.facebook.com',
+            'graph_version' => 'v25.0',
+            'timeout' => 15,
+            'send_per_minute' => [
+                'facebook_page' => 60,
+                'instagram_account' => 60,
+                'whatsapp_number' => 60,
+            ],
+        ],
+        // The WhatsApp templates HQ may send outside the 24-hour window: name => ['language' => 'bn',
+        // 'category' => 'utility'|'authentication', 'parameters' => <count of body values>]. ⛔ EMPTY: a
+        // template is approved by Meta first and listed here by a deploy, never by a setting. Marketing
+        // templates are refused by the reply tool whatever this says.
+        'whatsapp' => [
+            'templates' => [],
+        ],
     ],
 
     // docs/78 B.3: the agents Ask HQ puts an operator's question to. The support agent answers
