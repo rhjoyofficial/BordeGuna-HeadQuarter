@@ -1,0 +1,21 @@
+{
+  "source": "docs/85 A.6: the n8n content pipeline, 12 July 2026, text drawn by GraphicsMagick (no shaping engine)",
+  "rule": "Any Bangla containing a pre-base vowel sign (ি ে ৈ), a two-part vowel sign (ো ৌ) or a hasanta (্) needs a shaping engine. HQ renders Bangla only in headless Chromium.",
+  "cases": [
+    {
+      "text": "গার্ডেন",
+      "broken_render_read_as": "গার্ডনে",
+      "why": "the vowel sign ে (U+09C7) belongs BEFORE ড on the page; without shaping it was painted after ন, in code-point order"
+    },
+    {
+      "text": "তেল",
+      "broken_render_read_as": "তলে",
+      "why": "the vowel sign ে (U+09C7) belongs before ত; without shaping it was painted after ল"
+    }
+  ],
+  "controls": [
+    { "text": "বর দে গুনা", "needs_shaping": true },
+    { "text": "গরম", "needs_shaping": false },
+    { "text": "Mustard oil 1 L", "needs_shaping": false }
+  ]
+}
