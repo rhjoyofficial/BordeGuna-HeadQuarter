@@ -1,7 +1,44 @@
 # ADR-051: Research is evidence, never truth, and published content states product facts only from systems of record
 
-**Status:** proposed (21 Sep 2026, `docs/85`, the Phase 6 design and readiness packet ordered in
-`docs/83` point 5). Nothing is built: no research, content or publishing tool, adapter or flag exists.
+**Status:** ACCEPTED with clarifications (22 Sep 2026, ChatGPT's instruction recorded in `docs/88` A.5).
+Proposed 21 Sep 2026 in `docs/85`, the Phase 6 design and readiness packet ordered in `docs/83` point 5.
+The foundation is built inert by stream T (`docs/88-t-record.md`): nothing is registered, credentialed,
+live-called, agent-held, agent-granted or activated.
+
+## The clarifications accepted with it (22 September 2026, `docs/88` A.5)
+
+1. Research output is evidence, not truth.
+2. Every factual claim intended for publication carries provenance naming the source, the source span
+   (or equivalent bounded evidence), the retrieval time and the artifact and task it belongs to.
+3. External web content is untrusted content.
+4. A source can never grant authority, permission, role, consent, business scope, autonomy or task
+   expansion.
+5. Product facts enter publishable content only from trusted ERP or shop contracts, or from explicitly
+   approved sources.
+6. Model memory is never a source of truth.
+7. Research fetching stays bounded by the research task and its permitted sources and results; there is
+   no open browsing.
+8. Publication is R5 and needs approval of the exact final post or content artifact.
+9. The approved content is fingerprinted (digested) so that an approval cannot be reused for changed
+   content.
+10. A publication is read back and reconciled after execution.
+11. Research providers stay replaceable adapters behind a provider-neutral interface.
+12. A future publishing capability stays unavailable to the Executive unless explicitly activated.
+
+## Where each point is implemented (stream T, 22 September 2026; all inert)
+
+| Point | Mechanism |
+| --- | --- |
+| 1, 3 | `ResearchService::fetch()` returns a page only as a `ThirdParty` context block; `ArtifactFiler` marks every fact `trusted: false` |
+| 2 | `ArtifactFiler`: a fact names a source of its own task, a span, the exact excerpt (checked against the page as read), the retrieval time, the content hash and the excerpt hash; the artifact names its task |
+| 4 | Nothing reads a page for instructions; the task's scope, budget and source list are fixed when a person opens it (test: an injected page changes nothing, and the bundle is capped at A1) |
+| 5 | `ProductFact`: `erp`, `shop`, or `approved_source` with the approving person; `ContentChecks` (`content.numbers.v1`, built on `briefing.numbers.v1`) refuses any figure not in that evidence |
+| 6 | `ArtifactFiler` refuses a claim that points at memory |
+| 7 | `ResearchBoundary` (approved list or the task's own results; no redirects followed; `AddressGuard` refuses internal hosts) |
+| 8, 9 | `publishing.publish_post` R5, approval-required, carrying `content_digest`; `PublicationService` recomputes it from the stored draft and the account and refuses any difference |
+| 10 | `PublicationService`: `published` only after a read-back shows the approved words; the post id is written before the read-back; a pending or uncertain row is reconciled (by its id, else by the recent posts) before any retry |
+| 11 | `SearchProvider` interface; `BraveSearch` and `TavilySearch` adapters; the choice is the owner's (`content.research.provider`, unset) |
+| 12 | No agent holds any Phase 6 tool; the Executive's role forbids publication (`hq.roles`) |
 
 ## Context
 

@@ -1,0 +1,14 @@
+{
+  "name": "bordeguna-hq-content-render",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Renders Bangla cards in headless Chromium for Bor de Guna HQ (docs/85). Defined, not started.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "selftest": "node selftest.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.55.0"
+  }
+}

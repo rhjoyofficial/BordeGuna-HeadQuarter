@@ -1,0 +1,37 @@
+{
+  "_notice": "EXAMPLE ONLY. Not the owner's policy and never seeded. docs/85 C.15: the claims policy per product line is written by the owner; HQ never infers what may be claimed about a product. This file exists so the claims check can be tested.",
+  "policy": {
+    "version": "EXAMPLE-2026-09-22",
+    "product_lines": {
+      "mustard_oil": {
+        "label": "Mustard oil (সরিষার তেল)",
+        "forbidden": [
+          {
+            "id": "health.cure_or_prevent",
+            "phrases": ["cure", "cures cancer", "prevents cancer", "prevents heart disease", "heals", "রোগ সারায়", "নিরাময়", "ক্যান্সার প্রতিরোধ", "হৃদরোগ প্রতিরোধ"],
+            "reason": "EXAMPLE: a food may not be said to cure, heal or prevent a disease."
+          },
+          {
+            "id": "health.medicine",
+            "phrases": ["medicine", "ওষুধ", "ঔষধ"],
+            "reason": "EXAMPLE: mustard oil is sold as food, never as a medicine."
+          },
+          {
+            "id": "absolute.purity_claim",
+            "phrases": ["100% pure", "১০০% খাঁটি"],
+            "reason": "EXAMPLE: an absolute purity claim needs a lab certificate the owner approved."
+          }
+        ],
+        "allowed": [
+          "Cold-pressed (ঘানি ভাঙা) when the ERP marks the product so.",
+          "The pack size and price as the ERP states them."
+        ]
+      },
+      "*": {
+        "forbidden": [
+          { "id": "guarantee.absolute", "phrases": ["guaranteed results", "গ্যারান্টিযুক্ত ফল"], "reason": "EXAMPLE: no guarantee of results for any product." }
+        ]
+      }
+    }
+  }
+}
