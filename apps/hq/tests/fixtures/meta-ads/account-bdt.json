@@ -1,0 +1,10 @@
+{
+    "id": "act_28164410319885213",
+    "name": "BordeGuna Ads (BDT)",
+    "currency": "BDT",
+    "timezone_name": "Asia/Dhaka",
+    "account_status": 1,
+    "disable_reason": 0,
+    "spend_cap": "5000000",
+    "amount_spent": "1234550"
+}

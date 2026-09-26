@@ -1,0 +1,6 @@
+{
+    "data": [
+        {"id": "120211000000000011", "name": "Dhaka 25-45", "status": "ACTIVE", "effective_status": "ACTIVE", "campaign_id": "120210000000000001", "daily_budget": "50000"}
+    ],
+    "paging": {"cursors": {"before": "A", "after": "B"}}
+}

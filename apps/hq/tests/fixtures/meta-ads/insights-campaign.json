@@ -1,0 +1,13 @@
+{
+    "data": [
+        {"account_currency": "BDT", "campaign_id": "120210000000000001", "campaign_name": "Hilsa pickle, Dhaka [hq:exp-1]", "spend": "412.35", "impressions": "10220", "clicks": "311", "reach": "8120",
+         "actions": [{"action_type": "link_click", "value": "311"}, {"action_type": "purchase", "value": "4"}, {"action_type": "offsite_conversion.fb_pixel_purchase", "value": "4"}],
+         "action_values": [{"action_type": "purchase", "value": "3960"}], "date_start": "2026-09-20", "date_stop": "2026-09-20"},
+        {"account_currency": "BDT", "campaign_id": "120210000000000001", "campaign_name": "Hilsa pickle, Dhaka [hq:exp-1]", "spend": "500", "impressions": "11002", "clicks": "298", "reach": "8800",
+         "date_start": "2026-09-21", "date_stop": "2026-09-21"},
+        {"account_currency": "BDT", "campaign_id": "120210000000000002", "campaign_name": "Mustard oil, retargeting", "spend": "87.1", "impressions": "2100", "clicks": "40", "reach": "1500",
+         "actions": [{"action_type": "offsite_conversion.fb_pixel_purchase", "value": "1"}], "action_values": [{"action_type": "offsite_conversion.fb_pixel_purchase", "value": "950"}],
+         "date_start": "2026-09-21", "date_stop": "2026-09-21"}
+    ],
+    "paging": {"cursors": {"before": "A", "after": "B"}}
+}

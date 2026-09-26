@@ -123,6 +123,20 @@ return [
         'take_order_stores' => [],
     ],
 
+    // docs/88 A point 4 (stream S): the Phase 5 ads READ side. Configuration only: the provider is
+    // registered nowhere, no ads tool is in `tools` above, nothing is scheduled and no credential exists,
+    // so none of this is read on production until gate P5-G1. The API version is configuration, never a
+    // literal in code (docs/84 C.4): v26.0 is the newest (29 July 2026, sunset not announced).
+    'ads' => [
+        'meta' => [
+            'base_url' => 'https://graph.facebook.com',
+            'graph_version' => 'v26.0',
+            'timeout_seconds' => 20,
+            // Stop short of Meta's own limit: at this usage percentage the next call is not sent.
+            'backoff_at_percent' => 80,
+        ],
+    ],
+
     // docs/86: what each agent ROLE may not do, whatever it is asked (`App\Agents\RolePolicy`, read by
     // the runtime's `RoleBoundary` on the operator's own words BEFORE the model is called). Code, not a
     // switch: changing a role is a reviewed release. A kind not forbidden is NOT thereby a capability;
