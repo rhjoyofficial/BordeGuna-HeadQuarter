@@ -206,3 +206,49 @@ Nothing reached production, which stayed at `8ea7650`, inert, with no gate run s
 September each cut stream was resumed in its own worktree from that uncommitted state, under the same brief
 and the same rules (its own branch and test database, no merge, no deploy, one full suite at the end, a
 record file, the eight columns of point 21); this section records each as it lands.
+
+### C.4 Stream S merged (26 September, `fdd9b9d`)
+
+The Phase 5 ads read side, inert, and ADR-050 accepted with the eleven clarifications of point 4 written
+into it. A provider-neutral read contract (`AdsReadPlatform`, `AdsReader`) and the Meta read adapter (GET
+only, the token as a header and never in a URL, cursor pagination, Meta's errors classified, the next call
+refused at 80 per cent of the usage Meta reports); exact money by the currency's offset; two additive
+tables, `facts_ad_accounts` and `facts_ad_spend`, every row `third_party` provenance with source, API version
+and fetch time; a sync defined and not scheduled; three R2 read tools and the R3 sync tool registered
+nowhere and held by nobody, with the permission `hq.tools.ads.read` reserved; a read-only budget guard whose
+"yes" is a precondition and never an approval; a contribution report that leaves a contribution blank, with
+the SKU named, when a cost price is unknown, because HQ cannot read ERP cost prices yet. Four independent
+locks, each a test, keep it inert; no agent prompt, tool list, role policy or runtime path changed, so Gate
+13 owes nothing to it. On the branch 47 tests, 13 mutations caught, full Pest on `hq_test_h` 1322; the
+combined tree after the merge 1375 passed with Pint, `tsc --noEmit` and Vite green. Record: `docs/88-s-record.md`.
+
+### C.5 Stream T merged (26 September, `c636f17`)
+
+The Phase 6 research engine and content factory, inert, and ADR-051 accepted with the twelve clarifications
+of point 5. Bounded research tasks (an approved source list or the provider's own results, no redirects,
+internal hosts refused, every fetched page an untrusted capped block); Brave and Tavily behind one neutral
+interface, the key opened only through the vault, the provider chosen by the owner and by nothing else;
+append-only research artifacts whose excerpts are checked against the page's own spans; briefs and a claims
+policy that fail closed; a draft whose words are frozen once checked; publication as a digest-bound R5 record
+with read-back and reconciliation (two defects found on resumption and fixed with tests: a `pending` row
+was re-sent, and a failing read-back left an accepted post unrecorded); a Bangla card render service defined
+under `deploy/content-render`, outside the release compose, not started. Seven additive tables with three
+Postgres append-only triggers, five tools registered nowhere, three flags with no row, `config/content.php`
+whose two environment keys default to "nothing chosen". On the branch 70 tests, 8 mutations caught, full
+Pest on `hq_test_i` 1345. Record: `docs/88-t-record.md`.
+
+### C.6 Stream Q merged (26 September, `330b53d`)
+
+The Phase 3 channel adapters, inert. Messenger and Instagram send adapters and the WhatsApp Cloud channel
+behind one Graph client (the token as a header, HQ's own per-account send ceiling refused locally before a
+request); the WhatsApp inbound normaliser beside the three that exist; delivery statuses and read watermarks
+in a ledger that moves only deliveries HQ itself sent; the WhatsApp reply as its own tool,
+`messaging.send_whatsapp_reply`, registered the way `commerce.take_order` is (not agent-executable, held by
+no agent, refused for everyone because no messaging provider is registered), which is the one thing an agent
+could observe and is recorded here for Gate 13; the n8n copy-forward receiver at `POST
+/api/webhooks/meta/forwarded`, 404 while `channels.meta.forwarded` is off (seeded off by one additive
+migration), an HMAC over timestamp and body with a vault secret, a copy whose Meta signature does not verify
+refused; the staging stack definition point 2 names. On the branch 60 tests, 8 mutations caught, full Pest
+on `hq_test_f` 1335. The combined tree after T and Q: **1505 passed, 17,853 assertions**, Pint, `tsc
+--noEmit` and Vite green. Conflicts at the merges were adjacent appends only (`AppServiceProvider` between U
+and S, `config/hq.php` between U's `voice` and Q's `messaging`), both kept whole. Record: `docs/88-q-record.md`.
