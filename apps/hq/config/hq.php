@@ -23,8 +23,11 @@ use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Tools\Briefing\ComposeBriefingTool;
+use App\Tools\Commerce\CancelSalesOrderTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
+use App\Tools\Commerce\GetOrderStatusTool;
 use App\Tools\Commerce\ListOrdersTool;
+use App\Tools\Commerce\QuoteOrderTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Commerce\TakeOrderTool;
 use App\Tools\Conversation\ReadThreadTool;
@@ -110,21 +113,31 @@ return [
         ReadAvailabilityTool::class,
         CheckOrderEligibilityTool::class,
 
-        // Phase 4 draft write (docs/83 C.3, docs/79): `take_order`, R4, approval-required, the requester
-        // never decides it, not agent-executable, held by no agent. ⛔ INERT: it leaves only a DRAFT in
-        // the ERP, the ERP token holds no ability for it, and `orders.take_order_stores` below is empty,
-        // so the gateway refuses every store.
+        // Phase 4 order write (docs/83 C.3, docs/88 A point 3, docs/79): `take_order`, R4, approval-required,
+        // the requester never decides it, not agent-executable, held by no agent. It leaves a DRAFT the
+        // ERP prices and checks, then an ORDER made from that draft, which WAITS in the ERP's own approval
+        // inbox: HQ approves nothing in the ERP. ⛔ INERT: no ERP token holds a write ability, and
+        // `orders.take_order_stores` below is empty, so the gateway refuses every store.
         TakeOrderTool::class,
 
         // Phase 3 channel adapters (docs/88 A point 2): the WhatsApp reply, its own tool (ADR-026). ⛔ INERT: not
         // agent-executable, held by no agent, and no WhatsApp provider is registered in PlatformRegistry, so the
         // capability is absent and it fails for everyone, human included.
         SendWhatsAppReplyTool::class,
+        // Phase 4 order completion (docs/88 A point 3, docs/79 D): the quote and the status are R2 reads
+        // of the ERP's own answers, held by no agent; the cancellation is `take_order`'s compensating
+        // tool, R4, approval-required, irreversible, reaching only an order HQ placed while nothing has
+        // been delivered, inert under the same empty store list. No payment, no courier: those are the
+        // ERP's, and HQ may read the resulting state later.
+        QuoteOrderTool::class,
+        GetOrderStatusTool::class,
+        CancelSalesOrderTool::class,
     ],
 
-    // docs/83 C.3: the HQ stores `commerce.take_order` may write a draft for. ⛔ EMPTY, and it stays
-    // empty until a store lives on the ERP's own website module (docs/79 F, ADR-046 point 3) and gate
-    // P4-G2 is run. Admitting a store is a deploy, never a switch or an env value.
+    // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)
+    // `commerce.cancel_sales_order` may cancel one for. ⛔ EMPTY, and it stays empty until a store lives
+    // on the ERP's own website module (docs/79 F, ADR-046 point 3) and gate P4-G2 is run. Admitting a
+    // store is a deploy, never a switch or an env value.
     'orders' => [
         'take_order_stores' => [],
     ],

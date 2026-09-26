@@ -251,9 +251,12 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
     // is the WhatsApp reply as its own action (ADR-026), customer-facing, on an outbound channel and consent-gated
     // by declaration like `messaging.send_reply`; it is NOT agent-executable, held by no agent, and no WhatsApp
     // provider is registered, so it fails for everyone, human included.
+    // ⚠ docs/88 A point 3 added its compensating tool, `commerce.cancel_sales_order`, of the same kind:
+    // customer-facing because the parcel the person expected will not come; no message, no consent
+    // class, not agent-executable, the same empty store list.
     $customerFacing = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
-        if ($key === 'commerce.take_order') {
+        if (in_array($key, ['commerce.take_order', 'commerce.cancel_sales_order'], true)) {
             $customerFacing[] = $key;
             expect($descriptor->customerFacing)->toBeTrue()
                 ->and($descriptor->channel->isOutbound())->toBeFalse()
@@ -280,7 +283,7 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
                 ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
         }
     }
-    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order', 'messaging.send_whatsapp_reply']);
+    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order', 'messaging.send_whatsapp_reply', 'commerce.cancel_sales_order']);
 
     // And the AI runtime is still off, exactly as M4 left it.
     expect(app(Features::class)->enabled('ai.runtime'))->toBeFalse();

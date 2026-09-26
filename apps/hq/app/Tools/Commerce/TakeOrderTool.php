@@ -3,9 +3,12 @@
 namespace App\Tools\Commerce;
 
 use App\Commerce\Exceptions\Refused;
+use App\Commerce\Exceptions\Uncertain;
 use App\Commerce\Exceptions\Unsupported;
 use App\Commerce\Exceptions\ValidationFailed;
 use App\Commerce\Orders\DraftReconciliation;
+use App\Commerce\Orders\ErpOperationKey;
+use App\Commerce\Orders\OrderReconciliation;
 use App\Commerce\Orders\TakeOrderShape;
 use App\Erp\Dto\ErpOrderRead;
 use App\Erp\ErpConnector;
@@ -30,27 +33,37 @@ use App\Tools\ToolResult;
 use Throwable;
 
 /**
- * `take_order`: the one business capability for writing an order (docs/79, ADR-046), built INERT as
- * its first stage (docs/83 C.3): it leaves a DRAFT sales order in the ERP and nothing after it.
+ * `take_order`: the one business capability for writing an order (docs/79, ADR-046). Its first stage
+ * (docs/83 C.3) left a DRAFT in the ERP and nothing after it; its second (docs/88 A point 3) turns
+ * that draft into a sales order that WAITS in the ERP's approval inbox. Both stages are inert.
  *
  * ⛔⛔ INERT BY CONSTRUCTION, three times over.
  *   1. `supportedStores` is `config('hq.orders.take_order_stores')`, which ships EMPTY: every call
  *      names a store and the gateway refuses every store. Admitting one is a deploy and the P4-G2
  *      gate (docs/79 G), never a switch.
- *   2. No ERP token holds `sales.orders.draft`; the ERP refuses the write with 403 until a token is
- *      issued for it by name (`hq:api:token --write`).
+ *   2. No ERP token holds `sales.orders.draft` or `sales.orders.record`; the ERP refuses each write
+ *      with 403 until a token is issued for them by name (`hq:api:token --write`).
  *   3. `agentExecutable: false`, and no agent's tool list names it: it is not in any agent's
  *      catalogue, and an agent's proposal of it runs nothing (ADR-031, A0).
  *
  * ⛔ R4, NOT R3 (docs/83 B). R4 is "external side effect, recoverable" and its baseline is approval;
- * R3 is "internal write" and runs without one. An ERP draft is an external record. Every call is
+ * R3 is "internal write" and runs without one. An ERP order is an external record. Every call is
  * approval-required with no value threshold (V.1), and the person who asked may never decide it
  * (`requesterMayDecide: false`), owner included.
  *
- * ⚠ VERIFICATION FIRST (ADR-031). The draft is read back from the ERP by its key after the write,
- * and compared with the proposal by `DraftReconciliation`: `succeeded` only when they agree. A POST
- * that never answered, a read-back that failed, or a read-back that disagrees is `uncertain`, with
- * the reason named; never `succeeded` on the strength of a 201.
+ * ⚠ TWO APPROVALS STAND (docs/79 F). HQ's approval, given by somebody other than the asker, says HQ
+ * may write; it runs this tool. The ERP's approval, a person's act in the ERP's own inbox, says
+ * goods may leave; this tool never gives it, and the order is written by the ERP's system actor so
+ * it always lands pending. `effects.approved_by_hq` in the ERP's answer says false, and the
+ * read-back refuses to call the order verified unless it does.
+ *
+ * ⚠ TWO ERP WRITES, EACH UNDER ITS OWN KEY, EACH READ BACK (ADR-031). First the draft (the ERP prices
+ * and checks the proposal), read back and compared by `DraftReconciliation`; then the order made
+ * from that draft (the ERP prices the draft AGAIN, now, and refuses anything that moved), read back
+ * by HQ's key and compared by `OrderReconciliation`. `succeeded` only when both agree. A POST that
+ * never answered, a read-back that failed, or a read-back that disagrees is `uncertain`, named;
+ * never `succeeded` on the strength of a 201. `reconcile()` reads both back, in order, before the
+ * gateway sends anything again.
  *
  * ⚠ NOTHING IS REDACTED FROM THE ARGUMENTS, deliberately: the approval stores the redacted payload
  * and executes exactly that (ADR-018), so a redacted phone would never reach the ERP. The OUTPUT
@@ -60,9 +73,13 @@ final class TakeOrderTool implements PreviewableTool, Tool
 {
     public const KEY = 'commerce.take_order';
 
+    /** The step name folded into the ERP key of the order made from the draft. */
+    public const ORDER_STEP = 'order';
+
     public function __construct(
         private readonly ErpRegistry $registry,
-        private readonly DraftReconciliation $reconciliation,
+        private readonly DraftReconciliation $draftReconciliation,
+        private readonly OrderReconciliation $orderReconciliation,
     ) {}
 
     public function key(): string
@@ -96,7 +113,13 @@ final class TakeOrderTool implements PreviewableTool, Tool
             'source' => ['type' => 'string'],
             'contract' => ['type' => 'string'],
             'status' => ['type' => 'string'],
+            'approval_status' => ['type' => 'string'],
+            'deliverable' => ['type' => 'boolean'],
+            'erp_order_id' => ['type' => 'integer'],
+            'order_number' => ['type' => 'string'],
+            'shop_reference' => ['type' => 'string'],
             'erp_draft_id' => ['type' => 'integer'],
+            'erp_draft_key' => ['type' => 'string'],
             'erp_key' => ['type' => 'string'],
             'proposal_fingerprint' => ['type' => 'string'],
             'store_key' => ['type' => 'string'],
@@ -105,9 +128,11 @@ final class TakeOrderTool implements PreviewableTool, Tool
             'goods_total' => ['type' => 'string'],
             'delivery_charge' => ['type' => 'string'],
             'agreed_total' => ['type' => 'string'],
+            'delivery_promise' => ['type' => ['string', 'null']],
             'replayed' => ['type' => 'boolean'],
             'verified' => ['type' => 'boolean'],
             'effects' => ['type' => 'object'],
+            'next_step' => ['type' => 'string'],
         ]];
     }
 
@@ -116,9 +141,10 @@ final class TakeOrderTool implements PreviewableTool, Tool
         return new ToolDescriptor(
             key: self::KEY,
             version: '1.0.0',
-            title: 'Take an order (a draft in the ERP)',
-            purpose: 'Leaves a DRAFT sales order in the ERP for a named store: the ERP prices and checks it and refuses any figure '
-                .'that no longer matches. Nothing follows a draft: no order, number, approval, customer, stock, journal or message.',
+            title: 'Take an order (an order waiting for approval in the ERP)',
+            purpose: 'Writes a sales order in the ERP for a named store, from a draft the ERP prices and checks first: the ERP refuses '
+                .'any figure that no longer matches. The order WAITS in the ERP\'s approval inbox for a person there; goods leave only '
+                .'against an approved order. No stock, journal, payment or courier follows from this call.',
             riskTier: RiskTier::R4,
             permission: 'hq.tools.commerce.write',
             auditAction: 'tool.commerce_take_order',
@@ -141,9 +167,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
             consentRequired: null,
             customerFacing: true,
             reversibility: Reversibility::Compensable,
-            // Named by the design (docs/79 D) and not built: until it exists nothing follows a draft,
-            // so there is nothing to compensate. It is built with the step that confirms a draft.
-            compensatingTool: 'commerce.cancel_sales_order',
+            compensatingTool: CancelSalesOrderTool::KEY,
             dataClass: DataClass::Personal,
             cardinality: ToolCardinality::OnePerBusiness,
             requesterMayDecide: false,
@@ -157,11 +181,11 @@ final class TakeOrderTool implements PreviewableTool, Tool
         ])->values()->all();
 
         return [
-            'would_write' => 'a DRAFT sales order in the ERP for store '.($payload['erp_store_key'] ?? '?').', priced and checked by the ERP',
+            'would_write' => 'a sales order in the ERP for store '.($payload['erp_store_key'] ?? '?').', from a draft the ERP prices and checks first',
             'lines' => $lines,
             'proposed' => $payload['proposed'] ?? null,
             'payment_method' => $payload['payment_method'] ?? null,
-            'after_the_draft' => 'nothing: no order, order number, approval, customer, stock, journal or message',
+            'after_the_order' => 'it waits in the ERP\'s approval inbox for a person there; nothing else: no stock, journal, payment or courier, and HQ approves nothing in the ERP',
             'refused_when' => 'any price or total no longer matches the ERP, a product is not sellable, or the store is not live',
         ];
     }
@@ -177,12 +201,13 @@ final class TakeOrderTool implements PreviewableTool, Tool
         }
 
         $erp = $this->registry->for($business);
-        $key = self::erpKey($context->idempotencyKey, $business->id);
+        $draftKey = self::erpKey($context->idempotencyKey, $business->id);
         $fingerprint = CanonicalPayload::hash($payload);
 
+        // Step 1: the draft. The ERP prices and checks the proposal; a draft under this key replays.
         try {
-            $created = $erp->createSalesOrderDraft([
-                'idempotency_key' => $key,
+            $erp->createSalesOrderDraft([
+                'idempotency_key' => $draftKey,
                 'store_key' => (string) $payload['erp_store_key'],
                 'destination' => $payload['destination'],
                 'lines' => array_values($payload['lines']),
@@ -199,15 +224,30 @@ final class TakeOrderTool implements PreviewableTool, Tool
             return ToolResult::failedBy($e);
         }
 
-        // ⚠ The postcondition is the READ-BACK, never the 201 (ADR-031).
-        return $this->verify($erp, $key, $payload, $business, $created->data['replayed'] ?? false);
+        // ⚠ The draft's postcondition is its READ-BACK, never the 201 (ADR-031).
+        try {
+            $draft = $erp->readSalesOrderDraft($draftKey);
+        } catch (Throwable $e) {
+            return ToolResult::uncertain('The ERP accepted the draft, and reading it back failed, so it is not verified: '.$e->getMessage());
+        }
+        if (! $draft->found) {
+            return ToolResult::uncertain('The ERP accepted the draft, and has no draft under its key when read back.');
+        }
+        if (($disagreement = $this->draftDisagreement($draft, $payload)) !== null) {
+            return $disagreement;
+        }
+
+        // Step 2: the order made from that draft. The ERP prices the draft AGAIN, now, and refuses
+        // anything that moved; the order is written by the ERP's system actor and WAITS there.
+        return $this->recordOrder($erp, $draftKey, $fingerprint, $payload, $business, $context);
     }
 
     /**
-     * An earlier call with this key ended `uncertain`: read the draft back before anything is sent
-     * again. Found and agreeing with the arguments that call executed: `succeeded`. Found and
-     * disagreeing, or unreadable: still `uncertain`, for a person. Not there: null, and the gateway
-     * may send it again safely, because the ERP answers one key once.
+     * An earlier call with this key ended `uncertain`: read back before anything is sent again.
+     * No draft under the key: null, and the gateway may send it all again safely, because the ERP
+     * answers one key once. A draft and no order: null too, since sending again replays the draft
+     * and then records the order. Draft and order both there and agreeing with what the uncertain
+     * call executed: `succeeded`. Anything disagreeing or unreadable: still `uncertain`, for a person.
      */
     public function reconcile(ToolContext $context): ?ToolResult
     {
@@ -220,72 +260,136 @@ final class TakeOrderTool implements PreviewableTool, Tool
         if ($prior === null) {
             return null;
         }
+        $payload = (array) $prior->input;
 
-        $key = self::erpKey($context->idempotencyKey, $business->id);
+        $draftKey = self::erpKey($context->idempotencyKey, $business->id);
+        $erp = $this->registry->for($business);
         try {
-            $read = $this->registry->for($business)->readSalesOrderDraft($key);
+            $draft = $erp->readSalesOrderDraft($draftKey);
         } catch (Throwable $e) {
             return ToolResult::uncertain('The draft could not be read back from the ERP to settle an uncertain call: '.$e->getMessage());
         }
-        if (! $read->found) {
+        if (! $draft->found) {
+            return null;
+        }
+        if (($disagreement = $this->draftDisagreement($draft, $payload)) !== null) {
+            return $disagreement;
+        }
+
+        $orderKey = ErpOperationKey::for($context->idempotencyKey, $business->id, self::ORDER_STEP);
+        try {
+            $order = $erp->readSalesOrderByKey($orderKey);
+        } catch (Throwable $e) {
+            return ToolResult::uncertain('The order could not be read back from the ERP to settle an uncertain call: '.$e->getMessage());
+        }
+        if (! $order->found) {
             return null;
         }
 
-        return $this->judge($read, (array) $prior->input, $business, null);
+        return $this->judgeOrder($order, $draft, $draftKey, CanonicalPayload::hash($payload), $payload, $business, null);
     }
 
-    /** The ERP's key for this operation: the gateway's key and the business, so a reconcile finds it. */
+    /** The ERP's key for the draft: the gateway's key and the business, so a reconcile finds it. */
     public static function erpKey(string $gatewayKey, int $businessId): string
     {
-        return 'hq:'.hash('sha256', $gatewayKey.'|business:'.$businessId);
+        return ErpOperationKey::for($gatewayKey, $businessId);
     }
 
-    private function verify(ErpConnector $erp, string $key, array $payload, Business $business, mixed $replayed): ToolResult
+    private function recordOrder(ErpConnector $erp, string $draftKey, string $fingerprint, array $payload, Business $business, ToolContext $context): ToolResult
     {
+        $orderKey = ErpOperationKey::for($context->idempotencyKey, $business->id, self::ORDER_STEP);
+
         try {
-            $read = $erp->readSalesOrderDraft($key);
-        } catch (Throwable $e) {
-            return ToolResult::uncertain('The ERP accepted the draft, and reading it back failed, so it is not verified: '.$e->getMessage());
-        }
-        if (! $read->found) {
-            return ToolResult::uncertain('The ERP accepted the draft, and has no draft under its key when read back.');
+            $recorded = $erp->recordSalesOrder([
+                'idempotency_key' => $orderKey,
+                'draft_key' => $draftKey,
+                'proposed' => $payload['proposed'],
+                'hq_reference' => [
+                    'proposal_fingerprint' => $fingerprint,
+                    'approval_uuid' => ErpOperationKey::approvalUuid($context->idempotencyKey),
+                    'conversation_uuid' => $payload['conversation_uuid'] ?? null,
+                ],
+            ]);
+        } catch (Refused|ValidationFailed|Unsupported $e) {
+            // The draft already became an order under another key, the ERP now prices the draft
+            // differently (write a new draft), a token without the ability: answers, never retried.
+            return ToolResult::failedBy($e);
+        } catch (Uncertain $e) {
+            // The draft stands; the order may or may not exist. The gateway reconciles before retrying.
+            throw $e;
         }
 
-        return $this->judge($read, $payload, $business, (bool) $replayed);
+        // ⚠ The order's postcondition is its READ-BACK by HQ's key, never the 201 (ADR-031).
+        try {
+            $order = $erp->readSalesOrderByKey($orderKey);
+        } catch (Throwable $e) {
+            return ToolResult::uncertain('The ERP accepted the order, and reading it back failed, so it is not verified: '.$e->getMessage());
+        }
+        if (! $order->found) {
+            return ToolResult::uncertain('The ERP accepted the order, and has no order under its key when read back.');
+        }
+
+        try {
+            $draft = $erp->readSalesOrderDraft($draftKey);
+        } catch (Throwable $e) {
+            return ToolResult::uncertain('The ERP accepted the order, and reading the draft back beside it failed, so it is not verified: '.$e->getMessage());
+        }
+
+        return $this->judgeOrder($order, $draft, $draftKey, $fingerprint, $payload, $business, (bool) ($recorded->data['replayed'] ?? false));
     }
 
-    private function judge(ErpOrderRead $read, array $payload, Business $business, ?bool $replayed): ToolResult
+    private function draftDisagreement(ErpOrderRead $draft, array $payload): ?ToolResult
     {
-        $discrepancies = $this->reconciliation->compare($payload, $read->data);
+        $discrepancies = $this->draftReconciliation->compare($payload, $draft->data);
+        if ($discrepancies === []) {
+            return null;
+        }
+        $named = collect($discrepancies)->map(fn ($d) => "{$d['field']}: {$d['note']}")->implode(' ');
+
+        return ToolResult::uncertain('The ERP draft does not agree with the proposal, and nothing was changed to make it: '.$named, 'erp-draft:'.($draft->data['id'] ?? '?'));
+    }
+
+    private function judgeOrder(ErpOrderRead $order, ErpOrderRead $draft, string $draftKey, string $fingerprint, array $payload, Business $business, ?bool $replayed): ToolResult
+    {
+        $data = $order->data;
+        $ref = 'erp-order:'.($data['id'] ?? '?');
+
+        $discrepancies = $this->orderReconciliation->compare($payload, $data, $draftKey, $fingerprint);
         if ($discrepancies !== []) {
             $named = collect($discrepancies)->map(fn ($d) => "{$d['field']}: {$d['note']}")->implode(' ');
 
-            return ToolResult::uncertain('The ERP draft does not agree with the proposal, and nothing was changed to make it: '.$named, 'erp-draft:'.($read->data['id'] ?? '?'));
+            return ToolResult::uncertain('The ERP order does not agree with the approved draft, and nothing was changed to make it: '.$named, $ref);
         }
-
-        $data = $read->data;
 
         return ToolResult::succeeded([
             'business' => $business->slug,
             'source' => 'erp',
-            'contract' => ErpConnector::SALES_ORDER_DRAFTS_CONTRACT,
+            'contract' => ErpConnector::SALES_ORDERS_CONTRACT,
             'status' => (string) $data['status'],
-            'erp_draft_id' => (int) ($data['id'] ?? 0),
-            'erp_key' => (string) ($data['idempotency_key'] ?? ''),
-            'proposal_fingerprint' => (string) ($data['hq_proposal_fingerprint'] ?? ''),
+            'approval_status' => (string) ($data['approval_status'] ?? ''),
+            'deliverable' => (bool) ($data['deliverable'] ?? false),
+            'erp_order_id' => (int) ($data['id'] ?? 0),
+            'order_number' => (string) ($data['order_number'] ?? ''),
+            'shop_reference' => (string) ($data['shop_reference'] ?? ''),
+            'erp_draft_id' => (int) ($draft->data['id'] ?? 0),
+            'erp_draft_key' => $draftKey,
+            'erp_key' => (string) ($data['hq']['idempotency_key'] ?? ''),
+            'proposal_fingerprint' => (string) ($data['hq']['proposal_fingerprint'] ?? ''),
             'store_key' => (string) ($data['store']['key'] ?? ''),
-            'customer_resolution' => (string) ($data['customer']['resolution'] ?? ''),
+            'customer_resolution' => (string) ($draft->data['customer']['resolution'] ?? ''),
             'lines' => collect((array) ($data['lines'] ?? []))->map(fn ($l) => [
                 'sku' => $l['sku'] ?? null, 'quantity' => $l['quantity'] ?? null, 'unit_price' => $l['unit_price'] ?? null,
-                'line_total' => $l['line_total'] ?? null, 'made_to_order' => $l['made_to_order'] ?? null,
+                'quantity_delivered' => $l['quantity_delivered'] ?? null,
             ])->values()->all(),
             'goods_total' => (string) ($data['goods_total'] ?? ''),
             'delivery_charge' => (string) ($data['delivery_charge'] ?? ''),
             'agreed_total' => (string) ($data['agreed_total'] ?? ''),
+            'delivery_promise' => $data['delivery_promise'] ?? null,
             'replayed' => (bool) $replayed,
             'verified' => true,
             'effects' => (array) ($data['effects'] ?? []),
-        ], 'erp-draft:'.($data['id'] ?? '?'));
+            'next_step' => (string) ($data['next_step'] ?? ''),
+        ], $ref);
     }
 
     private function business(ToolContext $context, array $payload): ?Business

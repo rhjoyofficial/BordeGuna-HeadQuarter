@@ -439,8 +439,10 @@ it('keeps every real Phase 1 tool below the approval tier', function () {
         }
     }
 
-    // docs/83 C.3: the second is `commerce.take_order`, which writes a DRAFT in the ERP and is inert
-    // by construction: no store is admitted, so the gateway refuses every call.
-    expect($r4OrAbove)->toBe([DEMO, 'commerce.take_order'])
-        ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([]);
+    // docs/83 C.3: the second is `commerce.take_order`, which writes a draft and then an order waiting
+    // for approval in the ERP, and is inert by construction: no store is admitted, so the gateway
+    // refuses every call. docs/88 A point 3: the third is its compensating tool, under the same list.
+    expect($r4OrAbove)->toBe([DEMO, 'commerce.take_order', 'commerce.cancel_sales_order'])
+        ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([])
+        ->and(app(ToolGateway::class)->descriptors()['commerce.cancel_sales_order']->supportedStores)->toBe([]);
 });

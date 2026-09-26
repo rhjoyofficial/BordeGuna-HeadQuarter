@@ -40,6 +40,9 @@ final class ErpConnector
     /** The version the ERP stamps on every draft sales order body (`meta.contract`), docs/83 C.3. */
     public const SALES_ORDER_DRAFTS_CONTRACT = 'hq-sales-order-drafts.v1';
 
+    /** The version the ERP stamps on every sales-order body: quote, order, read-back, cancel (docs/88 A point 3). */
+    public const SALES_ORDERS_CONTRACT = 'hq-sales-orders.v1';
+
     /** The only product filters the ERP's order-reads accept; anything else is refused before it is sent. */
     public const PRODUCT_FILTERS = ['q', 'sku', 'id', 'barcode', 'brand', 'status'];
 
@@ -134,7 +137,7 @@ final class ErpConnector
     }
 
     /**
-     * A write (the other is the draft sales order below). `idempotencyKey` is sent as the ERP's
+     * A write (the others are the draft sales order and the order routes below). `idempotencyKey` is sent as the ERP's
      * idempotency_key so a retried call gets the same ticket back (replayed=true) instead of opening
      * a second one.
      */
@@ -276,6 +279,140 @@ final class ErpConnector
         ErpContract::requireOrderReadsContract($meta, self::SALES_ORDER_DRAFTS_CONTRACT, $this->erpBusinessId, $operation);
         if (($data['status'] ?? null) !== 'draft') {
             throw new Unsupported("ERP {$operation}: the answer is not a draft (status [".(is_scalar($data['status'] ?? null) ? (string) $data['status'] : 'none').']).');
+        }
+
+        return new ErpOrderRead(found: true, data: $data, meta: $meta);
+    }
+
+    // ---- Phase 4 order completion (docs/88 A point 3, docs/79 F). ---------------------------------
+    //
+    // A quote (a read sent as POST), the order made FROM an approved draft (it waits in the ERP's
+    // approval inbox; HQ never approves it), the read-back by reference or by HQ's key, and HQ's
+    // cancellation of an order it placed. The two writes need abilities no ERP token holds until one
+    // is issued for them by name (`sales.orders.record`, `sales.orders.cancel`).
+
+    /**
+     * What the ERP would charge for this order now, from its one pricing engine. Writes nothing.
+     * A request the ERP would not take is `ValidationFailed` with the ERP's own sentences per field.
+     *
+     * @param  array<string, mixed>  $quote  store_key, destination, lines [{sku, quantity}]
+     */
+    public function quoteSalesOrder(array $quote): ErpOrderRead
+    {
+        return $this->logger->call($this->connectorName(), 'quoteSalesOrder', function () use ($quote) {
+            $response = $this->send(fn (PendingRequest $c) => $c->post($this->url($this->path('sales-orders/quote')), $quote));
+            $this->throwForStatus($response, 'quoteSalesOrder');
+
+            return $this->orderBody($response->json() ?? [], 'quoteSalesOrder', quote: true);
+        });
+    }
+
+    /**
+     * An approved draft becomes a sales order that WAITS for a person in the ERP's approval inbox.
+     *
+     * ⚠⚠ The same rules as the draft: a POST that never answered is `Uncertain` (the order may exist;
+     * `readSalesOrderByKey` settles it before anything is sent again); a 409 is the ERP refusing
+     * (`idempotency_key_reused`, or `draft_already_confirmed`: a draft becomes one order, once) and is
+     * never retried; a 422 is `ValidationFailed` with the ERP's sentences (the ERP priced the draft
+     * again and something moved: write a new draft); a 404 is `Refused` (no such draft); a 403 is
+     * `Unsupported` (the token lacks `sales.orders.record`).
+     *
+     * @param  array<string, mixed>  $order  idempotency_key, draft_key, proposed, hq_reference
+     */
+    public function recordSalesOrder(array $order): ErpOrderRead
+    {
+        $key = (string) ($order['idempotency_key'] ?? '');
+        if ($key === '') {
+            throw new \InvalidArgumentException('recordSalesOrder needs an idempotency_key.');
+        }
+
+        return $this->logger->call($this->connectorName(), 'recordSalesOrder', function () use ($order, $key) {
+            try {
+                $response = $this->client()->withHeaders(['Idempotency-Key' => $key])
+                    ->post($this->url($this->path('sales-orders')), $order);
+            } catch (ConnectionException $e) {
+                throw new Uncertain('ERP unreachable while recording the order: '.$e->getMessage(), 0, $e);
+            }
+            if ($response->status() === 409) {
+                throw new Refused('ERP recordSalesOrder: '.(string) ($response->json('error.message') ?? 'the ERP refused the order'), 409);
+            }
+            $this->throwForStatus($response, 'recordSalesOrder');
+
+            return $this->orderBody($response->json() ?? [], 'recordSalesOrder');
+        }, $key);
+    }
+
+    /** One order HQ placed, by the customer's reference or the ERP order number; "none" is an answer. */
+    public function readSalesOrder(string $reference): ErpOrderRead
+    {
+        return $this->logger->call($this->connectorName(), 'readSalesOrder', function () use ($reference) {
+            $response = $this->send(fn (PendingRequest $c) => $c->get($this->url($this->path('sales-orders/'.rawurlencode($reference)))));
+            if ($response->status() === 404 && $response->json('error.code') === 'not_found') {
+                return ErpOrderRead::notFound('not_found', (string) ($response->json('error.message') ?? 'not_found'));
+            }
+            $this->throwForStatus($response, 'readSalesOrder');
+
+            return $this->orderBody($response->json() ?? [], 'readSalesOrder');
+        }, null, $reference);
+    }
+
+    /** The order HQ's key made, for settling a request that never answered; "none" is an answer. */
+    public function readSalesOrderByKey(string $idempotencyKey): ErpOrderRead
+    {
+        return $this->logger->call($this->connectorName(), 'readSalesOrderByKey', function () use ($idempotencyKey) {
+            $response = $this->send(fn (PendingRequest $c) => $c->get($this->url($this->path('sales-orders/by-key/'.rawurlencode($idempotencyKey)))));
+            if ($response->status() === 404 && $response->json('error.code') === 'not_found') {
+                return ErpOrderRead::notFound('not_found', (string) ($response->json('error.message') ?? 'not_found'));
+            }
+            $this->throwForStatus($response, 'readSalesOrderByKey');
+
+            return $this->orderBody($response->json() ?? [], 'readSalesOrderByKey');
+        }, null, $idempotencyKey);
+    }
+
+    /**
+     * HQ cancels an order it placed, under the ERP's own rule (only an open order with nothing
+     * delivered). A POST that never answered is `Uncertain`; a 409 (`already_cancelled`,
+     * `has_deliveries`, `idempotency_key_reused`) and a 404 (not an order HQ placed) are `Refused`
+     * with the ERP's sentence and never retried; a 403 is `Unsupported` (no `sales.orders.cancel`).
+     *
+     * @param  array<string, mixed>  $cancellation  idempotency_key, reason, hq_reference
+     */
+    public function cancelSalesOrder(string $reference, array $cancellation): ErpOrderRead
+    {
+        $key = (string) ($cancellation['idempotency_key'] ?? '');
+        if ($key === '') {
+            throw new \InvalidArgumentException('cancelSalesOrder needs an idempotency_key.');
+        }
+
+        return $this->logger->call($this->connectorName(), 'cancelSalesOrder', function () use ($reference, $cancellation, $key) {
+            try {
+                $response = $this->client()->withHeaders(['Idempotency-Key' => $key])
+                    ->post($this->url($this->path('sales-orders/'.rawurlencode($reference).'/cancel')), $cancellation);
+            } catch (ConnectionException $e) {
+                throw new Uncertain('ERP unreachable while cancelling the order: '.$e->getMessage(), 0, $e);
+            }
+            if ($response->status() === 409) {
+                throw new Refused('ERP cancelSalesOrder: '.(string) ($response->json('error.message') ?? 'the ERP refused the cancellation'), 409);
+            }
+            $this->throwForStatus($response, 'cancelSalesOrder');
+
+            return $this->orderBody($response->json() ?? [], 'cancelSalesOrder');
+        }, $key, $reference);
+    }
+
+    /**
+     * An order body must carry `data`, the orders contract version and this business; an order (not
+     * a quote) must also carry a status and an order number, so a body of another shape cannot be
+     * read as an order that exists.
+     */
+    private function orderBody(array $body, string $operation, bool $quote = false): ErpOrderRead
+    {
+        $data = ErpContract::requireDataArray($body, $operation);
+        $meta = is_array($body['meta'] ?? null) ? $body['meta'] : [];
+        ErpContract::requireOrderReadsContract($meta, self::SALES_ORDERS_CONTRACT, $this->erpBusinessId, $operation);
+        if (! $quote && (! is_string($data['status'] ?? null) || ! is_string($data['order_number'] ?? null))) {
+            throw new Unsupported("ERP {$operation}: the answer names no order (status and order_number are required).");
         }
 
         return new ErpOrderRead(found: true, data: $data, meta: $meta);
