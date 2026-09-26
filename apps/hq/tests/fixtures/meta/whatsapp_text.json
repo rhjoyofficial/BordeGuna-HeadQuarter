@@ -1,0 +1,27 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {"display_phone_number": "8801700000000", "phone_number_id": "106540352242922"},
+            "contacts": [{"profile": {"name": "রহিমা খাতুন"}, "wa_id": "8801711223344"}],
+            "messages": [
+              {
+                "from": "8801711223344",
+                "id": "wamid.HBgNODgwMTcxMTIyMzM0NBUCABIYFDNBNEE2NTk5QUVFMDM4MTAxNDRGAA==",
+                "timestamp": "1758513600",
+                "type": "text",
+                "text": {"body": "ইলিশের আচার ৫০০ গ্রামের দাম কত?"}
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

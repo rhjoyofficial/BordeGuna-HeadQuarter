@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Health\HealthController;
+use App\Http\Controllers\Webhooks\MetaForwardController;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Http\Controllers\Webhooks\ShopWebhookController;
 use Illuminate\Support\Facades\Route;
@@ -14,3 +15,6 @@ Route::post('/webhooks/shop/{store}', ShopWebhookController::class)->middleware(
 // Meta (Messenger) webhook inbox (docs/72 B): 404 while `channels.meta.inbound` is off, which it is.
 Route::get('/webhooks/meta', [MetaWebhookController::class, 'verify'])->middleware('throttle:60,1')->name('webhooks.meta.verify');
 Route::post('/webhooks/meta', [MetaWebhookController::class, 'receive'])->middleware('throttle:600,1')->name('webhooks.meta');
+
+// The n8n copy of Meta's webhook for gate P3-G3 (docs/88 A point 2): 404 while `channels.meta.forwarded` is off, which it is.
+Route::post('/webhooks/meta/forwarded', MetaForwardController::class)->middleware('throttle:600,1')->name('webhooks.meta.forwarded');

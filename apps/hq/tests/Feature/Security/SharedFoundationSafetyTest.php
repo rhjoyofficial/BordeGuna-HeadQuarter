@@ -246,6 +246,11 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
     // `commerce.take_order` is customer-facing because a parcel and a cash-on-delivery demand reach a
     // person (docs/79 D), and it sends NO message: internal channel, no consent class. It is not
     // agent-executable and admits no store, so the gateway refuses every call to it.
+    //
+    // ⚠ docs/88 A point 2 (stream Q) added a THIRD, named here for the same reason: `messaging.send_whatsapp_reply`
+    // is the WhatsApp reply as its own action (ADR-026), customer-facing, on an outbound channel and consent-gated
+    // by declaration like `messaging.send_reply`; it is NOT agent-executable, held by no agent, and no WhatsApp
+    // provider is registered, so it fails for everyone, human included.
     $customerFacing = [];
     foreach (app(ToolGateway::class)->descriptors() as $key => $descriptor) {
         if ($key === 'commerce.take_order') {
@@ -275,7 +280,7 @@ it('ships Phase 2.5 with no agent, no autonomy and no customer-facing capability
                 ->and($descriptor->riskTier->atLeast(RiskTier::R3))->toBeFalse("[{$key}] is agent-executable at R3 or above");
         }
     }
-    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order']);
+    expect($customerFacing)->toBe(['messaging.send_reply', 'commerce.take_order', 'messaging.send_whatsapp_reply']);
 
     // And the AI runtime is still off, exactly as M4 left it.
     expect(app(Features::class)->enabled('ai.runtime'))->toBeFalse();

@@ -34,8 +34,13 @@ final class MetaWebhookController extends Controller
 
     public const ACCOUNT_REF = 'meta';
 
-    /** The webhook envelope's `object` and the platform its `entry[].id` names. */
-    public const PLATFORM_FOR_OBJECT = ['page' => 'facebook_page', 'instagram' => 'instagram_account'];
+    /**
+     * The webhook envelope's `object` and the platform account it arrives for: the Page or Instagram
+     * account `entry[].id` names, or, for WhatsApp, the business phone number in
+     * `entry[].changes[].value.metadata.phone_number_id` (`entry[].id` is the WhatsApp Business Account,
+     * which HQ does not hold as an account; docs/88 A point 2).
+     */
+    public const PLATFORM_FOR_OBJECT = ['page' => 'facebook_page', 'instagram' => 'instagram_account', 'whatsapp_business_account' => 'whatsapp_number'];
 
     public function __construct(
         private readonly EventRecorder $events,
@@ -88,29 +93,53 @@ final class MetaWebhookController extends Controller
             return response()->json(['error' => 'invalid signature'], 401);
         }
 
+        return $this->accept($raw, 'meta:webhook');
+    }
+
+    /**
+     * The envelope check and the one `events` row, shared with the n8n copy-forward receiver
+     * (`MetaForwardController`), so a copy and Meta's own delivery of the same body are one event:
+     * the dedupe key is the digest of the body either way.
+     *
+     * @param  array<string, mixed>  $extra  provenance kept on the event beside Meta's body
+     */
+    public function accept(string $raw, string $source, array $extra = []): JsonResponse
+    {
         $body = json_decode($raw, true);
         $object = is_array($body) ? ($body['object'] ?? null) : null;
-        if (! is_array($body) || ! isset(self::PLATFORM_FOR_OBJECT[$object]) || ! is_array($body['entry'] ?? null)) {
-            return response()->json(['error' => 'malformed envelope: expected {object: page|instagram, entry: [...]}'], 422);
+        if (! is_array($body) || ! is_string($object) || ! isset(self::PLATFORM_FOR_OBJECT[$object]) || ! is_array($body['entry'] ?? null)) {
+            return response()->json(['error' => 'malformed envelope: expected {object: page|instagram|whatsapp_business_account, entry: [...]}'], 422);
         }
 
         $digest = hash('sha256', $raw);
-        $pageId = is_array($body['entry'][0] ?? null) ? (string) ($body['entry'][0]['id'] ?? '') : '';
+        $accountRef = self::accountRef($object, $body);
         // A Page's Messenger and its comments arrive under the Page; an Instagram account's DMs under
-        // the account (docs/78 B.1). Either is a `platform_accounts` row HQ holds, or the event dead-letters.
-        $businessId = $pageId === '' ? null : PlatformAccount::query()->where('platform', self::PLATFORM_FOR_OBJECT[$object])->where('account_ref', $pageId)->with('brand:id,business_id')->first()?->brand?->business_id;
+        // the account (docs/78 B.1); a WhatsApp message under the business number (docs/88). Each is a
+        // `platform_accounts` row HQ holds, or the event dead-letters.
+        $businessId = $accountRef === '' ? null : PlatformAccount::query()->where('platform', self::PLATFORM_FOR_OBJECT[$object])->where('account_ref', $accountRef)->with('brand:id,business_id')->first()?->brand?->business_id;
 
         $event = $this->events->record(
             type: 'conversation.inbound_received',
-            payload: $body + ['_digest' => $digest],
-            source: 'meta:webhook',
+            payload: $body + ['_digest' => $digest] + ($extra === [] ? [] : ['_provenance' => $extra]),
+            source: $source,
             direction: 'inbound',
             aggregateType: 'conversation',
-            aggregateId: $pageId !== '' ? $pageId : null,
+            aggregateId: $accountRef !== '' ? $accountRef : null,
             businessId: $businessId,
             dedupeKey: "meta:{$digest}",
         );
 
         return response()->json(['accepted' => true, 'event_id' => $event->event_id, 'duplicate' => ! $event->wasRecentlyCreated], 202);
+    }
+
+    /** The platform account reference an envelope arrives for (see PLATFORM_FOR_OBJECT). */
+    public static function accountRef(string $object, array $body): string
+    {
+        $entry = is_array($body['entry'][0] ?? null) ? $body['entry'][0] : [];
+        if ($object === 'whatsapp_business_account') {
+            return (string) data_get($entry, 'changes.0.value.metadata.phone_number_id', '');
+        }
+
+        return (string) ($entry['id'] ?? '');
     }
 }
