@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Ads\Contribution\CostPriceSource;
+use App\Ads\Contribution\DeliveredSalesSource;
+use App\Ads\Contribution\FactsOrdersDeliveredSales;
+use App\Ads\Contribution\UnavailableCostPrices;
 use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
@@ -68,6 +72,13 @@ class AppServiceProvider extends ServiceProvider
         // Phase 7 (docs/88 A point 6): the speech providers ship EMPTY for the same reason. A voice note
         // is kept without a transcript until a person registers a provider at gate P7-G2.
         $this->app->singleton(SpeechProviders::class, fn () => new SpeechProviders);
+
+        // Phase 5 read side (docs/88 A point 4): the contribution report's two sources. Delivered orders
+        // from the shops' own facts; cost prices from NOWHERE yet (the ERP holds them, the HQ contract
+        // does not carry them), so every contribution is blank with its reason rather than guessed.
+        // ⛔ Nothing here registers the Meta ads provider: the registry above stays empty.
+        $this->app->bind(DeliveredSalesSource::class, FactsOrdersDeliveredSales::class);
+        $this->app->bind(CostPriceSource::class, UnavailableCostPrices::class);
 
         // Local disk is the only driver today. Everything above it names a driver and an opaque
         // key, so swapping this binding is the whole migration to object storage.

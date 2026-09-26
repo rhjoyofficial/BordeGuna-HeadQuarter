@@ -1,7 +1,10 @@
 # ADR-050: Paid media moves money only by a person's decision
 
-**Status:** proposed (21 Sep 2026, `docs/84`, the Phase 5 design and readiness packet ordered in
-`docs/83` point 4). Nothing is built: no ads tool, adapter, flag or credential exists.
+**Status:** ACCEPTED (22 Sep 2026, ChatGPT's instruction recorded in `docs/88` A point 4, "ADR-050,
+accept with these clarifications"). Proposed 21 Sep 2026 with `docs/84`. The clarifications are
+section "Clarifications on acceptance" below and bind every Phase 5 change. What is built so far is
+the READ side only (stream S, `docs/88-s-record.md`): no write tool, no credential, no registration,
+nothing scheduled.
 
 ## Context
 
@@ -48,3 +51,31 @@ The first Phase 5 release is slower to operate than an automated one: every chan
 an approval. That is the intended cost. A future owner decision to lift switch-on above A2 needs its
 own ADR. The marketing suite must include the refusals (a request to change the account limit, a
 "the boss agreed" injection) as blocker cases.
+
+## Clarifications on acceptance (22 September 2026, `docs/88` A point 4)
+
+Accepted as the governing architecture, with these clarifications, each binding:
+
+1. **A human decision** is required for any action that changes advertising spend or materially
+   changes live delivery.
+2. **HQ never exposes a tool** for payment methods, billing credentials, legal identity (the
+   Advertiser and Payer fields), deletion of advertising accounts, adding or removing people,
+   changing account ownership, or changing the provider's hard spending ceiling (the ad account
+   spending limit). `App\Ads\AdsHumanOnly` names them, and a test holds that no tool exists for any
+   of them.
+3. **Platform spending limits are ceilings HQ observes, never ceilings HQ rewrites.** HQ reads the
+   account spending limit (`facts_ad_accounts.spend_cap_minor`) and never writes it.
+4. **Reads are R2.**
+5. **Recoverable external changes** (pause, lower budget, creative upload, prepare) stay
+   approval-required, with precondition checks, an explicit proposal, authorisation, execution,
+   read-back verification, reconciliation, and no silent repair.
+6. **Irreversible or high-liability actions are HUMAN_ONLY** at every autonomy level.
+7. **Raising a budget and activating a campaign are R5** and approval-required at minimum.
+8. **Uploading a customer list is R5** with explicit per-person consent and is not part of the
+   first release.
+9. **The owner's external platform spending ceiling is an upper bound.** HQ never infers authority
+   from it: room under the ceiling is not permission to spend.
+10. **Platform credentials and account identity stay separate from HQ authorisation.** Holding the
+    system-user token authorises nothing inside HQ; the gateway, the Effective Execution Context and
+    the approval decide.
+11. **MCP, if ever used,** is only an adapter behind the same Tool Gateway and capability contracts.

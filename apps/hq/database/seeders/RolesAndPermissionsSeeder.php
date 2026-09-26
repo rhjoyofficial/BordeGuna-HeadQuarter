@@ -40,6 +40,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // permission exists so that enabling one later is a grant somebody makes deliberately.
         'hq.tools.commerce.write',
         'hq.tools.facts.read',
+        // Phase 5 read side (docs/88 A point 4). Reserved like commerce.write: no ads tool is registered,
+        // so nothing checks it yet; it exists so registering the reads at P5-G1 is a grant somebody makes.
+        'hq.tools.ads.read',
         'hq.tools.schedule',
         'hq.tools.notify',
 
