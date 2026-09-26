@@ -172,4 +172,37 @@ and anything else that changes behaviour are merged.
 
 ## C. Record
 
-(filled in as the streams and gates land)
+### C.1 Stream U merged (22 September, `4a41d13`)
+
+The Phase 7 voice-note foundation and the Phase 8 refusal of any cloned voice, all inert: Google
+Speech-to-Text (`chirp_2`, `bn-BD`), ElevenLabs and Azure text-to-speech adapters registered nowhere and
+credential-refused, `SpeechProviders` bound empty, a transcript always untrusted and sent through the
+typed-text path, a redelivered voice note recognised before anything is transcribed. No migration, no prompt,
+tool, agent, seeder or Support-path change, so P3-G2's suite is unchanged and Gate 13 owes nothing to it.
+Full Pest on `hq_test_j` 1312 passed (main's 1275 plus 37). Record: `docs/88-u-record.md`; architecture and
+proposed gates: `docs/88-u-phase-7-8-voice-and-avatar-architecture.md`.
+
+### C.2 Stream V merged (26 September, `690d0ec`)
+
+Every operator screen reads in Bangla or English through one dictionary (`resources/js/lib/i18n.ts`,
+`i18n/bn.json`, 335 entries): the English text is the key, so no screen is ever blank in either language;
+English digits in both languages by Joy's rule, NFC and the brand spelling held by tests; the choice lives in
+the browser like the light and dark choice and writes nothing. One read-only page, `/observe/posture`
+("Activation posture"), shows the exact posture from the classes that already decide it: the switches, each
+agent and what its role may never do, what stands between each agent and its shadow week in the console's
+own words, the gate evidence, the model provider and credentials, the capability state of every gateway
+tool, uncertain and dead work, and audit references without before, after or reason. A snapshot test proves
+reading it writes nothing; a route-list test pins every non-GET web route so a write path cannot be added
+unnoticed. Full Pest on `hq_test_k` 1291 passed (1275 plus 16); merged after stream U, the combined tree
+verified at the merge (Pint, `tsc --noEmit`, Vite, full Pest: see the merge commit). Record:
+`docs/88-v-record.md`.
+
+### C.3 The interruption of 22 September, and the resumption of 26 September
+
+The session that launched the seven streams ended at about 11:00 Dhaka on 22 September with U merged, V
+pushed for review and W, Q, R, S and T cut mid-work, each leaving uncommitted files in its worktree (about
+1,600, 3,000, 3,400 and 5,200 lines for W, Q, S and T; R had its ERP side started and its HQ side not begun).
+Nothing reached production, which stayed at `8ea7650`, inert, with no gate run since Gate 12. On 26
+September each cut stream was resumed in its own worktree from that uncommitted state, under the same brief
+and the same rules (its own branch and test database, no merge, no deploy, one full suite at the end, a
+record file, the eight columns of point 21); this section records each as it lands.
