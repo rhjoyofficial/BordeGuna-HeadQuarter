@@ -140,7 +140,9 @@ it('reads a model that named no task as no task, and an authority claim inside u
 
 // ── The runner: the runtime's decision, not the model's ─────────────────────────────────────────
 
-it('records the model\'s reading and HQ\'s canonical task apart, and runs nothing when HQ established none', function () {
+it('decides a message with no task before the model, so the model\'s reading is never taken and nothing runs', function () {
+    // Until docs/88 point 9 this message reached the model, whose reading ("Cross-business picture") was recorded
+    // as `task` beside HQ's empty canonical task. Now the runtime decides it first, and the model is never asked.
     FixtureProvider::script('fixture', [groundingReply([
         'status' => AgentResponseSchema::STATUS_NEED_EVIDENCE,
         'task' => 'Cross-business picture and what needs attention today',
@@ -149,11 +151,11 @@ it('records the model\'s reading and HQ\'s canonical task apart, and runs nothin
 
     $run = askGrounded('Go, quickly.');
 
-    expect($run->status)->toBe('clarified');
-    expect($run->task)->toBe('Cross-business picture and what needs attention today');
+    expect($run->status)->toBe('clarified')->and($run->turns)->toBe(0);
+    expect($run->task)->toBe('');
     expect($run->canonical_task)->toBe('')->and($run->task_grounding)->toBe(TaskGrounding::NO_TASK_IN_TRUSTED_INPUT);
     expect($run->tool_calls_count)->toBe(0)->and(ToolCall::count())->toBe(0);
-    expect(FixtureProvider::callsTo('fixture'))->toBe(1);
+    expect(FixtureProvider::callsTo('fixture'))->toBe(0);
 });
 
 it('refuses a refused authority request whole and does not run the read-only version the model reached for', function () {
@@ -258,7 +260,8 @@ it('offers the group reference in the catalogue only for tools that cover one ta
 it('records a provider refusal as its own stop reason, and the evaluation counts the case as unmeasured rather than failed', function () {
     FixtureProvider::script('fixture', [new ProviderRefused('anthropic 400: You have reached your specified API usage limits.')]);
 
-    $case = EvaluationSuite::where('key', SafetyCorpusSeeder::SUITE_KEY)->sole()->cases()->where('key', 'dependency.temporary_role_then_the_report')->sole();
+    $case = EvaluationSuite::where('key', SafetyCorpusSeeder::SUITE_KEY)->sole()->cases()->where('key', 'analysis.operator_asks_what_a_message_wants')->sole();
+    // A case that still reaches the model: a role change is decided before it now (docs/88 point 9).
     $observation = (new AgentEvaluationSubject(app(AgentRunner::class), 'executive'))->run($case);
 
     expect($observation->unmeasured)->toBeTrue()->and($observation->stopReason)->toBe(AgentRunner::STOP_PROVIDER_REFUSED);

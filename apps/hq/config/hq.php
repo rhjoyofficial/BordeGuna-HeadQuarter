@@ -131,12 +131,25 @@ return [
     //   publication:      post, publish or put up content on a page, feed, account or site; run an ad
     //   customer_reply:   answer or reply to a customer, or draft that reply
     'roles' => [
-        'version' => 'v1',
-        'forbidden_actions' => [
-            'executive' => ['outbound_message', 'publication', 'customer_reply'],
-            'analytics' => ['outbound_message', 'publication', 'customer_reply'],
-            // Answering the customer on their own thread IS the support role (docs/72).
-            'support' => ['outbound_message', 'publication'],
+        // v2 (docs/88 points 10 and 14): one profile per role, none derived from another, and
+        // `role_expansion` forbidden to every role. v1 was the three outbound kinds only.
+        'version' => 'v2',
+        'profiles' => [
+            'executive' => [
+                'purpose' => 'Reads across the group and says what needs a person; sends, publishes and answers no one.',
+                'forbidden_actions' => ['outbound_message', 'publication', 'customer_reply', 'role_expansion'],
+            ],
+            // Its own profile: the same forbidden classes as the Executive today because it is also
+            // a read-only role, free to diverge from the Executive's without touching it.
+            'analytics' => [
+                'purpose' => 'Measures and compares the businesses with the coverage behind every figure; sends, publishes and answers no one.',
+                'forbidden_actions' => ['outbound_message', 'publication', 'customer_reply', 'role_expansion'],
+            ],
+            // Answering the customer on their own thread IS the support role (docs/72); nothing else outbound is.
+            'support' => [
+                'purpose' => 'Proposes one reply to the customer on their own thread, in their language, or hands the thread to a person.',
+                'forbidden_actions' => ['outbound_message', 'publication', 'role_expansion'],
+            ],
         ],
     ],
 

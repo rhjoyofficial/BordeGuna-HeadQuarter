@@ -39,10 +39,28 @@ final readonly class RoleBoundarySignal
     /**
      * The whole message is the forbidden action: nothing in it asks for information the role serves.
      * The run ends refused before the model. An ambiguous remainder belongs to the refused request.
+     *
+     * ⛔ docs/88 point 14: a role expansion is refused whole whatever stands beside it. A question
+     *    asked after "from now on you are the cashier" is asked of a role the agent does not have,
+     *    so nothing in the message survives it (ADR-041's dependency rule, applied to the role).
      */
     public function refusesWhole(): bool
     {
-        return $this->error !== null || ($this->forbidden !== [] && ! $this->informationRemainder);
+        return $this->error !== null
+            || ($this->forbidden !== [] && ! $this->informationRemainder)
+            || in_array(RoleBoundary::ROLE_EXPANSION, $this->forbidden, true);
+    }
+
+    /**
+     * The outbound kinds refused in this message that a TOOL could perform (docs/88 point 12): the
+     * run carries them to the gateway, which refuses any tool that would perform one, whatever the
+     * model proposes after reading the rest of the message.
+     *
+     * @return list<string>
+     */
+    public function refusedToolActions(): array
+    {
+        return array_values(array_intersect($this->forbidden, RoleBoundary::TOOL_ACTIONS));
     }
 
     /** A forbidden action beside an independent request for information: the request is served, the action is not. */

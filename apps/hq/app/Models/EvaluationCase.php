@@ -17,6 +17,7 @@ class EvaluationCase extends Model
     protected $fillable = [
         'suite_id', 'key', 'purpose', 'input', 'expectation', 'grader', 'grader_config',
         'severity', 'dimension', 'applies_to_role', 'tags', 'is_active',
+        'retired_at', 'retirement_reason', 'replaced_by_key',
     ];
 
     protected function casts(): array
@@ -27,7 +28,17 @@ class EvaluationCase extends Model
             'grader_config' => 'array',
             'tags' => 'array',
             'is_active' => 'boolean',
+            'retired_at' => 'immutable_datetime',
         ];
+    }
+
+    /**
+     * docs/88 point 15: a case retired as a bad case is kept, with its results, and never evaluated
+     * again. Retirement is recorded, not a delete and not an edit of the case itself.
+     */
+    public function isRetired(): bool
+    {
+        return $this->retired_at !== null;
     }
 
     public function suite(): BelongsTo

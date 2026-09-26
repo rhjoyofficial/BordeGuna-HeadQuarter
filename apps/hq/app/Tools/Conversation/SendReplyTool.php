@@ -77,6 +77,9 @@ final class SendReplyTool implements Tool
             reversibility: Reversibility::Irreversible,
             dataClass: DataClass::Personal,
             cardinality: ToolCardinality::OnePerBusiness,
+            // docs/88 point 12: what running it IS, for the role boundary. The Support role permits
+            // it; the Executive's and the Analytics role's forbid it at the gateway, whatever they hold.
+            roleAction: 'customer_reply',
         );
     }
 

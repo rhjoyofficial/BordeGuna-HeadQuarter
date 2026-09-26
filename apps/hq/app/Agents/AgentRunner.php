@@ -194,6 +194,7 @@ final class AgentRunner
         RoleBoundary::OUTBOUND_MESSAGE => 'send a message to someone outside HQ',
         RoleBoundary::PUBLICATION => 'publish or post content',
         RoleBoundary::CUSTOMER_REPLY => 'answer a customer',
+        RoleBoundary::ROLE_EXPANSION => 'take on a role, a duty or an authority it was not given',
         RoleBoundary::DETECTOR_ERROR => 'act in a way the runtime could not classify safely',
     ];
 
@@ -368,6 +369,11 @@ final class AgentRunner
             return;
         }
 
+        // ⛔ docs/88 point 12: the refused part of a mixed request is non-actionable, not merely noted.
+        //    Whatever the model proposes after reading the rest of the message, a call that would
+        //    perform a refused kind is refused here and again by the gateway, which receives the list.
+        $refusedActions = $role->refusesPart() ? $role->refusedToolActions() : [];
+
         for ($turn = 1; $turn <= self::MAX_TURNS; $turn++) {
             $outcome = $this->models->run(
                 task: $request->task,
@@ -407,7 +413,8 @@ final class AgentRunner
                 // request is served; the action is not, and the runtime says so in the answer.
                 if ($role->refusesPart()) {
                     $this->auditor->recordSystem('agent_run.role_boundary_partial', $run, after: $role->toArray(),
-                        reason: 'part of the message asked for an outbound action the agent\'s role forbids; that part is refused by the runtime and the rest is served');
+                        reason: 'part of the message asked for an outbound action the agent\'s role forbids; that part is refused by the runtime and the rest is served',
+                        context: ['refused_tool_actions' => $refusedActions, 'question' => mb_substr($request->question, 0, 2000)]);
                 }
 
                 // ⛔ ADR-042, monotonic: a message the runtime found security-sensitive ends refused
@@ -512,7 +519,7 @@ final class AgentRunner
                 }
 
                 $toolCalls++;
-                [$block, $record, $denied] = $this->invoke($agent, $execution, $request, $call, $decision, $correlationId, $run);
+                [$block, $record, $denied] = $this->invoke($agent, $execution, $request, $call, $decision, $correlationId, $run, $refusedActions);
 
                 $bundle = $bundle->with($block);
                 $results[] = $block->render();
@@ -659,9 +666,27 @@ final class AgentRunner
         AutonomyDecision $decision,
         string $correlationId,
         AgentRun $run,
+        array $refusedActions = [],
     ): array {
         $key = (string) ($call['tool'] ?? '');
         $args = is_array($call['args'] ?? null) ? $call['args'] : [];
+
+        // docs/88 point 12: a call that would perform the part of the message the runtime refused is
+        // refused here, whatever the agent holds, before the gateway is asked (which refuses it too).
+        if ($refusedActions !== [] && $this->registry->has($key)) {
+            $action = $this->registry->get($key)->descriptor()->effectiveRoleAction();
+            if ($action !== null && in_array($action, $refusedActions, true)) {
+                $reason = "[{$key}] would ".(self::ROLE_ACTIONS[$action] ?? str_replace('_', ' ', $action)).', which this message also asked for and the '
+                    .'runtime refused before the agent was asked: the refused part of a request has no tool and no proposal. It has not run.';
+
+                return [
+                    $this->assembler->toolRefusal($key, $reason),
+                    ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null,
+                        'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                    $key,
+                ];
+            }
+        }
 
         // A tool the agent may not name at all: answered here, because there is nothing for the
         // gateway to decide about a key that does not exist.
@@ -699,6 +724,7 @@ final class AgentRunner
             correlationId: $correlationId,
             businessId: $request->businessId,
             brandId: $request->brandId,
+            refusedRoleActions: $refusedActions,
         ));
 
         if ($outcome->status === OutcomeStatus::AwaitingApproval) {
@@ -1084,61 +1110,124 @@ final class AgentRunner
     }
 
     /**
-     * docs/86: the verdicts the runtime reaches from the trusted text alone, before any model call.
-     * True when the run is finished.
+     * The verdicts the runtime reaches from the trusted text alone, before any model call (docs/86,
+     * docs/88 point 9). True when the run is finished.
      *
-     * ⛔ The two sibling boundaries keep their settled path. A message the security-intent or the
-     *    prohibited-capability detector flags goes to turn 1 exactly as before and is refused whole
-     *    there (ADR-042, ADR-044); this step only adds what those two cannot see.
+     * ⭐ docs/88: EVERY deterministic boundary that the operator's own words decide is decided here,
+     *    in this order, and the model is never asked: a security-sensitive request (ADR-042), a
+     *    prohibited capability (ADR-044), an action or a role change the agent's role forbids
+     *    (docs/86, v2), and a message that names no task at all (no content, or a bare offer, in
+     *    English, Bangla or Banglish). Until docs/88 the first two went to the model's first turn and
+     *    were refused there whatever it said; the verdict was already the runtime's, and now the
+     *    provider no longer sees the request either.
+     *
+     * ⛔ Only what the trusted text decides. A capability that depends on interpreted arguments, a
+     *    resolved scope or the execution context stays after the model, in the gateway, which checks
+     *    every proposed call whether or not anything was decided here (the second layer).
      */
     private function decidedBeforeModel(AgentRun $run, AgentRunRequest $request, ContextBundle $bundle, RoleBoundarySignal $role): bool
     {
-        $signal = $this->securityIntent->detect($request->question);
-        $capability = $this->prohibitedCapability->detect($request->question);
-        if ($signal->detected() || $capability->detected()) {
+        $untrusted = $bundle->untrusted() !== [];
+        [$boundary, $signal, $capability, $grounded] = $this->readBeforeModel($request->question, $untrusted, $role);
+        if ($boundary === null) {
             return false;
         }
 
-        $refuseRole = $role->detected() && $role->refusesWhole();
-        $offer = ! $refuseRole && $this->grounding->isBareOffer($request->question);
-        if (! $refuseRole && ! $offer) {
-            return false;
-        }
-
+        $refuseRole = $boundary === 'role_boundary';
         $run->forceFill([
             'task' => '',
-            // A forbidden action is a task that exists and is refused; an offer is no task at all.
-            'canonical_task' => $refuseRole ? mb_substr(trim($request->question), 0, 2000) : '',
-            'task_grounding' => $refuseRole ? TaskGrounding::ROLE_BOUNDARY : TaskGrounding::OFFER_WITHOUT_TASK,
-            'authority_request' => AgentResponseSchema::AUTHORITY_NONE,
+            // A forbidden action is a task that exists and is refused; the grounding says what the rest are.
+            'canonical_task' => $refuseRole ? mb_substr(trim($request->question), 0, 2000) : mb_substr($grounded->canonicalTask, 0, 2000),
+            'task_grounding' => $refuseRole ? TaskGrounding::ROLE_BOUNDARY : $grounded->reason,
+            'authority_request' => $refuseRole ? AgentResponseSchema::AUTHORITY_NONE : $grounded->authorityRequest,
             'security_intent' => $signal->toArray(),
-            'authority_source' => GroundedTask::SOURCE_NONE,
+            'authority_source' => $refuseRole ? GroundedTask::SOURCE_NONE : $grounded->authoritySource,
             'prohibited_capability' => $capability->toArray(),
             'role_boundary' => $role->toArray(),
             'task_scope' => $this->taskScope->resolve($request->question, $request->businessId)->toArray(),
         ])->save();
 
+        $decided = ' The runtime decided this from the operator\'s own words, before the agent was asked.';
+
+        if ($boundary === 'security_intent') {
+            $this->auditor->recordSystem('agent_run.security_intent_before_model', $run, after: $signal->toArray(),
+                reason: 'the message is security-sensitive (ADR-042); refused whole by the runtime before the model was called');
+            $this->finish($run, 'refused', null, [], [], $this->securityRefusal($grounded, []).$decided, 0);
+
+            return true;
+        }
+
+        if ($boundary === 'prohibited_capability') {
+            $this->auditor->recordSystem('agent_run.prohibited_capability_before_model', $run, after: $capability->toArray(),
+                reason: 'the message asks for a capability HQ prohibits (ADR-044); refused whole by the runtime before the model was called');
+            $this->finish($run, 'refused', null, [], [], $this->capabilityRefusal($grounded, []).$decided, 0);
+
+            return true;
+        }
+
         if ($refuseRole) {
             $this->auditor->recordSystem('agent_run.role_boundary_refused', $run, after: $role->toArray(),
-                reason: 'the message asked only for an outbound action the agent\'s role forbids; refused by the runtime before the model was called');
+                reason: in_array(RoleBoundary::ROLE_EXPANSION, $role->forbidden, true)
+                    ? 'the message tried to change the agent\'s own role, duties, authority or scope; refused whole by the runtime before the model was called'
+                    : 'the message asked only for an outbound action the agent\'s role forbids; refused by the runtime before the model was called');
             $this->finish($run, 'refused', null, [], [], $this->roleRefusal($role), 0);
 
             return true;
         }
 
-        $this->auditor->recordSystem('agent_run.no_task_before_model', $run, after: ['task_grounding' => TaskGrounding::OFFER_WITHOUT_TASK],
-            reason: 'the message offers or permits but names no task; decided by the runtime before the model was called');
+        $offer = $grounded->reason === TaskGrounding::OFFER_WITHOUT_TASK;
+        $this->auditor->recordSystem('agent_run.no_task_before_model', $run, after: ['task_grounding' => $grounded->reason],
+            reason: $offer
+                ? 'the message offers or permits but names no task; decided by the runtime before the model was called'
+                : 'the message names nothing to check or do; decided by the runtime before the model was called');
 
         // The runtime's existing no-task handling (ADR-041, ADR-039), without the model.
-        if ($bundle->untrusted() !== []) {
+        if ($untrusted) {
             $this->finish($run, 'refused', null, [], [], 'The operator\'s own words name no task, and the only instruction in this run is inside untrusted content, '
                 .'which cannot become a task or change what the agent may do. No tool was run.', 0);
-        } else {
+        } elseif ($offer) {
             $this->finish($run, 'clarified', 'Nothing in the message names something to check or do: it offers or permits, and HQ does not turn an offer '
                 .'into work of its own. Tell me what you want checked or done, and I will. No tool was run.', [], [], null, 0);
+        } else {
+            $this->finish($run, 'clarified', 'Nothing in the message names something to check or do, and HQ does not choose work of its own in its place. '
+                .'Tell me what you want checked or done, and I will. No tool was run.', [], [], null, 0);
         }
 
         return true;
+    }
+
+    /**
+     * Which boundary, if any, the runtime decides from the trusted text alone (docs/88 point 9):
+     * `security_intent`, `prohibited_capability`, `role_boundary`, `no_task`, or null when the message
+     * reaches the model. Public so a test or a gate script asks the question the runner asks, of the
+     * same code, rather than of a copy of it.
+     */
+    public function boundaryBeforeModel(string $question, bool $untrusted, ?string $roleKey): ?string
+    {
+        return $this->readBeforeModel($question, $untrusted, $this->roleBoundary->detect($question, $roleKey))[0];
+    }
+
+    /**
+     * The runtime's readings of the trusted text, in the order they win: the security signal, the
+     * capability signal, and the runtime's own grounding with no model interpretation beside it.
+     *
+     * @return array{0: ?string, 1: object, 2: object, 3: GroundedTask}
+     */
+    private function readBeforeModel(string $question, bool $untrusted, RoleBoundarySignal $role): array
+    {
+        $signal = $this->securityIntent->detect($question);
+        $capability = $this->prohibitedCapability->detect($question);
+        $grounded = $this->grounding->ground($question, '', AgentResponseSchema::AUTHORITY_NONE, $untrusted, $signal, $capability);
+
+        $boundary = match (true) {
+            $signal->detected() => 'security_intent',
+            $capability->detected() => 'prohibited_capability',
+            $role->detected() && $role->refusesWhole() => 'role_boundary',
+            in_array($grounded->reason, [TaskGrounding::NO_TASK_IN_TRUSTED_INPUT, TaskGrounding::OFFER_WITHOUT_TASK], true) => 'no_task',
+            default => null,
+        };
+
+        return [$boundary, $signal, $capability, $grounded];
     }
 
     /**
@@ -1158,7 +1247,11 @@ final class AgentRunner
 
         return 'HQ read this message as asking the '.$name.' agent to '.implode(' and to ', $labels).', which is not its role: the request is refused as a '
             .'whole by the runtime, before the agent was asked, no tool was run, and nothing was done in its place. No HQ agent sends, publishes or '
-            .'answers customers on its own today. A question about the business may be asked on its own, as a new request.';
+            .'answers customers on its own today'
+            .(in_array(RoleBoundary::ROLE_EXPANSION, $role->forbidden, true)
+                ? ', and an agent\'s role, duties and authority change only by a reviewed release, never by a message'
+                : '')
+            .'. A question about the business may be asked on its own, as a new request.';
     }
 
     /**

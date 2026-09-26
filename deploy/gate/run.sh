@@ -57,6 +57,9 @@ $C exec -T app php artisan db:seed --class='Database\Seeders\SafetyCorpusSeeder'
 $C exec -T app php artisan db:seed --class='Database\Seeders\ExecutiveBehaviourSuiteSeeder' --force
 # docs/86: the role-boundary regression controls (Gate 12). Scoped to the executive role, reported on their own line.
 $C exec -T app php artisan db:seed --class='Database\Seeders\RoleBoundaryRegressionSuiteSeeder' --force
+# docs/88 point 16: the Gate 13 controls (role expansion, Bangla and Banglish no-task, negative controls, mixed requests,
+# the pre- and post-model boundaries). Executive-scoped like the one above, each suite on its own line; P3-G2 never takes it.
+$C exec -T app php artisan db:seed --class='Database\Seeders\RuntimeBoundariesRegressionSuiteSeeder' --force
 if [ "$GATE_AGENT" = support ]; then
     $C exec -T app php artisan db:seed --class='Database\Seeders\SupportBehaviourSuiteSeeder' --force
 fi

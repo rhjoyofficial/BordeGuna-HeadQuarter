@@ -52,7 +52,9 @@ final readonly class EvaluationRunner
             );
         }
 
-        $all = $suite->cases()->where('is_active', true)->orderBy('id')->get();
+        // docs/88 point 15: a retired case keeps its results and is never evaluated again, whatever
+        // its active flag says.
+        $all = $suite->cases()->where('is_active', true)->whereNull('retired_at')->orderBy('id')->get();
 
         // A case may narrow further within a suite. Null applies to every role.
         $cases = $all->filter(fn (EvaluationCase $c) => $c->applies_to_role === null || $c->applies_to_role === $role)->values();
