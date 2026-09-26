@@ -1,5 +1,6 @@
 <?php
 
+use App\Agents\RolePolicy;
 use App\Content\ContentDigest;
 use App\Content\ContentDraftService;
 use App\Content\PhaseSixTools;
@@ -66,8 +67,9 @@ it('gives no agent any Phase 6 tool, and the Executive\'s role forbids publicati
     foreach (Agent::all() as $agent) {
         expect(array_intersect((array) $agent->allowed_tools, $keys))->toBe([], "[{$agent->key}] holds a Phase 6 tool");
     }
-    expect(config('hq.roles.forbidden_actions.executive'))->toContain('publication')
-        ->and(config('hq.roles.forbidden_actions.analytics'))->toContain('publication');
+    // Roles v2 (docs/88 point 10, stream W): one profile per role, read through the policy, not a config path.
+    expect(app(RolePolicy::class)->forbids('executive', 'publication'))->toBeTrue()
+        ->and(app(RolePolicy::class)->forbids('analytics', 'publication'))->toBeTrue();
 });
 
 it('ships every Phase 6 flag off and no Phase 6 platform in the registry', function () {

@@ -86,6 +86,9 @@ final class SendWhatsAppReplyTool implements Tool
             timeoutSeconds: 20,
             outputSchema: $this->outputSchema(),
             channel: Channel::Whatsapp,
+            // docs/88 point 12: what running it IS, for the role boundary (stream W). The Support role permits a
+            // customer reply; the Executive's and the Analytics role's forbid it at the gateway, whatever they hold.
+            roleAction: 'customer_reply',
             consentRequired: new ConsentRequirement(ConsentPurpose::Service, null, 'conversation:args.conversation_uuid'),
             customerFacing: true,
             reversibility: Reversibility::Irreversible,
