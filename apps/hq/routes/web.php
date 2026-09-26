@@ -123,6 +123,8 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('cost', [ObserveController::class, 'cost'])->middleware('permission:hq.ai.cost.view')->name('cost');
         Route::get('control-plane', [ObserveController::class, 'controlPlane'])->middleware('permission:hq.tools.view')->name('control-plane');
         Route::get('autonomy-evidence', [ObserveController::class, 'autonomyEvidence'])->middleware('permission:hq.agents.view')->name('autonomy-evidence');
+        // docs/88 A point 7: the exact activation posture, read-only, behind a permission that already exists.
+        Route::get('posture', [ObserveController::class, 'posture'])->middleware('permission:hq.agents.view')->name('posture');
         Route::get('platform', [ObserveController::class, 'platform'])->middleware('permission:hq.horizon.view')->name('platform');
 
         // docs/80 C.1: stored briefings and the evidence behind each, read-only. Composing one is the

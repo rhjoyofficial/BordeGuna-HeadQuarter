@@ -1,6 +1,7 @@
 import { SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useT, useTn } from '@/lib/i18n';
 import { router } from '@inertiajs/react';
 import { type ReactNode } from 'react';
 
@@ -14,8 +15,9 @@ export type DashboardWindow = { key: string; since: string; until: string; optio
 const WINDOW_LABELS: Record<string, string> = { '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days' };
 
 export function WindowPicker({ period, path }: { period: DashboardWindow; path: string }) {
+    const t = useT();
     return (
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Period">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('Period')}>
             {period.options.map((key) => (
                 <Button
                     key={key}
@@ -23,7 +25,7 @@ export function WindowPicker({ period, path }: { period: DashboardWindow; path: 
                     variant={period.key === key ? 'default' : 'outline'}
                     onClick={() => router.get(path, { window: key }, { preserveScroll: true, replace: true })}
                 >
-                    {WINDOW_LABELS[key] ?? key}
+                    {t(WINDOW_LABELS[key] ?? key)}
                 </Button>
             ))}
         </div>
@@ -31,14 +33,16 @@ export function WindowPicker({ period, path }: { period: DashboardWindow; path: 
 }
 
 export function Stat({ label, value, detail, badge }: { label: string; value: ReactNode; detail?: ReactNode; badge?: ReactNode }) {
+    const t = useT();
+    const tn = useTn();
     return (
         <div className="bg-card flex min-w-0 flex-col gap-1 rounded-xl border p-4">
-            <div className="text-muted-foreground text-xs tracking-wide uppercase">{label}</div>
+            <div className="text-muted-foreground text-xs tracking-wide uppercase">{t(label)}</div>
             <div className="flex flex-wrap items-center gap-2 text-2xl font-semibold tabular-nums">
                 {value}
                 {badge}
             </div>
-            {detail && <div className="text-muted-foreground text-xs">{detail}</div>}
+            {detail && <div className="text-muted-foreground text-xs">{tn(detail)}</div>}
         </div>
     );
 }
@@ -48,9 +52,10 @@ export function StatGrid({ children }: { children: ReactNode }) {
 }
 
 export function Panel({ title, aside, children, className }: { title: ReactNode; aside?: ReactNode; children: ReactNode; className?: string }) {
+    const tn = useTn();
     return (
         <section className={cn('flex min-w-0 flex-col gap-3', className)}>
-            <SectionHeader title={title} aside={aside} />
+            <SectionHeader title={tn(title)} aside={tn(aside)} />
             {children}
         </section>
     );
@@ -69,8 +74,10 @@ export function DataTable<T>({
     empty: ReactNode;
     rowKey: (row: T, index: number) => string;
 }) {
+    const t = useT();
+    const tn = useTn();
     if (rows.length === 0) {
-        return <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{empty}</div>;
+        return <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{tn(empty)}</div>;
     }
 
     return (
@@ -80,7 +87,7 @@ export function DataTable<T>({
                     <tr>
                         {columns.map((c) => (
                             <th key={c.key} className={cn('px-3 py-2 font-medium whitespace-nowrap', c.align === 'right' && 'text-right')}>
-                                {c.label}
+                                {t(c.label)}
                             </th>
                         ))}
                     </tr>
@@ -112,7 +119,8 @@ export function Bar({ value, max }: { value: number; max: number }) {
 }
 
 export function Note({ children }: { children: ReactNode }) {
-    return <p className="text-muted-foreground max-w-3xl text-xs">{children}</p>;
+    const tn = useTn();
+    return <p className="text-muted-foreground max-w-3xl text-xs">{tn(children)}</p>;
 }
 
 /** A value that may be missing, shown as a dash rather than a zero that means something else. */

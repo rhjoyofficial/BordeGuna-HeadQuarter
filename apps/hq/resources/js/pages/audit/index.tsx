@@ -50,7 +50,7 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                 <PageHeader
                     title="Audit log"
                     description="Everything that changed, who changed it, and why. Append-only: nothing here can be edited or deleted, by database rule."
-                    actions={<span className="text-muted-foreground text-sm">{logs.total.toLocaleString()} entries</span>}
+                    actions={<span className="text-muted-foreground text-sm">{logs.total.toLocaleString('en-US')} entries</span>}
                 >
                     <div className="flex flex-wrap items-center gap-2">
                         <Input

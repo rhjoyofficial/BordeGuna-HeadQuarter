@@ -1,3 +1,4 @@
+import { useTn } from '@/lib/i18n';
 import { type ReactNode } from 'react';
 
 /**
@@ -15,12 +16,13 @@ export function PageHeader({
     actions?: ReactNode;
     children?: ReactNode;
 }) {
+    const tn = useTn();
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-                    {description && <p className="text-muted-foreground mt-1 max-w-3xl text-sm">{description}</p>}
+                    <h1 className="text-xl font-semibold tracking-tight">{tn(title)}</h1>
+                    {description && <p className="text-muted-foreground mt-1 max-w-3xl text-sm">{tn(description)}</p>}
                 </div>
                 {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
             </div>
@@ -31,10 +33,11 @@ export function PageHeader({
 
 /** A titled block on a page: heading on the left, a small action or count on the right. */
 export function SectionHeader({ title, aside }: { title: ReactNode; aside?: ReactNode }) {
+    const tn = useTn();
     return (
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">{title}</h2>
-            {aside && <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">{aside}</div>}
+            <h2 className="text-base font-semibold">{tn(title)}</h2>
+            {aside && <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">{tn(aside)}</div>}
         </div>
     );
 }
@@ -49,9 +52,10 @@ export function TechnicalDetail({
     children: ReactNode;
     open?: boolean;
 }) {
+    const tn = useTn();
     return (
         <details className="group text-sm" open={open}>
-            <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-xs select-none">{summary}</summary>
+            <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-xs select-none">{tn(summary)}</summary>
             <div className="mt-2">{children}</div>
         </details>
     );

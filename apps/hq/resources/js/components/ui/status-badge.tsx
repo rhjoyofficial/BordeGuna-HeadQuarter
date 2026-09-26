@@ -1,3 +1,4 @@
+import { useTn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { type ReactNode } from 'react';
 
@@ -101,7 +102,9 @@ export function StatusBadge({
     dot?: boolean;
 }) {
     const t = tone ?? toneFor(status);
-    const label = children ?? (status ? status.replace(/_/g, ' ') : 'unknown');
+    const tn = useTn();
+    // A status word is translated like any other text: the English word is the dictionary key.
+    const label = tn(children ?? (status ? status.replace(/_/g, ' ') : 'unknown'));
     return (
         <span
             className={cn(

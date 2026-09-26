@@ -27,7 +27,7 @@ type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Customers', href: '/customers' }];
 
-const taka = (v: string | number) => `৳${Number(v).toLocaleString()}`;
+const taka = (v: string | number) => `৳${Number(v).toLocaleString('en-US')}`;
 
 function Person({ c }: { c: Customer }) {
     return (
@@ -79,7 +79,7 @@ export default function CustomersIndex({
                     description="One customer per person per business, matched on the phone number first, across every shop. A read model: the shops keep the transactional truth, and this can be rebuilt from them."
                     actions={
                         <span className="text-muted-foreground text-sm">
-                            {customers.total.toLocaleString()} {customers.total === 1 ? 'customer' : 'customers'}
+                            {customers.total.toLocaleString('en-US')} {customers.total === 1 ? 'customer' : 'customers'}
                         </span>
                     }
                 >

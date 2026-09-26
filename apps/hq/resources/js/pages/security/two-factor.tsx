@@ -77,7 +77,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
 
                     {enabled && (
                         <div className="mt-4 text-sm">
-                            <div className="text-green-700">Enabled{confirmedAt ? ` since ${new Date(confirmedAt).toLocaleString()}` : ''}.</div>
+                            <div className="text-green-700">Enabled{confirmedAt ? ` since ${new Date(confirmedAt).toLocaleString('en-GB')}` : ''}.</div>
                         </div>
                     )}
 

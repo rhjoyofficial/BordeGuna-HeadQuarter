@@ -11,6 +11,7 @@ use App\Observe\Dashboards\ControlPlaneDashboard;
 use App\Observe\Dashboards\CostDashboard;
 use App\Observe\Dashboards\DashboardWindow;
 use App\Observe\Dashboards\PlatformDashboard;
+use App\Observe\Dashboards\PostureDashboard;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -46,6 +47,16 @@ final class ObserveController extends Controller
     public function autonomyEvidence(AutonomyEvidence $evidence): Response
     {
         return Inertia::render('observe/autonomy-evidence', $evidence->build());
+    }
+
+    /**
+     * The exact activation posture on one page (docs/88 A point 7): switches, role restrictions, shadow
+     * readiness, gate evidence, model provider and credential readiness, capability state, what is
+     * uncertain or dead, and the audit rows behind the switches. It reads; it changes nothing.
+     */
+    public function posture(Request $request, PostureDashboard $dashboard): Response
+    {
+        return Inertia::render('observe/posture', $dashboard->build($request->user()));
     }
 
     public function platform(PlatformDashboard $dashboard): Response
