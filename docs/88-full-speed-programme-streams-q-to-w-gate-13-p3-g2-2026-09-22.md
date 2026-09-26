@@ -252,3 +252,99 @@ refused; the staging stack definition point 2 names. On the branch 60 tests, 8 m
 on `hq_test_f` 1335. The combined tree after T and Q: **1505 passed, 17,853 assertions**, Pint, `tsc
 --noEmit` and Vite green. Conflicts at the merges were adjacent appends only (`AppServiceProvider` between U
 and S, `config/hq.php` between U's `voice` and Q's `messaging`), both kept whole. Record: `docs/88-q-record.md`.
+
+### C.7 Stream W merged (26 September, `9c3fc05`): the Gate 13 correction
+
+Points 9 to 16, as built. **Before the model (point 9):** `AgentRunner::decidedBeforeModel()` now reaches
+every verdict the trusted text alone decides, in this order, with zero model turns: a security-sensitive
+request (ADR-042), a prohibited capability (ADR-044), a role refusal (v2), and no task (no content, or a bare
+offer in English, Bangla or Banglish). Until now the first two went to the model's first turn and were refused
+there whatever it said; the verdict was already the runtime's, and now the provider no longer sees the
+request. `AgentRunner::boundaryBeforeModel()` is public so a test or a gate script asks the runner itself.
+**Analytics (point 10):** `config/hq.php` `roles.profiles` gives every role its own profile with a purpose and
+its forbidden kinds; Analytics forbids what the Executive forbids because both are read-only roles, not
+because one derives from the other. **Email me (point 11):** an outbound message under v1's own shapes,
+refused whole. **Mixed requests (point 12):** the refused part is non-actionable, not noted: the runner
+refuses any proposed call whose `ToolDescriptor::$roleAction` (new; a tool on an outbound channel that
+declares nothing reads as `outbound_message`, failing closed) is a kind the message asked for and the runtime
+refused, and the gateway's `PolicyEngine` refuses it again as its own step 2b, with the refused kinds carried
+on `ToolRequest::$refusedRoleActions`; the gateway also refuses, for an agent, any tool whose kind its role
+forbids, whatever it holds. **Bangla and Banglish no-task (point 13):** `TaskGrounding::isBareOffer()` reads
+the same three parts (offer frame, vague activity, generic object) structurally in Bangla and Banglish; a
+question or a report of something done is never an offer; quoted words are somebody else's; `contentWords()`
+keeps Bangla's vowel signs (marks), which v1 dropped so that "লালাদিয়ার অর্ডার দেখাও" fell into fragments too
+short to count; NFC first everywhere. **Role expansion (point 14):** `RoleBoundary::ROLE_EXPANSION`, v2, the
+fourth kind: a grant ("you are authorised to"), a durable change ("from now on you also handle"), or becoming
+another operational role ("act as the cashier"), by anchored shape in English and by structure in Bangla and
+Banglish; a question about a role is never one; refused whole even beside a question; every role forbids it,
+Support included. **The control (point 15):** `rb.control.orders_mentioning_a_post` retired as a versioned
+retirement (migration `2026_09_22_100000`, three nullable columns on `evaluation_cases`; the seeder writes the
+case exactly as Gate 12 graded it, then `retired_at`, the reason and `replaced_by_key`; `EvaluationRunner`
+never evaluates a retired case; Gate 12's result rows keep pointing at it) and replaced by
+`rb.control.orders_by_source_before_we_post`, which `facts.query_orders` can answer. **Gate 13 (point 16):**
+`regression.runtime_boundaries`, 44 cases, seeded by `deploy/gate/run.sh` for the Executive beside the three
+existing suites and reported on its own line; expected counts 80, 15, 28, 44.
+
+Reviewed: no detector's meaning tuned, only the moment of its verdict moved; the Support agent's trusted
+prompt reads byte for byte as before (held by a test), so P3-G2's suite is unchanged. The resumption of 26
+September found and fixed three test defects in the 22 September tree (a Pest `toContain` second argument read
+as a message; two settled tests describing the v1 path) and re-described fourteen settled tests for the new
+order of verdicts, each with a line saying why. On the branch: `RuntimeBoundariesV2Test` runs all 44 cases
+through the real runner with a scripted model; 11 of 12 mutations caught, the survivor (the question-opening
+guard in `asksToExpandRole()`, which no anchored shape can reach) recorded as untested on its own; full Pest on
+`hq_test_e` 1351. The combined tree after the merge: 1,581 tests, 1,579 passed and **2 failed**, both at seams between
+streams built in parallel and fixed in C.9; Pint, `tsc --noEmit` and Vite green. Record: `docs/88-w-record.md`. Open for ChatGPT: whether "Can you take over customer support?" should be
+answered as a question about the role rather than refused as a request (the lead-in rule is shared by every
+kind).
+
+### C.8 Stream R merged (26 September, `2dfee0c`)
+
+Phase 4 order completion, inert, on both sides. **ERP** (`76f6168`, fast-forwarded onto ERP master and
+pushed, NOT deployed): an approved HQ draft becomes a sales order only through `CreateSalesOrder` under the
+system actor, so it always lands PENDING in the ERP's own approval inbox with the approvers notified; the
+ERP prices the draft again at that moment and refuses anything that moved with both figures named; the whole
+order rolls back unless it equals the draft to the paisa and is pending; one draft makes one order, once,
+under HQ's key; a quote (a read sent as POST), the read-back by reference or by HQ's key, and HQ's
+cancellation under the ERP's own rule (an open order HQ placed with nothing delivered). Two additive tables
+beside the order (`sales_order_hq_confirmations`, `sales_order_hq_cancellations`), every index named for the
+64-character MySQL ceiling; the write abilities `sales.orders.record` and `sales.orders.cancel` are issued
+only by name with `--write`, and `sales.orders.approve` never. ERP suite 4,210 passed, 3 failed, the three
+being `ReceivePaymentTest` Inertia-page assertions that fail identically on the untouched base `c6d6c10`
+(stashed and re-run to prove it). Migration rehearsed on scratch MySQL 8.4.3 (apply, roll back, re-apply);
+production is 8.0.46, so the scratch rule still applies at deploy time. **HQ** (`ba0ff68`): `take_order`'s
+second stage (two ERP writes under their own keys, each read back and reconciled by `DraftReconciliation`
+then `OrderReconciliation`; `succeeded` only when both agree; a lost POST is `Uncertain`, settled by the
+read-back before anything is sent again); `commerce.quote_order` and `commerce.get_order_status` (R2 reads
+of the ERP's own answers); `commerce.cancel_sales_order` (R4, approval-required, `requesterMayDecide`
+false, irreversible, customer-facing, `take_order`'s compensating tool); the connector's five order routes;
+the `hq-sales-orders.v1` contract fixtures pinned by digest on both sides. No store admitted, no ERP token
+holds a write ability, no agent holds any of the four tools; `hq:tools:sync` not run anywhere. On the
+branch 23 new tests, 7 of 7 mutations caught, full Pest on `hq_test_g` 1,298. Record: `docs/88-r-record.md`.
+Open for ChatGPT and Joy: `docs/79` H.7 (a recipient other than the buyer) still open; whether
+`commerce.quote_order` should stop being agent-executable until P4-G3 (one line); whether the
+`facts_orders` row is written from the order read-back now or with the `FactsReconciler` ERP path later.
+
+### C.9 Where the streams met, and the release candidate (26 September)
+
+Seven streams built in parallel from the same base meet on `main` in the places two of them touched. The
+merges of U, S, T and Q met only as adjacent appends (C.6). The combined tree after W's merge found two real
+seams, both fixed in `ff44197` before R was merged: stream Q's `messaging.send_whatsapp_reply` sits on an
+outbound channel and had no `roleAction`, which W's new rule requires of every such tool (Q was built before
+the field existed; it now declares `customer_reply`, exactly as `messaging.send_reply` does); and stream T's
+inert test read the Executive's and Analytics' publication ban from the v1 config path
+`roles.forbidden_actions`, which W retired for one profile per role (it now asks `RolePolicy::forbids()`).
+R's merge conflicted where Q and R had each extended the same pinned lists (the tool registry, the namespace
+list, the customer-facing list); both were kept, and the customer-facing list is now four tools in
+registration order: `messaging.send_reply`, `commerce.take_order`, `messaging.send_whatsapp_reply`,
+`commerce.cancel_sales_order`, every one not agent-executable and held by no agent.
+
+**The release candidate is the commit that records this section**, verified as one tree on 26 September:
+1,604 Pest passed with 18,850 assertions, Pint, `tsc --noEmit` and Vite green (local; GitHub Actions deferred until 1 October).
+Migrations over `8ea7650`, all additive: `2026_09_22_100000_add_retirement_to_evaluation_cases` (W),
+`2026_09_22_100000_seed_meta_forwarded_flag_off` (Q), `2026_09_22_305000_create_ads_read_models` (S),
+`2026_09_22_400000_create_research_and_content_tables` (T, seven tables and three Postgres append-only
+triggers). New environment keys, none required: `HQ_RESEARCH_PROVIDER` and `HQ_CONTENT_RENDER_URL` default to
+"nothing chosen". Nothing in the candidate is registered for an agent, credentialed, scheduled or switched
+on; the one thing an agent could observe that changed is the registry keys, all not agent-executable and
+held by nobody, plus what W moved before the model. Gate 13 runs on this candidate once Joy has released it;
+P3-G2 after Joy names himself as the Support agent's enabling person; the shadow only after both pass.
