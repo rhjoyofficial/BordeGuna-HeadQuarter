@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useSyncExternalStore } from 'react';
 import bnDictionary from './i18n/bn.json';
 
 /**
- * Bangla and English for the operator screens (docs/88 A point 7).
+ * Bangla and English for the operator screens (docs/88 A point 7; docs/90 A.6).
  *
  * The English text IS the key: `t('Agents')` returns the Bangla entry for "Agents" when the viewer chose
  * Bangla, and the English text itself otherwise or when no entry exists yet. So a screen is never blank
@@ -16,15 +16,18 @@ import bnDictionary from './i18n/bn.json';
  *   - every Bangla entry is Unicode NFC, so the same word is the same bytes wherever it is compared;
  *   - the brand is "Bor de Guna" in English and "বর দে গুনা" in Bangla.
  *
- * ⚠ The choice is kept in this browser (like the light/dark choice), not on the server: it is a way of
- * reading, not a setting any governed action depends on, and choosing it writes nothing.
+ * ⭐ Whose choice it is (docs/90 A.6, stream V2): the PERSON's, saved on their profile (`users.locale`)
+ *   and shared to every page as `auth.user.locale`. The hierarchy, held by `resolveLocale()` and a test:
+ *   the person's saved preference, then the browser's language as the initial fallback only, then
+ *   English. Nothing durable lives in this browser: the switch applies at once for this page and saves
+ *   the preference through the person's own profile settings (an audited profile mutation, never an AI
+ *   capability). A model or provider cannot reach it.
  */
 
 export type Locale = 'en' | 'bn';
 
 export const LOCALES: Locale[] = ['en', 'bn'];
 
-const STORAGE_KEY = 'hq_locale';
 const CHANGE_EVENT = 'hq-locale-change';
 
 const BN: Record<string, string> = Object.fromEntries(
@@ -45,35 +48,50 @@ export function formatNumber(value: number | string | null | undefined): string 
     return Number.isNaN(n) ? String(value) : n.toLocaleString('en-US');
 }
 
+function isLocale(value: unknown): value is Locale {
+    return value === 'en' || value === 'bn';
+}
+
+/**
+ * The language a page reads in, by the hierarchy of docs/90 A.6, in this order and no other:
+ *   1. the person's saved preference (`users.locale`), when one is saved;
+ *   2. the browser's language, as the initial fallback only (Bangla when it says so);
+ *   3. the application default, English.
+ */
+export function resolveLocale(saved: unknown, browserLanguage: string | undefined): Locale {
+    if (isLocale(saved)) return saved;
+    if (typeof browserLanguage === 'string' && browserLanguage.toLowerCase().startsWith('bn')) return 'bn';
+    return 'en';
+}
+
+/** The language of this page view, resolved once at boot and changed only by the switch. */
+let current: Locale = 'en';
+
 export function currentLocale(): Locale {
-    try {
-        return window.localStorage.getItem(STORAGE_KEY) === 'bn' ? 'bn' : 'en';
-    } catch {
-        return 'en';
-    }
+    return current;
 }
 
+/** Applies a language to this page view at once. Saving it as the person's preference is the switch's job. */
 export function setLocale(locale: Locale): void {
-    try {
-        window.localStorage.setItem(STORAGE_KEY, locale);
-    } catch {
-        // A browser that refuses storage still switches for this page view.
-    }
-    document.documentElement.lang = locale;
-    window.dispatchEvent(new Event(CHANGE_EVENT));
+    current = locale;
+    if (typeof document !== 'undefined') document.documentElement.lang = locale;
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-/** Sets the page's `lang` from the stored choice, so the browser and screen readers read the right language. */
-export function initializeLocale(): void {
-    document.documentElement.lang = currentLocale();
+/**
+ * Resolves the page's language at boot from the person's saved preference (`auth.user.locale` in the
+ * first page's props) and the browser's language, and sets the page's `lang` so the browser and screen
+ * readers read the right language.
+ */
+export function initializeLocale(saved: unknown): void {
+    current = resolveLocale(saved, typeof navigator !== 'undefined' ? navigator.language : undefined);
+    if (typeof document !== 'undefined') document.documentElement.lang = current;
 }
 
 function subscribe(onChange: () => void): () => void {
     window.addEventListener(CHANGE_EVENT, onChange);
-    window.addEventListener('storage', onChange);
     return () => {
         window.removeEventListener(CHANGE_EVENT, onChange);
-        window.removeEventListener('storage', onChange);
     };
 }
 

@@ -141,11 +141,13 @@ it('has no em dash anywhere in the screens or the dictionary', function () {
     expect($offenders)->toBe([]);
 });
 
-it('keeps the language choice in the browser: the toggle sends no request and the app has no locale route', function () {
+it("saves the language choice as the person's own preference, through the profile route and nothing else", function () {
+    // docs/90 A.6 (stream V2) superseded the browser-kept choice of stream V: the switch now applies at once
+    // and saves the preference through the person's profile settings; there is still no separate route.
     $toggle = file_get_contents(resource_path('js/components/language-toggle.tsx'));
     $i18n = file_get_contents(resource_path('js/lib/i18n.ts'));
 
-    expect($toggle)->not->toContain('router.')->not->toContain('fetch(')->not->toContain('axios')
-        ->and($i18n)->not->toContain('router.')->not->toContain('fetch(')->not->toContain('axios')
+    expect($toggle)->toContain("router.patch(route('profile.update')")->not->toContain('fetch(')->not->toContain('axios')
+        ->and($i18n)->not->toContain('router.')->not->toContain('fetch(')->not->toContain('axios')->not->toContain('localStorage')
         ->and(collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_contains($r->uri(), 'locale'))->all())->toBe([]);
 });

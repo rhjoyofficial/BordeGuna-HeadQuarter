@@ -15,6 +15,9 @@ class User extends Authenticatable
     protected $fillable = [
         'name',
         'email',
+        // docs/90 A.6: the person's own language preference ('en' or 'bn', or null for none). Written only
+        // through the profile settings by the person themselves; no model or tool can reach it.
+        'locale',
         'password',
     ];
 

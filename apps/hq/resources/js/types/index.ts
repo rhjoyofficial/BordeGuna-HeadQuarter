@@ -32,6 +32,8 @@ export interface User {
     id: number;
     name: string;
     email: string;
+    /** docs/90 A.6: the person's saved language ('en' | 'bn'), or null when none is saved yet. */
+    locale?: 'en' | 'bn' | null;
     avatar?: string;
     email_verified_at: string | null;
     created_at: string;

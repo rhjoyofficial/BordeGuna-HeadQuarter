@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Support\Audit\Auditor;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,6 +13,8 @@ use Inertia\Response;
 
 class ProfileController extends Controller
 {
+    public function __construct(private readonly Auditor $auditor) {}
+
     /**
      * Show the user's profile settings page.
      */
@@ -28,13 +31,25 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request): RedirectResponse
     {
-        $request->user()->fill($request->validated());
+        $user = $request->user();
+        $user->fill($request->validated());
 
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
+        if ($user->isDirty('email')) {
+            $user->email_verified_at = null;
         }
 
-        $request->user()->save();
+        // docs/90 A.6: the language preference is the person's own, durable and auditable. It is a
+        // profile mutation like the name, never an AI capability: only this request writes it, as the
+        // person, and the audit row names them as the actor.
+        $localeChanged = $user->isDirty('locale');
+        $before = $localeChanged ? ['locale' => $user->getOriginal('locale')] : null;
+
+        $user->save();
+
+        if ($localeChanged) {
+            $this->auditor->record('user.locale_changed', $user, $before, ['locale' => $user->locale],
+                'the person chose the language their HQ screens read in', actorUserId: $user->id);
+        }
 
         return to_route('profile.edit');
     }

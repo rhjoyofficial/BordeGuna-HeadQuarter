@@ -17,6 +17,11 @@ createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) => resolvePageComponent(`./pages/${name}.tsx`, import.meta.glob('./pages/**/*.tsx')),
     setup({ el, App, props }) {
+        // docs/90 A.6: the page's language is the person's saved preference, then the browser's
+        // language, then English, resolved once here from the first page's shared props.
+        const auth = (props.initialPage.props as { auth?: { user?: { locale?: unknown } } }).auth;
+        initializeLocale(auth?.user?.locale);
+
         const root = createRoot(el);
 
         root.render(<App {...props} />);
@@ -29,5 +34,3 @@ createInertiaApp({
 // This will set light / dark mode on load...
 initializeTheme();
 
-// The page's language attribute follows the English or Bangla choice kept in this browser.
-initializeLocale();
