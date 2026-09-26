@@ -16,10 +16,15 @@ class ProfileUpdateRequest extends FormRequest
      */
     public function rules(): array
     {
+        // docs/90 A.6 (stream V2): the language switch in the top bar saves the person's preference through
+        // this same request with `locale` alone, so name and email are required only when they are sent.
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
+
+            'locale' => ['sometimes', 'nullable', 'string', Rule::in(['en', 'bn'])],
 
             'email' => [
+                'sometimes',
                 'required',
                 'string',
                 'lowercase',
