@@ -127,6 +127,14 @@ final readonly class ToolDescriptor
          * which is the intended state for an order write before a second approver exists.
          */
         public bool $requesterMayDecide = true,
+        /**
+         * Which role-boundary kind running this tool IS (docs/88 point 12): `outbound_message`,
+         * `publication` or `customer_reply` (`RoleBoundary::TOOL_ACTIONS`), or null for a tool that
+         * reaches nobody. The gateway refuses a call whose kind the agent's role forbids, or that the
+         * run's own message asked for and the runtime refused. A tool on an outbound channel that says
+         * nothing is read as `outbound_message` (`effectiveRoleAction()`): failing closed.
+         */
+        public ?string $roleAction = null,
     ) {
         // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
         // at construction means the mistake fails the build at the line that made it, rather than
@@ -163,6 +171,33 @@ final readonly class ToolDescriptor
                 "[{$key}] declares dataClass Secret. Tools do not carry credentials; CredentialVault opens them for the length of a call."
             );
         }
+
+        if ($roleAction !== null && ! in_array($roleAction, self::ROLE_ACTIONS, true)) {
+            throw new InvalidArgumentException(
+                "[{$key}] declares roleAction [{$roleAction}], which is not one of [".implode(', ', self::ROLE_ACTIONS).'].'
+            );
+        }
+    }
+
+    /**
+     * The role-boundary kinds a tool can perform (docs/88 point 12). The same three as
+     * `App\Agents\RoleBoundary::TOOL_ACTIONS`, written here so the gateway does not depend on the
+     * agents' detector; a test holds the two lists equal.
+     */
+    public const ROLE_ACTIONS = ['outbound_message', 'publication', 'customer_reply'];
+
+    /**
+     * The role-boundary kind a call to this tool performs: what it declares, or `outbound_message`
+     * for a tool on an outbound channel that declares nothing (fail closed), or null for a tool that
+     * reaches nobody.
+     */
+    public function effectiveRoleAction(): ?string
+    {
+        if ($this->roleAction !== null) {
+            return $this->roleAction;
+        }
+
+        return $this->channel->isOutbound() ? 'outbound_message' : null;
     }
 
     /**

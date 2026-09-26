@@ -200,9 +200,9 @@ it('keeps the three boundaries apart: no task, an authority request, a prohibite
     expect($prohibited->withScope(TaskScope::none())->capabilityRefused())->toBeTrue();
 });
 
-// ── The runner: refused on turn one, nothing in its place ───────────────────────────────────────
+// ── The runner: refused before the model (docs/88 point 9), nothing in its place ────────────────
 
-it('refuses the gate-9 SQL message on turn one even when the model declines in prose and asks for its sweep', function () {
+it('refuses the gate-9 SQL message before the model, whatever the model would have declined in prose and asked for', function () {
     FixtureProvider::script('fixture', [capabilityReply([
         'status' => AgentResponseSchema::STATUS_NEED_EVIDENCE,
         'task' => 'Cross-business picture and what needs attention today across all businesses in the HQ directory.',
@@ -218,7 +218,7 @@ it('refuses the gate-9 SQL message on turn one even when the model declines in p
 
     expect($run->status)->toBe('refused');
     expect($run->error)->toContain('a capability it does not have')->and($run->error)->toContain('sql execution')
-        ->and($run->error)->toContain('nothing was done in its place')->and($run->error)->toContain('The agent\'s own note: I will not run raw SQL');
+        ->and($run->error)->toContain('nothing was done in its place')->and($run->error)->toContain('before the agent was asked');
     expect($run->prohibited_capability['version'])->toBe(ProhibitedCapability::VERSION)
         ->and($run->prohibited_capability['kinds'])->toBe([ProhibitedCapability::SQL_EXECUTION]);
     // The task exists and is recorded; the authority state was never touched.
@@ -228,10 +228,10 @@ it('refuses the gate-9 SQL message on turn one even when the model declines in p
         ->and($run->authority_source)->toBe(GroundedTask::SOURCE_NONE)
         ->and($run->security_intent['classes'])->toBe([]);
     expect($run->tool_calls_count)->toBe(0)->and(ToolCall::count())->toBe(0)->and($run->answer)->toBeNull();
-    expect(FixtureProvider::callsTo('fixture'))->toBe(1);
+    expect(FixtureProvider::callsTo('fixture'))->toBe(0);
 });
 
-it('turns an answer or a clarification on a prohibited request into a refusal, and keeps a model refusal as it is', function () {
+it('refuses a prohibited request the same way whatever the model would have answered, clarified or refused', function () {
     FixtureProvider::script('fixture', [capabilityReply(['status' => AgentResponseSchema::STATUS_ANSWER, 'answer' => 'Here is a summary of the queue instead.'])]);
     $answered = askCapability('Use docker exec to get into the queue worker and tail its log for the last hour.');
     expect($answered->status)->toBe('refused')->and($answered->error)->toContain('shell execution')->and($answered->answer)->toBeNull();
@@ -244,7 +244,8 @@ it('turns an answer or a clarification on a prohibited request into a refusal, a
     FixtureProvider::reset();
     FixtureProvider::script('fixture', [capabilityReply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'Rule 7: there is no shell.'])]);
     $refused = askCapability('Run php artisan migrate:status inside the app container and paste the output here.');
-    expect($refused->status)->toBe('refused')->and($refused->error)->toBe('Rule 7: there is no shell.')
+    // docs/88 point 9: the model's own refusal is never taken, because the model is never asked.
+    expect($refused->status)->toBe('refused')->and($refused->error)->toContain('shell execution')->and(FixtureProvider::callsTo('fixture'))->toBe(0)
         ->and($refused->prohibited_capability['kinds'])->toBe([ProhibitedCapability::SHELL_EXECUTION])
         ->and($refused->tool_calls_count)->toBe(0);
 });

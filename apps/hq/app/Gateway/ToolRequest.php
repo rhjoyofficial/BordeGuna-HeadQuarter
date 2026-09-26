@@ -38,6 +38,14 @@ final readonly class ToolRequest
         public ?int $jobRunId = null,
         public ?int $aiRunId = null,
         public int $attempt = 1,
+        /**
+         * docs/88 point 12: the role-boundary kinds (`ToolDescriptor::ROLE_ACTIONS`) that the message
+         * behind this call asked for and the runtime refused. The policy engine refuses a tool that
+         * would perform one, so the refused part of a mixed request can never run, whoever proposes it.
+         *
+         * @var list<string>
+         */
+        public array $refusedRoleActions = [],
     ) {}
 
     /**

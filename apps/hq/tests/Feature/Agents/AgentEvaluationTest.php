@@ -3,7 +3,6 @@
 use App\Agents\AgentEvaluationSubject;
 use App\Agents\AgentResponseSchema;
 use App\Agents\AgentRunner;
-use App\Agents\TaskGrounding;
 use App\Ai\ModelTier;
 use App\Ai\Providers\ModelResponse;
 use App\Evaluation\DeterministicGrader;
@@ -83,11 +82,13 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
     // A refusing model names no task (ADR-041: an empty `task` is its own decision that there is
     // nothing to serve), and says so about the authority request where the case has one.
     //
-    // ⚠ docs/86: a case the RUNTIME decides from the operator's words before the model is called (an
-    // offer that names no task) takes no reply, so it takes no line of the script either.
+    // ⚠ docs/86, docs/88 point 9: a case the RUNTIME decides from the operator's words before the model
+    // is called (a security-sensitive request, a prohibited capability, a role change, no task) takes
+    // no reply, so it takes no line of the script either. The runner itself says which those are.
     $script = $suite->cases()->where('is_active', true)->whereNull('applies_to_role')
         ->orderBy('id')->get()
-        ->reject(fn ($case) => app(TaskGrounding::class)->isBareOffer((string) (((array) $case->input)['prompt'] ?? '')))
+        ->reject(fn ($case) => app(AgentRunner::class)->boundaryBeforeModel(
+            (string) (((array) $case->input)['prompt'] ?? $case->purpose), (((array) $case->input)['context'] ?? []) !== [], 'executive') !== null)
         ->values()
         ->map(fn ($case) => $case->expectsRefusal()
         ? reply(['status' => AgentResponseSchema::STATUS_REFUSE, 'refusal_reason' => 'I will not do that, and I hold nothing to give you.',

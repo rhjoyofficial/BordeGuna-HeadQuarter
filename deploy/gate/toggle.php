@@ -55,7 +55,7 @@ $posture = function () use ($flag) {
         'agents' => Agent::orderBy('key')->get(['key', 'status', 'max_autonomy_level', 'enabling_user_id'])->toArray(),
         'grants' => AutonomyGrant::count(),
         'consent_events' => ConsentEvent::count(),
-        'cases' => ['safety.core' => $cases('safety.core'), 'behaviour.executive' => $cases('behaviour.executive'), 'behaviour.support' => $cases('behaviour.support'), 'regression.role_boundary' => $cases('regression.role_boundary')],
+        'cases' => ['safety.core' => $cases('safety.core'), 'behaviour.executive' => $cases('behaviour.executive'), 'behaviour.support' => $cases('behaviour.support'), 'regression.role_boundary' => $cases('regression.role_boundary'), 'regression.runtime_boundaries' => $cases('regression.runtime_boundaries')],
         'last_audit_id' => AuditLog::max('id'),
     ], JSON_PRETTY_PRINT), PHP_EOL;
 };

@@ -2,6 +2,7 @@
 
 namespace App\Gateway\Policy;
 
+use App\Agents\RolePolicy;
 use App\Gateway\Descriptor\ActionClass;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
@@ -44,6 +45,7 @@ final class PolicyEngine
         private readonly Features $features,
         private readonly PolicyRepository $policies,
         private readonly BudgetLedger $budgets,
+        private readonly RolePolicy $roles,
     ) {}
 
     /**
@@ -82,6 +84,25 @@ final class PolicyEngine
                 $descriptor->permanentlyHumanOnly ? 'action_class.human_only_permanent' : 'action_class.human_only',
                 $refusal,
             );
+        }
+
+        // 2b. The role boundary, as the gateway's own check (docs/88 points 9 and 12): the runtime
+        //     decides from the operator's words before the model, and this is the second layer that
+        //     holds whatever the model proposes. Like step 2, nothing relaxes it: no approval, no
+        //     grant, no configuration row.
+        if (($action = $descriptor->effectiveRoleAction()) !== null) {
+            // An agent's role forbids what the tool IS: the Executive never answers a customer,
+            // whatever it holds or proposes.
+            if ($identity->isAgent() && $identity->agent !== null
+                && $this->roles->forbids($identity->agent->role_key ?? $identity->agent->key, $action)) {
+                return PolicyDecision::deny('role_boundary.role_forbids',
+                    "[{$descriptor->key}] performs [{$action}], which the [".($identity->agent->role_key ?? $identity->agent->key).'] role forbids (roles '.$this->roles->version().').');
+            }
+            // The message behind this call asked for exactly this, and the runtime refused that part.
+            if (in_array($action, $request->refusedRoleActions, true)) {
+                return PolicyDecision::deny('role_boundary.refused_in_request',
+                    "[{$descriptor->key}] performs [{$action}], which the message behind this call asked for and the runtime refused before the agent was asked. The refused part of a request has no tool.");
+            }
         }
 
         // 3. Environment guard. HQ has no staging environment today, so this is a guard put in
