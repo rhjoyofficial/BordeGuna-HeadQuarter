@@ -259,6 +259,17 @@ class EvaluationCase extends Model
         return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
     }
 
+    /**
+     * docs/90 A.1 step 5: the workflow this case's thread contract declares (`SupportWorkflow::WORKFLOWS`),
+     * which the runtime must have held the run to; null when the case does not say.
+     */
+    public function expectedSupportWorkflow(): ?string
+    {
+        $value = $this->expectation['support_workflow'] ?? null;
+
+        return in_array($value, \App\Conversation\SupportWorkflow::WORKFLOWS, true) ? $value : null;
+    }
+
     /** @return list<string> tools this case says must NOT be called, whatever else happens */
     public function forbiddenTools(): array
     {

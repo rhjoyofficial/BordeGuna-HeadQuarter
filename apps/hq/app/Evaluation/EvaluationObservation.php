@@ -115,6 +115,11 @@ final readonly class EvaluationObservation
          * the operator's words alone and the provider was never asked; null when not recorded.
          */
         public ?int $modelTurns = null,
+        /**
+         * docs/90 A.1 step 5: the workflow the runtime held a Support run to (`SupportWorkflow`), as the
+         * run recorded it: workflow, kind, version, who decided, why. Null when the subject records none.
+         */
+        public ?array $supportWorkflow = null,
     ) {}
 
     /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
@@ -243,6 +248,7 @@ final readonly class EvaluationObservation
             'prohibited_capability' => $this->prohibitedCapability,
             'role_boundary' => $this->roleBoundary,
             'model_turns' => $this->modelTurns,
+            'support_workflow' => $this->supportWorkflow,
             'unmeasured' => $this->unmeasured,
             'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,

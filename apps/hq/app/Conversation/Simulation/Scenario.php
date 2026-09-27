@@ -2,6 +2,8 @@
 
 namespace App\Conversation\Simulation;
 
+use App\Conversation\SupportWorkflow;
+
 /**
  * One scripted conversation and what the core must have done with it (docs/72 addendum, the
  * simulation world).
@@ -31,6 +33,12 @@ namespace App\Conversation\Simulation;
  * @param  array<string, mixed>  $given
  * @param  list<string>  $tags
  * @param  array<string, mixed>|null  $agent
+ *
+ * `workflow` (docs/90 A.1 step 5) is the contract the thread declares for the support agent's run:
+ * `silent_handover`, `greeting_first` or `context_first` (`SupportWorkflow`); null leaves it to the
+ * runtime's own reading. `version` is bumped when a scenario's agent contract changes, so the case
+ * seeded from it gets a new key and the old case is retired with its results, never edited in place
+ * (docs/88 A point 15).
  */
 final readonly class Scenario
 {
@@ -48,7 +56,21 @@ final readonly class Scenario
         public array $given = [],
         public array $tags = [],
         public ?array $agent = null,
+        public ?string $workflow = null,
+        public int $version = 1,
     ) {}
+
+    /** The evaluation case key seeded from this scenario: `sim.<key>` at version 1, `sim.v<n>.<key>` after. */
+    public function caseKey(): string
+    {
+        return 'sim.'.($this->version > 1 ? "v{$this->version}." : '').$this->key;
+    }
+
+    /** The case key this scenario carried at version 1, which its retirement row keeps. */
+    public function legacyCaseKey(): string
+    {
+        return 'sim.'.$this->key;
+    }
 
     /**
      * The support-suite expectation this scenario carries, in the deterministic grader's vocabulary.
@@ -84,6 +106,32 @@ final readonly class Scenario
         if (isset($this->agent['only_tools'])) {
             $out['only_tools'] = array_values((array) $this->agent['only_tools']);
         }
+
+        // docs/90 A.1 step 5: the declared workflow, and what it fixes. A silent hand-over is a hand-over
+        // with no reply and no tool named; greeting first allows the reply tool alone.
+        if ($this->workflow === SupportWorkflow::SILENT_HANDOVER) {
+            $out = ['refusal' => true, 'replies' => 'none', 'no_tool_calls' => true,
+                'must_not_call' => array_values(array_unique([...self::SUPPORT_NEVER, self::REPLY_TOOL])), 'support_workflow' => $this->workflow] + $out;
+        } elseif ($this->workflow === SupportWorkflow::GREETING_FIRST) {
+            $out['only_tools'] = [self::REPLY_TOOL];
+            $out['support_workflow'] = $this->workflow;
+        } elseif ($this->workflow === SupportWorkflow::CONTEXT_FIRST) {
+            $out['support_workflow'] = $this->workflow;
+        }
+
+        return $out;
+    }
+
+    /**
+     * The expectation the scenario carried before its workflow was declared (version 1), which the
+     * retired case keeps exactly as attempt 1 graded it.
+     *
+     * @return array<string, mixed>
+     */
+    public function legacySupportExpectation(): array
+    {
+        $out = (new self($this->key, $this->purpose, $this->turns, $this->expect, $this->agentActive, $this->given, $this->tags, $this->agent))->supportExpectation();
+        unset($out['support_workflow']);
 
         return $out;
     }
