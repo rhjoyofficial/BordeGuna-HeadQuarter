@@ -197,6 +197,20 @@ final class RoleBoundary
         .'would it|could it|will it|can (?:the|an|a|my|our|any|this|that|it|he|she|they|we|i|someone|anyone)|may (?:the|an|a|i|we)|will (?:the|an|a)|am i|'
         .'explain|describe|tell me|show me|list|compare)\b/u';
 
+    /**
+     * docs/90 A.3: a question about the agent's OWN capability or role. "Can you take over customer
+     * support?", "Could you act as the cashier?", "Are you able to handle the support queue as well?"
+     * ask whether the agent may become or take on something; they change nothing and are answered
+     * informationally (the Executive explains its boundary). "Take over customer support." is the
+     * instruction and stays a role expansion. Read only by `asksToExpandRole()`: for an outbound
+     * action, "could you text the supplier" is still the polite form of a request (v1, held by the
+     * role-boundary controls), because asking somebody to send is not asking whether they may send.
+     */
+    private const CAPABILITY_QUESTION = '/^(?:(?:can|could|would|will|should|shall|may|might|do)\s+you(?:\s+please)?(?:\s+(?:also|now|even|actually|really|possibly|perhaps|maybe))*\s+|'
+        .'(?:are|would|will|might)\s+you\s+(?:able|allowed|permitted|willing|going|supposed|meant|expected|cleared|authori[sz]ed)\s+to\s+|'
+        .'(?:is|would|will|might)\s+it\s+(?:be\s+)?(?:possible|ok|okay|alright|allowed|permitted)\s+for\s+you\s+to\s+|'
+        .'do\s+you\s+have\s+(?:the\s+)?(?:ability|authority|permission|access|power|right|clearance)\s+to\s+)/u';
+
     /** Words that open a request without being its action. Stripped, repeatedly, from a clause's start. */
     private const LEAD_IN = '/^(?:please|pls|plz|kindly|then|also|and|now|so|just|quickly|asap|right away|immediately|today|okay|ok|sure|'
         .'go ahead and|go and|could you(?: please)?|can you(?: please)?|would you(?: please)?|will you(?: please)?|'
@@ -428,6 +442,11 @@ final class RoleBoundary
     {
         $original = trim($clause);
         if (preg_match(self::QUESTION_OPENING, $original) === 1) {
+            return false;
+        }
+        // docs/90 A.3: "Can you take over customer support?" asks about the role; it does not change it.
+        // Read before the lead-ins are stripped, because "can you" is also a request's lead-in.
+        if (preg_match(self::CAPABILITY_QUESTION, mb_strtolower($original)) === 1) {
             return false;
         }
 
