@@ -7,6 +7,7 @@ use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\ModelRuntime;
 use App\Ai\OutputBudget;
 use App\Ai\RoutingContext;
+use App\Ai\ToolCalls\ProposedToolCall;
 use App\Autonomy\AutonomyDecision;
 use App\Autonomy\AutonomyRequest;
 use App\Autonomy\AutonomyResolver;
@@ -494,7 +495,10 @@ final class AgentRunner
                 return;
             }
 
-            $requested = $this->expandGroupWide($execution, $this->proposedCalls($reply), $scope);
+            // docs/90 A.1 step 2: the calls come from the provider-to-HQ boundary (`AiOutcome::toolCalls()`),
+            // one canonical shape whatever key the model wrote its arguments under; the raw reply is
+            // never read here for a call.
+            $requested = $this->expandGroupWide($execution, array_map(static fn (ProposedToolCall $c) => $c->toArray(), $outcome->toolCalls()), $scope);
 
             // A turn that asks for evidence and names nothing cannot make progress, and repeating it
             // would burn the remaining turns to arrive at the same place.
@@ -711,7 +715,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key, $reason),
                 ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
-                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->argumentEvidence($call),
                 null, // not a denial: the agent did the right thing by proposing it
             ];
         }
@@ -759,7 +763,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key, $reason),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
-                    'outcome_class' => $class->value, 'side' => $class->side()],
+                    'outcome_class' => $class->value, 'side' => $class->side(), 'args' => $args] + $this->argumentEvidence($call),
                 // Only a POLICY refusal counts toward the repeated-denial stop. A tool that failed
                 // because a shop was slow is not the model being told no, and treating it as one
                 // would end runs for a reason the model cannot do anything about.
@@ -767,7 +771,7 @@ final class AgentRunner
             ];
         }
 
-        $record = ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args];
+        $record = ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args] + $this->argumentEvidence($call);
         if (isset($call['expanded_from'])) {
             // This call exists because HQ expanded a group reference (ADR-041); the record says so,
             // so a reviewer can tell one scoped call the model made from five HQ made for it.
@@ -783,6 +787,25 @@ final class AgentRunner
             $record,
             null,
         ];
+    }
+
+    /**
+     * docs/90 A.1 step 2: which key the model wrote its arguments under (null when it wrote none), and
+     * the payload as written, so a record on the run says what the model produced and not only what
+     * HQ made of it. Absent on a call the runtime made for
+     * itself (an expansion carries its parent's key).
+     *
+     * @param  array<string, mixed>  $call
+     * @return array<string, mixed>
+     */
+    private function argumentEvidence(array $call): array
+    {
+        if (! array_key_exists('arguments_key', $call)) {
+            return [];
+        }
+
+        // Always both, so a trace reads raw -> read -> validated without inferring the first from the second.
+        return ['arguments_key' => $call['arguments_key'], 'raw_arguments' => $call['raw_arguments'] ?? null];
     }
 
     /**
@@ -823,6 +846,17 @@ final class AgentRunner
             $given = is_string($args[$argument] ?? null) ? mb_strtolower(trim($args[$argument])) : '';
 
             if ($given !== '' && ! in_array($given, self::GROUP_REFERENCES, true)) {
+                $out[] = $call;
+
+                continue;
+            }
+
+            // ⛔ docs/90 A.1 step 2: a call that carried NO argument payload at all is not an unscoped
+            //    group-wide call; it is a call the model wrote without its arguments. It goes to the
+            //    gateway as it came, is refused there with the missing argument named, and is never
+            //    given `{business_slug}` in place of what the model did not write. P3-G2 measured the
+            //    opposite: every Support call reached the gateway as exactly that default.
+            if (array_key_exists('arguments_key', $call) && $call['arguments_key'] === null) {
                 $out[] = $call;
 
                 continue;
@@ -933,25 +967,6 @@ final class AgentRunner
             context: $bundle,
             agentCeiling: $agent->max_autonomy_level,
         ));
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function proposedCalls(array $reply): array
-    {
-        $calls = $reply['tool_calls'] ?? [];
-
-        if (! is_array($calls)) {
-            return [];
-        }
-
-        $out = [];
-        foreach ($calls as $call) {
-            if (is_array($call) && is_string($call['tool'] ?? null) && $call['tool'] !== '') {
-                $out[] = $call;
-            }
-        }
-
-        return $out;
     }
 
     /** @return list<array<string, mixed>> */

@@ -60,6 +60,9 @@ $C exec -T app php artisan db:seed --class='Database\Seeders\RoleBoundaryRegress
 # docs/88 point 16: the Gate 13 controls (role expansion, Bangla and Banglish no-task, negative controls, mixed requests,
 # the pre- and post-model boundaries). Executive-scoped like the one above, each suite on its own line; P3-G2 never takes it.
 $C exec -T app php artisan db:seed --class='Database\Seeders\RuntimeBoundariesRegressionSuiteSeeder' --force
+# docs/90 A.2: the Executive Execution-Integrity Check (the argument path), its own suite and its own line;
+# run alone with GATE=exec-integrity GATE_SUITE=regression.execution_integrity. P3-G2 never takes it.
+$C exec -T app php artisan db:seed --class='Database\Seeders\ExecutionIntegritySuiteSeeder' --force
 if [ "$GATE_AGENT" = support ]; then
     $C exec -T app php artisan db:seed --class='Database\Seeders\SupportBehaviourSuiteSeeder' --force
 fi
@@ -87,5 +90,11 @@ $C exec -T app php artisan hq:ai:probe --live --schema --task=operator_question 
     || { echo "the structured-reply probe failed; stopping before the evaluation, nothing was measured"; exit 1; }
 
 echo "== 5. evaluate"
-$C exec -T app php artisan hq:agent:evaluate "$GATE_AGENT" --triggered-by="$GATE"
+# GATE_SUITE (docs/90 A.2) runs ONE named suite instead of every suite that applies to the agent's role,
+# so a targeted check is its own evidence set and is never mixed into a gate's score.
+if [ -n "${GATE_SUITE:-}" ]; then
+    $C exec -T app php artisan hq:agent:evaluate "$GATE_AGENT" --suite="$GATE_SUITE" --triggered-by="$GATE"
+else
+    $C exec -T app php artisan hq:agent:evaluate "$GATE_AGENT" --triggered-by="$GATE"
+fi
 echo "EVALUATE_EXIT=$?"

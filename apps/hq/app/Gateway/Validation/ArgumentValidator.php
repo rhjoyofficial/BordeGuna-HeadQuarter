@@ -19,7 +19,10 @@ final class ArgumentValidator
 {
     private const SUPPORTED_ROOT = ['type', 'properties', 'required', 'additionalProperties'];
 
-    private const SUPPORTED_PROPERTY = ['type', 'minimum', 'maximum', 'maxLength', 'minLength', 'enum'];
+    private const SUPPORTED_PROPERTY = ['type', 'minimum', 'maximum', 'maxLength', 'minLength', 'enum', 'items', 'minItems', 'maxItems'];
+
+    /** What one element of a list may declare: the scalar rules, never a nested list or object. */
+    private const SUPPORTED_ITEM = ['type', 'minimum', 'maximum', 'maxLength', 'minLength', 'enum'];
 
     public function validate(array $args, array $schema): ValidationResult
     {
@@ -98,7 +101,7 @@ final class ArgumentValidator
             'integer' => $this->checkInteger($name, $value, $rules),
             'number' => $this->checkNumber($name, $value, $rules),
             'boolean' => is_bool($value) ? null : "[{$name}] must be true or false.",
-            'array' => is_array($value) && array_is_list($value) ? null : "[{$name}] must be a list.",
+            'array' => $this->checkList($name, $value, $rules),
             'object' => is_array($value) && (! array_is_list($value) || $value === []) ? null : "[{$name}] must be an object.",
             null => null,
             default => "[{$name}] declares unsupported type [{$type}].",
@@ -119,6 +122,45 @@ final class ArgumentValidator
         }
 
         return [$value, null];
+    }
+
+    /**
+     * docs/90 A.2: a list argument is checked element by element against its `items` rules, and its
+     * length against `minItems` / `maxItems`. Until now a schema that declared `items` (the order
+     * facts' `statuses` and `sources` filters) was refused as unsupported the first time an argument
+     * for it arrived, which no call ever did before the argument path was fixed.
+     */
+    private function checkList(string $name, mixed $value, array $rules): ?string
+    {
+        if (! is_array($value) || ! array_is_list($value)) {
+            return "[{$name}] must be a list.";
+        }
+        if (isset($rules['maxItems']) && count($value) > (int) $rules['maxItems']) {
+            return "[{$name}] must have at most {$rules['maxItems']} items.";
+        }
+        if (isset($rules['minItems']) && count($value) < (int) $rules['minItems']) {
+            return "[{$name}] must have at least {$rules['minItems']} items.";
+        }
+        $items = $rules['items'] ?? null;
+        if ($items === null) {
+            return null;
+        }
+        if (! is_array($items)) {
+            return "Tool input schema declares [items] on [{$name}] that is not an object.";
+        }
+        foreach (array_keys($items) as $keyword) {
+            if (! in_array($keyword, self::SUPPORTED_ITEM, true)) {
+                return "Tool input schema uses unsupported keyword [{$keyword}] on the items of [{$name}].";
+            }
+        }
+        foreach ($value as $i => $item) {
+            [, $problem] = $this->check("{$name}[{$i}]", $item, $items);
+            if ($problem !== null) {
+                return $problem;
+            }
+        }
+
+        return null;
     }
 
     private function checkString(string $name, mixed $value, array $rules): ?string

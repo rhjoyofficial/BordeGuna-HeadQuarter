@@ -99,6 +99,8 @@ it('knows every column that points at a detail row, so a new reference cannot be
 
     // Each of these is named in a keep condition in RetentionPolicy. A new one fails here first.
     expect($columns)->toBe([
+        // docs/90 X: a CHILD of ai_runs (the raw reply), cascading when its run is pruned; not a keep condition.
+        'ai_run_replies.ai_run_id',
         'approvals.ai_run_id',
         'approvals.requesting_tool_call_id',
         'approvals.resulting_tool_call_id',
@@ -111,7 +113,7 @@ it('knows every column that points at a detail row, so a new reference cannot be
     ]);
 
     $source = file_get_contents(app_path('Observe/Retention/RetentionPolicy.php'));
-    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id'] as $reference) {
+    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id', 'ai_run_replies.ai_run_id cascades'] as $reference) {
         expect($source)->toContain($reference);
     }
 

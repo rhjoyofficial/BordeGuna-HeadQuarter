@@ -115,6 +115,14 @@ final readonly class EvaluationObservation
          * the operator's words alone and the provider was never asked; null when not recorded.
          */
         public ?int $modelTurns = null,
+        /**
+         * docs/90 A.2: every call the agent named, with what the model wrote (`arguments_key`,
+         * `raw_arguments`), what the runner read (`args`), and what the gateway validated and ran
+         * (`gateway_input`, `gateway_status`); null when the subject does not record it (a stub).
+         *
+         * @var list<array<string, mixed>>|null
+         */
+        public ?array $argumentTrace = null,
     ) {}
 
     /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
@@ -243,6 +251,7 @@ final readonly class EvaluationObservation
             'prohibited_capability' => $this->prohibitedCapability,
             'role_boundary' => $this->roleBoundary,
             'model_turns' => $this->modelTurns,
+            'argument_trace' => $this->argumentTrace,
             'unmeasured' => $this->unmeasured,
             'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,

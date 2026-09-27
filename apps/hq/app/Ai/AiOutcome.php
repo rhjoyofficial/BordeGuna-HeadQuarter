@@ -2,6 +2,8 @@
 
 namespace App\Ai;
 
+use App\Ai\ToolCalls\ProposedToolCall;
+use App\Ai\ToolCalls\ToolCallNormaliser;
 use App\Models\AiModel;
 use App\Models\AiRun;
 
@@ -22,6 +24,18 @@ final readonly class AiOutcome
         public AiModel $model,
         public bool $degraded = false,
     ) {}
+
+    /**
+     * The tool calls the model proposed, in HQ's canonical shape (docs/90 A.1 step 2). This is the
+     * provider-to-HQ boundary for arguments: whatever key the model wrote its payload under, a reader
+     * of this list sees one representation, and nothing downstream reads the raw reply for a call.
+     *
+     * @return list<ProposedToolCall>
+     */
+    public function toolCalls(): array
+    {
+        return ToolCallNormaliser::fromReply($this->data);
+    }
 
     public function costUsd(): string
     {
