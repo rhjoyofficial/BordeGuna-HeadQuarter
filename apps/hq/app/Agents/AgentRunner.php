@@ -17,6 +17,7 @@ use App\Context\ContextBundle;
 use App\Conversation\SupportWorkflow;
 use App\Execution\EffectiveExecutionContext;
 use App\Execution\ExecutionContextResolver;
+use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
@@ -709,7 +710,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $threadRefusal),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $threadRefusal, 'why' => $call['why'] ?? null,
-                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
                 $key,
             ];
         }
@@ -725,7 +726,7 @@ final class AgentRunner
                 return [
                     $this->assembler->toolRefusal($key, $reason),
                     ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null,
-                        'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                        'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
                     $key,
                 ];
             }
@@ -737,7 +738,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $refusal),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null,
-                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
                 $key,
             ];
         }
@@ -754,7 +755,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key, $reason),
                 ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
-                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->argumentEvidence($call),
+                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
                 null, // not a denial: the agent did the right thing by proposing it
             ];
         }
@@ -776,7 +777,8 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key, $reason),
                 ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'approval_id' => $outcome->approvalId, 'reason' => $reason,
-                    'outcome_class' => OutcomeClass::ApprovalRequired->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                    'tool_call_id' => $outcome->toolCallId,
+                    'outcome_class' => OutcomeClass::ApprovalRequired->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
                 null,
             ];
         }
@@ -794,7 +796,7 @@ final class AgentRunner
                 return [
                     $this->assembler->toolFailure($key, $reason, $class),
                     ['kind' => 'failed', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
-                        'outcome_class' => $class->value, 'side' => $class->side()],
+                        'outcome_class' => $class->value, 'side' => $class->side()] + $this->trace($call, $args, $correlationId),
                     null,
                 ];
             }
@@ -802,7 +804,7 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key, $reason),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'tool_call_id' => $outcome->toolCallId,
-                    'outcome_class' => $class->value, 'side' => $class->side(), 'args' => $args] + $this->argumentEvidence($call),
+                    'outcome_class' => $class->value, 'side' => $class->side(), 'args' => $args] + $this->trace($call, $args, $correlationId),
                 // Only a POLICY refusal counts toward the repeated-denial stop. A tool that failed
                 // because a shop was slow is not the model being told no, and treating it as one
                 // would end runs for a reason the model cannot do anything about.
@@ -810,7 +812,7 @@ final class AgentRunner
             ];
         }
 
-        $record = ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args] + $this->argumentEvidence($call);
+        $record = ['kind' => 'evidence', 'tool' => $key, 'tool_call_id' => $outcome->toolCallId, 'args' => $args] + $this->trace($call, $args, $correlationId);
         if (isset($call['expanded_from'])) {
             // This call exists because HQ expanded a group reference (ADR-041); the record says so,
             // so a reviewer can tell one scoped call the model made from five HQ made for it.
@@ -829,22 +831,32 @@ final class AgentRunner
     }
 
     /**
-     * docs/90 A.1 step 2: which key the model wrote its arguments under (null when it wrote none), and
-     * the payload as written, so a record on the run says what the model produced and not only what
-     * HQ made of it. Absent on a call the runtime made for
-     * itself (an expansion carries its parent's key).
+     * The argument evidence every record of a proposed call carries (docs/90 A.1 step 2, docs/91 A.5):
+     * the arguments as the runner read them (after the runtime bound what it binds), which key the model
+     * wrote them under and the payload as written, a digest of the read arguments, and the correlation of
+     * the run. On EVERY record: evidence, refused before or by the gateway, failed outside HQ, a proposal
+     * held at autonomy, a proposal awaiting approval. A call the outside world refused keeps its trace, so
+     * missing trace data can never be read as an argument that was lost. The gateway's validated input is
+     * joined by the record's `tool_call_id` where the gateway was reached. No secret is added here: these
+     * are the model's own arguments, as every evidence record already kept them.
      *
      * @param  array<string, mixed>  $call
+     * @param  array<string, mixed>  $args
      * @return array<string, mixed>
      */
-    private function argumentEvidence(array $call): array
+    private function trace(array $call, array $args, string $correlationId): array
     {
-        if (! array_key_exists('arguments_key', $call)) {
-            return [];
+        // The digest is the gateway's canonical hash (keys sorted), so it matches whatever order a store keeps.
+        $out = ['args' => $args, 'argument_digest' => CanonicalPayload::hash($args), 'correlation_id' => $correlationId];
+
+        // A call the runtime made for itself (an expansion) carries its parent's key; one with no key at
+        // all was never read from a model reply, and says nothing about one.
+        if (array_key_exists('arguments_key', $call)) {
+            $out['arguments_key'] = $call['arguments_key'];
+            $out['raw_arguments'] = $call['raw_arguments'] ?? null;
         }
 
-        // Always both, so a trace reads raw -> read -> validated without inferring the first from the second.
-        return ['arguments_key' => $call['arguments_key'], 'raw_arguments' => $call['raw_arguments'] ?? null];
+        return $out;
     }
 
     /**

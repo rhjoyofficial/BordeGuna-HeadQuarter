@@ -121,6 +121,28 @@ final class ConversationSimulator
      */
     public function capture(Scenario $scenario, string $brandCode): array
     {
+        return $this->withThread($scenario, $brandCode, static fn (array $thread) => $thread);
+    }
+
+    /**
+     * docs/91 A.1: the scenario's thread EXISTS while `$work` runs, and is rolled back afterwards.
+     *
+     * One transaction holds the whole lifecycle: the brand's pages, the core's replay of the scenario
+     * (the conversation, its messages, the customer), then `$work($thread)` (the Support agent's run),
+     * then the rollback. Every read the run makes, `conversation.read_thread` included, goes through the
+     * same default connection and so sees the thread its `conversation_uuid` is bound to; nothing about
+     * the thread survives the rollback. `capture()` is the same with nothing run inside.
+     *
+     * ⚠ Whatever `$work` must keep beyond the rollback it must carry itself (the evaluation subject
+     * carries the run's evidence with `EvidenceCarryOver`): this method never commits.
+     *
+     * @template T
+     *
+     * @param  \Closure(array<string, mixed>): T  $work
+     * @return T
+     */
+    public function withThread(Scenario $scenario, string $brandCode, \Closure $work): mixed
+    {
         $brand = Brand::query()->where('code', $brandCode)->first();
         if ($brand === null) {
             throw new RuntimeException("No brand with code [{$brandCode}]; the simulation needs a brand to hang its pages on.");
@@ -158,9 +180,10 @@ final class ConversationSimulator
                 'context' => $conversation === null ? [] : SupportContext::asData($this->support->blocksFor($conversation)),
             ];
 
+            $out = $work($thread);
             DB::rollBack();
 
-            return $thread;
+            return $out;
         } catch (Throwable $e) {
             DB::rollBack();
             throw $e;

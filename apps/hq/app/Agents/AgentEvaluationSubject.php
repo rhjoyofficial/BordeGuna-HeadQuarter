@@ -10,6 +10,7 @@ use App\Conversation\Simulation\ScenarioLibrary;
 use App\Conversation\SupportContext;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationSubject;
+use App\Evaluation\EvidenceCarryOver;
 use App\Execution\Requester;
 use App\Execution\RequesterKind;
 use App\Models\Agent;
@@ -18,7 +19,6 @@ use App\Models\AiRun;
 use App\Models\Business;
 use App\Models\EvaluationCase;
 use App\Models\ToolCall;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -54,8 +54,9 @@ use Throwable;
  * ## Every customer thread is a real thread (docs/90 A.1 step 4)
  *
  * ⭐ A case that names a simulation scenario, and, for the SUPPORT role, any case that carries a
- * customer's words as context, is run on a thread the real conversation core built and rolled back:
- * a real `conversation_uuid`, the customer as HQ knows them, the state the core chose, the same
+ * customer's words as context, is run on a thread the real conversation core built, which exists for
+ * the whole run and is rolled back after it (docs/91 A.1): a real `conversation_uuid`, the customer as
+ * HQ knows them, the state the core chose, the same
  * `SupportContext` blocks the real wake-up hands over, and the core's own decision whether the agent
  * is woken at all. There is no threadless customer path for the Support agent: P3-G2 attempt 1 ran
  * its ten written cases on a bare customer block with no thread header, so the agent had no thread
@@ -125,7 +126,15 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
     }
 
     /**
-     * Replay the scenario through the core, roll it back, and run the agent on the copy of the thread.
+     * Replay the scenario through the core and run the agent on that thread WHILE IT EXISTS, then roll
+     * the thread back (docs/91 A.1).
+     *
+     * P3-G2 attempt 2 ran the agent after the rollback, on a copy of the thread's context: the bound
+     * `conversation_uuid` then named a thread that no longer existed, and `conversation.read_thread`
+     * answered "HQ holds no such conversation in this business" ten times. Now the whole lifecycle is one
+     * transaction (`ConversationSimulator::withThread`): thread, run, evidence, rollback. The run's own rows
+     * (model calls and their cost, raw replies, the run, tool calls, audit) are carried across the rollback
+     * by `EvidenceCarryOver`; the thread is not.
      *
      * ⛔ The core decides whether the agent is woken, never the case. A thread the core gave to a
      * person produces an observation with no model call, and that decision is what gets graded.
@@ -134,42 +143,58 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
      */
     private function runOnThread(Scenario $scenario, string $brand, string $question): EvaluationObservation
     {
+        $carry = new EvidenceCarryOver;
+        $evidence = [];
+
         try {
-            $thread = app(ConversationSimulator::class)->capture($scenario, $brand);
-            if (! $thread['core_passed']) {
-                throw new RuntimeException('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']));
-            }
+            $observation = app(ConversationSimulator::class)->withThread($scenario, $brand, function (array $thread) use ($scenario, $question, $carry, &$evidence) {
+                if (! $thread['core_passed']) {
+                    return $this->notReplayed('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']));
+                }
+
+                if (! $thread['with_agent']) {
+                    // A person took the thread before the agent was asked: nothing was said, and the case is
+                    // graded on that decision. A case expecting a refusal is satisfied (the customer got no
+                    // agent reply); one expecting an answer is not, because the core decided otherwise.
+                    return new EvaluationObservation(
+                        refused: true,
+                        refusalReason: 'the conversation core handed this thread to a person before the agent was asked',
+                        outcome: 'not_woken',
+                        agentWoken: false,
+                        modelTurns: 0,
+                    );
+                }
+
+                $marks = $carry->mark();
+                try {
+                    return $this->observe(new AgentRunRequest(
+                        agentKey: $this->agentKey,
+                        question: $question,
+                        trigger: 'evaluation',
+                        businessId: $thread['business_id'],
+                        brandId: $thread['brand_id'],
+                        // Built by SupportContext from the thread that exists right now (docs/78 B.1): header,
+                        // customer facts, labelled memory, untrusted messages, the blocks the real wake-up hands over.
+                        extraContext: SupportContext::fromData($thread['context']),
+                        requester: self::requester(),
+                        // docs/90 A.1 steps 3 and 5: the thread the run is bound to, and the contract it declares.
+                        conversationUuid: $thread['conversation_uuid'],
+                        supportWorkflow: $scenario->workflow,
+                    ), agentWoken: true);
+                } finally {
+                    // Read before the rollback, whatever happened: money spent is money spent.
+                    $evidence = $carry->collect($marks);
+                }
+            });
         } catch (Throwable $e) {
+            $carry->restore($evidence);
+
             return $this->notReplayed($e->getMessage());
         }
 
-        if (! $thread['with_agent']) {
-            // A person took the thread before the agent was asked: nothing was said, and the case is
-            // graded on that decision. A case expecting a refusal is satisfied (the customer got no
-            // agent reply); one expecting an answer is not, because the core decided otherwise.
-            return new EvaluationObservation(
-                refused: true,
-                refusalReason: 'the conversation core handed this thread to a person before the agent was asked',
-                outcome: 'not_woken',
-                agentWoken: false,
-                modelTurns: 0,
-            );
-        }
+        $carry->restore($evidence);
 
-        return $this->observe(new AgentRunRequest(
-            agentKey: $this->agentKey,
-            question: $question,
-            trigger: 'evaluation',
-            businessId: $thread['business_id'],
-            brandId: $thread['brand_id'],
-            // Built by SupportContext while the thread existed (docs/78 B.1): header, customer facts,
-            // labelled memory, untrusted messages, the same blocks the real wake-up will hand over.
-            extraContext: SupportContext::fromData($thread['context']),
-            requester: self::requester(),
-            // docs/90 A.1 steps 3 and 5: the thread the run is bound to, and the contract it declares.
-            conversationUuid: $thread['conversation_uuid'],
-            supportWorkflow: $scenario->workflow,
-        ), agentWoken: true);
+        return $observation;
     }
 
     private function notReplayed(string $why): EvaluationObservation
@@ -276,6 +301,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             argumentTrace: $this->argumentTrace($run),
             // docs/90 A.1 step 5: the workflow the runtime held a thread run to.
             supportWorkflow: $run->support_workflow === null ? null : (array) $run->support_workflow,
+            // docs/91 A.3: the role this run was measured as, for the role-aware refusal reading.
+            subjectRole: $this->subjectRole(),
         );
     }
 
