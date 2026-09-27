@@ -165,8 +165,15 @@ abstract class ErpOrderReadTool implements Tool
         }
         [$read, $output] = $out;
 
+        // docs/90 A.5: a read that concerns an order HQ placed records what the ERP said as a fact
+        // the moment it was read (the status tool overrides this; every other read keeps nothing).
+        $this->afterRead($business, $read, $context);
+
         return ToolResult::succeeded($this->provenance($business, $read) + $output);
     }
+
+    /** What to keep from a successful read, if anything. Nothing, unless a tool says otherwise. */
+    protected function afterRead(Business $business, ErpOrderRead $read, ToolContext $context): void {}
 
     public function reconcile(ToolContext $context): ?ToolResult
     {

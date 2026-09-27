@@ -2,8 +2,14 @@
 
 namespace App\Tools\Commerce;
 
+use App\Erp\Dto\ErpOrderRead;
 use App\Erp\ErpConnector;
+use App\Erp\ErpRegistry;
+use App\Facts\ErpOrderReadBackFact;
+use App\Models\Business;
+use App\Models\FactsOrder;
 use App\Tools\Erp\ErpOrderReadTool;
+use App\Tools\ToolContext;
 use App\Tools\ToolResult;
 
 /**
@@ -21,6 +27,11 @@ use App\Tools\ToolResult;
 final class GetOrderStatusTool extends ErpOrderReadTool
 {
     public const KEY = 'commerce.get_order_status';
+
+    public function __construct(ErpRegistry $registry, private readonly ErpOrderReadBackFact $readBack)
+    {
+        parent::__construct($registry);
+    }
 
     public function key(): string
     {
@@ -75,6 +86,29 @@ final class GetOrderStatusTool extends ErpOrderReadTool
             'effects' => ['type' => ['object', 'null']],
             'next_step' => ['type' => ['string', 'null']],
         ];
+    }
+
+    /**
+     * docs/90 A.5: a status read is a read-back too. The order's fact row already exists from
+     * `take_order` (keyed by the store and the reference the customer quotes); what the ERP says now
+     * replaces what it said then, with its own `as_of`, or writes nothing when nothing changed.
+     *
+     * ⚠ An order with no fact row is left as it is: the ERP answer names its store by the ERP's key,
+     * and HQ keeps no map from an ERP store key to an HQ store, so the row cannot be placed. That is
+     * an order HQ did not place through `take_order` on this build, and it is recorded in docs/90 C.
+     */
+    protected function afterRead(Business $business, ErpOrderRead $read, ToolContext $context): void
+    {
+        if (! $read->found || ! is_string($read->data['shop_reference'] ?? null)) {
+            return;
+        }
+        $fact = FactsOrder::query()->where('business_id', $business->id)->where('order_ref', $read->data['shop_reference'])
+            ->where('source_system', ErpOrderReadBackFact::SOURCE_SYSTEM)->with('store')->first();
+        if ($fact === null || $fact->store === null) {
+            return;
+        }
+
+        $this->readBack->record($fact->store, $read, $context->correlationId);
     }
 
     protected function read(ErpConnector $erp, array $payload): array|ToolResult
