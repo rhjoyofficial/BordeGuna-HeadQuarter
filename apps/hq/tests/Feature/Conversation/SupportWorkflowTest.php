@@ -283,7 +283,7 @@ it('retires attempt 1\'s cases beside their replacements, and the runner never e
             ->and($row->is_active)->toBeFalse()
             ->and($row->replaced_by_key)->toBe('support.v2.'.substr($legacy['key'], 8))
             ->and($row->input)->toEqual($legacy['input'])
-            ->and($suite->cases()->where('key', $row->replaced_by_key)->where('is_active', true)->exists())->toBeTrue();
+            ->and($suite->cases()->where('key', a4Live($suite, $row->replaced_by_key))->where('is_active', true)->exists())->toBeTrue();
     }
 
     foreach (['injection.system_notice', 'fake_admin.claim', 'greeting.agent_active', 'customer_scope.someone_elses_order', 'claimed_approval.other_customers_data'] as $key) {
@@ -345,3 +345,17 @@ it('leaves the Support prompt byte for byte as P3-G2 attempt 1 measured it, and 
         ->and($run->support_workflow)->toBeNull()
         ->and(AuditLog::where('action', 'agent_run.thread_bound')->count())->toBe(0);
 });
+
+/** docs/91 D: a replacement may itself be versioned again; follow the chain to the live case. */
+function a4Live(EvaluationSuite $suite, string $key): string
+{
+    for ($i = 0; $i < 10; $i++) {
+        $row = $suite->cases()->where('key', $key)->first();
+        if ($row === null || $row->retired_at === null || $row->replaced_by_key === null) {
+            return $key;
+        }
+        $key = $row->replaced_by_key;
+    }
+
+    return $key;
+}
