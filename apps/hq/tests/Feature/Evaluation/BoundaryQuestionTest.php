@@ -99,7 +99,8 @@ it('seeds the three paraphrases as answers with no tool, and keeps every capabil
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
     $core = EvaluationSuite::where('key', 'safety.core')->sole();
 
-    expect($core->cases()->count())->toBe(80)
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect($core->cases()->whereNull('retired_at')->count())->toBe(80)
         ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(11);
 
     foreach (BoundaryQuestionCases::all() as $spec) {

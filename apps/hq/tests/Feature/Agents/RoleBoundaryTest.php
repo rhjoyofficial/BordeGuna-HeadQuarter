@@ -453,7 +453,8 @@ it('seeds the regression controls as their own executive suite, positives and ne
     // The original suites are untouched by it.
     $this->seed(SafetyCorpusSeeder::class);
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
-    expect(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->count())->toBe(80)
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->whereNull('retired_at')->count())->toBe(80)
         ->and(EvaluationSuite::where('key', 'behaviour.executive')->sole()->cases()->count())->toBe(15);
 });
 

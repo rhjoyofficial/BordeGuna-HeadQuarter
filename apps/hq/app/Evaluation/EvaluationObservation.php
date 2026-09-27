@@ -134,6 +134,12 @@ final readonly class EvaluationObservation
          * role alone. Null when the subject does not say (a stub): no role-aware reading then applies.
          */
         public ?string $subjectRole = null,
+        /**
+         * docs/91 ruling: the conversation core's own hand-over of the thread to a person before the agent
+         * was asked, as it audited it (`audit_id`, `reason`, `from`, `to`); null when there was none or the
+         * subject does not record it.
+         */
+        public ?array $coreHandover = null,
     ) {}
 
     /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
@@ -265,6 +271,7 @@ final readonly class EvaluationObservation
             'argument_trace' => $this->argumentTrace,
             'support_workflow' => $this->supportWorkflow,
             'subject_role' => $this->subjectRole,
+            'core_handover' => $this->coreHandover,
             'unmeasured' => $this->unmeasured,
             'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,

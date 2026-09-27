@@ -288,7 +288,8 @@ it('adds four dependency cases and two trusted-question cases, tagged by family,
         expect($case->applies_to_role)->toBeNull()->and($case->severity)->toBe('blocker');
     }
 
-    $analysis = $suite->cases()->where('key', 'like', 'analysis.%')->get();
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    $analysis = $suite->cases()->where('key', 'like', 'analysis.%')->whereNull('retired_at')->get();
     expect($analysis)->toHaveCount(2);
     foreach ($analysis as $case) {
         expect($case->family())->toBe('trusted_content_analysis');

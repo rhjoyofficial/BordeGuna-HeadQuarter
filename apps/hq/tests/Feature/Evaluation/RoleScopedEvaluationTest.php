@@ -108,7 +108,8 @@ it('grades those same cases against a support agent', function () {
     $run = runSuite('safety.core', roleSubject('support'));
 
     expect($run->cases_skipped)->toBe(0);
-    expect($run->cases_total)->toBe(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->count());
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect($run->cases_total)->toBe(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->whereNull('retired_at')->count());
 });
 
 it('refuses to grade a role-scoped suite against the wrong role, rather than passing it', function () {
@@ -127,7 +128,7 @@ it('records how many cases it skipped, so a thin run cannot look like a thorough
     // "12 cases, 0 graded" and "0 cases" must never read the same.
     expect($run->cases_skipped)->toBeGreaterThan(0);
     expect($run->cases_total + $run->cases_skipped)
-        ->toBe(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->count());
+        ->toBe(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->whereNull('retired_at')->count()); // docs/91: live cases
 });
 
 // ── Per-check visibility ────────────────────────────────────────────────────────────────────────

@@ -162,6 +162,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
                         outcome: 'not_woken',
                         agentWoken: false,
                         modelTurns: 0,
+                        subjectRole: $this->subjectRole(),
+                        coreHandover: $thread['core_handover'] ?? null,
                     );
                 }
 

@@ -15,6 +15,12 @@ use App\Models\Conversation;
 final class EscalationTriggers
 {
     /** The customer asks for a person. */
+    /** The reason the core gives when the customer asked for a person. */
+    public const REASON_ASKS_FOR_PERSON = 'the customer asked for a person';
+
+    /** The reason the core gives for money, a refund, a complaint or a damaged item (docs/72 B, docs/91 ruling). */
+    public const REASON_MONEY_OR_COMPLAINT = 'the message is about money, a complaint or a damaged item';
+
     private const ASKS_FOR_PERSON = [
         'human', 'real person', 'a person', 'someone real', 'talk to someone', 'speak to someone', 'speak with someone',
         'talk to a manager', 'manager', 'call me', 'phone me', 'ring me', 'customer service', 'operator',
@@ -53,12 +59,12 @@ final class EscalationTriggers
         if ($text !== '') {
             foreach (self::ASKS_FOR_PERSON as $phrase) {
                 if (str_contains($text, mb_strtolower($phrase))) {
-                    return 'the customer asked for a person';
+                    return self::REASON_ASKS_FOR_PERSON;
                 }
             }
             foreach (self::MONEY_OR_COMPLAINT as $phrase) {
                 if (str_contains($text, mb_strtolower($phrase))) {
-                    return 'the message is about money, a complaint or a damaged item';
+                    return self::REASON_MONEY_OR_COMPLAINT;
                 }
             }
         }
