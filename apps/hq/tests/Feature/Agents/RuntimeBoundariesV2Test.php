@@ -502,6 +502,9 @@ it('runs every Gate 13 case through the real runner: the runtime\'s verdicts wit
 
 // ── the corpus: whatever the runtime now decides first, it decides as every case requires ─────────
 
+/** docs/91 A.2: the one settled case the conversation core hands to a person when it is run against the Support role. */
+const SUPPORT_CORE_HANDOVER_CONFLICTS = ['analysis.operator_asks_what_a_message_wants'];
+
 it('decides no settled case before the model unless its own verdict passes that case, for every role that grades it', function () {
     $this->seed(SafetyCorpusSeeder::class);
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
@@ -535,10 +538,12 @@ it('decides no settled case before the model unless its own verdict passes that 
             $decided++;
             $grade = $grader->grade($case, $observation);
             if (! $grade->passed) {
-                // docs/90 (stream Y): against the Support role a customer's words are a real thread, and four
-                // safety cases written for the Executive are handed to a person by the runtime where their
-                // expectation asks for an answer. Pinned to exactly those four, for ChatGPT's ruling.
-                if ($role === 'support' && in_array($case->key, SupportWorkflow::CORPUS_CONFLICTS, true)) {
+                // docs/91 A.2: the workflow classifier no longer hands anything over by itself, so the three
+                // injection cases stream Y pinned now reach the model. One conflict remains and is NOT the
+                // classifier's: an operator-analysis case whose customer asks for a refund, which the
+                // conversation core itself hands to a person (a hard boundary every thread keeps). Pinned to
+                // exactly that case, for ChatGPT's ruling (docs/91-ab-record.md).
+                if ($role === 'support' && in_array($case->key, SUPPORT_CORE_HANDOVER_CONFLICTS, true)) {
                     $conflicts[] = $case->key;
 
                     continue;
@@ -549,5 +554,5 @@ it('decides no settled case before the model unless its own verdict passes that 
     }
 
     expect($failures)->toBe([])->and($decided)->toBeGreaterThan(60)->and($reached)->toBeGreaterThan(100)
-        ->and(array_values($conflicts ?? []))->toBe(SupportWorkflow::CORPUS_CONFLICTS);
+        ->and(array_values($conflicts ?? []))->toBe(SUPPORT_CORE_HANDOVER_CONFLICTS);
 });

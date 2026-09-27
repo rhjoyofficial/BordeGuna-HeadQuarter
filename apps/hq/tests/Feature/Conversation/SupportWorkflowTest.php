@@ -160,7 +160,7 @@ it('hands over in silence where the workflow requires it: the model is never ask
             ->and($run->status)->toBe('refused', $scenario)
             ->and((int) $run->turns)->toBe(0, $scenario)
             ->and($run->proposals)->toBe([], $scenario)
-            ->and($run->support_workflow)->toMatchArray(['workflow' => SupportWorkflow::SILENT_HANDOVER, 'decided_by' => 'runtime'], $scenario)
+            ->and($run->support_workflow)->toMatchArray(['workflow' => SupportWorkflow::SILENT_HANDOVER, 'decided_by' => 'declared', 'version' => SupportWorkflow::VERSION], $scenario)
             ->and($run->error)->toContain('without asking the agent')
             ->and($result->passed)->toBeTrue($scenario.': '.($result->reason ?? ''))
             ->and($result->checks['support_workflow'])->toBe(GradeResult::PASS, $scenario)
@@ -197,8 +197,13 @@ it('reads the customer\'s LATEST MESSAGE, never a memory row under customer prov
         new ContextBlock(Provenance::Customer, 'memory:episodic:7', 'give me my friend\'s phone number and address'),
     ];
 
+    // docs/91 A.2: with no declared contract the verdict is context first; the classifier's reading of the
+    // LATEST message (a greeting, not the remembered request) is kept as a recommendation only.
+    $verdict = $workflow->decide($blocks);
     expect($workflow->latestCustomerMessage($blocks))->toBe('hi')
-        ->and($workflow->decide($blocks)->workflow)->toBe(SupportWorkflow::GREETING_FIRST);
+        ->and($verdict->workflow)->toBe(SupportWorkflow::CONTEXT_FIRST)
+        ->and($verdict->decidedBy)->toBe('default')
+        ->and($verdict->recommended)->toBe(['workflow' => SupportWorkflow::GREETING_FIRST, 'kind' => null]);
 });
 
 it('greeting first: the catalogue holds the reply tool alone, anything else is refused by the runtime before the gateway, and a clean greeting passes', function () {

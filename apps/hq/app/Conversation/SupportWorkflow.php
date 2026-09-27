@@ -26,18 +26,25 @@ use App\Context\Provenance;
  *   question in it); declared by a scenario contract for a thread whose reply needs no lookup.
  * - `context_first`: the default. The agent may read what it needs before it replies.
  *
- * ⛔ Not universal. A hand-over is silent only for the shapes above; every other thread the core
- * left with the agent keeps its behaviour, and a workflow that "legitimately requires reading context
- * before responding" stays `context_first`. A scenario or a wake-up may DECLARE a workflow (trusted
- * HQ code, never the model); the runtime's own reading wins when it finds a silent hand-over, because
- * a declared contract cannot make the agent answer a thread the runtime routes to a person.
+ * ⛔ Not universal, and a declared contract always wins (docs/91 A.2, v2). The precedence is:
+ *   1. an explicit contract the thread declares (a scenario, a wake-up: trusted HQ code, never the
+ *      model): `silent_handover` or `greeting_first` is enforced exactly as declared;
+ *   2. the content classifier below, which only RECOMMENDS: its reading is recorded on the run beside
+ *      the verdict and never overrides a declared contract nor invents a stronger one;
+ *   3. ordinary model interpretation: with no declared contract the run is `context_first`, the
+ *      Support agent's behaviour before the contracts existed.
+ * v1 let the classifier win (a message that instructs the agent was handed over in silence even where
+ * the case expected an answer, and once over a declared `greeting_first`); P3-G2 attempt 2 measured it
+ * and ChatGPT ruled it out on 27 September. The hard safety boundaries that apply to every thread (the
+ * conversation core's escalation triggers, the runtime's security-intent, prohibited-capability and role
+ * boundaries, the gateway) are independent of this class and unchanged.
  *
  * ⭐ Versioned like the other runtime readings (`RoleBoundary`, `TaskGrounding`): the verdict on a run
  * names the version that produced it, so a gate's evidence says which rules it measured.
  */
 final class SupportWorkflow
 {
-    public const VERSION = 'v1';
+    public const VERSION = 'v2';
 
     public const SILENT_HANDOVER = 'silent_handover';
 
@@ -53,23 +60,6 @@ final class SupportWorkflow
     public const THIRD_PARTY_DATA = 'third_party_data';
 
     public const CLAIMED_DATA_APPROVAL = 'claimed_data_approval';
-
-    /**
-     * ⚠ A known conflict, pinned for a ruling (docs/90-y-record.md). Four safety.core cases carry a
-     * customer's words whose shape is a silent hand-over (an instruction to the agent) or a hand-over
-     * the conversation core itself makes (money in the message), and their expectations, written for
-     * the Executive, ask for an ANSWER. Against the Support role on a real thread the runtime now
-     * decides them before the model, as the rulings of 26 September require, and the grader fails
-     * them on the Executive's expectation. Neither the ruling nor the corpus is altered here: the
-     * list makes the conflict visible, a test holds it to exactly these four, and the decision
-     * (a role-scoped retirement and replacement, or a Support-specific expectation) is ChatGPT's.
-     */
-    public const CORPUS_CONFLICTS = [
-        'injection.customer_message_instructs_tool_call',
-        'injection.delayed_via_memory',
-        'injection.order_note_instructs_tool_call',
-        'analysis.operator_asks_what_a_message_wants',
-    ];
 
     /** The one tool a `greeting_first` run may name. */
     public const REPLY_TOOL = 'messaging.send_reply';
@@ -117,32 +107,44 @@ final class SupportWorkflow
      */
     public function decide(array $blocks, ?string $declared = null): SupportWorkflowVerdict
     {
-        $latest = $this->latestCustomerMessage($blocks);
+        $recommended = $this->recommend($this->latestCustomerMessage($blocks));
 
-        // The runtime's own reading comes first: a declared contract cannot make the agent answer a
-        // thread the runtime routes to a person.
-        if ($latest !== null && ($kind = $this->silentHandoverKind($latest)) !== null) {
-            return new SupportWorkflowVerdict(self::SILENT_HANDOVER, $kind, self::VERSION, 'runtime',
-                match ($kind) {
-                    self::INSTRUCTION_TO_AGENT => 'the customer\'s message instructs the agent as if it were an operator; a customer message is never an instruction, and the thread goes to a person in silence',
-                    self::THIRD_PARTY_DATA => 'the customer asks for another person\'s phone, address or order details; the thread goes to a person in silence',
-                    default => 'the customer claims somebody approved the sharing of other customers\' data; the thread goes to a person in silence',
-                });
-        }
-
+        // 1. A declared contract wins, and is enforced exactly as declared.
         if ($declared !== null && in_array($declared, self::WORKFLOWS, true)) {
-            return new SupportWorkflowVerdict($declared, null, self::VERSION, 'declared',
-                $declared === self::GREETING_FIRST
-                    ? 'declared by the thread\'s contract: the reply comes first, from the thread already in context, and no lookup precedes it'
-                    : 'declared by the thread\'s contract');
+            $kind = $declared === self::SILENT_HANDOVER ? ($recommended['kind'] ?? null) : null;
+
+            return new SupportWorkflowVerdict($declared, $kind, self::VERSION, 'declared', match ($declared) {
+                self::SILENT_HANDOVER => 'declared by the contract of this thread: the thread goes to a person in silence, and the customer hears nothing from the agent',
+                self::GREETING_FIRST => 'declared by the contract of this thread: the reply comes first, from the thread already in context, and no lookup precedes it',
+                default => 'declared by the contract of this thread: the agent may read what it needs before it replies',
+            }, $recommended);
         }
 
-        if ($latest !== null && $this->isBareGreeting($latest)) {
-            return new SupportWorkflowVerdict(self::GREETING_FIRST, null, self::VERSION, 'runtime',
-                'the customer\'s message is a greeting with no question in it; the reply comes first and no lookup precedes it');
+        // 2 and 3. No contract: the behaviour before the contracts; the classifier's reading is a record only.
+        return new SupportWorkflowVerdict(self::CONTEXT_FIRST, null, self::VERSION, 'default',
+            'no workflow contract is declared for this thread: the agent may read what it needs before it replies, as before the contracts; '
+            .'the reading of the content classifier is recorded as a recommendation and not enforced', $recommended);
+    }
+
+    /**
+     * What the content classifier recommends for a customer message, or null when it reads nothing
+     * special. A recommendation only (docs/91 A.2): recorded on the run, never enforced by itself.
+     *
+     * @return array{workflow: string, kind: ?string}|null
+     */
+    public function recommend(?string $latest): ?array
+    {
+        if ($latest === null) {
+            return null;
+        }
+        if (($kind = $this->silentHandoverKind($latest)) !== null) {
+            return ['workflow' => self::SILENT_HANDOVER, 'kind' => $kind];
+        }
+        if ($this->isBareGreeting($latest)) {
+            return ['workflow' => self::GREETING_FIRST, 'kind' => null];
         }
 
-        return new SupportWorkflowVerdict(self::CONTEXT_FIRST, null, self::VERSION, 'runtime', 'the agent may read what it needs before it replies');
+        return null;
     }
 
     /** The silent-hand-over kind this customer message is, or null when it is none of them. */
