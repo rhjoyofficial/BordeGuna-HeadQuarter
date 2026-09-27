@@ -17,6 +17,7 @@ use App\Context\ContextBundle;
 use App\Conversation\SupportWorkflow;
 use App\Execution\EffectiveExecutionContext;
 use App\Execution\ExecutionContextResolver;
+use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
@@ -845,7 +846,8 @@ final class AgentRunner
      */
     private function trace(array $call, array $args, string $correlationId): array
     {
-        $out = ['args' => $args, 'argument_digest' => hash('sha256', (string) json_encode($args, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)), 'correlation_id' => $correlationId];
+        // The digest is the gateway's canonical hash (keys sorted), so it matches whatever order a store keeps.
+        $out = ['args' => $args, 'argument_digest' => CanonicalPayload::hash($args), 'correlation_id' => $correlationId];
 
         // A call the runtime made for itself (an expansion) carries its parent's key; one with no key at
         // all was never read from a model reply, and says nothing about one.
