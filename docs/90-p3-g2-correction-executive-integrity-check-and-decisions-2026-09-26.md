@@ -607,3 +607,69 @@ reported by the tool as uncertain and never repaired by the row. One additive mi
 on `facts_orders`. 8 new tests; six mutations caught as the stream reported before its second cut (the
 itemised list was lost with that session); 1,612 on the branch (run by me). The combined tree after AA and Z:
 **1,626 passed, 19,023 assertions**, Pint, `tsc --noEmit` and Vite green, pushed. Record: `docs/90-z-record.md`.
+
+### C.4 Stream X merged (27 September, `2e9ee52` on the branch)
+
+A.1 steps 1 and 2 and A.2. **The raw reply:** `ModelReplyRecorder` stores the model's structured reply as the
+provider returned it, before normalisation, in `ai_run_replies` beside its `ai_run` (correlation, run,
+provider, model, the normalised reading kept apart), secrets redacted, under the existing retention rules.
+Nothing reads it back into a decision; a test holds that. Historical runs are not rewritten. **The argument
+contract:** `ToolCallNormaliser` turns a provider's tool calls into one canonical `ProposedToolCall` (tool,
+arguments, why, and which key the model wrote its arguments under) at the provider-to-HQ boundary
+(`AiOutcome::toolCalls()`), whatever that key was (`arguments`, `args`, `input`, `parameters`); the runner reads
+only that shape; the tool descriptor stays the schema authority. A call that carried no argument payload at
+all is no longer treated as an unscoped group-wide call: it goes to the gateway as it came and is refused
+with the missing argument named, never given `{business_slug}` in place of what the model did not write.
+Every call the runner records now carries the argument key and the raw arguments, so a trace reads raw,
+read, validated, run. **The Executive Execution-Integrity Check:** `ExecutionIntegritySuiteSeeder` seeds
+`regression.execution_integrity` (12 Executive cases that need non-empty arguments: business, store, date and
+date range, order and status filters), graded by the new `argument_fidelity` check against each call's trace;
+the gate runner seeds it and, with `GATE_SUITE`, runs it alone as its own evidence set. Gate 13's evidence is
+untouched. The branch's full suite: 1,626 (run by the lead session after the third cut). Record:
+`docs/90-x-record.md`.
+
+### C.5 Stream Y merged (27 September, `4f91ae0` on the branch; merge `1455b39`)
+
+A.1 steps 3 to 5. **The thread binding:** a Support run woken on a thread carries its `conversation_uuid` in
+the run request and on the run (`agent_runs.conversation_uuid`); every tool whose schema names a conversation
+names that one, a different id the model wrote is overwritten and audited (`agent_run.thread_rebinding_refused`),
+and a required id with no bound thread is refused, never guessed; the binding is audited
+(`agent_run.thread_bound`) beside the execution context. **Real threads:** the written P3-G2 cases and the
+safety cases run against the Support role are built through the same thread model as the simulated
+scenarios; no threadless written path remains. **The contracts:** `SupportWorkflow` decides, from the thread's
+own context and the scenario's declared contract, `silent_handover`, `greeting_first` or `context_first`
+before the model is asked. A silent hand-over is authoritative: zero model turns, no reply, nothing said to
+the customer, recorded on the run (`agent_runs.support_workflow`) and in the audit. Greeting first is
+enforced structurally: the catalogue the model reads holds the reply tool alone, and any other call is
+refused by the runtime. Neither is universal; every scenario without a declared contract behaves as before.
+The graded check is `support_workflow`. The Support prompt is byte for byte unchanged. The branch's full
+suite: 1,614 (run by the lead session after the third cut). Record: `docs/90-y-record.md`.
+
+### C.6 Where X and Y met, and the frozen candidate (27 September)
+
+X and Y were built in parallel on the same runner and the same evaluation path. X merged cleanly onto main;
+Y's merge conflicted in four places where each had added beside the other (the evaluation subject's
+observation fields, the observation's properties and their array form, the case's expectation readers, the
+grader's check list and its two new checks): each kept whole, the check list now ending with both
+`argument_fidelity` and `support_workflow`. One defect of Y's fixed at the merge: its two new runner methods
+had been inserted between `decidedBeforeModel()`'s docblock and the method, orphaning the docblock; it is back
+on its method. Both streams' own test files together on the merged tree: 131 passed. The combined tree:
+**1,658 Pest passed, 19,414 assertions, 0 failed**, Pint, `tsc --noEmit` and Vite green (local; GitHub
+Actions deferred until 1 October).
+
+**THE FREEZE (A.7).** The release candidate is the commit that records this section. From it, no merge that
+touches the agents, the gateway, the model runtime, the evaluation path or the Support path until P3-G2
+attempt 2 and the Executive Execution-Integrity Check are both done. Migrations over `40880f9`, all additive:
+`2026_09_26_100000_add_erp_read_back_evidence_to_facts_orders` (Z), `..._add_locale_to_users` (V2),
+`..._add_thread_binding_and_workflow_to_agent_runs` (Y), `..._create_ai_run_replies` (X). No new environment
+key. Nothing registered for an agent, credentialed, scheduled or switched on. Gate runner case counts become
+80, 15, 28, **46**, and **12** for the new suite.
+
+**The two measurements, after Joy releases the candidate**, separate evidence sets, may run one after the
+other on the same frozen build (the runner refuses to run two at once):
+- P3-G2 attempt 2: `GATE=p3-g2-attempt-2 GATE_AGENT=support GATE_NAME="P3-G2 attempt 2 (docs/90), OpenAI"`.
+- The Executive check: `GATE=exec-integrity GATE_SUITE=regression.execution_integrity GATE_NAME="Executive
+  Execution-Integrity Check (docs/90 A.2), OpenAI"`.
+Both on OpenAI gpt-5.6-terra, reasoning effort low, one provider, no tuning, no provider switching, Joy as the
+enabling user, zero customer messages. P3-G2 attempt 1's and Gate 13's evidence stay historical and are never
+combined with these.
