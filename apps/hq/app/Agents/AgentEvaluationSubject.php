@@ -210,7 +210,48 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // docs/86: the fourth runtime reading, and whether the provider was asked at all.
             roleBoundary: $run->role_boundary === null ? null : (array) $run->role_boundary,
             modelTurns: (int) $run->turns,
+            // docs/90 A.2: what the model wrote, what the runner read, what the gateway validated.
+            argumentTrace: $this->argumentTrace($run),
         );
+    }
+
+    /**
+     * The argument path of every call the agent named (docs/90 A.2): the key the model wrote its
+     * payload under and the payload as written, the arguments the runner read, and, where the call
+     * reached the gateway, the validated input the gateway recorded and how the call ended. A row
+     * with `arguments_key` null is a call the model wrote without arguments; a row whose
+     * `gateway_input` lacks what `args` holds is an argument lost between the runner and the tool.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function argumentTrace(AgentRun $run): array
+    {
+        $out = [];
+
+        foreach ([...(array) $run->evidence, ...(array) $run->proposals] as $entry) {
+            if (! is_array($entry) || ! is_string($entry['tool'] ?? null) || $entry['tool'] === '' || ($entry['kind'] ?? '') === 'claim') {
+                continue;
+            }
+
+            $id = $entry['tool_call_id'] ?? null;
+            $call = $id === null ? null : ToolCall::whereKey($id)->first(['input', 'status', 'outcome_class', 'error']);
+
+            $out[] = [
+                'tool' => $entry['tool'],
+                'kind' => (string) ($entry['kind'] ?? ''),
+                'arguments_key' => array_key_exists('arguments_key', $entry) ? $entry['arguments_key'] : 'unrecorded',
+                'raw_arguments' => $entry['raw_arguments'] ?? null,
+                'args' => (array) ($entry['args'] ?? []),
+                'expanded_from' => $entry['expanded_from'] ?? null,
+                'tool_call_id' => $id,
+                'gateway_input' => $call === null ? null : (is_array($call->input) ? $call->input : (array) $call->input),
+                'gateway_status' => $call?->status,
+                'outcome_class' => $entry['outcome_class'] ?? $call?->outcome_class,
+                'gateway_error' => $call?->error,
+            ];
+        }
+
+        return $out;
     }
 
     /**

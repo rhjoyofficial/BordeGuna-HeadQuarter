@@ -16,6 +16,7 @@ use App\Ai\Providers\ProviderRegistry;
 use App\Gateway\Credentials\CredentialVault;
 use App\Models\AiModel;
 use App\Models\AiRun;
+use App\Models\AiRunReply;
 use App\Support\Features\Features;
 use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\Log;
@@ -72,6 +73,8 @@ final class ModelRuntime
         private readonly AiBudget $budget,
         private readonly Notifier $notifier,
         private readonly OutputBudget $output,
+        // docs/90 A.1 step 1: the raw structured reply, kept beside the run before anything reads it.
+        private readonly ModelReplyRecorder $replies,
     ) {}
 
     /**
@@ -178,6 +181,7 @@ final class ModelRuntime
 
             if ($raised === null) {
                 $this->recordUsage($run, $request->model, $response);
+                $this->keep($run, $request, $response, $jsonSchema, AiRunReply::KIND_TRUNCATED);
 
                 throw new OutputTruncated(
                     "The model stopped at the output limit ({$response->outputTokens} output tokens against a budget of "
@@ -194,6 +198,7 @@ final class ModelRuntime
 
             if ($response->truncated()) {
                 $this->recordUsage($run, $request->model, $response);
+                $this->keep($run, $request, $response, $jsonSchema, AiRunReply::KIND_TRUNCATED);
 
                 throw new OutputTruncated(
                     "The model stopped at the output limit twice: at the original budget and again at {$raised}. "
@@ -204,11 +209,15 @@ final class ModelRuntime
         }
 
         $data = null;
+        $kind = AiRunReply::KIND_FINAL;
 
         if ($jsonSchema !== null) {
             $check = $this->structured->check($response->json(), $jsonSchema);
 
             if (! $check['valid']) {
+                // The malformed first reply is evidence too: what the model wrote before the repair.
+                $this->keep($run, $request, $response, $jsonSchema, AiRunReply::KIND_INVALID);
+                $kind = AiRunReply::KIND_REPAIRED;
                 // One repair, with the actual validation error handed back. Both calls are billed,
                 // so both are counted on this run.
                 $repairRequest = $request->withMessages(
@@ -222,6 +231,7 @@ final class ModelRuntime
                 // is in the budget.
                 if ($response->truncated()) {
                     $this->recordUsage($run, $request->model, $response);
+                    $this->keep($run, $request, $response, $jsonSchema, AiRunReply::KIND_TRUNCATED);
 
                     throw new OutputTruncated(
                         "The repair reply was stopped at the output limit (budget {$request->maxOutputTokens}).",
@@ -233,6 +243,7 @@ final class ModelRuntime
 
                 if (! $check['valid']) {
                     $this->recordUsage($run, $request->model, $response);
+                    $this->keep($run, $request, $response, $jsonSchema, AiRunReply::KIND_INVALID);
 
                     throw new StructuredOutputFailed('The model did not produce a valid object after one repair: '.$check['message']);
                 }
@@ -242,6 +253,7 @@ final class ModelRuntime
         }
 
         $this->recordUsage($run, $request->model, $response, 'succeeded');
+        $this->keep($run, $request, $response, $jsonSchema, $kind);
 
         return new AiOutcome(
             text: $response->text,
@@ -250,6 +262,19 @@ final class ModelRuntime
             model: $request->model,
             degraded: $run->degraded_from_tier !== null,
         );
+    }
+
+    /**
+     * docs/90 A.1 step 1: a STRUCTURED reply is kept raw beside its run, whatever became of it
+     * (accepted, repaired, rejected, cut off), before the runtime reads a single field. Free-text
+     * calls (a narration) keep nothing here: the evidence this exists for is the tool call a model
+     * wrote and the runtime read.
+     */
+    private function keep(AiRun $run, ModelRequest $request, ModelResponse $response, ?array $jsonSchema, string $kind): void
+    {
+        if ($jsonSchema !== null) {
+            $this->replies->record($run, $request, $response, $kind);
+        }
     }
 
     /**

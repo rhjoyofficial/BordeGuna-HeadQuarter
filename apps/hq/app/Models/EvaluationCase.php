@@ -259,6 +259,31 @@ class EvaluationCase extends Model
         return is_array($value) ? array_values(array_filter($value, 'is_string')) : null;
     }
 
+    /**
+     * docs/90 A.2: the arguments the model must supply, per tool, and that must reach the gateway
+     * exactly as validated: `{tool: {argument: null | scalar | list}}`. Null means present and
+     * non-empty; a scalar must equal; a list must be contained. An empty map for a tool means only
+     * that the call carried an argument payload at all.
+     *
+     * @return array<string, array<string, mixed>>|null
+     */
+    public function expectsArguments(): ?array
+    {
+        $value = $this->expectation['expects_arguments'] ?? null;
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $out = [];
+        foreach ($value as $tool => $wanted) {
+            if (is_string($tool) && $tool !== '' && is_array($wanted)) {
+                $out[$tool] = $wanted;
+            }
+        }
+
+        return $out;
+    }
+
     /** @return list<string> tools this case says must NOT be called, whatever else happens */
     public function forbiddenTools(): array
     {
