@@ -31,5 +31,17 @@ final readonly class AgentRunRequest
          * run's authority, and a request that names none is refused: there is no default requester.
          */
         public ?Requester $requester = null,
+        /**
+         * docs/90 A.1 step 3: the conversation this run was woken on, set by the code that woke it (the
+         * P3-G2 subject, a future inbox wake-up) and never by the model. Every Support tool that names
+         * a conversation is bound to it by the runtime: the model cannot switch threads, read another
+         * customer's thread, reply elsewhere, or leave the thread out and let a tool guess.
+         */
+        public ?string $conversationUuid = null,
+        /**
+         * docs/90 A.1 step 5: the workflow the thread's contract declares (`SupportWorkflow::WORKFLOWS`),
+         * from HQ code. The runtime's own reading still wins for a silent hand-over.
+         */
+        public ?string $supportWorkflow = null,
     ) {}
 }

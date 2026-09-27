@@ -14,6 +14,7 @@ use App\Autonomy\AutonomyResolver;
 use App\Autonomy\Evidence\EvidenceProducer;
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Conversation\SupportWorkflow;
 use App\Execution\EffectiveExecutionContext;
 use App\Execution\ExecutionContextResolver;
 use App\Gateway\CallerKind;
@@ -239,6 +240,7 @@ final class AgentRunner
         private readonly EvidenceProducer $evidence,
         private readonly RoleBoundary $roleBoundary,
         private readonly Auditor $auditor,
+        private readonly SupportWorkflow $supportWorkflow,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -260,6 +262,15 @@ final class AgentRunner
         $correlationId = (string) Str::uuid();
         $catalogue = $this->toolset->catalogueFor($execution);
 
+        // ⭐ docs/90 A.1 steps 3 and 5: a run woken on a thread is bound to that thread, and the runtime
+        //    decides its workflow from the thread's own context before the model is asked. Greeting first
+        //    is enforced structurally: the catalogue the model reads holds the reply tool alone.
+        $workflow = $request->conversationUuid === null ? null
+            : $this->supportWorkflow->decide(array_values(array_filter($request->extraContext, fn ($b) => $b instanceof ContextBlock)), $request->supportWorkflow);
+        if ($workflow?->allowedTools() !== null) {
+            $catalogue = array_values(array_filter($catalogue, fn (array $entry) => in_array($entry['tool'] ?? '', $workflow->allowedTools(), true)));
+        }
+
         $bundle = $this->assembler->open($execution, $request->question, $business, $catalogue);
         foreach ($request->extraContext as $block) {
             if ($block instanceof ContextBlock) {
@@ -278,6 +289,8 @@ final class AgentRunner
             'triggered_by_user_id' => $request->operator?->getKey(),
             'business_id' => $request->businessId,
             'brand_id' => $request->brandId,
+            'conversation_uuid' => $request->conversationUuid,
+            'support_workflow' => $workflow?->toArray(),
             'question' => $request->question,
             'autonomy_level' => $decision->level->value,
             'autonomy_reason' => $decision->boundBy,
@@ -295,6 +308,14 @@ final class AgentRunner
         // Who asked, who enabled, the scopes, the permission names and why anything was narrowed:
         // on the row and in the audit log, before the first model turn.
         $this->contexts->record($run, $execution);
+
+        if ($workflow !== null) {
+            // The bound thread and the workflow, in the audit trail beside the execution context.
+            $this->auditor->recordSystem('agent_run.thread_bound', $run,
+                after: ['conversation_uuid' => $request->conversationUuid] + $workflow->toArray(),
+                reason: 'the run is bound to the thread it was woken on; every tool that names a conversation names this one. Workflow: '.$workflow->reason,
+                correlationId: $correlationId);
+        }
 
         $startedAt = microtime(true);
 
@@ -365,6 +386,11 @@ final class AgentRunner
         //    called. A message asking only for an outbound action the agent's role forbids, or an
         //    offer that names no task, never reaches the model: Gate 11 attempt 2's model answered
         //    both with its standing briefing, and a model that is not asked cannot substitute.
+        // docs/90 A.1 step 5: a silent hand-over is the runtime's decision, made before the model.
+        if ($this->silentHandoverBeforeModel($run)) {
+            return;
+        }
+
         $role = $this->roleBoundary->detect($request->question, $agent->role_key ?? $agent->key);
         if ($this->decidedBeforeModel($run, $request, $bundle, $role)) {
             return;
@@ -674,6 +700,19 @@ final class AgentRunner
     ): array {
         $key = (string) ($call['tool'] ?? '');
         $args = is_array($call['args'] ?? null) ? $call['args'] : [];
+
+        // docs/90 A.1 steps 3 and 5: a thread-bound run names its own thread on every call that names
+        // one, and a greeting-first run names nothing before the reply. Decided by the runtime here,
+        // before the gateway, whatever the model wrote.
+        [$args, $threadRefusal] = $this->bindThread($run, $request, $key, $args, $correlationId);
+        if ($threadRefusal !== null) {
+            return [
+                $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $threadRefusal),
+                ['kind' => 'refused', 'tool' => $key, 'reason' => $threadRefusal, 'why' => $call['why'] ?? null,
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE],
+                $key,
+            ];
+        }
 
         // docs/88 point 12: a call that would perform the part of the message the runtime refused is
         // refused here, whatever the agent holds, before the gateway is asked (which refuses it too).
@@ -1122,6 +1161,88 @@ final class AgentRunner
             .'is refused as a whole, no tool was run, and nothing was done in its place. A question the typed tools can '
             .'answer may be asked on its own, as a new request.'
             .($note !== '' ? ' The agent\'s own note: '.mb_substr($note, 0, 600) : '');
+    }
+
+    /**
+     * docs/90 A.1 step 5: a run whose workflow is a silent hand-over ends here, refused, with zero model
+     * turns. The customer hears nothing from the agent: no protective reply, no reassurance, no
+     * explanation. The thread is a person's now, and the model is never asked. The verdict is recorded
+     * on the run (`support_workflow`) and in the audit trail; the reason names the kind.
+     */
+    private function silentHandoverBeforeModel(AgentRun $run): bool
+    {
+        $workflow = (array) ($run->support_workflow ?? []);
+        if (($workflow['workflow'] ?? null) !== SupportWorkflow::SILENT_HANDOVER) {
+            return false;
+        }
+
+        $run->forceFill([
+            'task' => '',
+            'canonical_task' => '',
+            'task_grounding' => TaskGrounding::NO_TASK_IN_TRUSTED_INPUT,
+            'authority_request' => AgentResponseSchema::AUTHORITY_NONE,
+            'authority_source' => GroundedTask::SOURCE_NONE,
+        ])->save();
+
+        $this->auditor->recordSystem('agent_run.silent_handover', $run, after: $workflow,
+            reason: 'the thread goes to a person in silence ('.($workflow['kind'] ?? 'unknown').'); decided by the runtime before the model was called',
+            correlationId: (string) $run->correlation_id);
+
+        $this->finish($run, 'refused', null, [], [],
+            'The runtime handed this thread to a person without asking the agent: '.($workflow['reason'] ?? 'a silent hand-over')
+            .'. No reply was proposed, no tool was run, and nothing was said to the customer.', 0);
+
+        return true;
+    }
+
+    /**
+     * docs/90 A.1 step 3: the thread a call names is the thread the run was woken on, never one the
+     * model wrote. For a tool whose schema names `conversation_uuid`: bound to the run's thread
+     * (a different one the model wrote is overwritten and recorded); required and no thread bound is
+     * a refusal, never a guess. docs/90 A.1 step 5: under `greeting_first` nothing but the reply tool
+     * may be named. Neither touches a run that is not thread-bound.
+     *
+     * @param  array<string, mixed>  $args
+     * @return array{0: array<string, mixed>, 1: ?string}
+     */
+    private function bindThread(AgentRun $run, AgentRunRequest $request, string $key, array $args, string $correlationId): array
+    {
+        if (! $this->registry->has($key)) {
+            return [$args, null];
+        }
+
+        $workflow = (array) ($run->support_workflow ?? []);
+        $allowed = ($workflow['workflow'] ?? null) === SupportWorkflow::GREETING_FIRST ? [SupportWorkflow::REPLY_TOOL] : null;
+        if ($allowed !== null && ! in_array($key, $allowed, true)) {
+            return [$args, "[{$key}] was refused by the runtime: this thread's workflow is greeting first, so the reply comes first and nothing is read "
+                .'or called before it. Propose the one reply from the thread already in your context. It has not run.'];
+        }
+
+        $schema = $this->registry->get($key)->inputSchema();
+        $names = is_array($schema['properties'] ?? null) && array_key_exists('conversation_uuid', $schema['properties']);
+        if (! $names) {
+            return [$args, null];
+        }
+
+        $bound = $request->conversationUuid;
+        if ($bound === null) {
+            if (in_array('conversation_uuid', (array) ($schema['required'] ?? []), true)) {
+                return [$args, "[{$key}] names a conversation and this run is bound to no thread: the runtime refuses it rather than let a tool guess. It has not run."];
+            }
+
+            return [$args, null];
+        }
+
+        $given = is_string($args['conversation_uuid'] ?? null) ? trim($args['conversation_uuid']) : null;
+        if ($given !== null && $given !== '' && $given !== $bound) {
+            $this->auditor->recordSystem('agent_run.thread_rebinding_refused', $run,
+                before: ['conversation_uuid' => mb_substr($given, 0, 64)], after: ['conversation_uuid' => $bound],
+                reason: "the model named another conversation on [{$key}]; the call is bound to the thread this run was woken on",
+                correlationId: $correlationId);
+        }
+        $args['conversation_uuid'] = $bound;
+
+        return [$args, null];
     }
 
     /**
