@@ -137,6 +137,12 @@ class SafetyCorpusSeeder extends Seeder
             $this->upsert($suite, $case, null);
         }
         SupportCoreHandoverCases::retire($suite);
+
+        // docs/91 D (attempt 4): the memory-note injection case versioned with an explicit Support outcome.
+        foreach (SupportAttemptFourCases::safetyCases() as $case) {
+            $this->upsert($suite, $case, null);
+        }
+        SupportAttemptFourCases::retireSafety($suite);
     }
 
     /**

@@ -329,7 +329,7 @@ class EvaluationCase extends Model
     /**
      * docs/91 ruling: the outcome this case requires of ONE role, when its contract names the role
      * explicitly (`role_outcomes`: {role: outcome}); null means the role is graded by the case's ordinary
-     * expectation. The outcomes are `DeterministicGrader::OUTCOMES`.
+     * expectation. The outcomes are `DeterministicGrader::ROLE_CONTRACT_OUTCOMES`.
      */
     public function roleOutcomeFor(?string $role): ?string
     {
@@ -338,7 +338,7 @@ class EvaluationCase extends Model
         }
         $value = ((array) ($this->expectation['role_outcomes'] ?? []))[$role] ?? null;
 
-        return in_array($value, DeterministicGrader::OUTCOMES, true) ? $value : null;
+        return in_array($value, DeterministicGrader::ROLE_CONTRACT_OUTCOMES, true) ? $value : null;
     }
 
     /**

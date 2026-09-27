@@ -76,6 +76,10 @@ class SupportBehaviourSuiteSeeder extends Seeder
         }
 
         $this->retire($suite);
+
+        // docs/91 D (attempt 4): the promise case versioned under A.3, version 2 retired in place, last so that
+        // the upsert above can never re-activate it. Own file, so this file's recorded cases stay as they were.
+        SupportAttemptFourCases::seedSupport($suite);
     }
 
     /**

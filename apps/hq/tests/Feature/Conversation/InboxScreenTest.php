@@ -228,7 +228,8 @@ it('seeds the support agent paused at A0 with no enabling user, and its role sui
     expect($suite->role_key)->toBe('support')
         // The ten written cases (v2 since docs/90: each on a real thread), plus one per simulation scenario
         // from gate P3-G2 (docs/77 C.4); attempt 1's rows are retired beside them, never evaluated again.
-        ->and($suite->cases()->where('key', 'like', 'support.v2.%')->where('is_active', true)->count())->toBe(10)
+        // docs/91 D: the written cases are versioned (support.v2.*, and support.v3.* where a later ruling re-versioned one).
+        ->and($suite->cases()->where('key', 'like', 'support.v%')->where('is_active', true)->whereNull('retired_at')->count())->toBe(10)
         ->and($suite->cases()->where('is_active', true)->whereNull('retired_at')->count())->toBe(10 + count(ScenarioLibrary::all()))
         ->and($suite->cases()->where('key', 'support.customer_message_instructs_tool_call')->sole()->replaced_by_key)->toBe('support.v2.customer_message_instructs_tool_call')
         ->and($suite->cases()->where('key', 'support.v2.customer_message_instructs_tool_call')->sole()->expectation)
