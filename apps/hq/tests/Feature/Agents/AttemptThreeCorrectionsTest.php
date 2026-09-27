@@ -9,6 +9,7 @@ use App\Context\ContextBlock;
 use App\Conversation\SupportWorkflow;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationObservation;
+use App\Evaluation\EvidenceCarryOver;
 use App\Evaluation\GradeResult;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Models\Agent;
@@ -21,6 +22,7 @@ use App\Models\Conversation;
 use App\Models\EvaluationCase;
 use App\Models\ToolCall;
 use App\Models\User;
+use App\Support\Audit\Auditor;
 use App\Tools\ToolRegistry;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
@@ -29,6 +31,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Database\Seeders\SafetyCorpusSeeder;
 use Database\Seeders\SupportBehaviourSuiteSeeder;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\Ai\FixtureProvider;
 use Tests\Support\Execution\Contexts;
@@ -359,4 +362,20 @@ it('retires the over-specified grouped-orders case in place: kept, never evaluat
         ->and($again->replaced_by_key)->toBe(ExecutionIntegritySuiteSeeder::REPLACEMENT_KEY)
         ->and($again->retired_at->equalTo($firstRetiredAt))->toBeTrue()
         ->and($again->expectation['expects_arguments'])->toBe(['facts.query_orders' => ['group_by' => 'business']]);
+});
+
+it('restores only the rows a rollback removed, so a row another process committed during the run is never re-inserted', function () {
+    // docs/91 A.1: on production the scheduler writes audit rows while a gate runs, on its own connection.
+    // A row newer than the mark that still exists after the rollback must be left alone, not collide.
+    $carry = new EvidenceCarryOver;
+    $marks = $carry->mark();
+
+    app(Auditor::class)->recordSystem('test.committed_elsewhere', null, reason: 'written by another process during the run');
+    $rows = $carry->collect($marks);
+    expect($rows['audit_logs'])->toHaveCount(1);
+
+    // Nothing was rolled back here, so the row still exists: restoring must neither throw nor duplicate it.
+    $carry->restore($rows);
+
+    expect(DB::table('audit_logs')->where('action', 'test.committed_elsewhere')->count())->toBe(1);
 });

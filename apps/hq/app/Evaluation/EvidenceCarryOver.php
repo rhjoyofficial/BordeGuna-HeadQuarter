@@ -70,7 +70,12 @@ final class EvidenceCarryOver
                     $approvalLinks[$row['id']] = $row['approval_id'];
                     $row['approval_id'] = null;
                 }
-                DB::table($table)->insert($row);
+                // ⛔ Only a row the rollback removed goes back. On production other processes write these
+                //    tables while a gate runs (the scheduler ticks every minute: tool calls, audit rows) and
+                //    commit on their own connections, so a row newer than the mark may still exist after the
+                //    rollback. Re-inserting it would collide on its id and end the gate mid-run; skipping it
+                //    is exact, because it was never lost (ON CONFLICT DO NOTHING on the primary key).
+                DB::table($table)->insertOrIgnore($row);
             }
         }
         foreach ($approvalLinks as $toolCallId => $approvalId) {
