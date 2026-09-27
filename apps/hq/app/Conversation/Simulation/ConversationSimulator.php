@@ -178,6 +178,9 @@ final class ConversationSimulator
                         'attachments' => count((array) data_get($m->metadata, 'attachments', [])),
                     ])->values()->all(),
                 'context' => $conversation === null ? [] : SupportContext::asData($this->support->blocksFor($conversation)),
+                // docs/91 ruling on the operator-analysis case: when the core handed the thread to a person
+                // before the agent was asked, the transition it audited, read while it still exists.
+                'core_handover' => $this->coreHandover($conversation),
             ];
 
             $out = $work($thread);
@@ -188,6 +191,35 @@ final class ConversationSimulator
             DB::rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * The core's own hand-over of this thread to a person, as it audited it (`conversation.state_changed`
+     * to `human_required`, with the escalation reason), or null when the thread was not handed over. Read
+     * inside the transaction, before the rollback removes the fixture and the row with it.
+     *
+     * @return array{audit_id: int, reason: ?string, from: ?string, to: string}|null
+     */
+    private function coreHandover(?Conversation $conversation): ?array
+    {
+        if ($conversation === null) {
+            return null;
+        }
+
+        $row = AuditLog::query()
+            ->where('action', 'conversation.state_changed')
+            ->where('target_type', $conversation->getMorphClass())
+            ->where('target_id', (string) $conversation->getKey())
+            ->orderByDesc('id')
+            ->get()
+            ->first(fn (AuditLog $a) => (((array) $a->after)['to'] ?? null) === ConversationState::HumanRequired->value);
+
+        return $row === null ? null : [
+            'audit_id' => (int) $row->id,
+            'reason' => $row->reason,
+            'from' => ((array) $row->after)['from'] ?? null,
+            'to' => ConversationState::HumanRequired->value,
+        ];
     }
 
     /** One scenario, inside whatever transaction the caller holds. */

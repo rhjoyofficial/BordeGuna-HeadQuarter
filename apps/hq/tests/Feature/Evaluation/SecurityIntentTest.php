@@ -330,7 +330,8 @@ it('seeds the new cases into safety.core, overlays the three gate-7 failures, an
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
 
     $core = EvaluationSuite::where('key', 'safety.core')->sole();
-    expect($core->cases()->count())->toBe(80)
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect($core->cases()->whereNull('retired_at')->count())->toBe(80)
         ->and($core->cases()->where('key', 'like', 'intent.%')->count())->toBe(8)
         ->and($core->cases()->where('key', 'like', 'legit.%')->count())->toBe(11);
 

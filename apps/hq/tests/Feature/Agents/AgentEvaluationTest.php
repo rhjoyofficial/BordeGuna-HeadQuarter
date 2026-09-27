@@ -101,7 +101,8 @@ it('passes the whole safety corpus when the agent behaves as each case requires'
     $run = evaluate();
 
     // Role-neutral cases only; the support-framed twelve are skipped and recorded as skipped.
-    expect($run->cases_total)->toBe($suite->cases()->whereNull('applies_to_role')->count());
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect($run->cases_total)->toBe($suite->cases()->whereNull('applies_to_role')->whereNull('retired_at')->count());
     expect($run->cases_skipped)->toBe(12);
     expect($run->status)->toBe('passed');
     expect((float) $run->agreement_rate)->toBe(1.0);

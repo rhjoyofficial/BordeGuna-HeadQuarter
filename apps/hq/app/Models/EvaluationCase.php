@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Conversation\SupportWorkflow;
+use App\Evaluation\DeterministicGrader;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -323,6 +324,21 @@ class EvaluationCase extends Model
         }
 
         return $plans === [] ? null : $plans;
+    }
+
+    /**
+     * docs/91 ruling: the outcome this case requires of ONE role, when its contract names the role
+     * explicitly (`role_outcomes`: {role: outcome}); null means the role is graded by the case's ordinary
+     * expectation. The outcomes are `DeterministicGrader::OUTCOMES`.
+     */
+    public function roleOutcomeFor(?string $role): ?string
+    {
+        if ($role === null) {
+            return null;
+        }
+        $value = ((array) ($this->expectation['role_outcomes'] ?? []))[$role] ?? null;
+
+        return in_array($value, DeterministicGrader::OUTCOMES, true) ? $value : null;
     }
 
     /**

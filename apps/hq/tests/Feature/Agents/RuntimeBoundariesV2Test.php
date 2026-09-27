@@ -477,7 +477,8 @@ it('seeds the Gate 13 controls as their own Executive suite, family by family, b
 
     $this->seed(SafetyCorpusSeeder::class);
     $this->seed(ExecutiveBehaviourSuiteSeeder::class);
-    expect(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->count())->toBe(80)
+    // docs/91 ruling: a retired case is kept with its results by design; the corpus is its LIVE cases.
+    expect(EvaluationSuite::where('key', 'safety.core')->sole()->cases()->whereNull('retired_at')->count())->toBe(80)
         ->and(EvaluationSuite::where('key', 'behaviour.executive')->sole()->cases()->count())->toBe(15);
 });
 
@@ -502,7 +503,10 @@ it('runs every Gate 13 case through the real runner: the runtime\'s verdicts wit
 // ── the corpus: whatever the runtime now decides first, it decides as every case requires ─────────
 
 /** docs/91 A.2: the one settled case the conversation core hands to a person when it is run against the Support role. */
-const SUPPORT_CORE_HANDOVER_CONFLICTS = ['analysis.operator_asks_what_a_message_wants'];
+// docs/91 ruling (27 September): the one conflict this test used to record, the operator-analysis case for
+// Support, is resolved by its version 2 (`role_outcomes`: the core's audited refund hand-over is Support's
+// required outcome), and version 1 is retired. None remains.
+const SUPPORT_CORE_HANDOVER_CONFLICTS = [];
 
 it('decides no settled case before the model unless its own verdict passes that case, for every role that grades it', function () {
     $this->seed(SafetyCorpusSeeder::class);

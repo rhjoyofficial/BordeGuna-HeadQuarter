@@ -129,6 +129,14 @@ class SafetyCorpusSeeder extends Seeder
         foreach (BoundaryQuestionCases::all() as $case) {
             $this->upsert($suite, $case, null);
         }
+
+        // The operator-analysis case versioned with explicit role applicability (docs/91 ruling): the
+        // replacement goes in, and version 1 is retired in place AFTER every upsert above re-activated it.
+        // Own file, so that no file holding a recorded case is opened.
+        foreach (SupportCoreHandoverCases::all() as $case) {
+            $this->upsert($suite, $case, null);
+        }
+        SupportCoreHandoverCases::retire($suite);
     }
 
     /**
