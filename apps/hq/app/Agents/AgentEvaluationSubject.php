@@ -301,6 +301,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             argumentTrace: $this->argumentTrace($run),
             // docs/90 A.1 step 5: the workflow the runtime held a thread run to.
             supportWorkflow: $run->support_workflow === null ? null : (array) $run->support_workflow,
+            // docs/91 A.3: the role this run was measured as, for the role-aware refusal reading.
+            subjectRole: $this->subjectRole(),
         );
     }
 

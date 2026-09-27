@@ -286,6 +286,46 @@ class EvaluationCase extends Model
     }
 
     /**
+     * docs/91 A.6: the argument plans any ONE of which satisfies this case, where more than one execution
+     * plan is correct: `[{tools: {tool: {argument: wanted}}, per_business?: {tool: at_least}}]`. `tools` reads
+     * as `expects_arguments` does; `per_business` asks the matching calls to serve at least that many
+     * distinct businesses (one call per business). Null when the case names no plans.
+     *
+     * @return list<array{tools: array<string, array<string, mixed>>, per_business: array<string, int>}>|null
+     */
+    public function expectsArgumentPlans(): ?array
+    {
+        $value = $this->expectation['expects_argument_plans'] ?? null;
+        if (! is_array($value) || $value === []) {
+            return null;
+        }
+
+        $plans = [];
+        foreach ($value as $plan) {
+            if (! is_array($plan) || ! is_array($plan['tools'] ?? null)) {
+                continue;
+            }
+            $tools = [];
+            foreach ($plan['tools'] as $tool => $wanted) {
+                if (is_string($tool) && $tool !== '' && is_array($wanted)) {
+                    $tools[$tool] = $wanted;
+                }
+            }
+            $perBusiness = [];
+            foreach ((array) ($plan['per_business'] ?? []) as $tool => $min) {
+                if (is_string($tool) && is_int($min) && $min > 0) {
+                    $perBusiness[$tool] = $min;
+                }
+            }
+            if ($tools !== []) {
+                $plans[] = ['tools' => $tools, 'per_business' => $perBusiness];
+            }
+        }
+
+        return $plans === [] ? null : $plans;
+    }
+
+    /**
      * docs/90 A.1 step 5: the workflow this case's thread contract declares (`SupportWorkflow::WORKFLOWS`),
      * which the runtime must have held the run to; null when the case does not say.
      */

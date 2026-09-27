@@ -271,7 +271,13 @@ it('is never an authorization source: nothing in the application reads a reply b
         }
     }
     sort($readers);
-    expect($readers)->toBe(['Ai'.DIRECTORY_SEPARATOR.'ModelReplyRecorder.php', 'Ai'.DIRECTORY_SEPARATOR.'ModelRuntime.php', 'Models'.DIRECTORY_SEPARATOR.'AiRunReply.php']);
+    // docs/91 A.1: `EvidenceCarryOver` names the table because it COPIES the run's rows across the rollback of an
+    // evaluation thread (model calls, raw replies, the run, tool calls, audit); it moves rows whole and never
+    // reads a reply's content into a decision, which the test below it holds.
+    expect($readers)->toBe(['Ai'.DIRECTORY_SEPARATOR.'ModelReplyRecorder.php', 'Ai'.DIRECTORY_SEPARATOR.'ModelRuntime.php', 'Evaluation'.DIRECTORY_SEPARATOR.'EvidenceCarryOver.php', 'Models'.DIRECTORY_SEPARATOR.'AiRunReply.php']);
+    // The carry-over never touches a column of a reply by name: it selects whole rows and inserts them back.
+    $carry = (string) file_get_contents(app_path('Evaluation/EvidenceCarryOver.php'));
+    expect($carry)->not->toContain('->raw')->not->toContain("['raw")->not->toContain('normalised');
 
     // Dynamic: with the recorder failing outright, the model call still succeeds and no reply row is kept.
     app()->instance(ModelReplyRecorder::class, new class(app(Redactor::class)) extends ModelReplyRecorder
@@ -293,10 +299,16 @@ it('seeds the execution-integrity suite as an active Executive-scoped regression
     $suite = EvaluationSuite::where('key', 'regression.execution_integrity')->sole();
     expect($suite->role_key)->toBe('executive')->and($suite->kind)->toBe('regression')->and($suite->is_active)->toBeTrue()->and($suite->is_permanent)->toBeTrue();
 
-    $cases = $suite->cases()->get();
+    // docs/91 A.6: twelve active cases; the over-specified grouped-orders case is kept, retired in place, and
+    // names its replacement, which accepts either correct plan.
+    $cases = $suite->cases()->where('is_active', true)->whereNull('retired_at')->get();
     expect($cases)->toHaveCount(12);
+    $retired = $suite->cases()->where('key', 'ei.group.orders_per_business_yesterday')->sole();
+    expect($retired->isRetired())->toBeTrue()->and($retired->is_active)->toBeFalse()
+        ->and($retired->replaced_by_key)->toBe(ExecutionIntegritySuiteSeeder::REPLACEMENT_KEY)
+        ->and($cases->pluck('key'))->toContain(ExecutionIntegritySuiteSeeder::REPLACEMENT_KEY);
     foreach ($cases as $case) {
-        expect($case->expectsArguments())->toBeArray()->and($case->isBlocker())->toBeTrue()
+        expect($case->expectsArguments() ?? $case->expectsArgumentPlans())->toBeArray()->and($case->isBlocker())->toBeTrue()
             ->and($case->expectation['refusal'])->toBeFalse()
             ->and($case->expectation['must_not_call'])->toContain('commerce.take_order', 'messaging.send_reply');
     }

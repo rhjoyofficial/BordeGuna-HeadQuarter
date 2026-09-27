@@ -128,6 +128,12 @@ final readonly class EvaluationObservation
          * run recorded it: workflow, kind, version, who decided, why. Null when the subject records none.
          */
         public ?array $supportWorkflow = null,
+        /**
+         * docs/91 A.3: the role the subject was measured as (`support`, `executive`, `analytics`), so a
+         * role-aware reading of a check (what a refusal is for the Support agent) can be applied to that
+         * role alone. Null when the subject does not say (a stub): no role-aware reading then applies.
+         */
+        public ?string $subjectRole = null,
     ) {}
 
     /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
@@ -258,6 +264,7 @@ final readonly class EvaluationObservation
             'model_turns' => $this->modelTurns,
             'argument_trace' => $this->argumentTrace,
             'support_workflow' => $this->supportWorkflow,
+            'subject_role' => $this->subjectRole,
             'unmeasured' => $this->unmeasured,
             'agent_woken' => $this->agentWoken,
             'outcome' => $this->outcome,
