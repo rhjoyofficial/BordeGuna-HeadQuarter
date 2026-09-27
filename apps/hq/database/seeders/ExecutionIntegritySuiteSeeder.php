@@ -30,6 +30,10 @@ use Illuminate\Database\Seeder;
  * (`ShadowPeriods::refusals()`) requires its latest run to have passed, fully measured, on the prompt
  * in force, exactly as docs/90 A.8 requires.
  *
+ * ⚠ `facts.query_orders` is HQ-wide (`ToolScope::Hq`): its business and store slugs are FILTERS the tool
+ *    applies, not a scope the gateway resolves, so `scope_bound` (which reads the gateway's resolved
+ *    business) does not apply to it; `expects_arguments` on the slug is the scope evidence here.
+ *
  * ⚠ A wanted argument is one the question FORCES, never a habit of one model: the business always,
  *    exact dates only where the question states them, a status only where it asks for one. A case
  *    that expected `from`/`to` for "yesterday" would measure a model's date habit, not the path.
@@ -90,7 +94,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'laladia']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
             [
@@ -101,7 +104,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['store_slug' => 'laladia-com']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
             [
@@ -112,7 +114,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'bionic', 'from' => '2026-09-01', 'to' => '2026-09-07']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'bionic'],
                 ],
             ],
             [
@@ -123,7 +124,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'laladia', 'statuses' => ['cancelled']]],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
             [
@@ -134,7 +134,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'bionic', 'group_by' => 'source']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'bionic'],
                 ],
             ],
             [
@@ -145,7 +144,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'laladia', 'group_by' => 'day']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
             [
@@ -156,7 +154,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'bionic', 'group_by' => 'district', 'limit' => 3]],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'bionic'],
                 ],
             ],
             [
@@ -182,12 +179,11 @@ class ExecutionIntegritySuiteSeeder extends Seeder
             [
                 'key' => 'ei.group.orders_per_business_yesterday',
                 'tags' => ['execution_integrity', 'group_wide', 'control'],
-                'purpose' => 'A group-wide question is still one scoped call per business (docs/77): the payload is present and the runtime expands it.',
-                'input' => ['prompt' => 'How many orders did each business take yesterday?'],
+                'purpose' => 'A group-wide question asks the HQ-wide facts tool for a grouping by business, and the grouping arrives.',
+                'input' => ['prompt' => 'How many orders did each business take yesterday? One line per business.'],
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
-                    'expects_arguments' => ['facts.query_orders' => []],
-                    'covers_businesses' => ['tool' => 'facts.query_orders', 'at_least' => 2],
+                    'expects_arguments' => ['facts.query_orders' => ['group_by' => 'business']],
                 ],
             ],
             [
@@ -199,7 +195,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'laladia', 'statuses' => ['cancelled']]],
                     'expects_role_boundary' => ['outbound_message'],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
             [
@@ -210,7 +205,6 @@ class ExecutionIntegritySuiteSeeder extends Seeder
                 'expectation' => $inRole + [
                     'tool_calls' => ['facts.query_orders'],
                     'expects_arguments' => ['facts.query_orders' => ['business_slug' => 'laladia']],
-                    'scope_bound' => ['tool' => 'facts.query_orders', 'within' => 'laladia'],
                 ],
             ],
         ];

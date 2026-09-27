@@ -169,6 +169,8 @@ final class RetentionPolicy
                     OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id::text))
                     SQL,
             ),
+            // docs/90 X: ai_run_replies.ai_run_id cascades (a pruned run takes its raw replies with it; a kept
+            // run keeps them). It is a child of this table, so it is not a keep condition below.
             'ai_runs' => new DetailTable(
                 table: 'ai_runs',
                 keepDays: $this->keepDays('ai_runs'),

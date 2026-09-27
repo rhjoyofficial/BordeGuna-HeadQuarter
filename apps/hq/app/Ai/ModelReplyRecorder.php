@@ -28,7 +28,7 @@ use Throwable;
  *    call, and losing the evidence is bad, but turning a good reply into a failed run because the
  *    evidence table was unavailable would be worse. The failure is logged and the call goes on.
  */
-final class ModelReplyRecorder
+class ModelReplyRecorder
 {
     public function __construct(private readonly Redactor $redactor) {}
 

@@ -1,16 +1,20 @@
 <?php
 
+use App\Agents\AgentEvaluationSubject;
 use App\Agents\AgentResponseSchema;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
 use App\Agents\Shadow\ShadowPeriods;
+use App\Ai\ModelReplyRecorder;
 use App\Ai\ModelTier;
+use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ModelResponse;
 use App\Ai\ToolCalls\ToolCallNormaliser;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationObservation;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\GradeResult;
+use App\Gateway\Redaction\Redactor;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\AiRun;
@@ -124,7 +128,8 @@ it('delivers a business, a status filter and a grouping written under [arguments
     // The record on the run says what the model wrote and under which key, beside what HQ read.
     $evidence = collect($run->evidence)->firstWhere('kind', 'evidence');
     expect($evidence['arguments_key'])->toBe('arguments')
-        ->and($evidence['args'])->toBe(['business_slug' => 'laladia', 'statuses' => ['cancelled'], 'group_by' => 'day']);
+        ->and($evidence['args'])->toEqual(['business_slug' => 'laladia', 'statuses' => ['cancelled'], 'group_by' => 'day'])
+        ->and($evidence['raw_arguments'])->toEqual($evidence['args']);
 });
 
 it('delivers a stated date range to the tool exactly as written', function () {
@@ -141,16 +146,16 @@ it('delivers a stated date range to the tool exactly as written', function () {
 it('refuses a call the model wrote with no payload at all, naming the missing argument, and never fills the business in for it', function () {
     // A group-wide question: before docs/90 this call was expanded to one call per business with
     // `{business_slug}` as its whole payload, which is exactly what P3-G2 measured.
-    $run = xAsk('How many orders did each business take yesterday?', [
-        'tool' => 'facts.query_orders',
+    $run = xAsk('Read me the ERP overview for each business that has one.', [
+        'tool' => 'erp.read_snapshot',
         'why' => 'the read',
     ]);
 
-    $calls = ToolCall::where('tool_key', 'facts.query_orders')->get();
+    $calls = ToolCall::where('tool_key', 'erp.read_snapshot')->get();
     expect($calls)->toHaveCount(1)
         ->and($calls[0]->status)->not->toBe('succeeded')
         ->and($calls[0]->outcome_class)->toBe('scope_denied')
-        ->and($calls[0]->input)->not->toHaveKey('business_slug');
+        ->and((array) $calls[0]->input)->not->toHaveKey('business_slug');
 
     $refused = collect($run->proposals)->where('kind', 'refused')->values();
     expect($refused)->toHaveCount(1)
@@ -158,18 +163,19 @@ it('refuses a call the model wrote with no payload at all, naming the missing ar
 });
 
 it('still expands a call whose payload is present and names no business on a group-wide task, one call per business (docs/77)', function () {
-    $run = xAsk('How many orders did each business take yesterday?', [
-        'tool' => 'facts.query_orders',
-        'arguments' => [],
+    $run = xAsk('Read me the ERP overview for each business that has one.', [
+        'tool' => 'erp.read_snapshot',
+        'arguments' => ['kind' => 'overview'],
         'why' => 'the read',
     ]);
 
-    expect($run->status)->toBe('answered');
-    $slugs = ToolCall::where('tool_key', 'facts.query_orders')->get()->map(fn ($c) => $c->input['business_slug'])->sort()->values()->all();
+    $slugs = ToolCall::where('tool_key', 'erp.read_snapshot')->get()->map(fn ($c) => $c->input['business_slug'] ?? null)->filter()->unique()->values()->all();
     expect(count($slugs))->toBeGreaterThanOrEqual(2);
 
-    $evidence = collect($run->evidence)->where('kind', 'evidence')->values();
-    expect($evidence[0]['expanded_from'])->toBe('unscoped')->and($evidence[0]['arguments_key'])->toBe('arguments');
+    $rows = collect([...$run->evidence, ...$run->proposals])->filter(fn ($e) => ($e['tool'] ?? null) === 'erp.read_snapshot')->values();
+    expect($rows[0]['expanded_from'])->toBe('unscoped')
+        ->and($rows[0]['arguments_key'])->toBe('arguments')
+        ->and($rows[0]['args']['kind'])->toBe('overview');
 });
 
 it('refuses a malformed required argument with the validator\'s exact reason and invents no default', function () {
@@ -183,7 +189,11 @@ it('refuses a malformed required argument with the validator\'s exact reason and
         ->and($call->outcome_class)->toBe('invalid_arguments')
         ->and((string) $call->error)->toContain('limit');
     expect(ToolCall::where('tool_key', 'facts.query_orders')->where('status', 'succeeded')->count())->toBe(0);
-    expect($run->status)->not->toBe('answered');
+
+    $refused = collect($run->proposals)->where('kind', 'refused')->values();
+    expect($refused)->toHaveCount(1)
+        ->and($refused[0]['outcome_class'])->toBe('invalid_arguments')
+        ->and($refused[0]['args']['limit'])->toBe('three');
 });
 
 // ── The raw reply, kept beside the run ─────────────────────────────────────────────────────────
@@ -210,8 +220,10 @@ it('keeps the raw structured reply beside every agent turn, with the normalised 
         // The words as written: the model's own key, not HQ's.
         ->and($first->raw_text)->toContain('"arguments"')
         ->and($first->raw_json['tool_calls'][0]['arguments']['statuses'])->toBe(['cancelled'])
+        // raw_text keeps the model's own key ORDER too; jsonb columns do not.
+        ->and(strpos($first->raw_text, '"business_slug"'))->toBeLessThan(strpos($first->raw_text, '"statuses"'))
         // The reading, kept apart, in HQ's shape.
-        ->and($first->normalised['tool_calls'][0]['args'])->toBe(['business_slug' => 'laladia', 'statuses' => ['cancelled']])
+        ->and($first->normalised['tool_calls'][0]['args'])->toEqual(['business_slug' => 'laladia', 'statuses' => ['cancelled']])
         ->and($first->normalised['tool_calls'][0]['arguments_key'])->toBe('arguments');
 
     expect($aiRuns[0]->fresh()->output_ref)->toBe('ai_run_reply:'.$first->id)
@@ -252,17 +264,25 @@ it('is never an authorization source: nothing in the application reads a reply b
             continue;
         }
         $source = file_get_contents($file->getPathname());
-        if (str_contains($source, 'AiRunReply') || str_contains($source, 'ai_run_replies')) {
+        // A use of the model, or the table named in a query string; a comment that names the table (the
+        // retention policy's note that it cascades) is not a reader.
+        if (str_contains($source, 'AiRunReply') || preg_match('/["\']ai_run_replies["\']/', $source) === 1) {
             $readers[] = str_replace(app_path().DIRECTORY_SEPARATOR, '', $file->getPathname());
         }
     }
     sort($readers);
     expect($readers)->toBe(['Ai'.DIRECTORY_SEPARATOR.'ModelReplyRecorder.php', 'Ai'.DIRECTORY_SEPARATOR.'ModelRuntime.php', 'Models'.DIRECTORY_SEPARATOR.'AiRunReply.php']);
 
-    // Dynamic: with the evidence table gone, the model call still succeeds.
-    \Illuminate\Support\Facades\Schema::drop('ai_run_replies');
+    // Dynamic: with the recorder failing outright, the model call still succeeds and no reply row is kept.
+    app()->instance(ModelReplyRecorder::class, new class(app(Redactor::class)) extends ModelReplyRecorder
+    {
+        public function record(AiRun $run, ModelRequest $request, ModelResponse $response, string $kind): ?AiRunReply
+        {
+            throw new RuntimeException('the evidence store is unavailable');
+        }
+    });
     $run = xAsk('How did LaLaDia do yesterday?', ['tool' => 'facts.snapshot_freshness', 'arguments' => ['business_slug' => 'laladia']]);
-    expect($run->status)->toBe('answered');
+    expect($run->status)->toBe('answered')->and(AiRunReply::count())->toBe(0);
 });
 
 // ── The Executive Execution-Integrity Check ────────────────────────────────────────────────────
@@ -335,7 +355,7 @@ it('runs the execution-integrity suite through the real runner and records the a
     ]);
 
     $run = app(EvaluationRunner::class)->withGrader(new DeterministicGrader)
-        ->run($suite, new \App\Agents\AgentEvaluationSubject(app(AgentRunner::class), 'executive'), ['agent_key' => 'executive', 'triggered_by' => 'test']);
+        ->run($suite, new AgentEvaluationSubject(app(AgentRunner::class), 'executive'), ['agent_key' => 'executive', 'triggered_by' => 'test']);
 
     expect($run->status)->toBe('passed')->and($run->cases_passed)->toBe(2)->and($run->check_rates['argument_fidelity']['passed'])->toBe(2);
 

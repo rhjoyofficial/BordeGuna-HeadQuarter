@@ -791,8 +791,8 @@ final class AgentRunner
 
     /**
      * docs/90 A.1 step 2: which key the model wrote its arguments under (null when it wrote none), and
-     * the payload as written when it differs from what the runner read, so a record on the run says
-     * what the model produced and not only what HQ made of it. Absent on a call the runtime made for
+     * the payload as written, so a record on the run says what the model produced and not only what
+     * HQ made of it. Absent on a call the runtime made for
      * itself (an expansion carries its parent's key).
      *
      * @param  array<string, mixed>  $call
@@ -804,12 +804,8 @@ final class AgentRunner
             return [];
         }
 
-        $out = ['arguments_key' => $call['arguments_key']];
-        if (($call['raw_arguments'] ?? null) !== ($call['args'] ?? null) && ($call['raw_arguments'] ?? null) !== null) {
-            $out['raw_arguments'] = $call['raw_arguments'];
-        }
-
-        return $out;
+        // Always both, so a trace reads raw -> read -> validated without inferring the first from the second.
+        return ['arguments_key' => $call['arguments_key'], 'raw_arguments' => $call['raw_arguments'] ?? null];
     }
 
     /**

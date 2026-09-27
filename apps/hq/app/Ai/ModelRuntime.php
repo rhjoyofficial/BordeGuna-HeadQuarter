@@ -272,8 +272,14 @@ final class ModelRuntime
      */
     private function keep(AiRun $run, ModelRequest $request, ModelResponse $response, ?array $jsonSchema, string $kind): void
     {
-        if ($jsonSchema !== null) {
+        if ($jsonSchema === null) {
+            return;
+        }
+        try {
             $this->replies->record($run, $request, $response, $kind);
+        } catch (Throwable $e) {
+            // Evidence lost is reported; the call it is evidence about is not failed for it.
+            report($e);
         }
     }
 
