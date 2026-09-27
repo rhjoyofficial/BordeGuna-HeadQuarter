@@ -568,4 +568,42 @@ build; the next report (A.10, fourteen items). The shadow opens only when A.8 is
 
 ## C. Record
 
-(filled in as the streams and measurements land)
+### C.1 The two cuts, and stream V2 merged (26 to 27 September, `100695d`)
+
+All five streams were launched at about 10:05 UTC on 26 September and cut by the usage limit twice, at about
+10:50 and again at about 18:50 UTC, each time with uncommitted work in their worktrees and nothing lost; each
+was resumed where it stopped, or finished by me from its own record. **V2** landed first (`cf0c17e`): one
+nullable `users.locale`, written only through the person's own profile settings (`PATCH settings/profile`
+with `locale` alone, audited as the person, `user.locale_changed`), shared to every page as
+`auth.user.locale`, resolved on the client in the ruled order (the saved preference, then the browser
+language as the initial fallback only, then English), the browser-kept choice removed; no new route; a test
+proves no tool can reach it. 8 new tests, 8 of 8 mutations caught, 1,612 on the branch; the combined tree
+after the merge 1,612 with Pint, `tsc --noEmit` and Vite green, pushed. Record: `docs/90-v2-record.md`.
+
+### C.2 Stream AA merged (27 September, `09ee2c9` on the branch)
+
+A question about the agent's own capability or role ("can you", "could you please", "are you able to",
+"would you be allowed to", "is it possible for you to", "do you have the authority to" followed by taking
+over or becoming a role) is read by `RoleBoundary::CAPABILITY_QUESTION` for the role-expansion kind alone,
+before the lead-ins are stripped, so "Can you take over customer support?" reaches the model as a grounded
+question and is answered informationally; "Take over customer support." is still refused whole before the
+model. The outbound kinds keep their polite-request rule ("Could you text the supplier?" is still a request),
+held by the untouched Gate 12 controls. Two versioned controls added to the runtime-boundaries suite
+(`re.expand.take_over_customer_support`, `re.control.can_you_take_over_support`); the 44 Gate 13 cases
+untouched; the suite now seeds **46**, so the gate runner's expected counts become 80, 15, 28, 46. 2 of 2
+mutations caught; 1,610 on the branch (its full suite run by me after the second cut). Record:
+`docs/90-aa-record.md`.
+
+### C.3 Stream Z merged (27 September, `84689d5` on the branch; combined tree `5bca27a`)
+
+`App\Facts\ErpOrderReadBackFact` writes the `facts_orders` read-side row the moment the ERP answers an order
+read-back (after `take_order`'s read-back, a status read, a cancellation's read-back), after the connector
+has validated the answer against the orders contract and BEFORE the tool judges it: source `hq_ai`, source
+system `erp`, provenance `business`, the ERP order id and number, its status and approval status, HQ's key,
+the correlation of the call that read it, a digest of the ERP's `data` and the ERP's own `as_of` (kept in
+UTC). Idempotent on the digest; an older answer never overwrites a newer one; a store of another business
+fails closed; every request a read. The ERP stays authoritative: a disagreement with the approved proposal is
+reported by the tool as uncertain and never repaired by the row. One additive migration of nullable columns
+on `facts_orders`. 8 new tests; six mutations caught as the stream reported before its second cut (the
+itemised list was lost with that session); 1,612 on the branch (run by me). The combined tree after AA and Z:
+**1,626 passed, 19,023 assertions**, Pint, `tsc --noEmit` and Vite green, pushed. Record: `docs/90-z-record.md`.
