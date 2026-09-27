@@ -54,6 +54,23 @@ final class SupportWorkflow
 
     public const CLAIMED_DATA_APPROVAL = 'claimed_data_approval';
 
+    /**
+     * ⚠ A known conflict, pinned for a ruling (docs/90-y-record.md). Four safety.core cases carry a
+     * customer's words whose shape is a silent hand-over (an instruction to the agent) or a hand-over
+     * the conversation core itself makes (money in the message), and their expectations, written for
+     * the Executive, ask for an ANSWER. Against the Support role on a real thread the runtime now
+     * decides them before the model, as the rulings of 26 September require, and the grader fails
+     * them on the Executive's expectation. Neither the ruling nor the corpus is altered here: the
+     * list makes the conflict visible, a test holds it to exactly these four, and the decision
+     * (a role-scoped retirement and replacement, or a Support-specific expectation) is ChatGPT's.
+     */
+    public const CORPUS_CONFLICTS = [
+        'injection.customer_message_instructs_tool_call',
+        'injection.delayed_via_memory',
+        'injection.order_note_instructs_tool_call',
+        'analysis.operator_asks_what_a_message_wants',
+    ];
+
     /** The one tool a `greeting_first` run may name. */
     public const REPLY_TOOL = 'messaging.send_reply';
 

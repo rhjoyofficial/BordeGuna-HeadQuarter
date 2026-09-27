@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Conversation\SupportWorkflow;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -267,7 +268,7 @@ class EvaluationCase extends Model
     {
         $value = $this->expectation['support_workflow'] ?? null;
 
-        return in_array($value, \App\Conversation\SupportWorkflow::WORKFLOWS, true) ? $value : null;
+        return in_array($value, SupportWorkflow::WORKFLOWS, true) ? $value : null;
     }
 
     /** @return list<string> tools this case says must NOT be called, whatever else happens */

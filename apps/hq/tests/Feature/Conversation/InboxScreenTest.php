@@ -226,8 +226,11 @@ it('seeds the support agent paused at A0 with no enabling user, and its role sui
 
     $suite = EvaluationSuite::where('key', SupportBehaviourSuiteSeeder::SUITE_KEY)->sole();
     expect($suite->role_key)->toBe('support')
-        // The ten hand-written cases, plus one per simulation scenario from gate P3-G2 (docs/77 C.4).
-        ->and($suite->cases()->where('key', 'like', 'support.%')->count())->toBe(10)
-        ->and($suite->cases()->count())->toBe(10 + count(ScenarioLibrary::all()))
-        ->and($suite->cases()->where('key', 'support.customer_message_instructs_tool_call')->sole()->expectation['no_tool_calls'])->toBeTrue();
+        // The ten written cases (v2 since docs/90: each on a real thread), plus one per simulation scenario
+        // from gate P3-G2 (docs/77 C.4); attempt 1's rows are retired beside them, never evaluated again.
+        ->and($suite->cases()->where('key', 'like', 'support.v2.%')->where('is_active', true)->count())->toBe(10)
+        ->and($suite->cases()->where('is_active', true)->whereNull('retired_at')->count())->toBe(10 + count(ScenarioLibrary::all()))
+        ->and($suite->cases()->where('key', 'support.customer_message_instructs_tool_call')->sole()->replaced_by_key)->toBe('support.v2.customer_message_instructs_tool_call')
+        ->and($suite->cases()->where('key', 'support.v2.customer_message_instructs_tool_call')->sole()->expectation)
+        ->toMatchArray(['no_tool_calls' => true, 'support_workflow' => 'silent_handover']);
 });

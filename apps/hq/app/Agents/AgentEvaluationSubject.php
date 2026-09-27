@@ -5,6 +5,7 @@ namespace App\Agents;
 use App\Context\ContextBlock;
 use App\Context\Provenance;
 use App\Conversation\Simulation\ConversationSimulator;
+use App\Conversation\Simulation\Scenario;
 use App\Conversation\Simulation\ScenarioLibrary;
 use App\Conversation\SupportContext;
 use App\Evaluation\EvaluationObservation;
@@ -50,6 +51,17 @@ use Throwable;
  * all. The support agent's scenario path passes the thread's business and brand, and the resolver
  * refuses a brand that is not that business's.
  *
+ * ## Every customer thread is a real thread (docs/90 A.1 step 4)
+ *
+ * ⭐ A case that names a simulation scenario, and, for the SUPPORT role, any case that carries a
+ * customer's words as context, is run on a thread the real conversation core built and rolled back:
+ * a real `conversation_uuid`, the customer as HQ knows them, the state the core chose, the same
+ * `SupportContext` blocks the real wake-up hands over, and the core's own decision whether the agent
+ * is woken at all. There is no threadless customer path for the Support agent: P3-G2 attempt 1 ran
+ * its ten written cases on a bare customer block with no thread header, so the agent had no thread
+ * to name (docs/88 C.11). A case with no customer words (an operator's question put to the agent)
+ * still runs as before, because it is not a thread.
+ *
  * ## What it does not do
  *
  * ⛔ It creates no autonomy grant and lifts no ceiling. A corpus case runs at whatever autonomy the
@@ -90,7 +102,16 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         // Gate P3-G2 (docs/77 C.4): a case that names a simulation scenario is run on the thread the
         // real conversation core left, and only when the core left it with the agent.
         if (is_string($input['scenario'] ?? null)) {
-            return $this->runScenario($input['scenario'], (string) ($input['brand'] ?? 'LLD'), $question);
+            $scenario = ScenarioLibrary::find($input['scenario']);
+
+            return $scenario === null
+                ? $this->notReplayed("No simulation scenario is keyed [{$input['scenario']}].")
+                : $this->runOnThread($scenario, (string) ($input['brand'] ?? 'LLD'), $question);
+        }
+
+        // docs/90 A.1 step 4: for the Support role, a customer's words are a thread, never a bare block.
+        if ($this->subjectRole() === 'support' && ($scenario = $this->threadFromContext($case, $input)) !== null) {
+            return $this->runOnThread($scenario, (string) ($input['brand'] ?? 'LLD'), $question);
         }
 
         return $this->observe(new AgentRunRequest(
@@ -111,29 +132,28 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
      * A scenario the core itself did not replay as written is a failure of the case, not a pass on
      * a thread the scenario never meant.
      */
-    private function runScenario(string $key, string $brand, string $question): EvaluationObservation
+    private function runOnThread(Scenario $scenario, string $brand, string $question): EvaluationObservation
     {
-        $scenario = ScenarioLibrary::find($key);
-
         try {
-            if ($scenario === null) {
-                throw new RuntimeException("No simulation scenario is keyed [{$key}].");
-            }
             $thread = app(ConversationSimulator::class)->capture($scenario, $brand);
             if (! $thread['core_passed']) {
                 throw new RuntimeException('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']));
             }
         } catch (Throwable $e) {
-            return new EvaluationObservation(
-                refused: true,
-                refusalReason: 'the scenario could not be replayed: '.$e->getMessage(),
-                outcome: EvaluationObservation::OUTCOME_FAILED,
-                stopReason: 'exception',
-            );
+            return $this->notReplayed($e->getMessage());
         }
 
         if (! $thread['with_agent']) {
-            return new EvaluationObservation(outcome: 'not_woken', agentWoken: false);
+            // A person took the thread before the agent was asked: nothing was said, and the case is
+            // graded on that decision. A case expecting a refusal is satisfied (the customer got no
+            // agent reply); one expecting an answer is not, because the core decided otherwise.
+            return new EvaluationObservation(
+                refused: true,
+                refusalReason: 'the conversation core handed this thread to a person before the agent was asked',
+                outcome: 'not_woken',
+                agentWoken: false,
+                modelTurns: 0,
+            );
         }
 
         return $this->observe(new AgentRunRequest(
@@ -146,7 +166,49 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // labelled memory, untrusted messages, the same blocks the real wake-up will hand over.
             extraContext: SupportContext::fromData($thread['context']),
             requester: self::requester(),
+            // docs/90 A.1 steps 3 and 5: the thread the run is bound to, and the contract it declares.
+            conversationUuid: $thread['conversation_uuid'],
+            supportWorkflow: $scenario->workflow,
         ), agentWoken: true);
+    }
+
+    private function notReplayed(string $why): EvaluationObservation
+    {
+        return new EvaluationObservation(
+            refused: true,
+            refusalReason: 'the scenario could not be replayed: '.$why,
+            outcome: EvaluationObservation::OUTCOME_FAILED,
+            stopReason: 'exception',
+        );
+    }
+
+    /**
+     * docs/90 A.1 step 4: a written case's customer words as a scenario the core replays, so the
+     * Support agent meets them on a real thread. One turn per customer block, in order, from one
+     * sender the case owns; the agent active, because the case is about what the agent does. Null
+     * when the case carries no customer words (an operator's question is not a thread).
+     */
+    private function threadFromContext(EvaluationCase $case, array $input): ?Scenario
+    {
+        $turns = [];
+        foreach ((array) ($input['context'] ?? []) as $index => $entry) {
+            if (is_array($entry) && ($entry['provenance'] ?? null) === Provenance::Customer->value && is_string($entry['content'] ?? null) && trim($entry['content']) !== '') {
+                $turns[] = ['from' => 'sim-case-'.substr(hash('sha256', $case->key), 0, 12), 'text' => $entry['content'], 'mid' => "case-{$case->key}-{$index}"];
+            }
+        }
+        if ($turns === []) {
+            return null;
+        }
+
+        return new Scenario(
+            key: 'case.'.$case->key,
+            purpose: (string) $case->purpose,
+            turns: $turns,
+            expect: [],
+            agentActive: true,
+            tags: ['case'],
+            agent: ['outcome' => 'any'],
+        );
     }
 
     private static function requester(): Requester
@@ -210,6 +272,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             // docs/86: the fourth runtime reading, and whether the provider was asked at all.
             roleBoundary: $run->role_boundary === null ? null : (array) $run->role_boundary,
             modelTurns: (int) $run->turns,
+            // docs/90 A.1 step 5: the workflow the runtime held a thread run to.
+            supportWorkflow: $run->support_workflow === null ? null : (array) $run->support_workflow,
         );
     }
 
