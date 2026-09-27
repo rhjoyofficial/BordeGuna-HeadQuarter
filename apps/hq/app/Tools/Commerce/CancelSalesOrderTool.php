@@ -9,6 +9,7 @@ use App\Commerce\Orders\ErpOperationKey;
 use App\Erp\Dto\ErpOrderRead;
 use App\Erp\ErpConnector;
 use App\Erp\ErpRegistry;
+use App\Facts\ErpOrderReadBackFact;
 use App\Gateway\Descriptor\Channel;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\DataClass;
@@ -20,6 +21,7 @@ use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
+use App\Models\Store;
 use App\Models\ToolCall;
 use App\Tools\PreviewableTool;
 use App\Tools\Tool;
@@ -49,7 +51,7 @@ final class CancelSalesOrderTool implements PreviewableTool, Tool
 {
     public const KEY = 'commerce.cancel_sales_order';
 
-    public function __construct(private readonly ErpRegistry $registry) {}
+    public function __construct(private readonly ErpRegistry $registry, private readonly ErpOrderReadBackFact $readBack) {}
 
     public function key(): string
     {
@@ -173,6 +175,7 @@ final class CancelSalesOrderTool implements PreviewableTool, Tool
         if (! $read->found) {
             return ToolResult::uncertain('The ERP accepted the cancellation, and has no order under that reference when read back.');
         }
+        $this->recordFact($business, $payload, $read, $context);
 
         return $this->judge($read, $key, $business, (bool) ($cancelled->data['replayed'] ?? false));
     }
@@ -203,8 +206,24 @@ final class CancelSalesOrderTool implements PreviewableTool, Tool
         if (! $read->found || ($read->data['cancellation']['requested'] ?? false) !== true) {
             return null;
         }
+        $this->recordFact($business, (array) $prior->input, $read, $context);
 
         return $this->judge($read, ErpOperationKey::for($context->idempotencyKey, $business->id, 'cancel'), $business, null);
+    }
+
+    /**
+     * docs/90 A.5: the read-back after a cancellation is a fact the moment it was read, whatever the
+     * judgement below says about it; the row copies the ERP's side and repairs nothing.
+     */
+    private function recordFact(Business $business, array $payload, ErpOrderRead $read, ToolContext $context): void
+    {
+        $slug = is_string($payload['store_slug'] ?? null) ? $payload['store_slug'] : '';
+        $store = Store::query()->where('business_id', $business->id)->where('slug', $slug)->first();
+        if ($store === null) {
+            throw new \InvalidArgumentException("[store_slug] {$slug} is not a store of business {$business->slug}; the order fact has no store to belong to.");
+        }
+
+        $this->readBack->record($store, $read, $context->correlationId);
     }
 
     private function judge(ErpOrderRead $read, string $key, Business $business, ?bool $replayed): ToolResult

@@ -13,6 +13,7 @@ use App\Commerce\Orders\TakeOrderShape;
 use App\Erp\Dto\ErpOrderRead;
 use App\Erp\ErpConnector;
 use App\Erp\ErpRegistry;
+use App\Facts\ErpOrderReadBackFact;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\Descriptor\Channel;
 use App\Gateway\Descriptor\CredentialRequirement;
@@ -25,6 +26,7 @@ use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Business;
+use App\Models\Store;
 use App\Models\ToolCall;
 use App\Tools\PreviewableTool;
 use App\Tools\Tool;
@@ -80,6 +82,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
         private readonly ErpRegistry $registry,
         private readonly DraftReconciliation $draftReconciliation,
         private readonly OrderReconciliation $orderReconciliation,
+        private readonly ErpOrderReadBackFact $readBack,
     ) {}
 
     public function key(): string
@@ -286,7 +289,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
             return null;
         }
 
-        return $this->judgeOrder($order, $draft, $draftKey, CanonicalPayload::hash($payload), $payload, $business, null);
+        return $this->judgeOrder($order, $draft, $draftKey, CanonicalPayload::hash($payload), $payload, $business, null, $context->correlationId);
     }
 
     /** The ERP's key for the draft: the gateway's key and the business, so a reconcile finds it. */
@@ -335,7 +338,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
             return ToolResult::uncertain('The ERP accepted the order, and reading the draft back beside it failed, so it is not verified: '.$e->getMessage());
         }
 
-        return $this->judgeOrder($order, $draft, $draftKey, $fingerprint, $payload, $business, (bool) ($recorded->data['replayed'] ?? false));
+        return $this->judgeOrder($order, $draft, $draftKey, $fingerprint, $payload, $business, (bool) ($recorded->data['replayed'] ?? false), $context->correlationId);
     }
 
     private function draftDisagreement(ErpOrderRead $draft, array $payload): ?ToolResult
@@ -349,10 +352,15 @@ final class TakeOrderTool implements PreviewableTool, Tool
         return ToolResult::uncertain('The ERP draft does not agree with the proposal, and nothing was changed to make it: '.$named, 'erp-draft:'.($draft->data['id'] ?? '?'));
     }
 
-    private function judgeOrder(ErpOrderRead $order, ErpOrderRead $draft, string $draftKey, string $fingerprint, array $payload, Business $business, ?bool $replayed): ToolResult
+    private function judgeOrder(ErpOrderRead $order, ErpOrderRead $draft, string $draftKey, string $fingerprint, array $payload, Business $business, ?bool $replayed, ?string $correlationId = null): ToolResult
     {
         $data = $order->data;
         $ref = 'erp-order:'.($data['id'] ?? '?');
+
+        // docs/90 A.5: what the ERP said is a fact the moment it was read back, validated by the
+        // connector, BEFORE the judgement: the row copies the ERP's side whether or not it agrees
+        // with the approved draft, and a disagreement below is reported, never repaired by the row.
+        $this->readBack->record($this->hqStore($business, $payload), $order, $correlationId);
 
         $discrepancies = $this->orderReconciliation->compare($payload, $data, $draftKey, $fingerprint);
         if ($discrepancies !== []) {
@@ -390,6 +398,18 @@ final class TakeOrderTool implements PreviewableTool, Tool
             'effects' => (array) ($data['effects'] ?? []),
             'next_step' => (string) ($data['next_step'] ?? ''),
         ], $ref);
+    }
+
+    /** The HQ store the order was placed for (`store_slug`, one of this business's): the fact's store. */
+    private function hqStore(Business $business, array $payload): Store
+    {
+        $slug = is_string($payload['store_slug'] ?? null) ? $payload['store_slug'] : '';
+        $store = Store::query()->where('business_id', $business->id)->where('slug', $slug)->first();
+        if ($store === null) {
+            throw new \InvalidArgumentException("[store_slug] {$slug} is not a store of business {$business->slug}; the order fact has no store to belong to.");
+        }
+
+        return $store;
     }
 
     private function business(ToolContext $context, array $payload): ?Business
