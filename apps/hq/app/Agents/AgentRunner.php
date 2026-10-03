@@ -14,6 +14,9 @@ use App\Autonomy\AutonomyResolver;
 use App\Autonomy\Evidence\EvidenceProducer;
 use App\Context\ContextBlock;
 use App\Context\ContextBundle;
+use App\Conversation\Language\LanguageRequirement;
+use App\Conversation\Language\ScriptPolicyResult;
+use App\Conversation\SupportContext;
 use App\Conversation\SupportWorkflow;
 use App\Execution\EffectiveExecutionContext;
 use App\Execution\ExecutionContextResolver;
@@ -155,6 +158,23 @@ use Throwable;
  * says so, because that pattern is either a broken prompt or an injection attempt and both need a
  * person.
  *
+ * ## The script of a customer reply is the runtime's, and one repair is all the model gets (docs/92)
+ *
+ * ⭐ P3-G2 attempts 3 and 4 both failed one case the same way: a customer wrote Bangla and English in
+ * one message, the thread required Bengali script, and the model answered in romanised Bangla, twice.
+ * The model is no longer the authority on the script. The conversation core resolves the required
+ * language and script from the thread's recorded language and the active `LanguagePolicy`
+ * (`SupportContext`, a trusted block the run reads and records); every reply the model proposes through
+ * `messaging.send_reply` is checked by the deterministic `ScriptPolicyValidator` as a pre-execution check
+ * of the Tool Gateway: after the gateway has authorized the call and before it executes (docs/97 §6 D4,
+ * which superseded "before the gateway"); at A0 the proposal is recorded only when the gateway would
+ * authorize it and that check passes. A reply in the wrong script
+ * is refused and the model is asked ONCE to rewrite the same reply in the required script, with the
+ * trusted requirement in front of it; the rewrite is checked again; a second failure sends nothing and
+ * hands the thread to a person. A valid first proposal costs no extra model call. The repair instruction
+ * carries no new authority: the repaired reply goes through every check the original would have, nothing
+ * else in its turn is honoured, and a correct script never makes a refused call permitted.
+ *
  * ## What this class cannot do
  *
  * ⛔ It holds no credential, executes no tool itself, and has no path to a shop, the ERP or a
@@ -223,6 +243,16 @@ final class AgentRunner
     /** The stop reason of a run that asked twice for a refused call and then asked for tools again. */
     public const STOP_REPEATED_DENIAL = 'repeated_denial';
 
+    /** docs/92 A.5: how many times a run may ask the model to rewrite a reply in the required script. Exactly one; never a loop. */
+    public const SCRIPT_REPAIR_LIMIT = 1;
+
+    /** The `language_requirement` verdicts a run ends with: the last reply accepted, the last reply refused, or no reply ever proposed. */
+    public const SCRIPT_FINAL_VALID = 'valid';
+
+    public const SCRIPT_FINAL_INVALID = 'invalid';
+
+    public const SCRIPT_FINAL_NO_REPLY = 'no_reply_proposed';
+
     public function __construct(
         private readonly ModelRuntime $models,
         private readonly ToolGateway $gateway,
@@ -272,6 +302,12 @@ final class AgentRunner
             $catalogue = array_values(array_filter($catalogue, fn (array $entry) => in_array($entry['tool'] ?? '', $workflow->allowedTools(), true)));
         }
 
+        // ⭐ docs/92 A.2: the reply's required language and script are the runtime's facts, resolved by
+        //    the conversation core from the thread's recorded language and the active language policy and
+        //    carried in the trusted language block it built; read from that block alone (system
+        //    provenance, this thread's source), never from the customer's words or the model's reading.
+        $language = $workflow === null ? null : $this->languageRequirementFor($request);
+
         $bundle = $this->assembler->open($execution, $request->question, $business, $catalogue);
         foreach ($request->extraContext as $block) {
             if ($block instanceof ContextBlock) {
@@ -293,6 +329,7 @@ final class AgentRunner
             'conversation_uuid' => $request->conversationUuid,
             'conversation_message_uuid' => $request->conversationMessageUuid,
             'support_workflow' => $workflow?->toArray(),
+            'language_requirement' => $language,
             'question' => $request->question,
             'autonomy_level' => $decision->level->value,
             'autonomy_reason' => $decision->boundBy,
@@ -312,10 +349,14 @@ final class AgentRunner
         $this->contexts->record($run, $execution);
 
         if ($workflow !== null) {
-            // The bound thread and the workflow, in the audit trail beside the execution context.
+            // The bound thread, the workflow and the reply requirement (docs/92 A.2: policy version and the
+            // resolved language and script, nothing of the customer's), in the audit trail beside the
+            // execution context.
             $this->auditor->recordSystem('agent_run.thread_bound', $run,
-                after: ['conversation_uuid' => $request->conversationUuid] + $workflow->toArray(),
-                reason: 'the run is bound to the thread it was woken on; every tool that names a conversation names this one. Workflow: '.$workflow->reason,
+                after: ['conversation_uuid' => $request->conversationUuid] + $workflow->toArray()
+                    + ['language_requirement' => array_intersect_key((array) $language, array_flip(['required', 'language', 'script', 'policy_version', 'policy_digest', 'thread_language', 'rule', 'reason']))],
+                reason: 'the run is bound to the thread it was woken on; every tool that names a conversation names this one. Workflow: '.$workflow->reason
+                    .'. Reply script: '.($this->languageRequirement($run)?->describe() ?? 'none required ('.($language['reason'] ?? 'unknown').')'),
                 correlationId: $correlationId);
         }
 
@@ -379,6 +420,10 @@ final class AgentRunner
         $denials = [];
         $toolCalls = 0;
 
+        // docs/92 A.5: a script repair is one more model call outside the turn budget the model is shown,
+        // counted on the row (`turns`) so a reviewer sees it, never hidden behind the final result.
+        $extraTurns = 0;
+
         // The runtime's reading of which targets the task is about (ADR-043), set on turn 1 from
         // the trusted text and read by every expansion after it. `none` until then, and `none`
         // never widens a call.
@@ -423,7 +468,7 @@ final class AgentRunner
             $reply = $outcome->data ?? [];
 
             $run->forceFill([
-                'turns' => $turn,
+                'turns' => $turn + $extraTurns,
                 'model' => $outcome->model->model_id,
                 'model_tier' => $outcome->model->tier,
             ])->save();
@@ -537,6 +582,7 @@ final class AgentRunner
             }
 
             $results = [];
+            $scriptRejected = false;
 
             foreach ($requested as $call) {
                 if ($toolCalls >= self::MAX_TOOL_CALLS) {
@@ -544,7 +590,7 @@ final class AgentRunner
                     // and the model gets its closing turn rather than a row that says only "limit".
                     $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
                     $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)];
-                    $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn,
+                    $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn + $extraTurns,
                         'the tool-call budget of '.self::MAX_TOOL_CALLS.' was spent');
 
                     return;
@@ -562,6 +608,8 @@ final class AgentRunner
                     } else {
                         $proposals[] = $record;
                     }
+                    // docs/92 A.5: a reply the script policy refused; decided below, once the turn's other calls are done.
+                    $scriptRejected = $scriptRejected || isset($record['script_policy']);
                 }
 
                 if ($denied !== null) {
@@ -577,7 +625,7 @@ final class AgentRunner
                         $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
                         $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)];
                         $run->forceFill(['tool_calls_count' => $toolCalls])->save();
-                        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn,
+                        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, $turn + $extraTurns,
                             "[{$denied}] was refused twice in one run and asked for again",
                             self::DENIAL_NOTE, self::STOP_REPEATED_DENIAL);
 
@@ -587,14 +635,276 @@ final class AgentRunner
             }
 
             $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($reply, JSON_UNESCAPED_UNICODE)];
+
+            // ⭐ docs/92 A.5, A.13: a reply in the wrong script was refused above. Exactly one repair turn,
+            //    carrying the trusted requirement, then the same check; still wrong, and the run ends here with
+            //    nothing sent and the thread handed to a person. A valid reply never reaches this branch.
+            if ($scriptRejected) {
+                $extraTurns++;
+                if ($this->repairReplyScript($run, $agent, $execution, $request, $decision, $messages, $results, $evidence, $proposals, $toolCalls, $correlationId, $turn + $extraTurns, $scope, $refusedActions)) {
+                    return;
+                }
+                $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)
+                    ."\n\n".$this->budgetLine($turn + 1, $toolCalls)];
+                $run->forceFill(['tool_calls_count' => $toolCalls])->save();
+
+                continue;
+            }
+
             $messages[] = ['role' => 'user', 'content' => "Results:\n\n".implode("\n\n", $results)
                 ."\n\n".$this->budgetLine($turn + 1, $toolCalls)];
 
             $run->forceFill(['tool_calls_count' => $toolCalls])->save();
         }
 
-        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, self::MAX_TURNS,
+        $this->close($run, $agent, $request, $messages, $evidence, $proposals, $toolCalls, $correlationId, self::MAX_TURNS + $extraTurns,
             'the limit of '.self::MAX_TURNS.' model turns was reached');
+    }
+
+    /**
+     * docs/92 A.5: the one repair. The model is shown the trusted requirement (language, script, policy
+     * version), told its reply's prose was in another script, and asked to propose the SAME reply once
+     * more in the required script: same meaning, same restraint, nothing new permitted. Only the reply
+     * calls of the rewrite are read; anything else it names is dropped and recorded, because a repair
+     * instruction is not a place where new work is asked for. Each rewritten reply goes through `invoke()`
+     * like the original (the bound thread, the refused part, the catalogue, the script check, autonomy,
+     * the gateway), so a correct script can never make a refused call permitted.
+     *
+     * True when the run is finished here: the rewrite failed the check too (or named no reply), nothing
+     * is sent, and the thread goes to a person under the existing refusal path (docs/92 A.5: never a loop).
+     *
+     * @param  list<array{role: string, content: string}>  $messages  extended in place with the repair exchange
+     * @param  list<string>  $results  the turn's results so far; extended with the rewrite's
+     */
+    private function repairReplyScript(
+        AgentRun $run,
+        Agent $agent,
+        EffectiveExecutionContext $execution,
+        AgentRunRequest $request,
+        AutonomyDecision $decision,
+        array &$messages,
+        array &$results,
+        array &$evidence,
+        array &$proposals,
+        int &$toolCalls,
+        string $correlationId,
+        int $turnsSoFar,
+        TaskScope $scope,
+        array $refusedActions,
+    ): bool {
+        $record = (array) $run->language_requirement;
+        $requirement = $this->languageRequirement($run);
+        $validations = array_values((array) ($record['validations'] ?? []));
+        $last = $validations === [] ? [] : (array) end($validations);
+
+        // A second rejected reply in one run (a later turn, after a successful repair) gets no second repair.
+        if ($requirement === null || (int) ($record['repairs_attempted'] ?? 0) >= self::SCRIPT_REPAIR_LIMIT) {
+            $this->scriptHandover($run, $requirement, $evidence, $proposals, $toolCalls, 'the limit of '.self::SCRIPT_REPAIR_LIMIT.' repair was already spent on this run');
+
+            return true;
+        }
+
+        $record['repairs_attempted'] = (int) ($record['repairs_attempted'] ?? 0) + 1;
+        $run->forceFill(['language_requirement' => $record])->save();
+
+        $messages[] = ['role' => 'user', 'content' => $this->repairInstruction($requirement, $last, $results)];
+
+        $outcome = $this->models->run(
+            task: $request->task,
+            system: $this->assembler->system($agent),
+            messages: $messages,
+            context: new RoutingContext(
+                businessId: $request->businessId,
+                brandId: $request->brandId,
+                agentKey: $agent->key,
+                correlationId: $correlationId,
+                inputRef: "agent_run:{$run->id}",
+            ),
+            jsonSchema: AgentResponseSchema::schema(),
+            maxOutputTokens: $this->output->for(OutputBudget::AGENT_TURN),
+            promptVersion: $run->prompt_version,
+        );
+
+        $repaired = $outcome->data ?? [];
+        $run->forceFill(['turns' => $turnsSoFar, 'model' => $outcome->model->model_id, 'model_tier' => $outcome->model->tier])->save();
+        $messages[] = ['role' => 'assistant', 'content' => (string) json_encode($repaired, JSON_UNESCAPED_UNICODE)];
+
+        $calls = array_map(static fn (ProposedToolCall $c) => $c->toArray(), $outcome->toolCalls());
+        $replies = array_values(array_filter($calls, static fn (array $c) => ($c['tool'] ?? '') === SupportWorkflow::REPLY_TOOL));
+        $dropped = array_values(array_unique(array_map(static fn (array $c) => (string) ($c['tool'] ?? 'unnamed'), array_filter($calls, static fn (array $c) => ($c['tool'] ?? '') !== SupportWorkflow::REPLY_TOOL))));
+
+        $this->auditor->recordSystem('agent_run.reply_script_repair', $run,
+            after: ['required' => $requirement->describe(), 'replies_proposed' => count($replies), 'dropped_tools' => $dropped],
+            reason: 'the model was asked once to rewrite its reply in the required script; only the rewritten reply is read, and every other call in the rewrite is dropped',
+            correlationId: $correlationId);
+
+        if ($replies === []) {
+            $this->rejectRepair($run);
+            $this->scriptHandover($run, $requirement, $evidence, $proposals, $toolCalls, 'the rewrite proposed no reply');
+
+            return true;
+        }
+
+        $stillWrong = false;
+        foreach ($this->expandGroupWide($execution, $replies, $scope) as $call) {
+            $toolCalls++;
+            [$block, $entry] = $this->invoke($agent, $execution, $request, $call, $decision, $correlationId, $run, $refusedActions);
+            $results[] = $block->render();
+            if ($entry !== null) {
+                $proposals[] = $entry;
+                $stillWrong = $stillWrong || isset($entry['script_policy']);
+            }
+        }
+
+        if ($stillWrong) {
+            $this->rejectRepair($run);
+            $this->scriptHandover($run, $requirement, $evidence, $proposals, $toolCalls, 'the rewritten reply was in the wrong script too');
+
+            return true;
+        }
+
+        $record = (array) $run->language_requirement;
+        $record['repairs_successful'] = (int) ($record['repairs_successful'] ?? 0) + 1;
+        $run->forceFill(['language_requirement' => $record])->save();
+        $this->auditor->recordSystem('agent_run.reply_script_repaired', $run,
+            after: ['required' => $requirement->describe(), 'repairs_attempted' => $record['repairs_attempted'], 'repairs_successful' => $record['repairs_successful']],
+            reason: 'the rewritten reply satisfies the required script; it continues through the normal Support workflow as a proposal',
+            correlationId: $correlationId);
+
+        return false;
+    }
+
+    private function rejectRepair(AgentRun $run): void
+    {
+        $record = (array) $run->language_requirement;
+        $record['repairs_rejected'] = (int) ($record['repairs_rejected'] ?? 0) + 1;
+        $record['final'] = self::SCRIPT_FINAL_INVALID;
+        $run->forceFill(['language_requirement' => $record])->save();
+    }
+
+    /**
+     * docs/92 A.5: the safe terminal path when the rewrite is wrong too. Nothing is sent, the run ends
+     * refused with no answer (the Support hand-over, exactly as a silent hand-over ends), and the audit
+     * row says why. No stop reason: it is a verdict, not a run that ran out.
+     */
+    private function scriptHandover(AgentRun $run, ?LanguageRequirement $requirement, array $evidence, array $proposals, int $toolCalls, string $why): void
+    {
+        $record = (array) $run->language_requirement;
+        $this->auditor->recordSystem('agent_run.reply_script_handover', $run,
+            after: ['required' => $requirement?->describe(), 'repairs_attempted' => $record['repairs_attempted'] ?? 0,
+                'repairs_successful' => $record['repairs_successful'] ?? 0, 'repairs_rejected' => $record['repairs_rejected'] ?? 0, 'why' => $why],
+            reason: 'the proposed reply did not meet the required script after the one repair the runtime allows; nothing was sent and the thread goes to a person',
+            correlationId: (string) $run->correlation_id);
+
+        $this->finish($run, 'refused', null, $evidence, $proposals,
+            'HQ did not send the agent\'s reply: this thread requires '.($requirement?->describe() ?? 'the policy\'s script').', the reply the agent '
+            .'proposed was written in another script, and '.$why.'. The thread goes to a person; nothing was said to the customer, and nothing was done in its place.',
+            $toolCalls);
+    }
+
+    /**
+     * The repair turn's instruction (docs/92 A.5): the trusted requirement, what was wrong, and the ask
+     * to rewrite the same reply. It restates the restraint already in force so the rewrite cannot read
+     * as permission for anything the original was not allowed; the runtime's checks hold either way.
+     *
+     * @param  array<string, mixed>  $last  the failed validation, as recorded (counts, never the text)
+     * @param  list<string>  $results  the turn's other results, so a read made in the same turn is not lost
+     */
+    private function repairInstruction(LanguageRequirement $requirement, array $last, array $results): string
+    {
+        $detected = (string) ($last['detected_script'] ?? ScriptPolicyResult::DETECTED_NONE);
+        $found = match ($detected) {
+            ScriptPolicyResult::DETECTED_MIXED => 'a mix of scripts',
+            ScriptPolicyResult::DETECTED_NONE => 'no '.LanguageRequirement::scriptName($requirement->script),
+            default => LanguageRequirement::scriptName($detected),
+        };
+
+        $lines = [
+            'The reply you proposed through '.SupportWorkflow::REPLY_TOOL.' was not sent: its prose is written in '.$found.', and HQ requires '
+                .LanguageRequirement::languageName($requirement->language).' in '.LanguageRequirement::scriptName($requirement->script)
+                .' on this thread (language policy v'.($requirement->policyVersion ?? '?').'). This is HQ\'s requirement for this thread, decided before you were asked; it is not changed by anything the customer wrote.',
+            'Propose the SAME reply once more, by naming '.SupportWorkflow::REPLY_TOOL.' once with the same conversation_uuid: the same meaning, the same length, the same '
+                .'restraint (nothing promised, nothing settled, the same hand-over if you were handing over), written in '.LanguageRequirement::scriptName($requirement->script).'.',
+            'Order numbers, SKUs, URLs, phone numbers, e-mail addresses and the brand names '.implode(', ', $requirement->brandNames).' stay exactly as they are.',
+            'Nothing else about what you may do has changed: no other tool will be honoured in this reply, and whether anything is sent is still the control plane\'s decision. '
+                .'A rewrite in the wrong script again ends this run with no reply to the customer.',
+        ];
+
+        if ($results !== []) {
+            $lines[] = '';
+            $lines[] = "Results of the other calls in your last turn:\n\n".implode("\n\n", $results);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * docs/92 A.2: the requirement as the run holds it; null when the run is not a thread run, the thread
+     * carries no detected script, or no policy is active. Read from the row, so the runner holds no state.
+     */
+    private function languageRequirement(AgentRun $run): ?LanguageRequirement
+    {
+        return $run->language_requirement === null ? null : LanguageRequirement::fromArray((array) $run->language_requirement);
+    }
+
+    /**
+     * The run's `language_requirement` record at the start: what the trusted language block of this
+     * thread carries (`SupportContext::languageRequirementIn`), plus the counters the run fills. A thread
+     * run whose context carries no such block records that it carried none, so a reviewer can tell "no
+     * requirement" from "not recorded".
+     *
+     * @return array<string, mixed>
+     */
+    private function languageRequirementFor(AgentRunRequest $request): array
+    {
+        $blocks = array_values(array_filter($request->extraContext, static fn ($b) => $b instanceof ContextBlock));
+        $carried = SupportContext::languageRequirementIn($blocks, (string) $request->conversationUuid)
+            ?? ['required' => false, 'policy_version' => null, 'policy_digest' => null, 'thread_language' => null, 'rule' => null, 'language' => null, 'script' => null,
+                'reason' => 'the thread context carries no language block, so no reply script is required'];
+
+        return $carried + ['validations' => [], 'repairs_attempted' => 0, 'repairs_successful' => 0, 'repairs_rejected' => 0, 'final' => null];
+    }
+
+    /**
+     * docs/92 A.3, A.4 and docs/97 §6 D4: what the gateway's pre-execution checks decided about one call,
+     * recorded on the run as counts (never the text) and audited when it refused. Null when the call may
+     * continue; otherwise the refusal the runner files: `refused`, class `content_policy_rejected` (never a
+     * permission denial), the check's result under `script_policy`, and no denial key, because its
+     * recovery is the one repair turn and not a closing turn.
+     *
+     * @param  array<string, mixed>  $call
+     * @param  array<string, mixed>  $args
+     * @param  array{check: ?string, passed: bool, reason: ?string, result: ?array}  $verdict
+     * @return array{0: ContextBlock, 1: array<string, mixed>, 2: null}|null
+     */
+    private function contentRejection(AgentRun $run, string $key, array $call, array $args, string $correlationId, array $verdict, ?int $toolCallId): ?array
+    {
+        $result = is_array($verdict['result'] ?? null) ? $verdict['result'] : null;
+
+        // A reply-script result, when the check ran: on the run's language record, valid or not.
+        if ($result !== null && isset($result['required_script']) && $run->language_requirement !== null) {
+            $record = (array) $run->language_requirement;
+            $record['validations'][] = ['stage' => (int) ($record['repairs_attempted'] ?? 0) > 0 ? 'repair' : 'proposal'] + $result;
+            $record['final'] = ($result['valid'] ?? false) ? self::SCRIPT_FINAL_VALID : self::SCRIPT_FINAL_INVALID;
+            $run->forceFill(['language_requirement' => $record])->save();
+        }
+
+        if (($verdict['passed'] ?? true) === true) {
+            return null;
+        }
+
+        $reason = (string) ($verdict['reason'] ?? "[{$key}] was refused before execution by a content check. It has not run.");
+        $this->auditor->recordSystem('agent_run.reply_script_rejected', $run, after: ['check' => $verdict['check'] ?? null, 'tool_call_id' => $toolCallId] + (array) $result,
+            reason: 'refused after authorization and before execution (docs/97 §6 D4): '.$reason,
+            correlationId: $correlationId);
+
+        return [
+            $this->assembler->toolRefusal($key, $reason),
+            ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null, 'tool_call_id' => $toolCallId,
+                'outcome_class' => OutcomeClass::ContentPolicyRejected->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE,
+                'pre_execution_check' => $verdict['check'] ?? null, 'script_policy' => $result] + $this->trace($call, $args, $correlationId),
+            null,
+        ];
     }
 
     /**
@@ -746,22 +1056,13 @@ final class AgentRunner
 
         $descriptor = $this->registry->get($key)->descriptor();
 
-        // The autonomy rule, made structural. Unreachable in Phase 2 because neither agent holds a
-        // tool with an effect; written now so the first one that does meets a rule, not an absence.
-        if ($this->hasEffect($descriptor) && ! $decision->level->allowsExecution()) {
-            $reason = "[{$key}] would change something outside this conversation, and this run is at autonomy "
-                .strtoupper($decision->level->value).' ('.$decision->boundBy.'). '
-                .'It is recorded as a proposal for a human to carry out; it has not run.';
-
-            return [
-                $this->assembler->toolRefusal($key, $reason),
-                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
-                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
-                null, // not a denial: the agent did the right thing by proposing it
-            ];
-        }
-
-        $outcome = $this->gateway->execute(new ToolRequest(
+        // ⭐ docs/97 §6 D4 (supersedes docs/92 A.6's ordering): the runtime's guards above (the bound
+        //    thread, the refused part, the catalogue) -> the Tool Gateway's authorization (availability,
+        //    arguments, scope and the execution context, policy and permission, consent, idempotency,
+        //    credential pre-flight) -> the pre-execution content checks the tool opts into (the reply's
+        //    script, docs/92) -> execute. The script is never checked before the gateway has authorized
+        //    the call and never after it ran; a correct script cannot make a refused call permitted.
+        $toolRequest = new ToolRequest(
             toolKey: $key,
             args: $args,
             caller: CallerKind::Agent,
@@ -770,7 +1071,57 @@ final class AgentRunner
             businessId: $request->businessId,
             brandId: $request->brandId,
             refusedRoleActions: $refusedActions,
-        ));
+            // The requirement the conversation core resolved for this thread, as the run recorded it.
+            languageRequirement: $this->languageRequirement($run)?->toArray(),
+        );
+
+        // The autonomy rule, made structural. At A0 nothing with an effect runs: the call is recorded as a
+        // proposal for a human, and only when the gateway WOULD authorize it and its pre-execution checks
+        // pass, so a proposal is measured by the same questions, in the same order, as an execution.
+        if ($this->hasEffect($descriptor) && ! $decision->level->allowsExecution()) {
+            $authorization = $this->gateway->authorize($toolRequest);
+            if (! $authorization->permitsProposal()) {
+                $reason = (string) ($authorization->reason ?? 'the gateway did not authorize the call');
+                $class = $authorization->class ?? OutcomeClass::InternalError;
+                $this->auditor->recordSystem('agent_run.proposal_not_authorized', $run,
+                    after: ['tool' => $key, 'outcome_class' => $class->value],
+                    reason: "the gateway would not authorize [{$key}], so it is not recorded as a proposal: {$reason}", correlationId: $correlationId);
+
+                return [
+                    $class->isExternal() ? $this->assembler->toolFailure($key, $reason, $class) : $this->assembler->toolRefusal($key, $reason),
+                    ['kind' => $class->isExternal() ? 'failed' : 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null,
+                        'outcome_class' => $class->value, 'side' => $class->side()] + $this->trace($call, $args, $correlationId),
+                    // A control-plane refusal counts toward the repeated-denial stop, as the gateway's own would.
+                    $class->isControlPlane() ? $key : null,
+                ];
+            }
+
+            $verdict = $this->gateway->preExecutionChecks($descriptor, $toolRequest, $authorization->args);
+            if (($rejected = $this->contentRejection($run, $key, $call, $args, $correlationId, $verdict->toArray(), null)) !== null) {
+                return $rejected;
+            }
+
+            $reason = "[{$key}] would change something outside this conversation, and this run is at autonomy "
+                .strtoupper($decision->level->value).' ('.$decision->boundBy.'). '
+                .'It is recorded as a proposal for a human to carry out; it has not run.';
+
+            return [
+                $this->assembler->toolRefusal($key, $reason),
+                ['kind' => 'proposal', 'tool' => $key, 'args' => $args, 'why' => $call['why'] ?? null, 'reason' => $reason,
+                    'outcome_class' => OutcomeClass::AutonomyDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE,
+                    'authorization' => $authorization->awaitsApproval ? 'awaits_approval' : 'authorized'] + $this->trace($call, $args, $correlationId),
+                null, // not a denial: the agent did the right thing by proposing it
+            ];
+        }
+
+        $outcome = $this->gateway->execute($toolRequest);
+
+        // The gateway's pre-execution checks, as it reported them: recorded on the run, and a content
+        // refusal comes back as its own kind so the one repair can follow (docs/92 A.5).
+        if ($outcome->preExecution !== null
+            && ($rejected = $this->contentRejection($run, $key, $call, $args, $correlationId, $outcome->preExecution, $outcome->toolCallId)) !== null) {
+            return $rejected;
+        }
 
         if ($outcome->status === OutcomeStatus::AwaitingApproval) {
             $reason = 'It is waiting for a human decision in the Approval Center. It has not run.';
@@ -1453,7 +1804,15 @@ final class AgentRunner
             $answer = $this->withRoleNote($answer, (array) ($run->role_boundary ?? []));
         }
 
+        // docs/92 A.12: a thread run that proposed no reply at all says so in its final verdict, so "no
+        // violation" is never read where "nothing was checked" is the fact.
+        $language = $run->language_requirement === null ? null : (array) $run->language_requirement;
+        if ($language !== null && ($language['final'] ?? null) === null) {
+            $language['final'] = self::SCRIPT_FINAL_NO_REPLY;
+        }
+
         $run->forceFill([
+            'language_requirement' => $language,
             'status' => $status,
             'answer' => $answer,
             'error' => $status === 'refused' || $stopReason !== null ? $note : null,

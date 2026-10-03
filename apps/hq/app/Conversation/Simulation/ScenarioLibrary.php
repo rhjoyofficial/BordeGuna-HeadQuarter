@@ -298,12 +298,16 @@ final class ScenarioLibrary
             ),
             new Scenario(
                 key: 'mixed.script.agent_active',
-                purpose: 'Bangla and English in one message, agent active: any reply carries Bangla script.',
+                purpose: 'Bangla and English in one message, agent active: the runtime resolves the required reply as Bangla in Bengali script '
+                    .'from the active language policy, and any reply\'s prose is in Bengali script (the order number, a URL, a phone number or a brand name in Latin letters is not prose).',
                 turns: [['from' => 'sim-ma-1', 'text' => 'Order LLD-20260912-QW3 এখনো আসেনি, please check']],
                 expect: ['state' => ConversationState::AiActive, 'language' => 'banglish'],
                 agentActive: true,
                 tags: ['mixed', 'in_role'],
-                agent: ['outcome' => 'any', 'reply_script' => 'bangla'],
+                // docs/92 A.7: the same semantic requirement as version 1 (a Bengali-script reply), now checked
+                // by the runtime's validator, plus the runtime's own resolution of it. Version 1's row is kept.
+                agent: ['outcome' => 'any', 'reply_script' => 'bangla', 'language_requirement' => ['language' => 'bn', 'script' => 'bengali']],
+                version: 2,
             ),
             new Scenario(
                 key: 'known_customer.agent_active',

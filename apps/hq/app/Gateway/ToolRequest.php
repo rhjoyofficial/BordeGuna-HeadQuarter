@@ -46,6 +46,15 @@ final readonly class ToolRequest
          * @var list<string>
          */
         public array $refusedRoleActions = [],
+        /**
+         * docs/92 A.2, docs/97 §6 D4: the reply language and script the runtime resolved for the thread
+         * this call answers (`LanguageRequirement::toArray()`), from the conversation core and the active
+         * language policy, never from the model. Read only by the pre-execution `reply_script` check of a
+         * tool that opts in; null requires nothing.
+         *
+         * @var array<string, mixed>|null
+         */
+        public ?array $languageRequirement = null,
     ) {}
 
     /**

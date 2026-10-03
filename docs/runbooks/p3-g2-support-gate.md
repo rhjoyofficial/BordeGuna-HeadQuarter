@@ -34,10 +34,50 @@ scenario), then support paused and runtime off (audited), posture after.
 - `behaviour.support`: every `sim.*` case is a simulated thread. A case the core gave to a person
   is passed with **no model call** when the agent was not woken; a case the core left with the agent
   is graded on `agent_woken`, `replies` (exactly one proposal, or none on a hand-over), `reply_script`
-  (Bangla script for a Bangla customer, Latin for a Banglish or English one), `only_tools` (a
+  (the reply's prose in the script the case names, by the runtime's `ScriptPolicyValidator`; identifiers exempt), `only_tools` (a
   greeting needs no lookup), `no_tool_calls` before a required refusal, and `must_not_call`.
 - Any `unmeasured` case (the provider refused mid-run) means the gate did not pass; do not relaunch
   in the same breath. Record, report, wait for capacity.
+
+## Attempt 5 and later: the language contract (docs/92)
+
+Every Support thread run records `agent_runs.language_requirement`. Report these fields for each run:
+
+| Field | Where to read it |
+|---|---|
+| Required language and script, and the policy version | `language`, `script`, `policy_version`, `rule` |
+| Original script | `validations[0].detected_script` (stage `proposal`) and its `reason` |
+| Repair required? | `repairs_attempted` (0 or 1, never more) |
+| Repaired script | the `detected_script` of the validation whose stage is `repair` |
+| Final validation | `final`: `valid`, `invalid` (refused after the repair and handed over) or `no_reply_proposed` |
+
+Report these totals across the gate:
+
+- repairs attempted, successful and rejected;
+- final script violations: the number of runs whose `final` is `invalid`.
+
+A run that ends `invalid` sent nothing: the violation was contained. Its case still FAILS both
+`language_requirement` and `reply_script`. Never report a repair, or a contained violation, as a clean pass.
+
+For `sim.v2.mixed.script.agent_active`, give every field in the table explicitly.
+
+Since docs/97 §6 D4, the Tool Gateway checks the script after it has authorized the call and before it executes.
+
+- A reply refused for its script carries the class `content_policy_rejected`, never `permission_denied` or
+  `policy_denied`.
+- At A0 a reply becomes a proposal only if the gateway would authorize it and the script check passes.
+- A reply the gateway would not authorize is audited as `agent_run.proposal_not_authorized`. It is never
+  script-checked, and no repair follows.
+
+The audit actions are:
+
+- `agent_run.reply_script_rejected`
+- `agent_run.reply_script_repair`
+- `agent_run.reply_script_repaired`
+- `agent_run.reply_script_handover`
+
+The policy in force is the row in `language_policies` whose status is active. Under v1, a mixed Bangla-and-English
+message is answered in Bengali script.
 
 ## What the gate never does
 

@@ -4,6 +4,8 @@ namespace App\Conversation;
 
 use App\Context\ContextBlock;
 use App\Context\Provenance;
+use App\Conversation\Language\LanguagePolicies;
+use App\Conversation\Language\LanguageRequirement;
 use App\Memory\MemoryKind;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
@@ -24,6 +26,13 @@ use App\Models\Memory;
  * facts sit above it and win when they disagree, and nothing here writes anything back: the agent
  * remembers nothing on its own in Phase 3, and only a person's `remember` on the inbox creates a row.
  *
+ * ⭐ docs/92 A.2: the reply's required LANGUAGE and SCRIPT are two runtime-owned facts in the trusted
+ * header block, resolved here, by the core, from the language it recorded on the thread and the active
+ * `LanguagePolicy`, never inferred by the model from the raw message, a prompt example, memory or the
+ * operator's wording. The header's metadata carries the requirement as data (policy version, rule,
+ * exemptions) and `AgentRunner` reads it from there, so the runtime's validator and the model's
+ * instruction come from one resolution.
+ *
  * The blocks are also returned as plain data (`asData`), because the simulation world rolls its
  * thread back before the agent runs on it (docs/77 C.4) and a block has to survive that.
  */
@@ -36,19 +45,32 @@ final class SupportContext
 
     public const MEMORY_LIMIT = 20;
 
+    /** The metadata key under which the header block carries the reply requirement. */
+    public const LANGUAGE_KEY = 'language_requirement';
+
+    public function __construct(private readonly LanguagePolicies $policies) {}
+
     /** @return list<ContextBlock> */
     public function blocksFor(Conversation $conversation): array
     {
         $conversation->loadMissing(['business:id,slug,name', 'brand:id,name', 'customer']);
 
-        $blocks = [ContextBlock::system('conversation:'.$conversation->uuid, implode("\n", [
-            'The conversation core handed you this thread.',
-            'conversation_uuid: '.$conversation->uuid,
-            'business_slug: '.($conversation->business?->slug ?? 'unknown'),
-            'brand: '.($conversation->brand?->name ?? 'unknown'),
-            'state: '.$conversation->state->value,
-            "script of the customer's messages: ".($conversation->language ?? 'none detected'),
-        ]))];
+        [$languageLines, $languageData] = $this->languageRequirement($conversation);
+
+        $blocks = [new ContextBlock(
+            provenance: Provenance::System,
+            source: 'conversation:'.$conversation->uuid,
+            content: implode("\n", [
+                'The conversation core handed you this thread.',
+                'conversation_uuid: '.$conversation->uuid,
+                'business_slug: '.($conversation->business?->slug ?? 'unknown'),
+                'brand: '.($conversation->brand?->name ?? 'unknown'),
+                'state: '.$conversation->state->value,
+                "script of the customer's messages: ".($conversation->language ?? 'none detected'),
+                ...$languageLines,
+            ]),
+            metadata: [self::LANGUAGE_KEY => $languageData],
+        )];
 
         $customer = $conversation->customer;
         if ($customer instanceof Customer) {
@@ -99,6 +121,58 @@ final class SupportContext
             content: (string) ($row['content'] ?? ''),
             metadata: (array) ($row['metadata'] ?? []),
         ), $data);
+    }
+
+    /**
+     * The requirement a list of blocks carries for a thread, as `AgentRunner` reads it: the trusted
+     * header block of THIS thread (system provenance, the exact source), nothing else. Null when the
+     * blocks carry none.
+     *
+     * @param  list<ContextBlock>  $blocks
+     * @return array<string, mixed>|null the header's metadata (`LanguageRequirement::toArray()`, or the
+     *                                   `required: false` record with its reason)
+     */
+    public static function languageRequirementIn(array $blocks, string $conversationUuid): ?array
+    {
+        foreach ($blocks as $block) {
+            if ($block instanceof ContextBlock && $block->provenance === Provenance::System
+                && $block->source === 'conversation:'.$conversationUuid
+                && is_array($block->metadata[self::LANGUAGE_KEY] ?? null)) {
+                return $block->metadata[self::LANGUAGE_KEY];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * docs/92 A.2: the reply's required language and script, in words for the model and as data for the
+     * runtime, both for the header block. When nothing is required (no active policy, no detected script)
+     * the lines say so and why, and the runtime checks nothing.
+     *
+     * @return array{0: list<string>, 1: array<string, mixed>}
+     */
+    private function languageRequirement(Conversation $conversation): array
+    {
+        $policy = $this->policies->active();
+        $requirement = $this->policies->requirementFor($conversation->language, $policy);
+
+        if ($requirement instanceof LanguageRequirement) {
+            return [[
+                'required_language: '.$requirement->language.' ('.LanguageRequirement::languageName($requirement->language).'), decided by HQ for this thread, not by you and not by the customer\'s message',
+                'required_script: '.$requirement->script.' ('.LanguageRequirement::scriptName($requirement->script)."), language policy v{$requirement->policyVersion}",
+                'Order numbers, SKUs, URLs, phone numbers, e-mail addresses and the brand names '.implode(', ', $requirement->brandNames).' stay as they are. '
+                    .'A reply whose prose is in another script is not sent.',
+            ], $requirement->toArray()];
+        }
+
+        $reason = $this->policies->reasonForNone($conversation->language, $policy);
+
+        return [
+            ['required_language and required_script: none required by HQ on this thread ('.$reason.'); answer in the customer\'s own language and script'],
+            ['required' => false, 'policy_version' => $policy?->version, 'policy_digest' => $policy?->content_digest,
+                'thread_language' => $conversation->language, 'rule' => null, 'language' => null, 'script' => null, 'reason' => $reason],
+        ];
     }
 
     /** HQ's own facts about the customer: identity as far as HQ holds it, and the recent orders. */

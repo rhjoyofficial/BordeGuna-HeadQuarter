@@ -32,6 +32,13 @@ final readonly class ToolOutcome
          * itself. Null on a success. A caller that files refusals must read this, not `status`.
          */
         public ?OutcomeClass $class = null,
+        /**
+         * docs/97 §6 D4: what the pre-execution content checks decided (`PreExecutionVerdict::toArray()`),
+         * when they ran; for a `ContentPolicyRejected` outcome, which check refused and its result.
+         *
+         * @var array<string, mixed>|null
+         */
+        public ?array $preExecution = null,
     ) {}
 
     public function ok(): bool

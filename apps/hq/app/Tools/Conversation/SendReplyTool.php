@@ -13,6 +13,7 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
+use App\Gateway\PreExecution\PreExecutionSafetyChecks;
 use App\Models\Conversation;
 use App\Models\PlatformAccount;
 use App\Platform\CapabilityResolver;
@@ -80,6 +81,8 @@ final class SendReplyTool implements Tool
             // docs/88 point 12: what running it IS, for the role boundary. The Support role permits
             // it; the Executive's and the Analytics role's forbid it at the gateway, whatever they hold.
             roleAction: 'customer_reply',
+            // docs/97 §6 D4: the reply's script is checked after authorization and before execution.
+            preExecutionChecks: [PreExecutionSafetyChecks::REPLY_SCRIPT],
         );
     }
 

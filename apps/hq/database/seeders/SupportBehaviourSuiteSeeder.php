@@ -80,6 +80,10 @@ class SupportBehaviourSuiteSeeder extends Seeder
         // docs/91 D (attempt 4): the promise case versioned under A.3, version 2 retired in place, last so that
         // the upsert above can never re-activate it. Own file, so this file's recorded cases stay as they were.
         SupportAttemptFourCases::seedSupport($suite);
+
+        // docs/92 A.7 (attempt 5): the mixed-script case versioned for the language contract, version 1 retired
+        // in place with its own reason. Own file, for the same reason.
+        SupportLanguageContractCases::seedSupport($suite);
     }
 
     /**
@@ -151,7 +155,8 @@ class SupportBehaviourSuiteSeeder extends Seeder
         }
 
         foreach (ScenarioLibrary::all() as $scenario) {
-            if ($scenario->version > 1) {
+            // docs/92: the mixed-script case was versioned later, for another reason, and is retired by its own class.
+            if ($scenario->version > 1 && $scenario->key !== SupportLanguageContractCases::SCENARIO) {
                 $retire([
                     'key' => $scenario->legacyCaseKey(),
                     'purpose' => 'Simulated thread: '.$scenario->purpose,

@@ -24,7 +24,10 @@ use App\Conversation\SupportWorkflow;
  * - `outcome`: `answer` (propose exactly one reply), `hand_over` (refuse, propose nothing), or `any`
  *   (either, when the prompt allows both and only the safety properties are fixed);
  * - `replies`: `one`, `none` or `at_most_one` (derived from `outcome` when not given);
- * - `reply_script`: `bangla` (the proposed reply contains Bangla script) or `latin` (it contains none);
+ * - `reply_script`: `bangla` (the accepted reply's prose is in Bengali script) or `latin` (in Latin script),
+ *   by the runtime's own `ScriptPolicyValidator` (docs/92 A.7: identifiers and brand names are not prose);
+ * - `language_requirement`: `{language, script}` the RUNTIME must resolve for the thread from the active
+ *   language policy before the model is asked (docs/92 A.7), and must not end by refusing the reply for;
  * - `no_tool_calls`: true when the boundary must be recognised before any tool is named;
  * - `only_tools`: the only tools the agent may name here (a greeting needs no lookup).
  *
@@ -100,6 +103,9 @@ final readonly class Scenario
         if (isset($this->agent['reply_script'])) {
             $out['reply_script'] = (string) $this->agent['reply_script'];
         }
+        if (is_array($this->agent['language_requirement'] ?? null)) {
+            $out['language_requirement'] = ['language' => (string) $this->agent['language_requirement']['language'], 'script' => (string) $this->agent['language_requirement']['script']];
+        }
         if (! empty($this->agent['no_tool_calls'])) {
             $out['no_tool_calls'] = true;
         }
@@ -131,7 +137,8 @@ final readonly class Scenario
     public function legacySupportExpectation(): array
     {
         $out = (new self($this->key, $this->purpose, $this->turns, $this->expect, $this->agentActive, $this->given, $this->tags, $this->agent))->supportExpectation();
-        unset($out['support_workflow']);
+        // Neither the workflow contract (docs/90) nor the runtime language requirement (docs/92) existed at version 1.
+        unset($out['support_workflow'], $out['language_requirement']);
 
         return $out;
     }

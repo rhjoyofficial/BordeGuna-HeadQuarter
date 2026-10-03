@@ -14,6 +14,8 @@ use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Policy\PolicyDecision;
 use App\Gateway\Policy\PolicyEngine;
 use App\Gateway\Policy\PolicyOutcome;
+use App\Gateway\PreExecution\PreExecutionSafetyChecks;
+use App\Gateway\PreExecution\PreExecutionVerdict;
 use App\Gateway\Recording\IdempotencyKeyFactory;
 use App\Gateway\Recording\ToolCallRecorder;
 use App\Gateway\Redaction\Redactor;
@@ -52,6 +54,8 @@ use Throwable;
  *   6. approval                      -> M3; in M1 an approval requirement is a refusal, not a wait
  *   7. idempotency                   -> replay a recorded result, or reconcile an uncertain one
  *   8. credential pre-flight         -> unavailable, with the missing credential named
+ *   8b. pre-execution content checks -> content_policy_rejected (docs/97 §6 D4: the reply's script,
+ *                                    for a tool that opts in; after authorization, never after execution)
  *   9. execute
  *  10. record: tool_calls always, audit_logs for R3 and above
  *
@@ -79,6 +83,7 @@ final class ToolGateway
         private readonly ConsentGate $consent,
         private readonly CredentialHealth $health,
         private readonly ExecutionContextResolver $contexts,
+        private readonly PreExecutionSafetyChecks $preExecution,
     ) {}
 
     public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
@@ -91,18 +96,60 @@ final class ToolGateway
         }, ['correlation_id' => $request->correlationId, 'tool_key' => $request->toolKey]);
     }
 
-    private function run(ToolRequest $request, ?Approval $approval = null): ToolOutcome
+    /**
+     * docs/97 §6 D4: the gateway's AUTHORIZATION of a request, read-only. The same steps, in the same
+     * order, as `execute()` up to execution: availability, arguments, scope and the execution context,
+     * policy and permission, consent, and the credential pre-flight. Nothing is recorded, no approval is
+     * requested, no quota is spent and nothing runs. A policy that requires approval is reported as
+     * `awaitsApproval` and the remaining steps still run, exactly as they would under that approval.
+     *
+     * The A0 proposal path uses it (`AgentRunner`): a proposal is recorded only if the gateway would
+     * authorize the call and its pre-execution checks pass, so an A0 measurement asks the same questions
+     * as an execution would, in the same order, and executes nothing.
+     */
+    public function authorize(ToolRequest $request): GatewayAuthorization
+    {
+        $auth = $this->authorizeSteps($request, null, null, assumeApproval: true);
+        if (! $auth->permitsProposal()) {
+            return $auth;
+        }
+
+        $resolution = $this->credentials->resolve($auth->descriptor, $request, $auth->args, $auth->scope);
+        if (! $resolution->satisfied()) {
+            return GatewayAuthorization::refused($auth->descriptor, OutcomeStatus::Unavailable, FailureClass::Unsupported, $resolution->outcomeClass(),
+                $resolution->reason(), $auth->tool, $auth->args, $auth->scope, $auth->decision);
+        }
+
+        return $auth;
+    }
+
+    /**
+     * docs/97 §6 D4: the content checks a tool opts into, after authorization and before execution. Public
+     * so the A0 proposal path asks the same checks of the same code (`AgentRunner`), never a copy of them.
+     *
+     * @param  array<string, mixed>  $args  the validated arguments, as `authorize()` returned them
+     */
+    public function preExecutionChecks(ToolDescriptor $descriptor, ToolRequest $request, array $args): PreExecutionVerdict
+    {
+        return $this->preExecution->check($descriptor, $request, $args);
+    }
+
+    /**
+     * Steps 1 to 5b of the order above: availability, arguments, scope and the execution context, policy
+     * and permission, consent. With a `$call` each step is recorded on the row as before; without one
+     * (`authorize()`) nothing is written. Never refuses by itself: it returns what it decided, and the
+     * caller records the refusal or hands policy's non-allow to the approval handling.
+     */
+    private function authorizeSteps(ToolRequest $request, ?ToolCall $call, ?Approval $approval, bool $assumeApproval = false): GatewayAuthorization
     {
         $descriptor = $this->descriptorFor($request->toolKey);
-        $call = $this->recorder->open($request, $descriptor);
 
         // 1. Registered in code AND enabled at runtime. Config always wins; a database row can only
         //    ever narrow what the deployed code already contains.
         $availability = $this->availability->check($request->toolKey, $request->businessId);
         if (! $availability['available'] || $descriptor === null) {
-            return $this->refuse($call, $request, OutcomeStatus::Unavailable, FailureClass::Unsupported,
-                $availability['reason'] ?? "Tool [{$request->toolKey}] has no descriptor.", $descriptor,
-                class: OutcomeClass::CapabilityUnavailable);
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Unavailable, FailureClass::Unsupported, OutcomeClass::CapabilityUnavailable,
+                $availability['reason'] ?? "Tool [{$request->toolKey}] has no descriptor.");
         }
 
         $tool = $this->registry->get($request->toolKey);
@@ -110,11 +157,13 @@ final class ToolGateway
         // 2. Arguments, before anything else can act on them.
         $validation = $this->validator->validate($request->args, $tool->inputSchema());
         if (! $validation->valid) {
-            return $this->refuse($call, $request, OutcomeStatus::Invalid, FailureClass::ValidationFailed,
-                $validation->message(), $descriptor, class: OutcomeClass::InvalidArguments);
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Invalid, FailureClass::ValidationFailed, OutcomeClass::InvalidArguments,
+                $validation->message(), $tool);
         }
         $args = $validation->normalised;
-        $this->recorder->recordValidatedArgs($call, $args, $descriptor);
+        if ($call !== null) {
+            $this->recorder->recordValidatedArgs($call, $args, $descriptor);
+        }
         // The values the recorder masked, kept so a connector that interpolates one into its own
         // exception message cannot write it into tool_calls.error. These are the CALLER's
         // arguments; the gateway still never sees a credential.
@@ -124,34 +173,45 @@ final class ToolGateway
         //    because the Phase 1 scheduled jobs name their target in the payload (see ScopeResolver).
         $scope = $this->scopes->resolve($descriptor, $request, $args);
         if ($scope->missing) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, (string) $scope->problem, $descriptor,
-                class: OutcomeClass::ScopeDenied);
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused, OutcomeClass::ScopeDenied, (string) $scope->problem, $tool, $args, $scope);
         }
         if (($scopeProblem = $this->checkScope($descriptor, $request, $scope)) !== null) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, $scopeProblem, $descriptor,
-                class: OutcomeClass::ScopeDenied);
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused, OutcomeClass::ScopeDenied, $scopeProblem, $tool, $args, $scope);
         }
         // Now that the target is known, the row can say which business and store the call was for.
         // Before M2 an ERP poll recorded null for both, because its business lives in its payload.
-        $this->recorder->recordScope($call, $scope);
+        if ($call !== null) {
+            $this->recorder->recordScope($call, $scope);
+        }
 
         // 4/5. Permission and policy, in the engine. The permission intersection is step 4 of the
         //      engine's own order, so it lives there rather than being asked twice in two places
         //      that could one day disagree.
         $decision = $this->policy->decide($descriptor, $request, $request->identity, $args, $scope->businessId);
-        $this->recorder->recordPolicy($call, $decision);
+        if ($call !== null) {
+            $this->recorder->recordPolicy($call, $decision);
+        }
 
+        $awaitsApproval = false;
         if ($decision->outcome !== PolicyOutcome::Allow) {
             // An approval satisfies exactly ONE thing: the requirement for a human decision. It is
             // not a bypass. A deny after the approval was granted still denies, because the reasons
             // policy denies (a freeze, a revoked permission, a disabled tool) are all things that
             // SHOULD outrank yesterday's yes.
-            $satisfied = $approval !== null && $decision->outcome === PolicyOutcome::RequireApproval;
-            if (! $satisfied) {
-                return $this->handleNonAllow($call, $request, $descriptor, $decision, $args, $scope);
+            $requiresApproval = $decision->outcome === PolicyOutcome::RequireApproval;
+            $satisfied = $approval !== null && $requiresApproval;
+            if ($assumeApproval && $requiresApproval) {
+                // `authorize()`: a human decision is still needed, and the remaining steps run as they
+                // would under that decision. It never makes the call executable on its own.
+                $awaitsApproval = true;
+            } elseif (! $satisfied) {
+                return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused,
+                    str_contains(mb_strtolower($decision->rule), 'permission') ? OutcomeClass::PermissionDenied : OutcomeClass::PolicyDenied,
+                    "{$decision->rule}: {$decision->reason}", $tool, $args, $scope, $decision, policyNonAllow: true);
+            } elseif ($call !== null) {
+                $call->policy_reason = "{$decision->rule}: {$decision->reason} (satisfied by approval #{$approval->id})";
+                $call->save();
             }
-            $call->policy_reason = "{$decision->rule}: {$decision->reason} (satisfied by approval #{$approval->id})";
-            $call->save();
         }
 
         // 5b. Consent, for any tool that declares a requirement (ADR-021, Phase 2.5 B).
@@ -163,9 +223,34 @@ final class ToolGateway
         //     afterwards.
         $consent = $this->consent->check($descriptor, $request, $args, $scope->businessId);
         if (! $consent->permitted) {
-            return $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused,
-                'consent refused: '.$consent->reason, $descriptor, class: OutcomeClass::ConsentDenied);
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused, OutcomeClass::ConsentDenied,
+                'consent refused: '.$consent->reason, $tool, $args, $scope, $decision);
         }
+
+        return new GatewayAuthorization(
+            authorized: ! $awaitsApproval, descriptor: $descriptor, tool: $tool, args: $args, secrets: $secrets,
+            scope: $scope, decision: $decision, awaitsApproval: $awaitsApproval,
+        );
+    }
+
+    private function run(ToolRequest $request, ?Approval $approval = null): ToolOutcome
+    {
+        $call = $this->recorder->open($request, $this->descriptorFor($request->toolKey));
+
+        // 1 to 5b. Authorization (docs/97 §6 D4), recorded on the row as it goes.
+        $auth = $this->authorizeSteps($request, $call, $approval);
+        if (! $auth->authorized) {
+            return $auth->policyNonAllow
+                ? $this->handleNonAllow($call, $request, $auth->descriptor, $auth->decision, $auth->args, $auth->scope)
+                : $this->refuse($call, $request, $auth->status, $auth->failure, (string) $auth->reason, $auth->descriptor, class: $auth->class);
+        }
+
+        $descriptor = $auth->descriptor;
+        $tool = $auth->tool;
+        $args = $auth->args;
+        $secrets = $auth->secrets;
+        $scope = $auth->scope;
+        $decision = $auth->decision;
 
         // 6/7. Idempotency: a redelivered request returns its recorded result; an uncertain one is
         //      reconciled before anything is attempted again (ADR-011).
@@ -204,6 +289,18 @@ final class ToolGateway
             //    says which of the two it is, and the reason says what an operator does about it.
             return $this->refuse($call, $request, OutcomeStatus::Unavailable, FailureClass::Unsupported,
                 $resolution->reason(), $descriptor, class: $resolution->outcomeClass());
+        }
+
+        // 8b. Pre-execution content checks (docs/97 §6 D4), after every authorization step and before
+        //     anything runs: the reply's script, for a tool that opts in. Its own outcome class, never a
+        //     permission denial, and a call refused here is never executed.
+        $verdict = $this->preExecution->check($descriptor, $request, $args);
+        if (! $verdict->passed) {
+            $refused = $this->refuse($call, $request, OutcomeStatus::Denied, FailureClass::Refused, (string) $verdict->reason, $descriptor, $decision,
+                class: OutcomeClass::ContentPolicyRejected);
+
+            return new ToolOutcome(status: $refused->status, error: $refused->error, failure: $refused->failure, policy: $refused->policy,
+                policyReason: $refused->policyReason, toolCallId: $refused->toolCallId, class: $refused->class, preExecution: $verdict->toArray());
         }
 
         // Only a call that will actually execute consumes quota. A refused one must not.
