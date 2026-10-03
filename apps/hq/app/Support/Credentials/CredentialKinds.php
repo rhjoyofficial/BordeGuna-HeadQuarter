@@ -6,9 +6,8 @@ use App\Ads\AdsCredential;
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\OpenAiProvider;
 use App\Commerce\Support\CommerceRegistry;
-use App\Conversation\Channels\Meta\MetaInstagramChannel;
-use App\Conversation\Channels\Meta\MetaMessengerChannel;
-use App\Conversation\Channels\Meta\WhatsAppCloudChannel;
+use App\Content\Publishing\FacebookPagePublisher;
+use App\Content\Publishing\InstagramPublisher;
 use App\Erp\ErpRegistry;
 use App\Http\Controllers\Webhooks\MetaForwardController;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
@@ -58,9 +57,11 @@ final class CredentialKinds
             ErpRegistry::PROVIDER => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'The ERP API token for one business.'],
             OpenAiProvider::CREDENTIAL_PROVIDER => ['account_ref' => OpenAiProvider::ACCOUNT_REF, 'purpose' => 'The OpenAI API key the AI runtime uses.'],
             AnthropicProvider::CREDENTIAL_PROVIDER => ['account_ref' => AnthropicProvider::ACCOUNT_REF, 'purpose' => 'The Anthropic API key the AI runtime uses.'],
-            MetaMessengerChannel::TOKEN_PROVIDER => ['account_ref' => self::ACCOUNT_PAGE, 'purpose' => 'A Facebook Page access token: Messenger replies and Page posts.'],
-            MetaInstagramChannel::TOKEN_PROVIDER => ['account_ref' => self::ACCOUNT_INSTAGRAM, 'purpose' => 'The token for Instagram DMs and Instagram posts.'],
-            WhatsAppCloudChannel::TOKEN_PROVIDER => ['account_ref' => self::ACCOUNT_WHATSAPP, 'purpose' => 'The WhatsApp Cloud API system-user token for one number.'],
+            FacebookPagePublisher::CREDENTIAL => ['account_ref' => self::ACCOUNT_PAGE, 'purpose' => 'A Facebook Page access token: Messenger replies and Page posts.'],
+            InstagramPublisher::CREDENTIAL => ['account_ref' => self::ACCOUNT_INSTAGRAM, 'purpose' => 'The token for Instagram DMs and Instagram posts.'],
+            // A literal: the WhatsApp send adapter may be named only in its own folder (ChannelAdaptersInertTest);
+            // the structural test in CredentialKindsTest still ties this to `WhatsAppCloudChannel::TOKEN_PROVIDER`.
+            'whatsapp_access_token' => ['account_ref' => self::ACCOUNT_WHATSAPP, 'purpose' => 'The WhatsApp Cloud API system-user token for one number.'],
             MetaWebhookController::SECRET_PROVIDER => ['account_ref' => MetaWebhookController::ACCOUNT_REF, 'purpose' => 'The Meta app secret: checks webhook signatures and signs Graph calls.'],
             MetaWebhookController::VERIFY_TOKEN_PROVIDER => ['account_ref' => MetaWebhookController::ACCOUNT_REF, 'purpose' => 'The verify token Meta sends when the webhook is subscribed.'],
             MetaForwardController::SECRET_PROVIDER => ['account_ref' => MetaForwardController::ACCOUNT_REF, 'purpose' => 'The secret n8n signs forwarded Meta webhooks with.'],
