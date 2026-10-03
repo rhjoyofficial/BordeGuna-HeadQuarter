@@ -9,6 +9,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { KeyRound, Plus } from 'lucide-react';
@@ -29,6 +30,9 @@ type Credential = {
     last_result: { at: string; ok: boolean; class: string | null; message: string | null; source: string } | null;
 };
 type Option = { id: number; name: string };
+
+/** A credential kind the code reads (`CredentialKinds`): the only values the store accepts. */
+type Kind = { key: string; account_ref: string; purpose: string };
 
 /**
  * One target and one provider (ADR-043, docs/77 E.1): whether HQ would send a call, and separately whether
@@ -82,15 +86,19 @@ function expiry(c: Credential): { tone: Tone; label: string } {
 function NewCredentialDialog({
     businesses,
     brands,
+    kinds,
     open,
     onOpenChange,
 }: {
     businesses: Option[];
     brands: Option[];
+    kinds: Kind[];
     open: boolean;
     onOpenChange: (o: boolean) => void;
 }) {
+    const t = useT();
     const form = useForm({ provider: '', account_ref: '', business_id: '', brand_id: '', credential_type: 'api_key', secret: '', expires_at: '' });
+    const kind = kinds.find((k) => k.key === form.data.provider);
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-2xl">
@@ -114,16 +122,35 @@ function NewCredentialDialog({
                         </DialogDescription>
                     </DialogHeader>
                     <FormRow>
-                        <Field label="Provider" htmlFor="provider" size="md" hint="meta, telegram, anthropic, mimsms" error={form.errors.provider}>
-                            <Input
+                        <Field
+                            label="Provider"
+                            htmlFor="provider"
+                            size="md"
+                            hint={kind ? t(kind.purpose) : t('Only the kinds HQ reads can be stored.')}
+                            error={form.errors.provider}
+                        >
+                            <NativeSelect
                                 id="provider"
                                 value={form.data.provider}
                                 onChange={(e) => form.setData('provider', e.target.value)}
                                 required
                                 autoFocus
-                            />
+                            >
+                                <option value="">{t('Choose a kind')}</option>
+                                {kinds.map((k) => (
+                                    <option key={k.key} value={k.key}>
+                                        {k.key}
+                                    </option>
+                                ))}
+                            </NativeSelect>
                         </Field>
-                        <Field label="Account" htmlFor="acct" size="md" hint="Optional, when a provider has several" error={form.errors.account_ref}>
+                        <Field
+                            label="Account"
+                            htmlFor="acct"
+                            size="md"
+                            hint={kind ? t('HQ reads it by: {rule}', { rule: t(kind.account_ref) }) : t('Optional, when a provider has several')}
+                            error={form.errors.account_ref}
+                        >
                             <Input id="acct" value={form.data.account_ref} onChange={(e) => form.setData('account_ref', e.target.value)} />
                         </Field>
                         <Field label="Type" htmlFor="type" size="auto" error={form.errors.credential_type}>
@@ -193,11 +220,13 @@ export default function CredentialsIndex({
     businesses,
     brands,
     readiness,
+    kinds,
 }: {
     credentials: Credential[];
     businesses: Option[];
     brands: Option[];
     readiness: Readiness[];
+    kinds: Kind[];
 }) {
     const incidents = readiness.filter((r) => r.incident);
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
@@ -248,9 +277,9 @@ export default function CredentialsIndex({
                         <div>
                             <h2 className="text-base font-semibold">Readiness</h2>
                             <p className="text-muted-foreground text-sm">
-                                For each store, ERP business and the model provider: whether HQ would send a call, and whether the provider
-                                last accepted the credential. Those are two facts: an unverified key, or an account with no credit, would still
-                                be tried and would not work. A store with no connector is unsupported by design, not an incident.
+                                For each store, ERP business and the model provider: whether HQ would send a call, and whether the provider last
+                                accepted the credential. Those are two facts: an unverified key, or an account with no credit, would still be tried
+                                and would not work. A store with no connector is unsupported by design, not an incident.
                             </p>
                         </div>
                         {incidents.length > 0 ? (
@@ -277,7 +306,10 @@ export default function CredentialsIndex({
                             </thead>
                             <tbody>
                                 {readiness.map((r) => (
-                                    <tr key={`${r.target_kind}:${r.target}:${r.provider}`} className={`border-t ${!r.supported ? 'text-muted-foreground' : ''}`}>
+                                    <tr
+                                        key={`${r.target_kind}:${r.target}:${r.provider}`}
+                                        className={`border-t ${!r.supported ? 'text-muted-foreground' : ''}`}
+                                    >
                                         <td className="px-3 py-2 whitespace-nowrap">
                                             <div className="font-medium">{r.target_name}</div>
                                             <div className="text-muted-foreground font-mono text-xs">
@@ -290,10 +322,14 @@ export default function CredentialsIndex({
                                                 {humanKey(r.state).toLowerCase()}
                                             </StatusBadge>
                                         </td>
-                                        <td className="px-3 py-2 text-xs whitespace-nowrap">{r.supported ? (r.would_attempt ? 'yes' : 'no') : '-'}</td>
+                                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                            {r.supported ? (r.would_attempt ? 'yes' : 'no') : '-'}
+                                        </td>
                                         <td className="px-3 py-2 text-xs whitespace-nowrap">{r.supported ? (r.verified ? 'yes' : 'no') : '-'}</td>
                                         <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                            {r.credential_id === null ? 'none' : `#${r.credential_id} ${r.credential_status}${r.has_payload ? '' : ' (no value)'}`}
+                                            {r.credential_id === null
+                                                ? 'none'
+                                                : `#${r.credential_id} ${r.credential_status}${r.has_payload ? '' : ' (no value)'}`}
                                         </td>
                                         <td className="px-3 py-2 text-xs whitespace-nowrap" title={r.last_result?.message ?? ''}>
                                             {lastResult(r)}
@@ -374,7 +410,7 @@ export default function CredentialsIndex({
                 )}
             </div>
 
-            {canManage && <NewCredentialDialog businesses={businesses} brands={brands} open={creating} onOpenChange={setCreating} />}
+            {canManage && <NewCredentialDialog businesses={businesses} brands={brands} kinds={kinds} open={creating} onOpenChange={setCreating} />}
 
             <ConfirmDialog
                 open={revoking !== null}
