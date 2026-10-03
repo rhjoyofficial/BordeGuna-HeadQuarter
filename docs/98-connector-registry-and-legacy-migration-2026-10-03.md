@@ -107,6 +107,34 @@ its interface is the first step of building it (`docs/97` §3 item 1) and moves 
 
 `ConnectorResolution::toArray()` is safe for an audit row, a tool result or a model prompt: names, ids and reasons.
 
+### 2.4 `preferProvider` (ruling 9.2, `docs/101` §11, "approved narrowly")
+
+`ConnectorRequest` carries one optional field that names a provider: `preferProvider`, a provider key. It exists for
+the two legacy shapes that select by name (`model_tiers.provider`, `content.research.provider`), so they can converge
+without losing their configured choice. It is applied in step 5 only, after every check of step 4 has already decided
+which connectors are ready:
+
+- **MAY** choose among the ready connectors of the tier that serves (primaries if any primary is ready, otherwise
+  fallbacks), which includes breaking a tie at the best priority that would otherwise be refused as `ambiguous`.
+- **MUST NOT** override primary-vs-fallback: a preferred fallback is never chosen while any primary is ready.
+- **MUST NOT** select a connector that is not ready (off, out of scope, not switched on for this business, a
+  required credential missing/valueless/expired/ambiguous/known rejected). Such a connector is not in the list the
+  preference is applied to.
+- **MUST NOT** bypass policy, permission, consent, credential, readiness or scope. Resolution is not authorization
+  (§1): the preference never reaches the Tool Gateway's checks, and the credential ids returned are exactly those the
+  chosen connector's own readiness check found.
+- **MUST NOT** be model-controlled. It is set only by HQ code from trusted configuration or routing, never from a
+  model's tool arguments. `ConnectorPreferenceGuardTest` holds this structurally: no tool input schema, the agent
+  response schema or the NL job-spec schema has a field that names a provider; no file outside `App\Connectors`
+  sets it unless allowlisted (the allowlist is empty, and no allowlisted file may live in `app/Tools`, `app/Agents`
+  or `app/Http`); no statement that sets it reads a payload or arguments variable.
+
+A preference that cannot be honoured changes nothing: the answer is exactly the answer with no preference, and
+`ConnectorResolution::$preference` (also in `toArray()`) records why, for the audit row: `honoured`, or `not honoured:`
+with the reason (not ready and why, a fallback while a primary is ready, not registered for the capability). A
+preferred name that is not a lower-case provider key is refused when the request is built. Tests: the
+`preferProvider` section of `ConnectorRegistryTest` (one test per MAY / MUST NOT) and `ConnectorPreferenceGuardTest`.
+
 ## 3. Readiness
 
 `CapabilityReadiness::connectors()` returns `ConnectorReadinessRow`s: one per registered connector (capability,
@@ -173,10 +201,12 @@ health command or to a screen.
 
 - **Q1 Priority direction and tie rule.** Lower number is tried first; a tie at the best ready priority is refused,
   not chosen; a fallback is tried only when no primary is ready, whatever its number. Confirm, or rule a tie-break.
+  **RULED 4 Oct (`docs/101` §11, 9.2): confirmed as built.**
 - **Q2 Explicit selection vs priority.** Two legacy shapes select by name, not priority (`model_tiers.provider`,
   `content.research.provider`). Proposed: keep priority as the registry's rule and add an optional
   `preferProvider` on the request that only breaks a tie among ready connectors (the `preferAccountRef` precedent),
-  never reaches a connector that is not ready. Not built until ruled.
+  never reaches a connector that is not ready. **RULED 4 Oct (`docs/101` §11, 9.2): approved narrowly; built in
+  stream W6 as §2.4.**
 - **Q3 The sixth and seventh shapes.** `ResearchService::PROVIDERS` and the `StorageDriver` binding are provider
   selection outside the five named in `docs/95` §10. Proposed: treat them as legacy shapes 6 and 7 with the steps
   above.

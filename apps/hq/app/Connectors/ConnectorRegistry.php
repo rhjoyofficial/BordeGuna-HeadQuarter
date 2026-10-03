@@ -24,7 +24,9 @@ use InvalidArgumentException;
  * priority, that is registered for the capability, in scope, switched on and credential-ready. A
  * fallback is tried only when no primary is. Nothing registered is the typed `NoConnector`; two ready
  * connectors at the same priority are refused, never chosen (the `CapabilityRouter` and
- * `AmbiguousCredential` precedent: there is no tie-break rule right often enough to be safe).
+ * `AmbiguousCredential` precedent: there is no tie-break rule right often enough to be safe), unless
+ * HQ's own trusted configuration names one of the tied, ready connectors in `preferProvider`
+ * (ruling 9.2; `ConnectorRequest` says how narrow that is).
  *
  * ## What it is not
  *
@@ -137,18 +139,60 @@ final class ConnectorRegistry
                 continue;
             }
 
+            // ruling 9.2: a preference is read only HERE, after scope, switch and credential checks have
+            // already decided who is ready, and only inside the one tier that serves. A preferred
+            // fallback is therefore never reached while a primary is ready, and a preferred connector
+            // that is not ready is not in this list at all.
+            if ($request->preferProvider !== null) {
+                foreach ($ready[$tier] as [$connector, $credentials]) {
+                    if ($connector->provider === $request->preferProvider) {
+                        return ConnectorResolution::resolved($connector, $credentials, $rejected, 'honoured');
+                    }
+                }
+            }
+            $preference = $this->preferenceNotHonoured($request, $registered, $rejected, $tier);
+
             // `all()` sorted by priority, so the first ready connector holds the best priority.
             $best = $ready[$tier][0][0]->priority;
             $tied = array_values(array_filter($ready[$tier], static fn (array $r) => $r[0]->priority === $best));
 
             if (count($tied) > 1) {
-                return ConnectorResolution::ambiguous($capability, array_map(static fn (array $r) => $r[0], $tied), $rejected);
+                return ConnectorResolution::ambiguous($capability, array_map(static fn (array $r) => $r[0], $tied), $rejected, $preference);
             }
 
-            return ConnectorResolution::resolved($tied[0][0], $tied[0][1], $rejected);
+            return ConnectorResolution::resolved($tied[0][0], $tied[0][1], $rejected, $preference);
         }
 
-        return ConnectorResolution::unavailable($capability, $rejected);
+        return ConnectorResolution::unavailable($capability, $rejected, $this->preferenceNotHonoured($request, $registered, $rejected, null));
+    }
+
+    /**
+     * Why a preference named on the request did not decide the answer, for the audit row; null when
+     * none was named. The answer itself is then exactly what it would be with no preference at all:
+     * a preference that cannot be honoured never makes a resolution worse, and never better either.
+     *
+     * @param  list<ConnectorDefinition>  $registered
+     * @param  list<array{provider: string, reason: string}>  $rejected
+     */
+    private function preferenceNotHonoured(ConnectorRequest $request, array $registered, array $rejected, ?string $servingTier): ?string
+    {
+        $preferred = $request->preferProvider;
+        if ($preferred === null) {
+            return null;
+        }
+
+        foreach ($rejected as $row) {
+            if ($row['provider'] === $preferred) {
+                return "not honoured: [{$preferred}] is not ready ({$row['reason']})";
+            }
+        }
+        foreach ($registered as $connector) {
+            if ($connector->provider === $preferred && $servingTier === 'primary' && $connector->fallback) {
+                return "not honoured: [{$preferred}] is a fallback and a primary is ready";
+            }
+        }
+
+        return "not honoured: [{$preferred}] is not registered for [{$request->capability}]";
     }
 
     /**

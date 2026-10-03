@@ -26,11 +26,13 @@ final readonly class ConnectorResolution
         public ?string $reason = null,
         public array $rejected = [],
         public array $credentials = [],
+        /** null when the request named no `preferProvider`; otherwise `honoured` or why it was not. */
+        public ?string $preference = null,
     ) {}
 
-    public static function resolved(ConnectorDefinition $connector, array $credentials, array $rejected = []): self
+    public static function resolved(ConnectorDefinition $connector, array $credentials, array $rejected = [], ?string $preference = null): self
     {
-        return new self(ConnectorOutcome::Resolved, $connector->capability, $connector, null, $rejected, $credentials);
+        return new self(ConnectorOutcome::Resolved, $connector->capability, $connector, null, $rejected, $credentials, $preference);
     }
 
     public static function noConnector(string $capability): self
@@ -39,21 +41,21 @@ final readonly class ConnectorResolution
             "No connector is registered for [{$capability}]. HQ cannot do this yet; nothing was attempted.");
     }
 
-    public static function unavailable(string $capability, array $rejected): self
+    public static function unavailable(string $capability, array $rejected, ?string $preference = null): self
     {
         return new self(ConnectorOutcome::Unavailable, $capability, null,
-            "No registered connector can serve [{$capability}] right now.", $rejected);
+            "No registered connector can serve [{$capability}] right now.", $rejected, [], $preference);
     }
 
     /** @param  list<ConnectorDefinition>  $tied */
-    public static function ambiguous(string $capability, array $tied, array $rejected = []): self
+    public static function ambiguous(string $capability, array $tied, array $rejected = [], ?string $preference = null): self
     {
         $names = implode(', ', array_map(static fn (ConnectorDefinition $c) => $c->provider, $tied));
 
         return new self(ConnectorOutcome::Ambiguous, $capability, null,
             "[{$capability}] could be served by more than one connector at the same priority ({$names}) and nothing says which. "
             .'Give one a different priority or mark one a fallback; HQ does not pick a provider by guessing.',
-            $rejected);
+            $rejected, [], $preference);
     }
 
     public static function unknown(string $capability, string $why): self
@@ -78,6 +80,7 @@ final readonly class ConnectorResolution
             'reason' => $this->reason,
             'rejected' => $this->rejected,
             'credential_ids' => array_map(static fn (array $c) => $c['credential_id'], $this->credentials),
+            'preference' => $this->preference,
         ];
     }
 }
