@@ -338,6 +338,16 @@ return [
         'default_retry_backoff_seconds' => 60,
     ],
 
+    // docs/102: the HQ-native WorkflowEngine. ⛔ `definitions` is EMPTY in this release: a type that is
+    // not listed cannot be started, so nothing runs. Tests register their own.
+    'workflows' => [
+        'definitions' => [],
+        // Longer than the scheduler queue's job timeout, so an expired lease means a dead worker.
+        'lease_seconds' => 300,
+        'default_max_attempts' => 3,
+        'default_backoff_seconds' => 60,
+    ],
+
     'events' => [
         // type => [handler classes]. Empty in Phase 0; handlers arrive with the subsystems that need them.
         'handlers' => [

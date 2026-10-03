@@ -9,10 +9,12 @@ use App\Scheduling\Enums\MissedPolicy;
 use App\Scheduling\Jobs\RunScheduledJob;
 use App\Scheduling\NextRunCalculator;
 use App\Scheduling\ScheduledJobService;
+use App\Workflow\WorkflowEngine;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * The scheduler tick (doc 21). Runs every minute from the Laravel scheduler inside the
@@ -28,7 +30,7 @@ final class SchedulerTick extends Command
 
     public const HEARTBEAT_KEY = 'hq:scheduler:last_tick';
 
-    public function handle(ScheduledJobService $service, NextRunCalculator $calculator): int
+    public function handle(ScheduledJobService $service, NextRunCalculator $calculator, WorkflowEngine $workflows): int
     {
         $lock = Cache::lock('hq:scheduler:tick', 55);
         if (! $lock->get()) {
@@ -90,8 +92,18 @@ final class SchedulerTick extends Command
                     $job->saveQuietly();
                 });
 
+            // docs/102: workflow runs whose timer, retry, approval or signal is due, or whose worker died,
+            // go back to Horizon. With no run in the table this is one query. A failure here must not
+            // cost the scheduled jobs their heartbeat.
+            $advanced = 0;
+            try {
+                $advanced = $workflows->reconcile($now);
+            } catch (Throwable $e) {
+                Log::error('workflow reconcile failed in the tick', ['exception' => $e]);
+            }
+
             Cache::put(self::HEARTBEAT_KEY, $now->toIso8601String(), 600);
-            $this->info("tick at {$now->toIso8601String()}: dispatched {$dispatched}, skipped {$skipped}");
+            $this->info("tick at {$now->toIso8601String()}: dispatched {$dispatched}, skipped {$skipped}, workflows {$advanced}");
 
             return self::SUCCESS;
         } finally {

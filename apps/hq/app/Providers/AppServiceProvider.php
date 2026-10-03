@@ -32,6 +32,9 @@ use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
 use App\Tools\ToolRegistry;
 use App\Voice\SpeechProviders;
+use App\Workflow\HqWorkflowEngine;
+use App\Workflow\WorkflowDefinitions;
+use App\Workflow\WorkflowEngine;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -49,6 +52,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
+        // docs/102: the workflow seam. The catalogue is empty in production config, so nothing can start.
+        $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
+        $this->app->bind(WorkflowEngine::class, HqWorkflowEngine::class);
         // The vault holds the credentials open for the CURRENT call. Every consumer must share
         // one instance or the scope the gateway opens is invisible to the connector that needs it.
         $this->app->singleton(CredentialVault::class);

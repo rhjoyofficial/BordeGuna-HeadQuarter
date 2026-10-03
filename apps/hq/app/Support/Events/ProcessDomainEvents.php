@@ -4,6 +4,7 @@ namespace App\Support\Events;
 
 use App\Models\DomainEvent;
 use App\Scheduling\EventTriggeredJobs;
+use App\Workflow\WorkflowEvents;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
@@ -22,7 +23,7 @@ final class ProcessDomainEvents extends Command
 
     protected $description = 'Deliver pending domain events to their registered handlers.';
 
-    public function handle(EventTriggeredJobs $eventJobs): int
+    public function handle(EventTriggeredJobs $eventJobs, WorkflowEvents $workflows): int
     {
         $lock = Cache::lock('hq:events:process', 55);
         if (! $lock->get()) {
@@ -61,6 +62,9 @@ final class ProcessDomainEvents extends Command
                     // after the handlers, so a job sees the state they wrote. A retry of this event
                     // after a handler failure cannot run a job twice: the event's uuid is the slot.
                     $fired += $eventJobs->fire($event);
+                    // docs/102: the event reaches open workflow runs correlated with its aggregate, as a
+                    // signal keyed by the event's uuid, so a retried event signals nothing twice.
+                    $workflows->deliver($event);
                     $event->forceFill(['status' => DomainEvent::STATUS_PROCESSED, 'processed_at' => now(), 'last_error' => null])->save();
                     $processed++;
                 } catch (Throwable $e) {

@@ -18,4 +18,7 @@ enum CallerKind: string
     case Api = 'api';
     case Console = 'console';
     case System = 'system';
+
+    /** A step of a durable workflow run (docs/102), acting as the run's named requester. */
+    case Workflow = 'workflow';
 }
