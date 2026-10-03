@@ -338,8 +338,6 @@
     "Withdrawn": "ফিরিয়ে নেওয়া",
     "before and after": "আগে ও পরে",
     "no expiry": "মেয়াদ নেই",
-<<<<<<< HEAD
-
     "Why a person is needed": "কেন একজন মানুষ দরকার",
     "reason not recorded": "কারণ লেখা নেই",
     "from": "আগের অবস্থা",
@@ -355,8 +353,6 @@
     "The support agent is paused": "সাপোর্ট এজেন্ট বন্ধ আছে",
     "The agent is switched off for this thread": "এই থ্রেডে এজেন্ট বন্ধ করা আছে",
     "The agent could not serve this thread": "এজেন্ট এই থ্রেডটি সামলাতে পারেনি",
-    "Bor de Guna": "বর দে গুনা"
-=======
     "Bor de Guna": "বর দে গুনা",
 
     "Only the kinds HQ reads can be stored.": "শুধু HQ যে ধরনগুলো পড়ে সেগুলোই রাখা যায়।",
@@ -386,5 +382,4 @@
     "The Google Speech-to-Text access token for voice notes.": "ভয়েস নোটের জন্য Google Speech-to-Text access টোকেন।",
     "The ElevenLabs API key for text to speech.": "লেখা থেকে কণ্ঠের জন্য ElevenLabs API কী।",
     "The Azure Speech key for text to speech.": "লেখা থেকে কণ্ঠের জন্য Azure Speech কী।"
->>>>>>> platform/event-jobs-reconcile-seeds
 }
