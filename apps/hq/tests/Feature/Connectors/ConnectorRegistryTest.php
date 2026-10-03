@@ -399,3 +399,126 @@ it('reports a registered speech slot as a legacy voice row with its credential k
         ->and($row->credentials)->toBe([GoogleSpeechToText::CREDENTIAL_PROVIDER.' <- =hq'])
         ->and($row->shape)->toBe(SpeechProviders::class);
 });
+
+// ── preferProvider (docs/101 §11 ruling 9.2, docs/98 §2.4): narrow, among ready connectors only ─────
+
+/** Two primaries and one fallback, all switched on unless a test turns one off. */
+function preferenceRows(array $a = [], array $b = [], array $c = []): array
+{
+    return [
+        connectorRow($a),
+        connectorRow(array_replace(['provider' => 'test_b', 'adapter' => ConnectorTestTranscriberB::class, 'enabled_by' => 'flag:connectors.test_b'], $b)),
+        connectorRow(array_replace(['provider' => 'test_c', 'adapter' => ConnectorTestTranscriberB::class, 'enabled_by' => 'flag:connectors.test_c', 'priority' => 1, 'fallback' => true], $c)),
+    ];
+}
+
+function preferring(?string $provider, ?int $businessId = null): ConnectorRequest
+{
+    return new ConnectorRequest(Capabilities::VOICE_TRANSCRIBE, $businessId, preferProvider: $provider);
+}
+
+it('MAY break a tie between two ready primaries that would otherwise be refused', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_b', true);
+    $registry = connectorRegistry(preferenceRows());
+
+    expect($registry->resolve(preferring(null))->outcome)->toBe(ConnectorOutcome::Ambiguous);
+
+    $resolution = $registry->resolve(preferring('test_b'));
+    expect($resolution->outcome)->toBe(ConnectorOutcome::Resolved)
+        ->and($resolution->connector->provider)->toBe('test_b')
+        ->and($resolution->preference)->toBe('honoured')
+        ->and($resolution->toArray()['preference'])->toBe('honoured');
+});
+
+it('MAY select among the ready connectors of the serving tier, the name-based selection of model_tiers.provider', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_b', true);
+    $registry = connectorRegistry(preferenceRows(b: ['priority' => 20]));
+
+    expect($registry->resolve(preferring(null))->connector->provider)->toBe('test_a')
+        ->and($registry->resolve(preferring('test_b'))->connector->provider)->toBe('test_b')
+        ->and($registry->resolve(preferring('test_a'))->connector->provider)->toBe('test_a');
+});
+
+it('MUST NOT lift a preferred fallback over a ready primary, whatever its priority', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_c', true);
+    $registry = connectorRegistry(preferenceRows());
+
+    $resolution = $registry->resolve(preferring('test_c'));
+    expect($resolution->outcome)->toBe(ConnectorOutcome::Resolved)
+        ->and($resolution->connector->provider)->toBe('test_a')
+        ->and($resolution->connector->fallback)->toBeFalse()
+        ->and($resolution->preference)->toBe('not honoured: [test_c] is a fallback and a primary is ready');
+
+    // Only when no primary is ready is the fallback tier the one that serves, and then it may be chosen.
+    connectorFlag('connectors.test_a', false);
+    expect($registry->resolve(preferring('test_c'))->connector->provider)->toBe('test_c')
+        ->and($registry->resolve(preferring('test_c'))->preference)->toBe('honoured');
+});
+
+it('MUST NOT select a connector that is switched off, and the answer is what it would be with no preference', function () {
+    connectorFlag('connectors.test_a', true);
+    $registry = connectorRegistry(preferenceRows());
+
+    $resolution = $registry->resolve(preferring('test_b'));
+    expect($resolution->connector->provider)->toBe('test_a')
+        ->and($resolution->preference)->toBe('not honoured: [test_b] is not ready (switched off (flag:connectors.test_b))')
+        ->and($resolution->connector)->toBe($registry->resolve(preferring(null))->connector);
+
+    // The preferred connector is the only one registered and it is off: refused, never served.
+    connectorFlag('connectors.test_a', false);
+    $alone = connectorRegistry([connectorRow()])->resolve(preferring('test_a'));
+    expect($alone->outcome)->toBe(ConnectorOutcome::Unavailable)
+        ->and($alone->connector)->toBeNull()
+        ->and($alone->preference)->toStartWith('not honoured: [test_a] is not ready');
+});
+
+it('MUST NOT bypass a credential that is not ready, and opens only the credentials readiness found', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_b', true);
+    $good = connectorCredential('test_stt_key_a', 'hq');
+    connectorCredential('test_stt_key_b', 'hq', ['status' => 'revoked']);
+    $registry = connectorRegistry(preferenceRows(
+        a: ['credentials' => [['kind' => 'test_stt_key_a', 'account_ref_from' => '=hq']]],
+        b: ['credentials' => [['kind' => 'test_stt_key_b', 'account_ref_from' => '=hq']]],
+    ));
+
+    $resolution = $registry->resolve(preferring('test_b'));
+    expect($resolution->connector->provider)->toBe('test_a')
+        ->and($resolution->credentials)->toBe([['provider' => 'test_stt_key_a', 'account_ref' => 'hq', 'credential_id' => $good->id]])
+        ->and($resolution->preference)->toContain('missing or not active');
+});
+
+it('MUST NOT bypass scope: a preferred connector that does not serve this business is not chosen', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_b', true);
+    $bionic = Business::where('slug', 'bionic')->sole();
+    $registry = connectorRegistry(preferenceRows(b: ['businesses' => ['laladia']]));
+
+    $resolution = $registry->resolve(preferring('test_b', $bionic->id));
+    expect($resolution->connector->provider)->toBe('test_a')
+        ->and($resolution->preference)->toContain('does not serve business [bionic]');
+
+    // A flag rolled out to another business is the same refusal: readiness is per business.
+    connectorFlag('connectors.test_b', true, ['businesses' => [Business::where('slug', 'laladia')->value('id')]]);
+    expect(connectorRegistry(preferenceRows())->resolve(preferring('test_b', $bionic->id))->connector->provider)->toBe('test_a');
+});
+
+it('cannot resolve a tie it is not part of, and names an unregistered provider without guessing', function () {
+    connectorFlag('connectors.test_a', true);
+    connectorFlag('connectors.test_b', true);
+
+    $resolution = connectorRegistry(preferenceRows())->resolve(preferring('elsewhere'));
+    expect($resolution->outcome)->toBe(ConnectorOutcome::Ambiguous)
+        ->and($resolution->connector)->toBeNull()
+        ->and($resolution->preference)->toBe('not honoured: [elsewhere] is not registered for [voice.transcribe]');
+
+    expect(connectorRegistry([])->resolve(preferring('test_a'))->outcome)->toBe(ConnectorOutcome::NoConnector)
+        ->and(connectorRegistry([])->resolve(preferring(null))->toArray()['preference'])->toBeNull();
+});
+
+it('refuses a preferProvider that is not a provider key at construction', function (string $bad) {
+    preferring($bad);
+})->throws(InvalidArgumentException::class, 'must be a lower-case provider key')->with(['Test_A', '', 'a b', '../x']);

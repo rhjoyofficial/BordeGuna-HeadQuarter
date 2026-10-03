@@ -2,7 +2,7 @@
 
 namespace App\Tools\Erp;
 
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Tools\ToolResult;
 
 /**
@@ -47,7 +47,7 @@ final class LookupSkuTool extends ErpOrderReadTool
         ];
     }
 
-    protected function read(ErpConnector $erp, array $payload): array|ToolResult
+    protected function read(ErpPlatform $erp, array $payload): array|ToolResult
     {
         $read = $erp->lookupSku((string) $payload['sku']);
         $product = $read->found ? array_diff_key($read->data, ['variant_model' => true, 'variant_note' => true]) : null;

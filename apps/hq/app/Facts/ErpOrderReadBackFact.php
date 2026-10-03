@@ -4,7 +4,7 @@ namespace App\Facts;
 
 use App\Context\Provenance;
 use App\Erp\Dto\ErpOrderRead;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Models\FactsOrder;
 use App\Models\Store;
@@ -111,7 +111,7 @@ final class ErpOrderReadBackFact
             || ! is_string($data['shop_reference'] ?? null) || $data['shop_reference'] === '') {
             throw new InvalidArgumentException('The ERP answer names no order (status, order_number and shop_reference are required); no fact is written from it.');
         }
-        if (($read->meta['contract'] ?? null) !== ErpConnector::SALES_ORDERS_CONTRACT) {
+        if (($read->meta['contract'] ?? null) !== ErpPlatform::SALES_ORDERS_CONTRACT) {
             throw new InvalidArgumentException('The ERP answer is not on the orders contract; no fact is written from it.');
         }
 

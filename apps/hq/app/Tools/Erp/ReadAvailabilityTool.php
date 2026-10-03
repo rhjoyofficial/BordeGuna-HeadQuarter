@@ -2,7 +2,7 @@
 
 namespace App\Tools\Erp;
 
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Tools\ToolResult;
 
 /**
@@ -50,7 +50,7 @@ final class ReadAvailabilityTool extends ErpOrderReadTool
         ];
     }
 
-    protected function read(ErpConnector $erp, array $payload): array|ToolResult
+    protected function read(ErpPlatform $erp, array $payload): array|ToolResult
     {
         $read = $erp->readAvailability((string) $payload['sku'], $payload['store_key'] ?? null);
 

@@ -3,7 +3,7 @@
 namespace App\Tools\Commerce;
 
 use App\Erp\Dto\ErpOrderRead;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Erp\ErpRegistry;
 use App\Facts\ErpOrderReadBackFact;
 use App\Models\Business;
@@ -52,7 +52,7 @@ final class GetOrderStatusTool extends ErpOrderReadTool
 
     protected function contract(): string
     {
-        return ErpConnector::SALES_ORDERS_CONTRACT;
+        return ErpPlatform::SALES_ORDERS_CONTRACT;
     }
 
     protected function arguments(): array
@@ -111,7 +111,7 @@ final class GetOrderStatusTool extends ErpOrderReadTool
         $this->readBack->record($fact->store, $read, $context->correlationId);
     }
 
-    protected function read(ErpConnector $erp, array $payload): array|ToolResult
+    protected function read(ErpPlatform $erp, array $payload): array|ToolResult
     {
         $reference = is_string($payload['reference'] ?? null) ? trim($payload['reference']) : '';
         $key = is_string($payload['hq_key'] ?? null) ? trim($payload['hq_key']) : '';

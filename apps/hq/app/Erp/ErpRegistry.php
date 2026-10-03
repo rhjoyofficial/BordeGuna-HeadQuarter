@@ -23,12 +23,16 @@ final class ErpRegistry
 {
     public const PROVIDER = 'erp_api_token';
 
+    /** The implementation this registry builds, named here so nothing outside app/Erp has to (ruling 9.2). */
+    public const ADAPTER = ErpConnector::class;
+
     public function __construct(
         private readonly ConnectorCallLogger $logger,
         private readonly CredentialVault $vault,
     ) {}
 
-    public function for(Business|string $business): ErpConnector
+    /** The business's ERP, as the `ErpPlatform` interface core logic depends on (docs/101 §11 ruling 9.2). */
+    public function for(Business|string $business): ErpPlatform
     {
         $business = $business instanceof Business ? $business : Business::where('slug', $business)->firstOrFail();
 

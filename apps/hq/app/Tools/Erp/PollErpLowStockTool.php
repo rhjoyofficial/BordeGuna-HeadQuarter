@@ -2,7 +2,7 @@
 
 namespace App\Tools\Erp;
 
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Gateway\Descriptor\ToolDescriptor;
 
 final class PollErpLowStockTool extends PollErpTool
@@ -25,7 +25,7 @@ final class PollErpLowStockTool extends PollErpTool
         return 'low_stock';
     }
 
-    protected function poll(ErpConnector $erp): array
+    protected function poll(ErpPlatform $erp): array
     {
         $low = $erp->lowStock();
 

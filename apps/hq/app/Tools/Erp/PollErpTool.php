@@ -4,7 +4,7 @@ namespace App\Tools\Erp;
 
 use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Erp\ErpRegistry;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\ReadWrite;
@@ -33,7 +33,7 @@ abstract class PollErpTool implements Tool
     abstract protected function kind(): string;
 
     /** @return array{payload: array, as_of: ?string} */
-    abstract protected function poll(ErpConnector $erp): array;
+    abstract protected function poll(ErpPlatform $erp): array;
 
     public function inputSchema(): array
     {
