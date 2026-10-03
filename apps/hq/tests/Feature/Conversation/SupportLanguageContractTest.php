@@ -10,6 +10,7 @@ use App\Evaluation\DeterministicGrader;
 use App\Evaluation\GradeResult;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\Approval;
 use App\Models\AuditLog;
 use App\Models\EvaluationCase;
 use App\Models\ToolCall;
@@ -21,6 +22,7 @@ use Database\Seeders\SafetyCorpusSeeder;
 use Database\Seeders\SupportBehaviourSuiteSeeder;
 use Database\Seeders\SupportLanguageContractCases;
 use Illuminate\Support\Facades\Cache;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\Support\Ai\FixtureProvider;
 
 /*
@@ -141,8 +143,8 @@ it('C: refuses the romanised-Bangla reply attempts 3 and 4 produced, before it i
     $refused = collect($run->proposals)->firstWhere('tool', 'messaging.send_reply');
 
     expect($refused['kind'])->toBe('refused')
-        ->and($refused['outcome_class'])->toBe('policy_denied')
-        ->and($refused['reason'])->toContain('requires Bengali script on this thread')->toContain('written in Latin script')->toContain('will not be sent as written')
+        ->and($refused['outcome_class'])->toBe('content_policy_rejected')
+        ->and($refused['reason'])->toContain('requires Bengali script on this thread')->toContain('written in Latin script')->toContain('refused before execution')->toContain('will not be sent as written')
         ->and($refused['script_policy'])->toMatchArray(['valid' => false, 'reason' => 'other_script', 'detected_script' => 'latin', 'required_script' => 'bengali', 'policy_version' => 1])
         ->and($run->language_requirement['validations'][0])->toMatchArray(['stage' => 'proposal', 'valid' => false, 'reason' => 'other_script'])
         ->and(json_encode($run->language_requirement, JSON_UNESCAPED_UNICODE))->not->toContain('Dukkhoito')
@@ -310,4 +312,41 @@ it('versions sim.mixed.script.agent_active: version 1 retired in place with its 
     $retiredAt = $v1->retired_at;
     $this->seed(SupportBehaviourSuiteSeeder::class);
     expect($v1->fresh()->retired_at->equalTo($retiredAt))->toBeTrue()->and($v1->fresh()->is_active)->toBeFalse();
+});
+
+// ── docs/97 §6 D4: the script check runs after the gateway's authorization, also for an A0 proposal ──
+
+it('D4: records an A0 reply as a proposal only after the gateway authorizes it and its script check passes, and runs nothing', function () {
+    FixtureProvider::script('fixture', [lcPropose(LC_BENGALI), lcDone()]);
+
+    [, $run] = lcGrade('mixed.script.agent_active');
+    $proposal = collect($run->proposals)->sole();
+
+    expect($proposal['kind'])->toBe('proposal')
+        ->and($proposal['authorization'])->toBeIn(['authorized', 'awaits_approval'])
+        ->and($run->language_requirement['validations'][0]['valid'])->toBeTrue()
+        // authorize() is read-only and nothing executes at A0: no tool_calls row, no approval parked.
+        ->and(ToolCall::count())->toBe(0)
+        ->and(Approval::count())->toBe(0);
+});
+
+it('D4: a permission denial short-circuits an A0 reply before the script check, so a wrong script is never even judged and no repair follows', function () {
+    // The enabling user loses the reply permission: the gateway's authorization refuses first.
+    $owner = User::find(Agent::where('key', 'support')->value('enabling_user_id'));
+    $owner->revokePermissionTo('hq.inbox.manage');
+    app(PermissionRegistrar::class)->forgetCachedPermissions();
+    FixtureProvider::script('fixture', [lcPropose(LC_ROMANISED), lcDone()]);
+
+    [, $run] = lcGrade('mixed.script.agent_active');
+    $refused = collect($run->proposals)->firstWhere('tool', 'messaging.send_reply');
+
+    expect($refused['kind'])->toBe('refused')
+        ->and($refused['outcome_class'])->toBe('permission_denied')
+        ->and($refused)->not->toHaveKey('script_policy')
+        ->and($run->language_requirement['validations'])->toBe([])
+        ->and($run->language_requirement['repairs_attempted'])->toBe(0)
+        ->and(FixtureProvider::callsTo('fixture'))->toBe(2)
+        ->and(AuditLog::where('action', 'agent_run.proposal_not_authorized')->count())->toBe(1)
+        ->and(AuditLog::where('action', 'agent_run.reply_script_rejected')->count())->toBe(0)
+        ->and(ToolCall::count())->toBe(0);
 });

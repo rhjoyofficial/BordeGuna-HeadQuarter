@@ -61,6 +61,14 @@ A run that ends `invalid` sent nothing: the violation was contained. Its case st
 
 For `sim.v2.mixed.script.agent_active`, give every field in the table explicitly.
 
+Since docs/97 §6 D4, the Tool Gateway checks the script after it has authorized the call and before it executes.
+
+- A reply refused for its script carries the class `content_policy_rejected`, never `permission_denied` or
+  `policy_denied`.
+- At A0 a reply becomes a proposal only if the gateway would authorize it and the script check passes.
+- A reply the gateway would not authorize is audited as `agent_run.proposal_not_authorized`. It is never
+  script-checked, and no repair follows.
+
 The audit actions are:
 
 - `agent_run.reply_script_rejected`

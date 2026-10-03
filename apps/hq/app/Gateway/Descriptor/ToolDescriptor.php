@@ -135,6 +135,14 @@ final readonly class ToolDescriptor
          * nothing is read as `outbound_message` (`effectiveRoleAction()`): failing closed.
          */
         public ?string $roleAction = null,
+        /**
+         * docs/97 §6 D4: the content checks the gateway runs on this tool's call AFTER it has authorized
+         * it and BEFORE it executes (`App\Gateway\PreExecution\PreExecutionSafetyChecks::CHECKS`), e.g.
+         * `reply_script` for a customer-facing reply. Opt-in per tool; empty runs none.
+         *
+         * @var list<string>
+         */
+        public array $preExecutionChecks = [],
     ) {
         // A tool cannot be permanently human-only AND agent-executable. Refusing the contradiction
         // at construction means the mistake fails the build at the line that made it, rather than

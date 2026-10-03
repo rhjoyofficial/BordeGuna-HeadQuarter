@@ -227,6 +227,13 @@ trusted input
 
 Do not allow the script repair to revive an action that another policy already refused.
 
+> **Note (added 4 October, not part of the verbatim text): this ordering is superseded by `docs/97` §6 D4.**
+> ChatGPT ruled on 3 October that the script check runs after the Tool Gateway has authorized the call and
+> before it executes. The required order is: model output → parsing and normalisation → the runtime's task,
+> scope and security guards → Tool Gateway (availability → arguments → scope and EEC → policy and permission →
+> consent → idempotency and replay → credential pre-flight) → **ScriptPolicyValidator** → EXECUTE → record and
+> audit → verification. The script check never runs after execution. §C.2 records how it was built.
+
 ## 7. MIXED-SCRIPT CASE
 
 Keep:
@@ -585,7 +592,8 @@ tolerance. A reply with no prose left at all is also valid. The result gives:
 - the required language and script, and the script detected;
 - diagnostics, made of word counts and exempted-token counts only.
 
-**4, 5. One repair, in order (A.5, A.6, A.13).** Inside `AgentRunner::invoke()` every `messaging.send_reply` is
+**4, 5. One repair, in order (A.5, A.6, A.13).** *(The ordering in this paragraph was superseded on 4 October by
+`docs/97` §6 D4; see §C.2.)* Inside `AgentRunner::invoke()` every `messaging.send_reply` is
 checked after the runtime's own refusals (the thread binding, the role boundary's refused part, the catalogue) and
 before autonomy and the gateway. The boundaries decided before the model (silent hand-over, security intent,
 prohibited capability, role boundary, no task) are unchanged and still come first.
@@ -668,3 +676,78 @@ are unchanged, and no historical run or result was altered.
 - **(c) The policy's `banglish` key can only be reached by an explicit tag.** The core still tags pure romanised
   Bangla as `en`, because it contains only Latin letters. That is today's behaviour, and it is unchanged.
 - **(d) Attempt 5 itself has not run.** It comes after the merge and the release.
+
+### C.2 The ordering moved under docs/97 §6 D4 (4 October): same branch, second commit
+
+ChatGPT ruled on 3 October (`docs/97` §6 D4) that the script check must run after the gateway's authorization
+and before execution. That ruling supersedes A.6's ordering and §C.1's first build, which checked the script in
+`AgentRunner` before the gateway was asked. The script check is now a **pre-execution check of the Tool
+Gateway**.
+
+**The gateway is split.** `ToolGateway::authorize()` runs authorization read-only, returning a
+`GatewayAuthorization`. `ToolGateway::preExecutionChecks()` runs `App\Gateway\PreExecution\PreExecutionSafetyChecks`.
+`execute()` runs both, in the same order, and then executes. Steps 1 to 5b are one shared private method,
+`authorizeSteps()`, so the read-only path and the executing path cannot drift apart.
+
+**The order inside `execute()` is:**
+
+1. availability
+2. arguments
+3. scope and EEC
+4. policy and permission
+5. consent
+6. idempotency and replay
+7. credential pre-flight
+8. **pre-execution checks** (step 8b)
+9. execute
+10. record and audit
+
+**How a tool opts in.** A tool opts into the check through its descriptor (`ToolDescriptor::$preExecutionChecks`).
+Today `messaging.send_reply` and `messaging.send_whatsapp_reply` declare `['reply_script']`. The requirement
+travels on the request as `ToolRequest::$languageRequirement`. The runtime resolved it from the conversation core
+and the active policy and sets it; the model does not.
+
+**A script refusal is its own outcome.** It is recorded as `OutcomeClass::ContentPolicyRejected`
+(`content_policy_rejected`, control plane), never as a permission or policy denial. It carries the
+validator's result in `ToolOutcome::$preExecution`, and the tool never executes.
+
+**What the runner does with it.** `AgentRunner` reads that outcome as a script refusal. The kind is `refused`,
+the result goes under `script_policy`, and it does not count toward the repeated-denial stop. That lets the one
+repair (A.5) run exactly as before. If the repair fails again, the thread is handed to a person with nothing
+sent.
+
+**At A0 (no execution).** The runner calls `authorize()`. If the gateway would not authorize the call, it is
+refused with the gateway's own class and audited as `agent_run.proposal_not_authorized`. Then the runner calls
+`preExecutionChecks()`. Only when both pass is the reply recorded as a proposal, and the proposal is tagged
+`authorized` or `awaits_approval`. Nothing is recorded in `tool_calls`, no approval is parked, and nothing
+runs. The measurement asks the same questions in the same order as an execution would.
+
+**Tests that prove the order.**
+
+`tests/Feature/Gateway/PreExecutionOrderingTest.php`:
+
+- **"runs the D4 order exactly: each authorization step refuses before the script check, the script check
+  refuses before execution, then it executes".** Every call has a wrong script plus one earlier refusal:
+  arguments, permission, consent or credential pre-flight. The earlier step wins every time. The pure script
+  failure is `content_policy_rejected`, with `policy_result=allow` recorded first, and the tool never executes.
+  The correct script then executes.
+- **"never lets a valid script make a call permitted: permission and consent refuse a correct-script reply
+  exactly as a wrong one".**
+- **"authorizes read-only and checks content with the same code the execution uses, recording and running
+  nothing".**
+- **"checks nothing when the request carries no requirement, and nothing for a tool that does not opt in".**
+
+`tests/Feature/Conversation/SupportLanguageContractTest.php`:
+
+- **"D4: records an A0 reply as a proposal only after the gateway authorizes it and its script check passes,
+  and runs nothing".**
+- **"D4: a permission denial short-circuits an A0 reply before the script check, so a wrong script is never
+  even judged and no repair follows".**
+
+Tests A to J of §C.1 still pass unchanged, except for one value. Test C now expects
+`outcome_class = content_policy_rejected` where it expected `policy_denied` before.
+
+The test tools are in `tests/Support/Tools/ScriptedReply{,Credential,Consent}Tool.php`.
+
+**Verification.** The commands and counts are in the commit report: the full suite on `hq_test_e` and Pint.
+
