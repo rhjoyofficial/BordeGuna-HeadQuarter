@@ -21,6 +21,15 @@ final class EscalationTriggers
     /** The reason the core gives for money, a refund, a complaint or a damaged item (docs/72 B, docs/91 ruling). */
     public const REASON_MONEY_OR_COMPLAINT = 'the message is about money, a complaint or a damaged item';
 
+    /** The reason the core gives when the support agent is not active. */
+    public const REASON_AGENT_PAUSED = 'the support agent is not active, so every thread is a person\'s';
+
+    /** The reason the core gives when a person switched the agent off for this thread. */
+    public const REASON_AI_DISABLED = 'the agent is switched off for this thread';
+
+    /** The reason the core gives when the customer wrote again while the agent was waiting on them. */
+    public const REASON_SECOND_INBOUND_WHILE_WAITING = 'the customer wrote again while the agent was waiting';
+
     private const ASKS_FOR_PERSON = [
         'human', 'real person', 'a person', 'someone real', 'talk to someone', 'speak to someone', 'speak with someone',
         'talk to a manager', 'manager', 'call me', 'phone me', 'ring me', 'customer service', 'operator',
@@ -47,11 +56,11 @@ final class EscalationTriggers
     public function reasonFor(Conversation $conversation, ?string $body, bool $agentActive): ?string
     {
         if (! $agentActive) {
-            return 'the support agent is not active, so every thread is a person\'s';
+            return self::REASON_AGENT_PAUSED;
         }
 
         if ($conversation->ai_disabled) {
-            return 'the agent is switched off for this thread';
+            return self::REASON_AI_DISABLED;
         }
 
         $text = mb_strtolower(trim((string) $body));
@@ -70,7 +79,7 @@ final class EscalationTriggers
         }
 
         if ($conversation->state === ConversationState::AiWaiting) {
-            return 'the customer wrote again while the agent was waiting';
+            return self::REASON_SECOND_INBOUND_WHILE_WAITING;
         }
 
         return null;

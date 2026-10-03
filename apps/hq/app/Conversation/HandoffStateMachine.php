@@ -22,6 +22,7 @@ final readonly class HandoffStateMachine
     public function __construct(
         private Auditor $auditor,
         private EventRecorder $events,
+        private HandoverNotifications $handovers,
     ) {}
 
     /** The state a NEW thread opens in: the agent's only when it is active and allowed on this thread. */
@@ -46,7 +47,7 @@ final readonly class HandoffStateMachine
             );
         }
 
-        return DB::transaction(function () use ($conversation, $from, $to, $byUserId, $reason, $agentKey) {
+        [$conversation, $audit] = DB::transaction(function () use ($conversation, $from, $to, $byUserId, $reason, $agentKey) {
             $attributes = [
                 'state' => $to->value,
                 'owner' => $to->owner(),
@@ -77,9 +78,9 @@ final readonly class HandoffStateMachine
 
             $after = ['from' => $from->value, 'to' => $to->value, 'business_id' => $conversation->business_id];
             if ($byUserId !== null) {
-                $this->auditor->record('conversation.state_changed', $conversation, ['state' => $from->value], $after, $reason, $byUserId);
+                $audit = $this->auditor->record('conversation.state_changed', $conversation, ['state' => $from->value], $after, $reason, $byUserId);
             } else {
-                $this->auditor->recordSystem('conversation.state_changed', $conversation, ['state' => $from->value], $after, $reason);
+                $audit = $this->auditor->recordSystem('conversation.state_changed', $conversation, ['state' => $from->value], $after, $reason);
             }
 
             $this->events->record(
@@ -92,7 +93,15 @@ final readonly class HandoffStateMachine
                 businessId: $conversation->business_id,
             );
 
-            return $conversation;
+            return [$conversation, $audit];
         });
+
+        // docs/95 stream W2a: a thread that now needs a person is announced once per entry into the
+        // state, after the transaction holding it commits, with the reason and no customer text.
+        if ($to === ConversationState::HumanRequired) {
+            $this->handovers->threadNeedsPerson($conversation, $reason, 'transition:'.$audit->id);
+        }
+
+        return $conversation;
     }
 }

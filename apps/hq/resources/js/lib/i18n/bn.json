@@ -338,5 +338,21 @@
     "Withdrawn": "ফিরিয়ে নেওয়া",
     "before and after": "আগে ও পরে",
     "no expiry": "মেয়াদ নেই",
+
+    "Why a person is needed": "কেন একজন মানুষ দরকার",
+    "reason not recorded": "কারণ লেখা নেই",
+    "from": "আগের অবস্থা",
+    "by": "করেছেন",
+    "opened needing a person": "খোলার সময় থেকেই একজন মানুষ দরকার",
+    "Recent orders": "সাম্প্রতিক অর্ডার",
+    "HQ order facts, newest first": "HQ-এর অর্ডার তথ্য, নতুনটা আগে",
+    "No known orders": "কোনো অর্ডার জানা নেই",
+    "unknown store": "অজানা স্টোর",
+    "The customer asked for a person": "গ্রাহক একজন মানুষের সাথে কথা বলতে চেয়েছেন",
+    "Money, a complaint or a damaged item": "টাকা, অভিযোগ বা নষ্ট পণ্য",
+    "The customer wrote again while the agent was waiting": "এজেন্ট অপেক্ষায় থাকতেই গ্রাহক আবার লিখেছেন",
+    "The support agent is paused": "সাপোর্ট এজেন্ট বন্ধ আছে",
+    "The agent is switched off for this thread": "এই থ্রেডে এজেন্ট বন্ধ করা আছে",
+    "The agent could not serve this thread": "এজেন্ট এই থ্রেডটি সামলাতে পারেনি",
     "Bor de Guna": "বর দে গুনা"
 }

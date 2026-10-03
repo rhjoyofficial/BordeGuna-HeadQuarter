@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Inbox;
 use App\Context\Provenance;
 use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;
+use App\Conversation\EscalationTriggers;
 use App\Conversation\HandoffStateMachine;
+use App\Conversation\HandoverReason;
 use App\Conversation\InvalidTransition;
 use App\Conversation\ShadowComparisons;
 use App\Conversation\SupportContext;
@@ -17,9 +19,11 @@ use App\Memory\MemoryKind;
 use App\Memory\MemoryStore;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\AuditLog;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\DecisionRecord;
+use App\Models\FactsOrder;
 use App\Models\Memory;
 use App\Models\ShadowComparison;
 use App\Models\User;
@@ -130,6 +134,10 @@ final class InboxController extends Controller
             ],
             'messages' => $messages,
             'proposals' => $this->proposalsFor($conversation),
+            // docs/95 stream W2a, the context package: why this thread needs a person, from the latest
+            // hand-over the state machine audited, and the customer's recent order facts (HQ's own data).
+            'handover' => $this->handoverFor($conversation),
+            'orders' => $this->ordersFor($conversation),
             // What is remembered about this customer (docs/78 B.1): shown with its source and date,
             // because memory is never truth (ADR-033) and a reader must be able to weigh it.
             'memory' => $this->memoryFor($conversation),
@@ -358,7 +366,7 @@ final class InboxController extends Controller
         ]);
 
         $proposal = collect((array) $run->proposals)->first(fn ($p) => is_array($p) && ($p['kind'] ?? null) === 'proposal' && ($p['tool'] ?? null) === 'messaging.send_reply');
-        if ($run->agent_key !== ConversationService::SUPPORT_AGENT || $run->correlation_id !== $conversation->uuid || $proposal === null) {
+        if ($run->agent_key !== ConversationService::SUPPORT_AGENT || ! self::runIsOnThread($run, $conversation) || $proposal === null) {
             abort(404);
         }
         if ($run->reviewed_at !== null) {
@@ -482,7 +490,7 @@ final class InboxController extends Controller
     {
         return AgentRun::query()
             ->where('agent_key', ConversationService::SUPPORT_AGENT)
-            ->where('correlation_id', $conversation->uuid)
+            ->where(fn ($q) => $q->where('conversation_uuid', $conversation->uuid)->orWhere('correlation_id', $conversation->uuid))
             ->whereNull('reviewed_at')
             ->latest('id')
             ->limit(5)
@@ -491,6 +499,81 @@ final class InboxController extends Controller
                 ->filter(fn ($p) => is_array($p) && ($p['kind'] ?? null) === 'proposal' && ($p['tool'] ?? null) === 'messaging.send_reply')
                 ->take(1)
                 ->map(fn ($p) => ['run_id' => $run->id, 'text' => (string) data_get($p, 'args.text', ''), 'why' => $p['why'] ?? null, 'at' => $run->created_at?->toIso8601String()]))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * A run is on this thread when the runtime bound it there (`conversation_uuid`, docs/90 A.1 step 3)
+     * or, for the rows written before the binding existed, when its correlation id is the thread's.
+     */
+    private static function runIsOnThread(AgentRun $run, Conversation $conversation): bool
+    {
+        return $run->conversation_uuid === $conversation->uuid || $run->correlation_id === $conversation->uuid;
+    }
+
+    /**
+     * Why this thread needs a person (docs/95 stream W2a): the latest `conversation.state_changed` the
+     * state machine audited into `human_required`, with its reason as a code and as the sentence. A thread
+     * that OPENED needing a person made no transition; it is reported as the agent being paused, which is
+     * the only way a thread opens there. Null when the thread is not waiting on a person.
+     *
+     * @return array{reason: ?string, label: ?string, detail: ?string, from: ?string, at: ?string, by: ?string}|null
+     */
+    private function handoverFor(Conversation $conversation): ?array
+    {
+        if ($conversation->state !== ConversationState::HumanRequired) {
+            return null;
+        }
+
+        $row = AuditLog::query()
+            ->where('action', 'conversation.state_changed')
+            ->where('target_type', $conversation->getMorphClass())
+            ->where('target_id', (string) $conversation->getKey())
+            ->where('after->to', ConversationState::HumanRequired->value)
+            ->orderByDesc('id')
+            ->first();
+
+        $reasonText = $row === null ? EscalationTriggers::REASON_AGENT_PAUSED : $row->reason;
+        $reason = HandoverReason::fromText($reasonText);
+
+        return [
+            'reason' => $reason?->value,
+            'label' => $reason?->label(),
+            'detail' => $reasonText,
+            'from' => $row === null ? null : (((array) $row->after)['from'] ?? null),
+            'at' => ($row?->occurred_at ?? $conversation->opened_at)?->toIso8601String(),
+            'by' => $row === null || $row->actor_type !== 'human' ? null : (User::query()->find($row->actor_id)?->email ?? $row->actor_label),
+        ];
+    }
+
+    /**
+     * The known customer's last orders, as HQ's fact table holds them (docs/95 stream W2a): the five the
+     * agent is also shown (`SupportContext::RECENT_ORDERS`). Empty for a stranger or an unlinked thread.
+     *
+     * @return list<array{ref: string, store: ?string, status: string, payment_status: ?string, placed_at: ?string, gross: string}>
+     */
+    private function ordersFor(Conversation $conversation): array
+    {
+        $customer = $conversation->customer;
+        if ($customer === null) {
+            return [];
+        }
+
+        return FactsOrder::query()
+            ->where('customer_id', $customer->id)
+            ->with('store:id,name')
+            ->orderByDesc('placed_at')
+            ->limit(SupportContext::RECENT_ORDERS)
+            ->get(['id', 'order_ref', 'store_id', 'status', 'payment_status', 'gross', 'placed_at'])
+            ->map(fn (FactsOrder $o) => [
+                'ref' => $o->order_ref,
+                'store' => $o->store?->name,
+                'status' => $o->status,
+                'payment_status' => $o->payment_status,
+                'placed_at' => $o->placed_at?->toIso8601String(),
+                'gross' => (string) $o->gross,
+            ])
             ->values()
             ->all();
     }

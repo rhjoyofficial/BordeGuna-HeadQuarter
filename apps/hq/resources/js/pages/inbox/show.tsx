@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, timeAgo } from '@/lib/format';
+import { formatNumber, useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
@@ -32,6 +33,26 @@ type Message = {
 };
 
 type Proposal = { run_id: number; text: string; why: string | null; at: string | null };
+
+/** docs/95 stream W2a: why this thread needs a person, from the hand-over the state machine audited. Null unless it is waiting on one. */
+type Handover = {
+    reason: string | null;
+    label: string | null;
+    detail: string | null;
+    from: string | null;
+    at: string | null;
+    by: string | null;
+};
+
+/** docs/95 stream W2a: one of the known customer's last orders, as HQ's fact table holds it. */
+type RecentOrder = {
+    ref: string;
+    store: string | null;
+    status: string;
+    payment_status: string | null;
+    placed_at: string | null;
+    gross: string;
+};
 
 /** A fact a person remembered about the customer (docs/78 B.1): shown with its kind, source and date, never as truth. */
 type Remembered = {
@@ -91,10 +112,64 @@ function provenanceLabel(m: Message): string {
     }
 }
 
+/** The hand-over reason card: the code as a badge, the sentence under it, who and when. No customer text is in any of it. */
+function HandoverCard({ handover }: { handover: Handover }) {
+    const t = useT();
+    return (
+        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30" data-testid="handover-reason">
+            <SectionHeader title={t('Why a person is needed')} />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+                <StatusBadge tone="warn">{handover.reason ?? t('reason not recorded')}</StatusBadge>
+                {handover.label && <span className="text-sm">{t(handover.label)}</span>}
+            </div>
+            {handover.detail && <p className="text-muted-foreground mt-2 text-xs">{handover.detail}</p>}
+            <p className="text-muted-foreground mt-1 text-xs">
+                {handover.from ? `${t('from')} ${handover.from}` : t('opened needing a person')}
+                {handover.by ? ` · ${t('by')} ${handover.by}` : ''}
+                {handover.at ? ` · ${timeAgo(handover.at)}` : ''}
+            </p>
+        </section>
+    );
+}
+
+/** The recent orders card: the last five facts HQ holds for the known customer; a stranger has none. */
+function RecentOrdersCard({ orders, known }: { orders: RecentOrder[]; known: boolean }) {
+    const t = useT();
+    return (
+        <section className="bg-card rounded-xl border p-4" data-testid="recent-orders">
+            <SectionHeader title={t('Recent orders')} aside={<span className="text-muted-foreground text-xs">{t('HQ order facts, newest first')}</span>} />
+            {!known || orders.length === 0 ? (
+                <p className="text-muted-foreground mt-2 text-sm">{t('No known orders')}</p>
+            ) : (
+                <ul className="mt-2 flex flex-col gap-2">
+                    {orders.map((o) => (
+                        <li key={o.ref} className="rounded-md border p-2 text-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-medium">{o.ref}</span>
+                                <StatusBadge tone="neutral" dot={false}>
+                                    {o.status}
+                                </StatusBadge>
+                            </div>
+                            <div className="text-muted-foreground mt-1 text-xs">
+                                {o.store ?? t('unknown store')}
+                                {` · BDT ${formatNumber(o.gross)}`}
+                                {o.payment_status ? ` · ${o.payment_status}` : ''}
+                                {o.placed_at ? ` · ${formatDateTime(o.placed_at)}` : ''}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </section>
+    );
+}
+
 export default function InboxShow({
     thread,
     messages,
     proposals,
+    handover,
+    orders,
     memory,
     memory_keys,
     can_remember,
@@ -107,6 +182,8 @@ export default function InboxShow({
     thread: Thread;
     messages: Message[];
     proposals: Proposal[];
+    handover: Handover | null;
+    orders: RecentOrder[];
     memory: Remembered[];
     memory_keys: string[];
     can_remember: boolean;
@@ -384,6 +461,7 @@ export default function InboxShow({
                     </div>
 
                     <aside className="flex flex-col gap-6">
+                        {handover !== null && <HandoverCard handover={handover} />}
                         {thread.customer_id !== null && (
                             <section className="bg-card rounded-xl border p-4">
                                 <SectionHeader title="Remembered about this customer" />
@@ -492,6 +570,8 @@ export default function InboxShow({
                                 <p className="text-muted-foreground mt-2 text-sm">No person is linked to this thread.</p>
                             )}
                         </section>
+
+                        <RecentOrdersCard orders={orders} known={thread.customer !== null && !thread.stranger} />
 
                         <section className="bg-card rounded-xl border p-4">
                             <SectionHeader title="Handling" />

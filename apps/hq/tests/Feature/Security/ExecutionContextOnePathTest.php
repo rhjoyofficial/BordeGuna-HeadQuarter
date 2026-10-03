@@ -269,11 +269,14 @@ it('has one resolver, one place that builds a context, and one place that turns 
 
     // Every entry point that starts a run says who is asking, and the runner is the only thing that runs one.
     $starters = $filesWith('new AgentRunRequest(');
-    expect($starters)->toBe(['Agents/AgentEvaluationSubject.php', 'Agents/Shadow/ShadowProbes.php', 'Ask/AskHq.php', 'Console/Commands/AgentAsk.php']);
+    // docs/95 stream W2a added the live wake-up (`Conversation/WakeUp/SupportWakeUp.php`) on purpose: it asks as
+    // the agent's enabling user (`Requester::asEnabled`), exactly as the gate does, and adds no authority.
+    expect($starters)->toBe(['Agents/AgentEvaluationSubject.php', 'Agents/Shadow/ShadowProbes.php', 'Ask/AskHq.php', 'Console/Commands/AgentAsk.php', 'Conversation/WakeUp/SupportWakeUp.php']);
     foreach ($starters as $file) {
         expect(substr_count($sources[$file], 'requester:'))->toBe(substr_count($sources[$file], 'new AgentRunRequest('), $file);
     }
-    expect($sources['Agents/Shadow/ShadowProbes.php'])->toContain('requester: Requester::forShadowPeriod($period)');
+    expect($sources['Agents/Shadow/ShadowProbes.php'])->toContain('requester: Requester::forShadowPeriod($period)')
+        ->and($sources['Conversation/WakeUp/SupportWakeUp.php'])->toContain('requester: Requester::asEnabled(RequesterKind::OnBehalfOf,');
 
     // Nothing that starts or carries a run reads the agent's enabling user for itself any more.
     foreach ($sources->filter(fn ($code, $file) => preg_match('#^(Agents|Ask|Scheduling|Evaluation|Conversation|Console)/#', $file) === 1) as $file => $code) {
