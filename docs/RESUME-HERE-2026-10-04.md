@@ -3,7 +3,7 @@
 Written at Joy's request ("after completing the module work and other agents work, stop working, sync memory and make a resume point"). All agent work is finished and merged; nothing is running.
 
 ## 1. State in one paragraph
-`main` = **`627f937`** (pushed). Production unchanged at **`531d59b`**, inert (AI runtime off, all agents paused at A0, no grants, Meta inbound off, no providers). Local full suite on `627f937`: **1,846 passed**, Pint, `tsc --noEmit`, Vite build clean. CI run **37147877132** for `627f937` was started at the stop (previous CI run 37144869902 on `cd25366` = SUCCESS, the first green since 16 Sep). **First action on resume: check that run** (`gh run view 37147877132 --repo rhjoyofficial/BordeGuna-HeadQuarter`).
+`main` = **`627f937`** (pushed). Production unchanged at **`531d59b`**, inert (AI runtime off, all agents paused at A0, no grants, Meta inbound off, no providers). Local full suite on `627f937`: **1,846 passed**, Pint, `tsc --noEmit`, Vite build clean. **CI run 37147877132 on `627f937` = SUCCESS** (all three jobs: Pest+Pint+TypeScript+Vite, production image builds, deploy/backup safety). `627f937` is the green candidate to freeze.
 
 ## 2. What was done 3-4 Oct (all merged to main)
 | Item | Where | Branch / commit |
@@ -21,7 +21,7 @@ Written at Joy's request ("after completing the module work and other agents wor
 | Not merged (kept): durable-workflow spike, verdict "works but too heavy" | `docs/99` on branch `spike/durable-workflow-evaluation` (`5cb253a`, worktree `hq-wt\i` history) | — |
 
 ## 3. The exact next steps, in the order ChatGPT set (docs/101 §11)
-1. **Confirm CI 37147877132 green** (fix anything it finds; never call a local run "CI green").
+1. ~~Confirm CI~~ **Done: CI 37147877132 GREEN on `627f937`.**
 2. **Take the open questions to the ChatGPT HQ thread** (https://chatgpt.com/c/6a9baf11-c2c8-83ee-a43b-6bc7a76498c3), in one message, before freezing:
    - **Q1 (needs a ruling, affects P3-G2 and the shadow week):** ruling 9.3 says `ai_waiting` + a new customer message → `ai_active`, but the code deliberately escalates that to a person (`second_inbound_while_waiting`, docs/72 §B, `EscalationTriggers::reasonFor`, tested in `ConversationCoreTest` and the simulation scenario). Today the agent answers once per thread. If the ruling stands: drop the `AiWaiting` clause in `EscalationTriggers::reasonFor`, flip the two expectations and the pinned test in `SupportStateLifecycleTest`.
    - **Q2:** confirm preferProvider's reach as built: any READY connector in the serving tier (not only a tie at best priority), never across primary/fallback, never to a not-ready connector (needed for `model_tiers.provider` choosing OpenAI over a better-priority Anthropic row).
