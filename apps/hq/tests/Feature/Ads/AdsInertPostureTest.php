@@ -61,7 +61,7 @@ it('registers no ads tool: none is in config/hq.php and the gateway refuses one 
     }
     expect(array_filter(app(ToolRegistry::class)->keys(), fn ($k) => str_starts_with($k, 'ads.')))->toBe([]);
 
-    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.read_account', ['business_slug' => 'bor-de-guna']));
+    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.read_account', ['business_slug' => 'laladia']));
     expect($outcome->ok())->toBeFalse()->and((string) $outcome->error)->toContain('Unknown tool');
     Http::assertNothingSent();
 });
@@ -83,11 +83,11 @@ it('holds no ads credential and registers no ads provider', function () {
 it('refuses at the router even when the tool is registered and a credential stored, because no provider is registered', function () {
     Http::fake();
     app(ToolRegistry::class)->register(ReadAdAccountTool::class);
-    IntegrationCredential::create(['provider' => AdsCredential::PROVIDER, 'account_ref' => 'bor-de-guna', 'credential_type' => 'token',
+    IntegrationCredential::create(['provider' => AdsCredential::PROVIDER, 'account_ref' => 'laladia', 'credential_type' => 'token',
         'payload' => ['value' => 'SYSTEM-USER-TOKEN'], 'status' => 'active']);
     PlatformAccount::where('platform', MetaAdsPlatform::PLATFORM)->get()->each->update(['capabilities' => ['read_insights', 'read_campaigns']]);
 
-    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.read_account', ['business_slug' => 'bor-de-guna']));
+    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.read_account', ['business_slug' => 'laladia']));
 
     expect($outcome->ok())->toBeFalse()->and((string) $outcome->error)->toContain('HQ has no provider implementation for [meta_ad_account]');
     Http::assertNothingSent();
@@ -100,7 +100,7 @@ it('schedules nothing: no Laravel schedule entry and no scheduled job can name t
     expect(ScheduledJob::where('tool_key', 'like', 'ads.%')->count())->toBe(0);
     expect(fn () => app(ScheduledJobService::class)->create([
         'name' => 'hourly ad spend', 'tool_key' => 'ads.sync_ad_spend', 'kind' => 'interval', 'interval_seconds' => 3600,
-        'payload' => ['business_slug' => 'bor-de-guna'],
+        'payload' => ['business_slug' => 'laladia'],
     ], $this->owner))->toThrow(InvalidArgumentException::class, 'not registered');
 });
 

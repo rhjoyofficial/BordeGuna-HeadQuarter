@@ -42,12 +42,12 @@ function metaAdsFake(array $routes): void
     });
 }
 
-function metaReader(string $account = '28164410319885213', int $backoff = 80): MetaAdsReader
+function metaReader(string $account = '530866839523958', int $backoff = 80): MetaAdsReader
 {
-    return new MetaAdsReader('bor-de-guna', $account, 'SECRET-SYSTEM-USER-TOKEN', app(ConnectorCallLogger::class), version: 'v26.0', backoffAtPercent: $backoff);
+    return new MetaAdsReader('laladia', $account, 'SECRET-SYSTEM-USER-TOKEN', app(ConnectorCallLogger::class), version: 'v26.0', backoffAtPercent: $backoff);
 }
 
-const META_ADS_ACT = '/v26.0/act_28164410319885213';
+const META_ADS_ACT = '/v26.0/act_530866839523958';
 
 it('reads the account with the owner\'s limit converted exactly from basic units, and never writes it', function () {
     metaAdsFake([META_ADS_ACT => ['account-bdt']]);
@@ -122,7 +122,7 @@ it('sends only GETs, the token only as a bearer header, and never stores or logs
     Http::assertNotSent(fn (Request $r) => str_contains($r->url(), 'SECRET-SYSTEM-USER-TOKEN') || str_contains($r->url(), 'access_token'));
     Http::assertSent(fn (Request $r) => $r->hasHeader('Authorization', 'Bearer SECRET-SYSTEM-USER-TOKEN'));
     expect(ConnectorCall::count())->toBe(6)
-        ->and(ConnectorCall::pluck('connector')->unique()->all())->toBe(['meta_ads:bor-de-guna'])
+        ->and(ConnectorCall::pluck('connector')->unique()->all())->toBe(['meta_ads:laladia'])
         ->and(json_encode(ConnectorCall::all()->toArray()))->not->toContain('SECRET-SYSTEM-USER-TOKEN');
 });
 

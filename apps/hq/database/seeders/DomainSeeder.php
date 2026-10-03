@@ -45,9 +45,36 @@ class DomainSeeder extends Seeder
         }
 
         foreach ($cfg['platform_accounts'] as $pa) {
-            PlatformAccount::updateOrCreate(['platform' => $pa['platform'], 'account_ref' => $pa['account_ref']], [
-                'brand_id' => $brands[$pa['brand']]->id, 'name' => $pa['name'], 'approval_status' => 'unknown', 'is_active' => true,
-            ]);
+            $this->platformAccount($pa, $brands[$pa['brand']]);
         }
+    }
+
+    /**
+     * Update-or-create by the natural key (platform, account_ref). What a re-run may change is the
+     * brand, the name and whether the row is retired; what an adapter verified (approval_status,
+     * capabilities, scopes) and what an operator switched off are never reset by seeding. A row marked
+     * `retired` is deactivated, not deleted, so a production row keeps its id and its history. A
+     * placeholder whose account_ref is still null or empty (an env value nobody has filled) makes no row.
+     *
+     * @param  array{platform: string, account_ref: mixed, name: string, retired?: bool}  $pa
+     */
+    private function platformAccount(array $pa, Brand $brand): void
+    {
+        $ref = trim((string) ($pa['account_ref'] ?? ''));
+        if ($ref === '') {
+            return;
+        }
+        $retired = (bool) ($pa['retired'] ?? false);
+
+        $account = PlatformAccount::firstOrNew(['platform' => $pa['platform'], 'account_ref' => $ref]);
+        if (! $account->exists) {
+            $account->approval_status = 'unknown';
+            $account->is_active = ! $retired;
+        } elseif ($retired) {
+            $account->is_active = false;
+        }
+        $account->brand_id = $brand->id;
+        $account->name = $pa['name'];
+        $account->save();
     }
 }

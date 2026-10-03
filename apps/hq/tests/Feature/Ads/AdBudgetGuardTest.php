@@ -19,20 +19,20 @@ use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     $this->seed(DomainSeeder::class);
-    $this->business = Business::where('slug', 'bor-de-guna')->sole();
-    $this->brand = Brand::where('code', 'BDG')->sole();
-    $this->account = PlatformAccount::where('platform', 'meta_ad_account')->sole();
+    $this->business = Business::where('slug', 'laladia')->sole();
+    $this->brand = Brand::where('code', 'LLD')->sole();
+    $this->account = PlatformAccount::where('platform', 'meta_ad_account')->where('account_ref', '530866839523958')->sole();
     $this->now = CarbonImmutable::parse('2026-09-22 10:00:00', 'Asia/Dhaka');
 });
 
 function guardAccountFacts(array $overrides = []): FactsAdAccount
 {
-    $account = PlatformAccount::where('platform', 'meta_ad_account')->sole();
-    $brand = Brand::where('code', 'BDG')->sole();
+    $account = PlatformAccount::where('platform', 'meta_ad_account')->where('account_ref', '530866839523958')->sole();
+    $brand = Brand::where('code', 'LLD')->sole();
 
     return FactsAdAccount::create(array_merge([
         'platform_account_id' => $account->id, 'business_id' => $brand->business_id, 'brand_id' => $brand->id, 'platform' => 'meta_ad_account',
-        'account_ref' => 'act_28164410319885213', 'currency' => 'BDT', 'timezone' => 'Asia/Dhaka', 'status' => 'active',
+        'account_ref' => 'act_530866839523958', 'currency' => 'BDT', 'timezone' => 'Asia/Dhaka', 'status' => 'active',
         'spend_cap_minor' => 5000000, 'amount_spent_minor' => 1234550, 'spend_cap' => '50000.00', 'amount_spent' => '12345.50',
         'source' => 'meta_ads', 'api_version' => 'v26.0', 'fetched_at' => CarbonImmutable::parse('2026-09-22 09:30:00', 'Asia/Dhaka'),
     ], $overrides));
@@ -40,18 +40,18 @@ function guardAccountFacts(array $overrides = []): FactsAdAccount
 
 function guardSpend(string $date, string $spend, string $currency = 'BDT', string $ref = '120210000000000001'): void
 {
-    $account = PlatformAccount::where('platform', 'meta_ad_account')->sole();
-    $brand = Brand::where('code', 'BDG')->sole();
+    $account = PlatformAccount::where('platform', 'meta_ad_account')->where('account_ref', '530866839523958')->sole();
+    $brand = Brand::where('code', 'LLD')->sole();
     FactsAdSpend::create([
         'platform_account_id' => $account->id, 'business_id' => $brand->business_id, 'brand_id' => $brand->id, 'platform' => 'meta_ad_account',
-        'account_ref' => 'act_28164410319885213', 'level' => 'campaign', 'object_ref' => $ref, 'campaign_ref' => $ref, 'spend_date' => $date,
+        'account_ref' => 'act_530866839523958', 'level' => 'campaign', 'object_ref' => $ref, 'campaign_ref' => $ref, 'spend_date' => $date,
         'currency' => $currency, 'spend' => $spend, 'source' => 'meta_ads', 'api_version' => 'v26.0', 'fetched_at' => now(),
     ]);
 }
 
 function guardBudget(string $amount, string $currency = 'BDT'): void
 {
-    Policy::create(['key' => AdBudgetGuard::POLICY_KEY, 'version' => 1, 'business_id' => Business::where('slug', 'bor-de-guna')->value('id'),
+    Policy::create(['key' => AdBudgetGuard::POLICY_KEY, 'version' => 1, 'business_id' => Business::where('slug', 'laladia')->value('id'),
         'rules' => ['amount' => $amount, 'currency' => $currency], 'note' => 'owner set', 'active_from' => '2026-09-01 00:00:00']);
 }
 
@@ -76,15 +76,15 @@ it('says fits only when every ceiling is known, fresh, in the same currency and 
     guardSpend('2026-09-10', '10000.00');
 
     $guard = app(AdBudgetGuard::class);
-    expect($guard->fits($this->business, 'act_28164410319885213', '5000', 'BDT', $this->now))->toBe(['fits' => true, 'reasons' => []])
-        ->and($guard->fits($this->business, '28164410319885213', '10000.01', 'BDT', $this->now)['fits'])->toBeFalse();
+    expect($guard->fits($this->business, 'act_530866839523958', '5000', 'BDT', $this->now))->toBe(['fits' => true, 'reasons' => []])
+        ->and($guard->fits($this->business, '530866839523958', '10000.01', 'BDT', $this->now)['fits'])->toBeFalse();
 });
 
 it('answers no, with every reason, when anything is unknown', function () {
     $guard = app(AdBudgetGuard::class);
 
     // Nothing read, nothing set.
-    $none = $guard->fits($this->business, 'act_28164410319885213', '1', 'BDT', $this->now);
+    $none = $guard->fits($this->business, 'act_530866839523958', '1', 'BDT', $this->now);
     expect($none['fits'])->toBeFalse()->and($none['reasons'])->toHaveCount(2)
         ->and($none['reasons'][0])->toContain('no facts for ad account')
         ->and($none['reasons'][1])->toContain('no monthly advertising budget');
@@ -92,7 +92,7 @@ it('answers no, with every reason, when anything is unknown', function () {
     // No owner limit set: no outer ceiling, nothing fits, however large HQ's budget.
     guardAccountFacts(['spend_cap_minor' => null, 'spend_cap' => null]);
     guardBudget('1000000');
-    $noLimit = $guard->fits($this->business, 'act_28164410319885213', '1', 'BDT', $this->now);
+    $noLimit = $guard->fits($this->business, 'act_530866839523958', '1', 'BDT', $this->now);
     expect($noLimit['fits'])->toBeFalse()->and(implode(' ', $noLimit['reasons']))->toContain('no spending limit');
     expect($guard->status($this->business, $this->now)['owner_limits'][0]['state'])->toBe('no_limit_set');
 });
@@ -101,7 +101,7 @@ it('treats stale account facts as an unknown ceiling', function () {
     guardAccountFacts(['fetched_at' => CarbonImmutable::parse('2026-09-21 09:00:00', 'Asia/Dhaka')]);
     guardBudget('20000');
 
-    $r = app(AdBudgetGuard::class)->fits($this->business, 'act_28164410319885213', '1', 'BDT', $this->now);
+    $r = app(AdBudgetGuard::class)->fits($this->business, 'act_530866839523958', '1', 'BDT', $this->now);
 
     expect($r['fits'])->toBeFalse()->and(implode(' ', $r['reasons']))->toContain('stale')
         ->and(app(AdBudgetGuard::class)->status($this->business, $this->now)['owner_limits'][0]['state'])->toBe('stale');
@@ -113,7 +113,7 @@ it('never compares across currencies: a USD account against a BDT budget is not 
     guardSpend('2026-09-20', '12.00', 'USD');
 
     $guard = app(AdBudgetGuard::class);
-    $r = $guard->fits($this->business, 'act_28164410319885213', '5', 'USD', $this->now);
+    $r = $guard->fits($this->business, 'act_530866839523958', '5', 'USD', $this->now);
 
     expect($r['fits'])->toBeFalse()->and(implode(' ', $r['reasons']))->toContain('not comparable')
         ->and($guard->status($this->business, $this->now)['hq_budget'])->toMatchArray(['verdict' => 'not_comparable', 'spend_in_other_currencies' => ['USD']]);
@@ -132,7 +132,7 @@ it('writes nothing, anywhere: every query it runs is a read', function () {
     });
     $guard = app(AdBudgetGuard::class);
     $guard->status($this->business, $this->now);
-    $guard->fits($this->business, 'act_28164410319885213', '1', 'BDT', $this->now);
+    $guard->fits($this->business, 'act_530866839523958', '1', 'BDT', $this->now);
 
     expect($writes)->toBe([]);
 });

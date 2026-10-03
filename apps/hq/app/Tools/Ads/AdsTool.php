@@ -187,7 +187,10 @@ abstract class AdsTool implements Tool
 
         return ToolResult::succeeded([
             'business' => $business->slug,
-            'brand' => (string) $account->brand?->slug,
+            // Read, not lazy-loaded: the routed account comes from a list of every account in scope, and
+            // a business with a Page, a dataset and an ad account (LaLaDia since the 3 Oct seed) made the
+            // lazy load an error outside production.
+            'brand' => (string) $account->brand()->value('slug'),
             'account_ref' => (string) $account->account_ref,
             'platform' => (string) $account->platform,
             'provenance' => 'third_party',
