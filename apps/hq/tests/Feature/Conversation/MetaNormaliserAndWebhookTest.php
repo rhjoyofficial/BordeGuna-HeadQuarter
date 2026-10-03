@@ -11,7 +11,6 @@ use App\Models\Customer;
 use App\Models\DomainEvent;
 use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
-use App\Support\Features\Features;
 use Database\Seeders\DomainSeeder;
 
 /*
@@ -19,27 +18,6 @@ use Database\Seeders\DomainSeeder;
  | fixtures, and the webhook is the ONLY place Meta touches HQ: 404 with the flag off, a signature
  | check with the flag on, one events row, 202, and everything else in the drain.
  */
-
-const META_PAGE = '100085015853889'; // LaLaDia's Facebook Page in the seeded platform accounts
-
-function metaFixture(string $name): array
-{
-    return json_decode((string) file_get_contents(base_path("tests/fixtures/meta/{$name}.json")), true);
-}
-
-function metaFlag(bool $on): void
-{
-    FeatureFlag::updateOrCreate(['key' => MetaWebhookController::FLAG, 'environment' => '*'], ['enabled' => $on, 'rollout' => null]);
-    app(Features::class)->forget();
-}
-
-function metaPost($test, array $payload, ?string $secret = 'meta-app-secret', array $headers = [])
-{
-    $raw = json_encode($payload, JSON_UNESCAPED_UNICODE);
-    $signed = $secret === null ? [] : ['HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $raw, $secret)];
-
-    return $test->call('POST', '/api/webhooks/meta', [], [], [], array_merge(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], $signed, $headers), $raw);
-}
 
 beforeEach(function () {
     $this->seed(DomainSeeder::class);

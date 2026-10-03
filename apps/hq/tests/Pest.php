@@ -3,6 +3,7 @@
 use App\Ai\ModelTier;
 use App\Ai\Providers\ProviderRegistry;
 use App\Gateway\Credentials\CredentialVault;
+use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Models\AiModel;
 use App\Models\FeatureFlag;
 use App\Support\Features\Features;
@@ -167,4 +168,30 @@ function signedPost($test, array $envelope, string $secret = 'whsec', array $hea
         'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
         'HTTP_X_SHOP_SIGNATURE' => hash_hmac('sha256', $raw, $secret),
     ], $headers), $raw);
+}
+
+/**
+ * Meta webhook helpers shared by every test that posts a Meta envelope. They used to live in
+ * MetaNormaliserAndWebhookTest.php, so other files found them only when that file happened to
+ * load first; parallel runs split files, so they failed at random.
+ */
+const META_PAGE = '100085015853889'; // LaLaDia's Facebook Page in the seeded platform accounts
+
+function metaFixture(string $name): array
+{
+    return json_decode((string) file_get_contents(base_path("tests/fixtures/meta/{$name}.json")), true);
+}
+
+function metaFlag(bool $on): void
+{
+    FeatureFlag::updateOrCreate(['key' => MetaWebhookController::FLAG, 'environment' => '*'], ['enabled' => $on, 'rollout' => null]);
+    app(Features::class)->forget();
+}
+
+function metaPost($test, array $payload, ?string $secret = 'meta-app-secret', array $headers = [])
+{
+    $raw = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    $signed = $secret === null ? [] : ['HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $raw, $secret)];
+
+    return $test->call('POST', '/api/webhooks/meta', [], [], [], array_merge(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], $signed, $headers), $raw);
 }
