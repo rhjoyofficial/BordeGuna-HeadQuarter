@@ -110,10 +110,12 @@ it('knows every column that points at a detail row, so a new reference cannot be
         'conversation_messages.tool_call_id',
         'evaluation_results.ai_run_id',
         'tool_calls.ai_run_id',
+        // docs/102: a workflow step's call is its ledger's evidence; kept while the step row exists.
+        'workflow_steps.tool_call_id',
     ]);
 
     $source = file_get_contents(app_path('Observe/Retention/RetentionPolicy.php'));
-    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id', 'ai_run_replies.ai_run_id cascades'] as $reference) {
+    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'w.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id', 'ai_run_replies.ai_run_id cascades'] as $reference) {
         expect($source)->toContain($reference);
     }
 
