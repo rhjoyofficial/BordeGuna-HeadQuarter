@@ -61,6 +61,10 @@ function watSend($test, Conversation $conversation, array $args): ToolOutcome
 }
 
 beforeEach(function () {
+    // The outbound policy refuses everything in quiet hours (23:00 to 08:00 Asia/Dhaka) before the window
+    // and template rules these cases are about, so a run after 23:00 Dhaka failed two of them on the wall
+    // clock (docs/100 Verification). Noon in Dhaka keeps every case on the rule it names.
+    $this->travelTo(CarbonImmutable::parse('2026-10-03 12:00:00', 'Asia/Dhaka'));
     Cache::flush();
     $this->seed(DomainSeeder::class);
     $this->owner = $this->hqUser('owner');
