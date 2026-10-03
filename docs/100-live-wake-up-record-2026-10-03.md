@@ -141,6 +141,8 @@ lost.
   both in `SendWhatsAppReplyToolTest`, which hit the outbound quiet-hours rule (23:00 to 08:00 Dhaka) first
   and so did not reach the window and template messages it expects. They passed in run 1. Both fail the
   same way on unchanged `main` `70f957e` at the same hour (stash, run, pop), so the bug is already on main and
-  this stream did not cause it. Left for its own fix: freeze the clock in that test, outside quiet hours.
+  this stream did not cause it. Fixed in its own commit on this branch (`deb15ae`): the file's `beforeEach`
+  travels to 12:00 Dhaka; checked by mutation (frozen at 23:30 the same two fail, at noon all six pass).
+  Run 3 (4 October, after the renames and that fix): **1,703 passed, 20,032 assertions, 0 failed**.
   Every test this stream touched passed in both runs.
 - `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; `npm run build` built.
