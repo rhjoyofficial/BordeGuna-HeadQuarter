@@ -84,7 +84,7 @@ on, `ai.runtime` on, the `support` row `active` with an enabling user, the threa
 the reason is on the audit log as `conversation.wake_up_skipped`. When it does wake, the run is on
 the `ai` queue, bound to the thread, trigger `conversation`, one run per message; at A0 the reply is
 a proposal card on this page and nothing is sent. A run that proposes nothing hands the thread to a
-person as `agent_cannot_serve`. Detail: `docs/96-live-wake-up-record.md`.
+person as `agent_cannot_serve`. Detail: `docs/100-live-wake-up-record-2026-10-03.md`.
 
 ## When something looks wrong
 

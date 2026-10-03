@@ -1,4 +1,4 @@
-# 96. The live wake-up, the hand-over ping and the inbox context package (stream W2a, 3 October 2026)
+# 100. The live wake-up, the hand-over ping and the inbox context package (stream W2a, 3 October 2026)
 
 Branch `p3/live-wake-up-and-handover-ping` from `main` `70f957e`, worktree `hq-wt/f`, database `hq_test_f`.
 What docs/95 §5 "Customer AI" listed as missing under "Wake-up" and "Hand-over", and §16 NOW item 4
@@ -20,7 +20,7 @@ that thread. A refusal is one audit row, `conversation.wake_up_skipped`, with th
 precondition holds, `WakeSupportAgent` is queued on the `ai` queue (config `hq.inbox.wake_up_queue`,
 listed in `config/horizon.php`) carrying only the two uuids. The job reads everything again when it
 runs, takes a cache lock on the message, checks `agent_runs.conversation_message_uuid` (new nullable
-column, migration `2026_10_03_100000`), and runs `AgentRunner` exactly as gate P3-G2 does
+column, migration `2026_10_03_110000`), and runs `AgentRunner` exactly as gate P3-G2 does
 (`AgentEvaluationSubject::runOnThread`): `SupportContext::blocksFor()` as the context, the question
 `Answer the customer on this thread.` word for word from the support suite, `conversationUuid` bound,
 `SupportWorkflow::decide()` before the model, requester `Requester::asEnabled(OnBehalfOf, ...)` so the run
@@ -132,7 +132,7 @@ lost.
 ## Verification (local; CI dark until the 1 October reset is used)
 
 - `DB_DATABASE=hq_test_f php artisan test --compact tests/Feature/Conversation/SupportWakeUpTest.php tests/Feature/Conversation/HandoverNotificationTest.php tests/Feature/Conversation/InboxContextPackageTest.php`: 21 passed.
-- Migration `2026_10_03_100000_add_conversation_message_uuid_to_agent_runs` rehearsed on `hq_test_f`:
+- Migration `2026_10_03_110000_add_conversation_message_uuid_to_agent_runs` rehearsed on `hq_test_f`:
   `migrate`, `migrate:rollback --step=1`, `migrate` (column present after).
 - Full suite `DB_DATABASE=hq_test_f php artisan test --compact`, two runs on 3 October. Run 1 (about 22:40
   Dhaka): 1,702 passed, 1 failed, the one-path guard `ExecutionContextOnePathTest`, which lists every file
