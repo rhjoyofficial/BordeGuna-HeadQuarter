@@ -7,7 +7,7 @@ use App\Commerce\Exceptions\Unavailable;
 use App\Commerce\Exceptions\Unsupported;
 use App\Commerce\Exceptions\ValidationFailed;
 use App\Erp\Dto\ErpOrderRead;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Erp\ErpRegistry;
 use App\Gateway\Descriptor\CredentialRequirement;
 use App\Gateway\Descriptor\DataClass;
@@ -64,7 +64,7 @@ abstract class ErpOrderReadTool implements Tool
      *
      * @return array{0: ErpOrderRead, 1: array<string, mixed>}|ToolResult
      */
-    abstract protected function read(ErpConnector $erp, array $payload): array|ToolResult;
+    abstract protected function read(ErpPlatform $erp, array $payload): array|ToolResult;
 
     protected function agentExecutable(): bool
     {
@@ -74,7 +74,7 @@ abstract class ErpOrderReadTool implements Tool
     /** The ERP contract this tool's answers speak; the order-reads' unless a subclass reads another. */
     protected function contract(): string
     {
-        return ErpConnector::ORDER_READS_CONTRACT;
+        return ErpPlatform::ORDER_READS_CONTRACT;
     }
 
     protected function dataClass(): DataClass

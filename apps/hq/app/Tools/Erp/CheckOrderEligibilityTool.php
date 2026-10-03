@@ -2,7 +2,7 @@
 
 namespace App\Tools\Erp;
 
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Gateway\Descriptor\DataClass;
 use App\Tools\ToolResult;
 
@@ -72,7 +72,7 @@ final class CheckOrderEligibilityTool extends ErpOrderReadTool
         ];
     }
 
-    protected function read(ErpConnector $erp, array $payload): array|ToolResult
+    protected function read(ErpPlatform $erp, array $payload): array|ToolResult
     {
         $read = $erp->checkCustomerEligibility((string) $payload['phone']);
 

@@ -29,19 +29,16 @@ use Illuminate\Support\Str;
  * way the shop adapter classifies them: Unavailable (network / 5xx), Unsupported (401/403, token
  * lacks the ability), ValidationFailed (422), Refused (404 for an unknown resource), Uncertain
  * (a write whose outcome is unknown).
+ *
+ * ⭐ Today's only `ErpPlatform`. Nothing outside `app/Erp` names this class (ruling 9.2,
+ * `ErpPlatformStructureTest`): `ErpRegistry::for()` builds it and hands back the interface.
  */
-final class ErpConnector
+final class ErpConnector implements ErpPlatform
 {
     public const CONNECTOR_PREFIX = 'erp:';
 
-    /** The version the ERP's order-reads stamp on every body (`meta.contract`), docs/81 C.5. */
-    public const ORDER_READS_CONTRACT = 'hq-order-reads.v1';
-
-    /** The version the ERP stamps on every draft sales order body (`meta.contract`), docs/83 C.3. */
-    public const SALES_ORDER_DRAFTS_CONTRACT = 'hq-sales-order-drafts.v1';
-
-    /** The version the ERP stamps on every sales-order body: quote, order, read-back, cancel (docs/88 A point 3). */
-    public const SALES_ORDERS_CONTRACT = 'hq-sales-orders.v1';
+    // ORDER_READS_CONTRACT, SALES_ORDER_DRAFTS_CONTRACT and SALES_ORDERS_CONTRACT are inherited from
+    // ErpPlatform (docs/101 §11 ruling 9.2): they are HQ's vocabulary, not this client's.
 
     /** The only product filters the ERP's order-reads accept; anything else is refused before it is sent. */
     public const PRODUCT_FILTERS = ['q', 'sku', 'id', 'barcode', 'brand', 'status'];

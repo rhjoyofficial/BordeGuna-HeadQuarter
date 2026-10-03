@@ -7,7 +7,6 @@ use App\Commerce\Adapters\LaravelShopAdapter;
 use App\Commerce\Support\CommerceRegistry;
 use App\Connectors\Capabilities;
 use App\Connectors\Transport;
-use App\Erp\ErpConnector;
 use App\Erp\ErpRegistry;
 use App\Platform\Contracts\AdsReadPlatform;
 use App\Platform\Contracts\CommentChannel;
@@ -77,7 +76,7 @@ final class LegacyConnectors
         return [new LegacyConnector(
             capability: Capabilities::ERP_READ,
             provider: 'bdg_erp',
-            adapter: ErpConnector::class,
+            adapter: ErpRegistry::ADAPTER,
             transport: Transport::DirectApi,
             credentials: [ErpRegistry::PROVIDER.' <- business.slug'],
             shape: ErpRegistry::class,

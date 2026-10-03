@@ -11,7 +11,7 @@ use App\Commerce\Orders\ErpOperationKey;
 use App\Commerce\Orders\OrderReconciliation;
 use App\Commerce\Orders\TakeOrderShape;
 use App\Erp\Dto\ErpOrderRead;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Erp\ErpRegistry;
 use App\Facts\ErpOrderReadBackFact;
 use App\Gateway\Approval\CanonicalPayload;
@@ -298,7 +298,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
         return ErpOperationKey::for($gatewayKey, $businessId);
     }
 
-    private function recordOrder(ErpConnector $erp, string $draftKey, string $fingerprint, array $payload, Business $business, ToolContext $context): ToolResult
+    private function recordOrder(ErpPlatform $erp, string $draftKey, string $fingerprint, array $payload, Business $business, ToolContext $context): ToolResult
     {
         $orderKey = ErpOperationKey::for($context->idempotencyKey, $business->id, self::ORDER_STEP);
 
@@ -372,7 +372,7 @@ final class TakeOrderTool implements PreviewableTool, Tool
         return ToolResult::succeeded([
             'business' => $business->slug,
             'source' => 'erp',
-            'contract' => ErpConnector::SALES_ORDERS_CONTRACT,
+            'contract' => ErpPlatform::SALES_ORDERS_CONTRACT,
             'status' => (string) $data['status'],
             'approval_status' => (string) ($data['approval_status'] ?? ''),
             'deliverable' => (bool) ($data['deliverable'] ?? false),

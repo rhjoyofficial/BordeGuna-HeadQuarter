@@ -5,7 +5,7 @@ namespace App\Connectors;
 use App\Ai\Providers\ModelProvider;
 use App\Commerce\Contracts\CommercePlatform;
 use App\Conversation\Channels\OutboundChannelAdapter;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Platform\Contracts\AdsReadPlatform;
 use App\Platform\Contracts\CommentChannel;
 use App\Platform\Contracts\PublishingPlatform;
@@ -68,11 +68,10 @@ final class Capabilities
     public const COURIER_TRACK = 'courier.track';
 
     /**
-     * Capability => the interface (or, for `erp.read`, the one final class) an adapter must be.
+     * Capability => the interface an adapter must implement.
      *
-     * ⚠ `erp.read` names `ErpConnector`, a final class, because there is exactly one ERP and no
-     * interface was ever extracted. Registering a second ERP adapter therefore needs the interface
-     * first, which is the right order (docs/98 §5).
+     * `erp.read` names `ErpPlatform`, the interface extracted from the one ERP client on ruling 9.2
+     * (docs/101 §11; docs/98 §5.5). It used to name the final class, which no second adapter could be.
      *
      * @var array<string, class-string>
      */
@@ -81,7 +80,7 @@ final class Capabilities
         self::VOICE_TRANSCRIBE => SpeechToText::class,
         self::VOICE_SYNTHESIZE => TextToSpeech::class,
         self::COMMERCE_SHOP => CommercePlatform::class,
-        self::ERP_READ => ErpConnector::class,
+        self::ERP_READ => ErpPlatform::class,
         self::RESEARCH_SEARCH => SearchProvider::class,
         self::MESSAGING_WHATSAPP_SEND => OutboundChannelAdapter::class,
         self::MESSAGING_MESSENGER_SEND => OutboundChannelAdapter::class,

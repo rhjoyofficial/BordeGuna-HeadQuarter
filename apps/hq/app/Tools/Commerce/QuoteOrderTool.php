@@ -3,7 +3,7 @@
 namespace App\Tools\Commerce;
 
 use App\Commerce\Orders\TakeOrderShape;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Gateway\Descriptor\DataClass;
 use App\Tools\Erp\ErpOrderReadTool;
 use App\Tools\ToolResult;
@@ -45,7 +45,7 @@ final class QuoteOrderTool extends ErpOrderReadTool
 
     protected function contract(): string
     {
-        return ErpConnector::SALES_ORDERS_CONTRACT;
+        return ErpPlatform::SALES_ORDERS_CONTRACT;
     }
 
     protected function dataClass(): DataClass
@@ -88,7 +88,7 @@ final class QuoteOrderTool extends ErpOrderReadTool
         ];
     }
 
-    protected function read(ErpConnector $erp, array $payload): array|ToolResult
+    protected function read(ErpPlatform $erp, array $payload): array|ToolResult
     {
         if (($problems = TakeOrderShape::quoteProblems($payload)) !== []) {
             return ToolResult::failed('The order cannot be quoted as it stands: '.implode(' ', $problems));

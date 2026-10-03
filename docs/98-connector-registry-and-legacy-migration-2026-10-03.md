@@ -48,7 +48,7 @@ contract is a new name.
 | `voice.transcribe` | `App\Voice\SpeechToText` | contracted; legacy `SpeechProviders` slot, empty |
 | `voice.synthesize` | `App\Voice\TextToSpeech` | contracted; legacy `SpeechProviders` slot, empty |
 | `commerce.shop` | `App\Commerce\Contracts\CommercePlatform` | contracted; legacy `CommerceRegistry` |
-| `erp.read` | `App\Erp\ErpConnector` (a final class; see §5.5) | contracted; legacy `ErpRegistry` |
+| `erp.read` | `App\Erp\ErpPlatform` (extracted 4 Oct on ruling 9.2; see §5.5) | contracted; legacy `ErpRegistry` |
 | `research.search` | `App\Research\SearchProvider` | contracted; legacy `ResearchService::PROVIDERS` (§5.3) |
 | `messaging.whatsapp.send` | `App\Conversation\Channels\OutboundChannelAdapter` | contracted; nothing registered |
 | `messaging.messenger.send` | `OutboundChannelAdapter` | contracted; nothing registered |
@@ -187,9 +187,31 @@ and converges in its own step, in this order (lowest risk first). Every step use
 | 5.2 | `PlatformRegistry` | empty; `CapabilityResolver` / `CapabilityRouter` read it | it becomes a view over registry rows that carry a `platform`; resolver and router unchanged (account-level grants stay theirs) | low-medium: empty, but the router's fail-closed rules depend on it | `CapabilityRegistryTest`, `CapabilityRoutingTest`, `ChannelAdaptersInertTest` unchanged |
 | 5.3 | `ResearchService::PROVIDERS` (sixth shape, not in `docs/95` §10) | private const map brave/tavily, chosen by config `content.research.provider` | rows for `research.search`; the configured choice becomes priority or a named provider (§7 Q2) | low-medium: research is inert | the research tests; a parity test per configured provider |
 | 5.4 | `ProviderRegistry` (AI) | config class list; `model_tiers.provider` selects; live in every gate | rows for `ai.complete`; `ProviderRegistry` keeps its key -> driver map but is populated from the rows; `ModelRouter` unchanged | **high**: every agent run and gate; do it after the shadow week, never before a gate | the AI and gateway suites, `OpenAiReadinessTest`, `CapabilityReadinessTest` model rows, a replay of the last gate's recorded cases |
-| 5.5 | `ErpRegistry` | one class, token per business | extract an `ErpReader` interface from `ErpConnector` first, then a row for `erp.read` with `business.slug` credentials | medium-high: live ERP reads, `take_order` read-back | `tests/Feature/Erp`, `TakeOrderTest`, `OrderCompletionTest`, readiness business rows identical |
+| 5.5 | `ErpRegistry` | one class, token per business | ✅ interface extracted (stream W6, ruling 9.2): `ErpPlatform`, which `ErpConnector` implements and every consumer names; still to do: a row for `erp.read` with `business.slug` credentials | medium-high: live ERP reads, `take_order` read-back | `tests/Feature/Erp`, `TakeOrderTest`, `OrderCompletionTest`, readiness business rows identical |
 | 5.6 | `CommerceRegistry` | hardcoded adapter list; `stores.adapter` selects per store | needs a store scope in `ConnectorRequest` and a `store.slug` credential source; rows per adapter key | **highest**: the order-taking path | `tests/Feature/Commerce` (incl. `TakeOrderTest`), readiness store rows identical, the unsupported-store rows unchanged |
 | 5.7 | `StorageDriver` container binding | `AppServiceProvider` binds `LocalStorageDriver` | a row for `storage.object`, transport `internal`, flag on; the binding asks the registry | low | the media tests |
+
+### 5.5a `ErpPlatform` (stream W6, 4 October)
+
+`App\Erp\ErpPlatform` holds exactly the public methods core logic already called on `ErpConnector`, with the same
+signatures, DTOs and failure classes, plus the three contract-version constants (`ORDER_READS_CONTRACT`,
+`SALES_ORDER_DRAFTS_CONTRACT`, `SALES_ORDERS_CONTRACT`), which are HQ's vocabulary for order bodies and are
+inherited by the class unchanged:
+
+`overview`, `lowStock`, `lookupProducts`, `lookupSku`, `readPrice`, `readAvailability`, `checkCustomerEligibility`,
+`createSalesOrderDraft`, `readSalesOrderDraft`, `quoteSalesOrder`, `recordSalesOrder`, `readSalesOrder`,
+`readSalesOrderByKey`, `cancelSalesOrder`, `runReport`, `rawRead`, `probe`.
+
+Public methods nothing outside the class called stay on `ErpConnector` only (`connectorName`, `businesses`,
+`stock`, `products`, `product`, `customers`, `customer`, `tickets`, `openTicket`, `pendingApprovals`, `reports`).
+`ErpRegistry::for()` returns `ErpPlatform`; `ErpRegistry::ADAPTER` names the class so the legacy bridge does not;
+every tool (`ErpOrderReadTool`, `PollErpTool` and their children, the order tools), `ErpOrderReadBackFact` and the
+`erp.read` capability depend on the interface. No behaviour change: the ERP contract suites (`ErpContractFidelityTest`,
+`OrderReadsContractTest`, `SalesOrderContractTest`, `SalesOrderDraftContractTest`, `ErpConnectorTest`,
+`OrderReadToolsTest`, `TakeOrderTest`, `OrderCompletionTest`) pass unchanged. `ErpPlatformStructureTest` fails the
+suite when anything in `app/`, `config/`, `routes/`, `database/` or `bootstrap/` outside `app/Erp` names
+`ErpConnector`, in code or a docblock. Not done (the remaining §5.5 step): an `erp.read` connector row; `ErpRegistry`
+still builds the one client itself.
 
 ## 6. What this stream did not do
 
@@ -215,4 +237,5 @@ health command or to a screen.
 - **Q5 Credential kinds.** Once W2b's `CredentialKinds` merges, the registry can refuse a row whose credential kind
   is not in that list (one more load-time check). Proposed for the merge after W2b.
 - **Q6 `erp.read` contract.** The catalogue names the final class `ErpConnector` because no interface exists; a
-  second ERP adapter needs one extracted first (§5.5).
+  second ERP adapter needs one extracted first (§5.5). **RULED 4 Oct (`docs/101` §11, 9.2): extract now. Done in
+  stream W6 (§5.5a).**

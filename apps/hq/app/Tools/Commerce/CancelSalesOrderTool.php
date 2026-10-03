@@ -7,7 +7,7 @@ use App\Commerce\Exceptions\Unsupported;
 use App\Commerce\Exceptions\ValidationFailed;
 use App\Commerce\Orders\ErpOperationKey;
 use App\Erp\Dto\ErpOrderRead;
-use App\Erp\ErpConnector;
+use App\Erp\ErpPlatform;
 use App\Erp\ErpRegistry;
 use App\Facts\ErpOrderReadBackFact;
 use App\Gateway\Descriptor\Channel;
@@ -241,7 +241,7 @@ final class CancelSalesOrderTool implements PreviewableTool, Tool
         return ToolResult::succeeded([
             'business' => $business->slug,
             'source' => 'erp',
-            'contract' => ErpConnector::SALES_ORDERS_CONTRACT,
+            'contract' => ErpPlatform::SALES_ORDERS_CONTRACT,
             'status' => (string) $data['status'],
             'order_number' => (string) ($data['order_number'] ?? ''),
             'shop_reference' => (string) ($data['shop_reference'] ?? ''),
