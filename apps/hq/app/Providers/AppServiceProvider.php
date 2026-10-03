@@ -14,9 +14,12 @@ use App\Briefing\BriefingNarrator;
 use App\Briefing\NoNarrator;
 use App\Commerce\Support\CommerceRegistry;
 use App\Commerce\Support\ConnectorCallLogger;
+use App\Connectors\ConnectorRegistry;
+use App\Connectors\Legacy\LegacyConnectors;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\RubricGrader;
+use App\Gateway\Credentials\CredentialHealth;
 use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
 use App\Media\LocalStorageDriver;
@@ -72,6 +75,17 @@ class AppServiceProvider extends ServiceProvider
         // Phase 7 (docs/88 A point 6): the speech providers ship EMPTY for the same reason. A voice note
         // is kept without a transcript until a person registers a provider at gate P7-G2.
         $this->app->singleton(SpeechProviders::class, fn () => new SpeechProviders);
+
+        // docs/97 §6 D2 (docs/98): the ConnectorRegistry is the one provider-resolution path for every NEW
+        // adapter. Its rows come from config/hq-connectors.php, which is EMPTY in this release; the five
+        // legacy shapes above are only reported through read-only bridges, never resolved by it.
+        $this->app->singleton(ConnectorRegistry::class, fn ($app) => new ConnectorRegistry(
+            config('hq-connectors.connectors', []),
+            $app->make(Features::class),
+            $app->make(CredentialVault::class),
+            $app->make(CredentialHealth::class),
+            $app->make(LegacyConnectors::class),
+        ));
 
         // Phase 5 read side (docs/88 A point 4): the contribution report's two sources. Delivered orders
         // from the shops' own facts; cost prices from NOWHERE yet (the ERP holds them, the HQ contract

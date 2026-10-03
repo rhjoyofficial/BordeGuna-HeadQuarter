@@ -6,6 +6,8 @@ use App\Ai\ProviderCheck;
 use App\Ai\Providers\ProviderRegistry;
 use App\Ai\ServingProvider;
 use App\Commerce\Support\CommerceRegistry;
+use App\Connectors\ConnectorDefinition;
+use App\Connectors\ConnectorRegistry;
 use App\Erp\ErpRegistry;
 use App\Gateway\Credentials\AmbiguousCredential;
 use App\Gateway\Credentials\CredentialHealth;
@@ -50,6 +52,7 @@ final class CapabilityReadiness
         private readonly ProviderCheck $providerCheck,
         private readonly ServingProvider $serving,
         private readonly ProviderRegistry $providers,
+        private readonly ConnectorRegistry $connectors,
     ) {}
 
     /** @return list<ReadinessRow> */
@@ -92,6 +95,77 @@ final class CapabilityReadiness
         }
 
         return $rows;
+    }
+
+    /**
+     * The connector view (docs/98 §3): one row per connector the registry holds, then one per provider
+     * a legacy shape serves. Read beside `inventory()`, never mixed into it, so no existing row,
+     * incident or exit code changes. Never a value, and nothing here calls a provider.
+     *
+     * @return list<ConnectorReadinessRow>
+     */
+    public function connectors(): array
+    {
+        $rows = array_map(fn (ConnectorDefinition $c) => $this->connectorRow($c), $this->connectors->all());
+
+        foreach ($this->connectors->legacy() as $legacy) {
+            $rows[] = new ConnectorReadinessRow(
+                $legacy->capability, $legacy->provider, $legacy->transport->value, $legacy->adapter,
+                ConnectorReadinessRow::ORIGIN_LEGACY, ConnectorReadinessRow::LEGACY,
+                'served by '.class_basename($legacy->shape).', not the registry: '.$legacy->note,
+                $legacy->credentials, shape: $legacy->shape,
+            );
+        }
+
+        return $rows;
+    }
+
+    private function connectorRow(ConnectorDefinition $connector): ConnectorReadinessRow
+    {
+        $credentials = array_map(static fn ($c) => $c->provider.' <- '.$c->accountRefFrom, $connector->credentials);
+        $make = static fn (string $state, string $reason) => new ConnectorReadinessRow(
+            $connector->capability, $connector->provider, $connector->transport->value, $connector->adapter,
+            ConnectorReadinessRow::ORIGIN_REGISTRY, $state, $reason, $credentials, $connector->priority, $connector->fallback,
+        );
+
+        if (! $this->connectors->enabled($connector)) {
+            return $make(ReadinessRow::DISABLED, "switched off ({$connector->enabledBy})");
+        }
+
+        if (! $connector->credentialsAreLiteral()) {
+            return $make(ConnectorReadinessRow::SCOPE_DEPENDENT,
+                'its credentials are looked up per business, brand or account, so they are checked when a request resolves');
+        }
+
+        // The first credential that is not verified decides the row, in the order a person must act on.
+        $worst = null;
+        foreach ($connector->credentials as $requirement) {
+            $row = $this->row('connector', $connector->provider, $connector->capability, $requirement->provider, substr($requirement->accountRefFrom, 1), true, null, null);
+            if ($requirement->optional && $row->state !== ReadinessRow::VERIFIED) {
+                continue;
+            }
+            if ($worst === null || $this->severity($row->state) > $this->severity($worst->state)) {
+                $worst = $row;
+            }
+        }
+
+        return $worst === null
+            ? $make(ConnectorReadinessRow::READY, 'registered and switched on; it needs no stored credential')
+            : $make($worst->state, $worst->reason);
+    }
+
+    private function severity(string $state): int
+    {
+        return match ($state) {
+            ReadinessRow::CREDENTIAL_INVALID => 7,
+            ReadinessRow::CREDENTIAL_MISSING => 6,
+            ReadinessRow::PROVIDER_BLOCKED_BY_CREDIT => 5,
+            ReadinessRow::PROVIDER_UNAUTHORIZED => 4,
+            ReadinessRow::CREDENTIAL_UNVERIFIED => 3,
+            ReadinessRow::PROVIDER_UNAVAILABLE => 2,
+            ReadinessRow::CONNECTOR_ERROR => 1,
+            default => 0,
+        };
     }
 
     /** @return list<ReadinessRow> the rows a human must act on */
