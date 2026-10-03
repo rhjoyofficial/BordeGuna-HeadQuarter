@@ -2,6 +2,7 @@
 
 namespace App\Conversation\Channels\Meta;
 
+use App\Conversation\Channels\DeliveryStatus;
 use App\Conversation\Channels\OutboundMessage;
 use App\Gateway\Descriptor\Channel;
 use App\Platform\Capabilities;
@@ -57,6 +58,17 @@ final class WhatsAppCloudChannel extends MetaSendAdapter
     protected function supportsTemplates(): bool
     {
         return true;
+    }
+
+    /**
+     * The Cloud API serves no message node by its id (a `wamid` is named only in send answers and
+     * status webhooks; docs/88-q-record.md), so a WhatsApp attempt that never recorded its outcome
+     * cannot be read back. Null, and no request: the reconciliation counts it unreadable and a
+     * person settles it from the inbox.
+     */
+    public function readDelivery(string $providerRef, string $platformAccountRef): ?DeliveryStatus
+    {
+        return null;
     }
 
     protected function fits(string $body): bool

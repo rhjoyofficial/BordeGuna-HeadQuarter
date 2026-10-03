@@ -50,6 +50,16 @@ final class QCountingAdapter implements OutboundChannelAdapter
 
         return $answer;
     }
+
+    public function readDelivery(string $providerRef, string $platformAccountRef): ?DeliveryStatus
+    {
+        return null;
+    }
+
+    public function readCredentials(string $platformAccountRef): array
+    {
+        return [];
+    }
 }
 
 function ledgerThread(string $psid = 'psid-l'): Conversation

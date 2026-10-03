@@ -1,6 +1,7 @@
 <?php
 
 use App\Console\Commands\ApprovalsSweep;
+use App\Conversation\Deliveries\ReconcileDeliveries;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Events\ProcessDomainEvents;
 use Illuminate\Support\Facades\Schedule;
@@ -26,6 +27,11 @@ Schedule::command('hq:shadow:evidence --store')->dailyAt('00:15')->timezone('Asi
 
 // docs/78 B.1: the P3-G3 pairing's daily sweep. Writes nothing while the support agent proposes nothing.
 Schedule::command('hq:conversation:compare-sweep')->dailyAt('01:00')->timezone('Asia/Dhaka')->withoutOverlapping(10)->runInBackground();
+
+// docs/95 §5 "Delivery": settle the delivery attempts the sender could not (`sending`, `uncertain`) by
+// asking the provider, never by resending. With no messaging provider registered it records one
+// `deliveries.reconcile_skipped` row with the counts and changes nothing.
+Schedule::command(ReconcileDeliveries::class)->dailyAt('01:30')->timezone('Asia/Dhaka')->withoutOverlapping(10)->runInBackground();
 
 // docs/78 B.2: the alert rules. Reads only; opens, counts and resolves alerts, and sends the ones no
 // other component already pages.
