@@ -74,7 +74,9 @@ tests/Feature/              Scheduler acceptance, audit append-only, foundation 
 ## Rules baked in
 
 - The scheduler never claims exactly-once: one logical slot, one run row (unique index), at-least-once execution,
-  idempotent tools, `reconcile()` before a re-attempt (ADR-011).
+  idempotent tools, `reconcile()` before a re-attempt (ADR-011). An event-triggered job (`kind = event`) is fired by
+  the event drain with the event's uuid as its slot, so a replayed event never runs it twice
+  (`docs/runbooks/ask-hq-and-scheduling-in-words.md`, "Jobs that run when something happens").
 - `audit_logs` cannot be updated or deleted: PostgreSQL trigger plus model guard.
 - Secrets: `integration_credentials.payload` is `encrypted:array`; logs pass `RedactSecretsProcessor`; the
   health endpoint returns statuses only.

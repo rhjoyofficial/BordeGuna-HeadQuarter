@@ -198,9 +198,15 @@ final class JobSpecValidator
                 return [];
 
             case 'event':
-                // Nothing dispatches event-triggered jobs yet: a job made this way would never run, and
-                // saying so is better than creating it.
-                return ['HQ cannot yet start a job when something happens. Should it run on a clock instead, and when?'];
+                // The event drain fires event jobs (`EventTriggeredJobs`, docs/95 §16 NOW item 4). The
+                // type is a dotted name such as `order.created`; one HQ never emits simply never fires.
+                $type = trim($draft->eventType);
+                if (preg_match('/^[a-z0-9_]+(\.[a-z0-9_]+)+$/', $type) !== 1) {
+                    return ['Which event should start the job? Name it the way HQ does, such as order.created or shipment.delivered.'];
+                }
+                $attributes['event_type'] = $type;
+
+                return [];
 
             default:
                 return ['When should the job run: once, on a repeating schedule, every so often, or when something happens?'];

@@ -2,6 +2,7 @@
 
 namespace App\Scheduling;
 
+use App\Models\DomainEvent;
 use App\Models\JobRun;
 use App\Models\ScheduledJob;
 use App\Models\User;
@@ -216,6 +217,49 @@ final class ScheduledJobService
             }
             throw $e;
         }
+    }
+
+    /**
+     * Insert the run row for one domain event (docs/95 §16 NOW item 4). The event's own uuid is the
+     * logical slot: the unique (scheduled_job_id, event_id) index refuses a second run for the same
+     * event, so a replayed or redelivered event never runs the job twice. Returns null when the event
+     * already has its run.
+     *
+     * `scheduled_for` still carries the clock index, so two different events firing the same job in
+     * the same second would collide on it; that collision is told apart from the event one by a
+     * re-read, and the slot moves a second forward (the run is "now", which second is immaterial).
+     */
+    public function claimEventSlot(ScheduledJob $job, DomainEvent $event): ?JobRun
+    {
+        $claimed = fn () => JobRun::query()->where('scheduled_job_id', $job->id)->where('event_id', $event->event_id)->exists();
+        if ($claimed()) {
+            return null;
+        }
+
+        $slot = CarbonImmutable::now('UTC')->startOfSecond();
+        for ($shift = 0; $shift < 5; $shift++) {
+            try {
+                return DB::transaction(fn () => JobRun::create([
+                    'scheduled_job_id' => $job->id,
+                    'scheduled_for' => $slot->addSeconds($shift),
+                    'trigger' => 'event',
+                    'event_id' => $event->event_id,
+                    'attempt' => 0,
+                    'status' => RunStatus::Queued,
+                    'correlation_id' => (string) Str::uuid(),
+                ]));
+            } catch (QueryException $e) {
+                if (! $this->isUniqueViolation($e)) {
+                    throw $e;
+                }
+                if ($claimed()) {
+                    return null; // the event's run exists: a concurrent drain or a replay got there first
+                }
+                // Otherwise another event of this job took this second: try the next one.
+            }
+        }
+
+        return null;
     }
 
     private function transition(ScheduledJob $job, JobState $to, string $action, ?string $reason, array $from, bool $clearNext = false): ScheduledJob
