@@ -291,6 +291,7 @@ final class AgentRunner
             'business_id' => $request->businessId,
             'brand_id' => $request->brandId,
             'conversation_uuid' => $request->conversationUuid,
+            'conversation_message_uuid' => $request->conversationMessageUuid,
             'support_workflow' => $workflow?->toArray(),
             'question' => $request->question,
             'autonomy_level' => $decision->level->value,

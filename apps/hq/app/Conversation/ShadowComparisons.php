@@ -47,7 +47,8 @@ final class ShadowComparisons
 
         $run = AgentRun::query()
             ->where('agent_key', ConversationService::SUPPORT_AGENT)
-            ->where('correlation_id', $conversationUuid)
+            // The thread the runtime bound the run to (docs/90 A.1 step 3), or the correlation id for rows written before the binding existed.
+            ->where(fn ($q) => $q->where('conversation_uuid', $conversationUuid)->orWhere('correlation_id', $conversationUuid))
             ->when($lastInbound !== null, fn ($q) => $q->where('created_at', '>=', $lastInbound->created_at))
             ->where('created_at', '<=', $external->created_at)
             ->whereNotIn('id', ShadowComparison::query()->where('conversation_id', $external->conversation_id)->whereNotNull('agent_run_id')->select('agent_run_id'))
@@ -104,7 +105,7 @@ final class ShadowComparisons
             if ($text === null) {
                 continue;
             }
-            $conversationId = Conversation::query()->where('uuid', $run->correlation_id)->value('id');
+            $conversationId = Conversation::query()->where('uuid', $run->conversation_uuid ?? $run->correlation_id)->value('id');
             if ($conversationId === null) {
                 continue;
             }

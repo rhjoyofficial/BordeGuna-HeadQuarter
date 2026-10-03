@@ -22,6 +22,7 @@ use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
+use App\Support\Events\Handlers\SupportWakeUpHandler;
 use App\Tools\Briefing\ComposeBriefingTool;
 use App\Tools\Commerce\CancelSalesOrderTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
@@ -352,12 +353,26 @@ return [
             // Phase 3 (docs/72): the Meta webhook row becomes conversation messages in the drain, and
             // the conversation events are recorded and, for now, nothing more.
             'conversation.inbound_received' => [MetaInboundHandler::class],
-            'conversation.message_received' => [ConversationEventHandler::class],
+            // docs/95 stream W2a: the live wake-up. Inert by posture: it dispatches a run only while
+            // `channels.meta.inbound` and `ai.runtime` are on AND the support agent is active with an
+            // enabling user AND the thread is the agent's; otherwise it audits why it did nothing.
+            'conversation.message_received' => [ConversationEventHandler::class, SupportWakeUpHandler::class],
             'conversation.state_changed' => [ConversationEventHandler::class],
             'conversation.reply_proposed' => [ConversationEventHandler::class],
         ],
         'default_max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800, 3600],
+    ],
+
+    // docs/95 stream W2a: the inbox's own switches. ⛔ Neither activates anything customer-facing.
+    'inbox' => [
+        // A thread entering `human_required` pings every notification channel (Telegram + in-app) once
+        // per entry, with the reason code and the thread link and no customer text. Off = no ping; the
+        // inbox still shows the thread.
+        'handover_notify' => true,
+        // The queue the live wake-up runs the Support agent on. A queue missing from Horizon's list is
+        // a job that never runs (config/horizon.php).
+        'wake_up_queue' => 'ai',
     ],
 
     // Phase 3 (docs/72 B): the rules an outbound reply must pass at the tool, before any provider is

@@ -19,6 +19,11 @@ final readonly class AgentRunRequest
     public function __construct(
         public string $agentKey,
         public string $question,
+        /**
+         * The entry point, as a label on the run row. The values HQ writes today: `operator` (Ask HQ),
+         * `console` (`hq:agent:ask`), `evaluation` (a gate), `schedule` (a scheduled job), `shadow_probe`
+         * (`ShadowProbes::TRIGGER`) and `conversation` (the live wake-up, `SupportWakeUp::TRIGGER`).
+         */
         public string $trigger = 'operator',
         public ?User $operator = null,
         public ?int $businessId = null,
@@ -43,5 +48,11 @@ final readonly class AgentRunRequest
          * from HQ code. The runtime's own reading still wins for a silent hand-over.
          */
         public ?string $supportWorkflow = null,
+        /**
+         * docs/95 stream W2a: the inbound customer message that woke this run, set by the live wake-up
+         * (`SupportWakeUp`) and never by the model. One run per message is the live path's idempotency
+         * rule, and this is the key it is kept on.
+         */
+        public ?string $conversationMessageUuid = null,
     ) {}
 }

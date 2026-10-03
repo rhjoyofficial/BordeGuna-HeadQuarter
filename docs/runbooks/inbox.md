@@ -47,6 +47,45 @@ are checked in code before the agent sees anything. The agent may escalate more;
   sent, with four verdicts: same, better, worse, different. A proposal nothing answered within a
   day is marked unmeasured by the sweep.
 
+## The hand-over ping (docs/95 stream W2a)
+
+The moment a thread enters `human_required`, HQ tells a person on every notification channel it has:
+the Telegram bot and chat from `ALERT_TELEGRAM_BOT_TOKEN` / `ALERT_TELEGRAM_CHAT_ID` (the same ones the
+alerts use), and the in-app record (an audit row `notification.raised`). The message carries the
+business and brand, the channel, a **reason code**, and the link `/inbox/{uuid}`. It never carries
+what the customer wrote, their name or their phone: the words are read in HQ, behind the permission.
+
+| Reason code | What happened |
+| --- | --- |
+| `asks_for_person` | the customer asked for a person (the core's escalation words, before any agent) |
+| `money_or_complaint` | money, a refund, a complaint, a damaged item (the core, before any agent) |
+| `second_inbound_while_waiting` | the customer wrote again while the agent was waiting on them |
+| `agent_paused` | the support agent is paused, so the thread opened needing a person |
+| `ai_disabled` | a person switched the agent off for this thread |
+| `agent_cannot_serve` | the agent was woken and could not serve: a silent hand-over the runtime decided, a refusal, a failure, or no reply proposed |
+
+One ping per thread per **entry** into the state, never per message: a second message on a thread
+that already needs a person sends nothing; a thread you resolved that comes back needing a person
+sends again. The ping waits for the database commit, so a simulated replay that is rolled back sends
+nothing. Switch it off without a deploy with `hq.inbox.handover_notify = false` (config/hq.php);
+the thread still shows in the inbox and the badge.
+
+On the thread page the same reason is the amber card **Why a person is needed** (the code, the
+sentence, who moved it and when), above the **Recent orders** card: the known customer's last five
+orders from HQ's fact table (ref, store, status, payment, placed, gross). A stranger shows "No known
+orders".
+
+## When the agent is woken (inert today)
+
+`conversation.message_received` is handled by `SupportWakeUpHandler`. It wakes the support agent for
+a message ONLY when every one of these holds, read fresh from the database: `channels.meta.inbound`
+on, `ai.runtime` on, the `support` row `active` with an enabling user, the thread `ai_active` or
+`ai_resumed` and not switched off. In production today the first is off, so nothing is woken and
+the reason is on the audit log as `conversation.wake_up_skipped`. When it does wake, the run is on
+the `ai` queue, bound to the thread, trigger `conversation`, one run per message; at A0 the reply is
+a proposal card on this page and nothing is sent. A run that proposes nothing hands the thread to a
+person as `agent_cannot_serve`. Detail: `docs/96-live-wake-up-record.md`.
+
 ## When something looks wrong
 
 - A thread from a Page HQ does not hold never appears: the event dead-letters with the reason on

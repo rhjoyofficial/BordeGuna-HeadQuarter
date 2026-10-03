@@ -58,6 +58,7 @@ final readonly class ConversationService
         private EventRecorder $events,
         private HandoffStateMachine $states,
         private EscalationTriggers $triggers,
+        private HandoverNotifications $handovers,
     ) {}
 
     /**
@@ -120,6 +121,11 @@ final readonly class ConversationService
             }
             if ($fill !== []) {
                 $conversation->forceFill($fill)->save();
+            }
+            if ($conversation->wasRecentlyCreated && $conversation->state === ConversationState::HumanRequired) {
+                // A thread that OPENS needing a person (the agent is paused) makes no transition, so the
+                // state machine cannot announce it; it is one entry into the state, announced here.
+                $this->handovers->threadNeedsPerson($conversation, EscalationTriggers::REASON_AGENT_PAUSED, 'opened');
             }
 
             $body = Language::normalise($inbound->body);

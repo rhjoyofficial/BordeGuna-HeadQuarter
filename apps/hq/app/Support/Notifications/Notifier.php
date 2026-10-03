@@ -2,8 +2,10 @@
 
 namespace App\Support\Notifications;
 
+use App\Conversation\HandoverReason;
 use App\Models\Alert;
 use App\Models\Approval;
+use App\Models\Conversation;
 use App\Models\User;
 
 /**
@@ -146,6 +148,34 @@ final class Notifier
             "HQ alert cleared: {$alert->subject}",
             "The condition has not been seen on the last {$alert->clear_checks} checks. It was open for {$minutes} minutes.",
             ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint],
+        );
+    }
+
+    /**
+     * A customer thread needs a person (docs/95 §5 "Hand-over", stream W2a): the thread entered
+     * `human_required`, by the core's escalation before the agent, by a person switching the agent off,
+     * or by the agent being woken and unable to serve.
+     *
+     * ⛔ The message names the business, the brand, the channel, the reason CODE and the thread's link,
+     * and nothing the customer wrote: no message text, no name, no phone. A Telegram group is not the
+     * inbox, and the inbox is where the words are read, behind the permission that guards them.
+     *
+     * @param  array<string, mixed>  $context  the dedupe key and ids, kept on the in-app record
+     */
+    public function handoverRequired(Conversation $conversation, ?HandoverReason $reason, array $context = []): void
+    {
+        $conversation->loadMissing(['business:id,name', 'brand:id,name']);
+
+        $this->dispatch(
+            'HQ inbox: a thread needs a person ('.($reason?->value ?? 'reason not recorded').')',
+            implode("\n", array_filter([
+                'Business: '.($conversation->business?->name ?? 'unknown').($conversation->brand ? ' / '.$conversation->brand->name : ''),
+                'Channel: '.$conversation->channel->value,
+                'Reason: '.($reason?->value ?? 'not recorded'),
+                'Open: '.url('/inbox/'.$conversation->uuid),
+                'Nothing the customer wrote is in this message; read the thread in HQ.',
+            ])),
+            ['conversation_uuid' => $conversation->uuid, 'reason' => $reason?->value] + $context,
         );
     }
 
