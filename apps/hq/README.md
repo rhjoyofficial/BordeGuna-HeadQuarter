@@ -47,6 +47,7 @@ code, save the recovery codes. Every later session asks for a code once.
 | Create user | `php artisan hq:user:create email --role=owner|operator|brand_manager|support_agent|finance_viewer [--generate-password]` |
 | Scheduler tick by hand | `php artisan hq:scheduler:tick [--now=ISO8601]` |
 | Event drain by hand | `php artisan hq:events:process` |
+| Daily owner briefing job (once) | `php artisan hq:scheduler:ensure "Daily owner briefing" --tool=briefing.compose --cron="0 9 * * *" --created-from=ui --owner=<owner email> --apply`, then approve it on the scheduler (R3 tool: a new job made by `hq:scheduler:ensure` waits for approval). With `ai.runtime` off it stores the evidence bundle only, no model call |
 | Delivery reconciliation by hand | `php artisan hq:deliveries:reconcile [--older-than=30] [--limit=200]` (asks the provider about `sending`/`uncertain` attempts; never resends; one `deliveries.reconcile_skipped` audit row while no provider is registered) |
 | Health | `GET /up` (liveness), `GET /api/health` (application, database, redis, queue, scheduler) |
 
