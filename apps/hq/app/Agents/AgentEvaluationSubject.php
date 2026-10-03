@@ -303,6 +303,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             argumentTrace: $this->argumentTrace($run),
             // docs/90 A.1 step 5: the workflow the runtime held a thread run to.
             supportWorkflow: $run->support_workflow === null ? null : (array) $run->support_workflow,
+            // docs/92 A.12: the reply requirement the runtime resolved, every script validation and the repairs.
+            languageRequirement: $run->language_requirement === null ? null : (array) $run->language_requirement,
             // docs/91 A.3: the role this run was measured as, for the role-aware refusal reading.
             subjectRole: $this->subjectRole(),
         );
@@ -366,7 +368,13 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
                 continue;
             }
 
-            $out[] = ['tool' => $entry['tool'], 'args' => (array) ($entry['args'] ?? [])];
+            $named = ['tool' => $entry['tool'], 'args' => (array) ($entry['args'] ?? [])];
+            // docs/92: a reply the runtime's script policy refused is named, and marked, so the grader can
+            // count what a customer could receive without losing what the model proposed.
+            if (isset($entry['script_policy'])) {
+                $named['script_rejected'] = true;
+            }
+            $out[] = $named;
         }
 
         return $out;

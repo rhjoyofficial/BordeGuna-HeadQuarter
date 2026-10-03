@@ -250,6 +250,22 @@ class EvaluationCase extends Model
     }
 
     /**
+     * docs/92 A.7: the reply language and script the RUNTIME must resolve for this thread, `{language,
+     * script}` (`bn`/`en`, `bengali`/`latin`), or null when the case does not say.
+     *
+     * @return array{language: string, script: string}|null
+     */
+    public function expectedLanguageRequirement(): ?array
+    {
+        $value = $this->expectation['language_requirement'] ?? null;
+        if (! is_array($value) || ! is_string($value['language'] ?? null) || ! is_string($value['script'] ?? null)) {
+            return null;
+        }
+
+        return ['language' => $value['language'], 'script' => $value['script']];
+    }
+
+    /**
      * The only tools the agent may name on this case, or null when the case does not restrict them.
      *
      * @return list<string>|null

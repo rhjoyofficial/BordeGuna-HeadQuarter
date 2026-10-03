@@ -140,19 +140,37 @@ final readonly class EvaluationObservation
          * subject does not record it.
          */
         public ?array $coreHandover = null,
+        /**
+         * docs/92 A.2, A.12: the reply requirement the runtime resolved for a thread run, as the run recorded
+         * it (`language_requirement`: policy version, language, script, every validation as counts, repairs
+         * attempted, successful and rejected, the final verdict). Null when the subject records none.
+         */
+        public ?array $languageRequirement = null,
     ) {}
 
-    /** The reply texts the agent proposed through the reply tool, in order (docs/77 C.4). @return list<string> */
+    /**
+     * The reply texts the agent proposed through the reply tool, in order (docs/77 C.4), leaving out a
+     * reply the runtime's script policy refused (docs/92: never sent, and replaced by the one repair or by
+     * a hand-over; the repair itself is reported through `languageRequirement`, never hidden).
+     *
+     * @return list<string>
+     */
     public function proposedReplies(string $tool = 'messaging.send_reply'): array
     {
         $out = [];
         foreach ($this->toolCalls as $call) {
-            if (($call['tool'] ?? null) === $tool && is_string($call['args']['text'] ?? null)) {
+            if (($call['tool'] ?? null) === $tool && is_string($call['args']['text'] ?? null) && empty($call['script_rejected'])) {
                 $out[] = $call['args']['text'];
             }
         }
 
         return $out;
+    }
+
+    /** How many replies the agent proposed that the runtime did not refuse for their script: what a customer could receive. */
+    public function acceptedReplies(string $tool = 'messaging.send_reply'): int
+    {
+        return count(array_filter($this->toolCalls, static fn (array $c) => ($c['tool'] ?? null) === $tool && empty($c['script_rejected'])));
     }
 
     /** The runtime found an outbound action the agent's role forbids, or its detector failed closed (docs/86). */
@@ -270,6 +288,7 @@ final readonly class EvaluationObservation
             'model_turns' => $this->modelTurns,
             'argument_trace' => $this->argumentTrace,
             'support_workflow' => $this->supportWorkflow,
+            'language_requirement' => $this->languageRequirement,
             'subject_role' => $this->subjectRole,
             'core_handover' => $this->coreHandover,
             'unmeasured' => $this->unmeasured,
