@@ -82,6 +82,28 @@ final class DeliveryLedger
         return $moved;
     }
 
+    /**
+     * The reconciliation's answer for one attempt that never recorded its outcome (`sending` left by a
+     * crash, `uncertain` after a timeout): the provider's word, read back by id. Forward-only like a
+     * webhook signal, so an attempt a status webhook already moved on is left where it is; every
+     * change is an audit row, because a person may have been waiting on this exact attempt.
+     */
+    public function settle(MessageDelivery $delivery, DeliveryStatus $answer): MessageDelivery
+    {
+        $before = ['status' => $delivery->status, 'error' => $delivery->error];
+
+        $settled = $answer->status === DeliveryStatus::FAILED
+            ? $this->fail($delivery, $answer)
+            : $this->promote($delivery, $answer->status, $answer->at);
+
+        if ($settled->status !== $before['status']) {
+            $this->audit->recordSystem('message.delivery_reconciled', $settled, $before, ['status' => $settled->status, 'error' => $settled->error],
+                "the provider answered [{$answer->status}] for [{$delivery->provider_ref}] when asked again");
+        }
+
+        return $settled;
+    }
+
     /** What an existing attempt means to a caller asking to send again. */
     public function receiptFor(MessageDelivery $delivery): DeliveryReceipt
     {

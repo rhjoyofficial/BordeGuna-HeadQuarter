@@ -167,5 +167,11 @@ agent's tool list and no prompt. No prompt, policy, runtime path or agent row ch
    Page id beside the Instagram account and use `/{page}/messages`.
 2. Should `uncertain` and crash-left `sending` attempts get a reconciliation job that asks Meta (a read of
    the message by id) once a provider is registered, or stay a person's decision from the inbox?
+   **Answered 3 October 2026 (docs/95 §5 "Delivery", stream W2b):** both. `hq:deliveries:reconcile` runs
+   daily at 01:30 Dhaka, asks each registered provider by message id (`OutboundChannelAdapter::readDelivery`;
+   Messenger and Instagram `GET /{message-id}?fields=id,created_time`; WhatsApp cannot be read back and
+   answers unknown), settles the ledger forward-only and never resends. An attempt with no provider id, or
+   one the provider cannot speak for, stays a person's decision. While `PlatformRegistry` is empty the pass
+   writes one `deliveries.reconcile_skipped` audit row with the counts and changes nothing.
 3. The local send ceiling of 60 a minute per account is a guess below Meta's published rates; set it from
    the WhatsApp number's messaging tier when one exists.

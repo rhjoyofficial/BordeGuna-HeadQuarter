@@ -3,6 +3,7 @@
 namespace App\Support\Events;
 
 use App\Models\DomainEvent;
+use App\Scheduling\EventTriggeredJobs;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
@@ -21,7 +22,7 @@ final class ProcessDomainEvents extends Command
 
     protected $description = 'Deliver pending domain events to their registered handlers.';
 
-    public function handle(): int
+    public function handle(EventTriggeredJobs $eventJobs): int
     {
         $lock = Cache::lock('hq:events:process', 55);
         if (! $lock->get()) {
@@ -33,6 +34,7 @@ final class ProcessDomainEvents extends Command
             $backoff = config('hq.events.backoff_seconds', [30, 120, 600, 1800, 3600]);
             $processed = 0;
             $failed = 0;
+            $fired = 0;
 
             $events = DomainEvent::query()
                 ->whereIn('status', [DomainEvent::STATUS_PENDING, DomainEvent::STATUS_FAILED])
@@ -55,6 +57,10 @@ final class ProcessDomainEvents extends Command
                     foreach ((array) ($handlers[$event->type] ?? []) as $class) {
                         app($class)->handle($event);
                     }
+                    // Event-triggered scheduled jobs (docs/95 §16 NOW item 4): one run per (job, event),
+                    // after the handlers, so a job sees the state they wrote. A retry of this event
+                    // after a handler failure cannot run a job twice: the event's uuid is the slot.
+                    $fired += $eventJobs->fire($event);
                     $event->forceFill(['status' => DomainEvent::STATUS_PROCESSED, 'processed_at' => now(), 'last_error' => null])->save();
                     $processed++;
                 } catch (Throwable $e) {
@@ -70,7 +76,7 @@ final class ProcessDomainEvents extends Command
                 }
             }
 
-            $this->info("events: processed {$processed}, failed {$failed}");
+            $this->info("events: processed {$processed}, failed {$failed}, jobs fired {$fired}");
 
             return self::SUCCESS;
         } finally {

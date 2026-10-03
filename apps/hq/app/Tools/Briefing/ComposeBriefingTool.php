@@ -34,8 +34,12 @@ use InvalidArgumentException;
  * as well, and are otherwise stored as `withheld`, which degrades the briefing and says why. An
  * ownerless system call holds only the fixed `hq.gateway.system_permissions` list.
  *
- * ⛔ There is no scheduled job for this tool, no seeder entry and no cron. Creating the standard
- * morning job is a separate decision (ChatGPT, 20 September, point 1).
+ * ⛔ No seeder entry and no cron. The standard morning job (docs/95 §16 NOW item 4) is one command a
+ * person runs, `hq:scheduler:ensure "Daily owner briefing" --tool=briefing.compose --cron="0 9 * * *"
+ * --created-from=ui --owner=<owner email> --apply`; because this tool is R3 the job is created waiting
+ * for approval and nothing runs it until a person approves it on the scheduler. With `ai.runtime` off
+ * and `briefing.narration` absent, which is production today, each run composes the evidence bundle
+ * only (`narration_state = off`): the composer resolves no narrator and no model can be reached.
  */
 final class ComposeBriefingTool implements Tool
 {

@@ -42,6 +42,7 @@ final class NoopTool implements Tool
                 'idempotency_key' => ['type' => 'string'],
                 'attempt' => ['type' => 'integer'],
                 'executed_at' => ['type' => 'string'],
+                'event_id' => ['type' => 'string'],
             ]],
         );
     }
@@ -53,6 +54,9 @@ final class NoopTool implements Tool
             'properties' => [
                 'message' => ['type' => 'string', 'maxLength' => 500],
                 'sleep_ms' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 5000],
+                // An event-triggered job hands the tool the event that started it (`EventTriggeredJobs`).
+                // Declared here so the scheduler's event path can be proven end to end on a no-op.
+                'event' => ['type' => 'object'],
             ],
             'additionalProperties' => false,
         ];
@@ -76,6 +80,7 @@ final class NoopTool implements Tool
             'idempotency_key' => $context->idempotencyKey,
             'attempt' => $context->attempt,
             'executed_at' => now()->toIso8601String(),
+            'event_id' => is_string($payload['event']['id'] ?? null) ? $payload['event']['id'] : null,
         ]);
     }
 

@@ -104,6 +104,14 @@ it('turns a clear sentence into a job it can stand behind, with the store resolv
 
     $interval = nlCheck(['kind' => 'interval', 'cron_expression' => '', 'interval_minutes' => 90]);
     expect($interval->attributes['interval_seconds'])->toBe(5400);
+
+    // docs/95 §16 NOW item 4: an event job is real now (the drain fires it), so a sentence may make one.
+    // It has no clock slot: its first run is whenever the event next happens.
+    $event = nlCheck(['kind' => 'event', 'cron_expression' => '', 'event_type' => ' order.created ']);
+    expect($event->ok)->toBeTrue()
+        ->and($event->attributes['event_type'])->toBe('order.created')
+        ->and($event->preview['schedule'])->toBe('whenever order.created happens')
+        ->and($event->preview['first_run_utc'])->toBeNull();
 });
 
 it('asks instead of guessing', function (array $overrides, string $expected) {
@@ -123,7 +131,7 @@ it('asks instead of guessing', function (array $overrides, string $expected) {
     'a time already passed' => [['kind' => 'once', 'run_at_local' => '2026-09-17 09:00'], 'has already passed'],
     'an unreadable time' => [['kind' => 'once', 'run_at_local' => '17/09/2026 9am'], 'could not read when the job should run'],
     'too often' => [['kind' => 'interval', 'interval_minutes' => 0], 'at most once a minute'],
-    'an event trigger' => [['kind' => 'event', 'event_type' => 'order.created'], 'cannot yet start a job when something happens'],
+    'an event trigger with no event named' => [['kind' => 'event', 'event_type' => 'when an order comes'], 'Which event should start the job'],
     'no kind' => [['kind' => 'none'], 'When should the job run'],
     'an unknown timezone' => [['timezone' => 'Mars/Olympus'], 'is not a timezone HQ knows'],
     'wrong arguments' => [['payload_json' => '{"hours": "many"}'], 'The arguments for'],

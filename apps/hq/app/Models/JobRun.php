@@ -17,7 +17,7 @@ class JobRun extends Model
     use HasFactory;
 
     protected $fillable = [
-        'scheduled_job_id', 'scheduled_for', 'trigger', 'attempt', 'status', 'started_at',
+        'scheduled_job_id', 'scheduled_for', 'trigger', 'event_id', 'attempt', 'status', 'started_at',
         'finished_at', 'output', 'error', 'attempts', 'correlation_id',
     ];
 
@@ -36,6 +36,12 @@ class JobRun extends Model
     public function job(): BelongsTo
     {
         return $this->belongsTo(ScheduledJob::class, 'scheduled_job_id');
+    }
+
+    /** The domain event that started this run; null for a clock slot, a run-now or a retry of one. */
+    public function event(): BelongsTo
+    {
+        return $this->belongsTo(DomainEvent::class, 'event_id', 'event_id');
     }
 
     public function appendAttempt(array $entry): void

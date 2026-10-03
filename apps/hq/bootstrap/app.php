@@ -1,5 +1,6 @@
 <?php
 
+use App\Conversation\Deliveries\ReconcileDeliveries;
 use App\Http\Middleware\AssignCorrelationIds;
 use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsureTwoFactorEnabled;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         SchedulerTick::class,
         ProcessDomainEvents::class,
+        ReconcileDeliveries::class,
     ])
     ->withMiddleware(function (Middleware $middleware) {
         // Behind Traefik: trust the proxy so scheme/host/IP are the client's, not the proxy's.

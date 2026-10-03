@@ -46,5 +46,29 @@ you typed, and says plainly that nothing was asked.
    scheduler and **Approve job** or **Reject**. Until it is approved, neither the scheduler nor "Run
    now" will run it.
 
-Jobs made this way say `nl` as their origin and keep your sentence. Jobs triggered by an event cannot
-be made from a sentence yet, because nothing starts such jobs; HQ asks for a clock schedule instead.
+Jobs made this way say `nl` as their origin and keep your sentence.
+
+## Jobs that run when something happens
+
+A job of kind `event` has no clock. It names an event type the way HQ does (`order.created`,
+`shipment.delivered`, `inventory.low`, `coupon.expired`, `customer.registered`), and the event drain
+(`hq:events:process`, every minute) starts it: once an event has reached its handlers, every active,
+approved event job of that type gets one run for that event.
+
+- **Once per event.** The run names the event (`job_runs.event_id`), and a unique index refuses a
+  second run for the same event and job. A replayed event (`hq:events:replay`), a redelivered webhook or
+  a retry after a handler failure creates nothing. Two different events of the same type are two runs.
+- **Business scope.** A job with no business takes the event whatever its business. A job of one
+  business takes only that business's events. An event of no business reaches only the group-wide jobs.
+- **Approval holds.** A job that waits for approval (an R3 or higher tool) does not fire, exactly as
+  the clock and "Run now" refuse it. Approving it releases it for the next event, never for the ones
+  that passed while it waited. Paused and cancelled jobs do not fire.
+- **What the tool sees.** The job's payload, plus `event` (`id`, `type`, `occurred_at`, `business_id`,
+  `aggregate_type`, `aggregate_id`, `payload`) when the tool's input schema declares an `event`
+  property or accepts extra arguments. A tool that declares neither runs with the payload alone, so the
+  gateway never refuses the run for an argument the tool did not ask for.
+- **On the scheduler page** such a job shows no next run; its history shows each run with `event` as
+  the trigger. The audit log holds one `scheduled_job.event_fired` row per run.
+
+A sentence can make one: "whenever an order is created, check the order facts for LaLaDia". HQ asks
+for the event's name if it cannot read one.

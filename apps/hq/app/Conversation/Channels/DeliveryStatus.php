@@ -31,6 +31,13 @@ final readonly class DeliveryStatus
     public const ALL = [self::SENT, self::DELIVERED, self::READ, self::PLAYED, self::FAILED];
 
     /**
+     * Not a webhook signal, and so not in ALL: the reconciliation's answer (`hq:deliveries:reconcile`)
+     * when the provider holds a message whose send never recorded its outcome. It settles the request
+     * half of the attempt exactly as a 2xx would have; delivery stays the webhook's word.
+     */
+    public const ACCEPTED = 'accepted';
+
+    /**
      * @param  array{code?: int|string|null, title?: string|null, details?: string|null}|null  $error
      */
     public function __construct(

@@ -56,11 +56,15 @@ final readonly class ToolRequest
      * factory is what M2 will hand to the gateway, and it is tested here so the shape is known to
      * be right before anything depends on it.
      */
-    public static function forScheduledJob(ScheduledJob $job, JobRun $run, ?User $owner = null): self
+    /**
+     * @param  array<string, mixed>|null  $args  the run's arguments when they are more than the job's payload
+     *                                           (an event-triggered run carries `event`); the payload otherwise
+     */
+    public static function forScheduledJob(ScheduledJob $job, JobRun $run, ?User $owner = null, ?array $args = null): self
     {
         return new self(
             toolKey: $job->tool_key,
-            args: $job->payload ?? [],
+            args: $args ?? $job->payload ?? [],
             caller: CallerKind::Scheduler,
             identity: ActingIdentity::forJob($owner ?? $job->owner),
             correlationId: (string) $run->correlation_id,

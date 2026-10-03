@@ -11,6 +11,7 @@ use App\Gateway\ToolRequest;
 use App\Models\JobRun;
 use App\Models\ScheduledJob;
 use App\Scheduling\Enums\RunStatus;
+use App\Scheduling\EventTriggeredJobs;
 use App\Support\Audit\Auditor;
 use App\Support\Features\Features;
 use App\Tools\ToolContext;
@@ -73,6 +74,7 @@ final class RunScheduledJob implements ShouldQueue
         CredentialResolver $credentials,
         ScopeResolver $scopes,
         CredentialVault $vault,
+        EventTriggeredJobs $eventJobs,
     ): void {
         $this->credentials = $credentials;
         $this->scopes = $scopes;
@@ -109,11 +111,14 @@ final class RunScheduledJob implements ShouldQueue
 
         $viaGateway = $features->enabled((string) config('hq.scheduler_gateway_flag', 'scheduler.gateway'), $job->business_id);
 
+        // The job's payload, plus `event` for a run a domain event started (docs/95 §16 NOW item 4).
+        $args = $eventJobs->arguments($job, $run);
+
         $started = microtime(true);
         try {
             $result = $viaGateway
-                ? $this->executeThroughGateway($gateway, $job, $run)
-                : $this->executeDirectly($tools, $job, $context, $run);
+                ? $this->executeThroughGateway($gateway, $job, $run, $args)
+                : $this->executeDirectly($tools, $job, $context, $run, $args);
         } catch (Throwable $e) {
             $result = ToolResult::failed(get_class($e).': '.$e->getMessage());
             Log::error('scheduled tool threw', ['tool' => $job->tool_key, 'run_id' => $run->id, 'via_gateway' => $viaGateway, 'exception' => $e]);
@@ -170,9 +175,9 @@ final class RunScheduledJob implements ShouldQueue
      * dead-lettering, job state) is unchanged. A refusal is a failed run: the job did not do its
      * work, and the reason is on the record in both `job_runs` and `tool_calls`.
      */
-    private function executeThroughGateway(ToolGateway $gateway, ScheduledJob $job, JobRun $run): ToolResult
+    private function executeThroughGateway(ToolGateway $gateway, ScheduledJob $job, JobRun $run, array $args): ToolResult
     {
-        $outcome = $gateway->execute(ToolRequest::forScheduledJob($job, $run, $job->owner));
+        $outcome = $gateway->execute(ToolRequest::forScheduledJob($job, $run, $job->owner, $args));
 
         if ($outcome->status === OutcomeStatus::Uncertain) {
             return ToolResult::uncertain((string) ($outcome->error ?? 'uncertain'), $outcome->providerRef);
@@ -197,16 +202,15 @@ final class RunScheduledJob implements ShouldQueue
      * piece of gateway-adjacent work it does, it exists only because the two changes landed
      * together, and it disappears with direct mode itself.
      */
-    private function executeDirectly(ToolRegistry $tools, ScheduledJob $job, ToolContext $context, JobRun $run): ToolResult
+    private function executeDirectly(ToolRegistry $tools, ScheduledJob $job, ToolContext $context, JobRun $run, array $args): ToolResult
     {
         $tool = $tools->get($job->tool_key);
-        $args = $job->payload ?? [];
 
         $resolution = $this->credentials->resolve(
             $tool->descriptor(),
-            ToolRequest::forScheduledJob($job, $run, $job->owner),
+            ToolRequest::forScheduledJob($job, $run, $job->owner, $args),
             $args,
-            $this->scopes->resolve($tool->descriptor(), ToolRequest::forScheduledJob($job, $run, $job->owner), $args),
+            $this->scopes->resolve($tool->descriptor(), ToolRequest::forScheduledJob($job, $run, $job->owner, $args), $args),
         );
 
         return $this->vault->open($resolution->found, function () use ($tool, $args, $context, $run) {

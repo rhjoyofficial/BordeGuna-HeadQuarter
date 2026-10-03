@@ -27,6 +27,12 @@ final class SimulatedChannelAdapter implements InboundChannelAdapter, OutboundCh
     /** @var list<array{message: OutboundMessage, receipt: DeliveryReceipt}> */
     private array $sent = [];
 
+    /** @var array<string, DeliveryStatus|null> scripted answers for `readDelivery()`, by provider ref */
+    private array $deliveryAnswers = [];
+
+    /** @var list<string> every provider ref `readDelivery()` was asked about */
+    private array $deliveryReads = [];
+
     public function __construct(private readonly Channel $channel = Channel::Messenger) {}
 
     public function channel(): Channel
@@ -77,5 +83,32 @@ final class SimulatedChannelAdapter implements InboundChannelAdapter, OutboundCh
     public function sent(): array
     {
         return $this->sent;
+    }
+
+    /**
+     * Nothing ever left the process, so there is no provider to ask: the answer is whatever a test
+     * scripted with `answerDelivery()`, and null (unreadable) for a ref nobody scripted.
+     */
+    public function readDelivery(string $providerRef, string $platformAccountRef): ?DeliveryStatus
+    {
+        $this->deliveryReads[] = $providerRef;
+
+        return $this->deliveryAnswers[$providerRef] ?? null;
+    }
+
+    public function readCredentials(string $platformAccountRef): array
+    {
+        return [];
+    }
+
+    public function answerDelivery(string $providerRef, ?DeliveryStatus $status): void
+    {
+        $this->deliveryAnswers[$providerRef] = $status;
+    }
+
+    /** @return list<string> */
+    public function deliveryReads(): array
+    {
+        return $this->deliveryReads;
     }
 }

@@ -24,11 +24,13 @@ use App\Models\ToolRegistration;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Credentials\CredentialKinds;
 use App\Support\Credentials\CredentialWriter;
 use App\Support\Features\Features;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -222,13 +224,16 @@ final class AdminController extends Controller
             'brands' => Brand::orderBy('name')->get(['id', 'name']),
             // Whether HQ could execute against each store, ERP business and the model provider right now.
             'readiness' => array_map(fn ($row) => $row->toArray(), $readiness->inventory()),
+            // docs/95 §5: the only kinds the store accepts, each with the account reference its reader uses.
+            'kinds' => CredentialKinds::options(),
         ]);
     }
 
     public function storeCredential(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'provider' => ['required', 'string', 'max:64'],
+            // Only a kind the code reads (docs/95 §5): a row under any other name would be silently useless.
+            'provider' => ['required', 'string', Rule::in(CredentialKinds::keys())],
             'account_ref' => ['nullable', 'string', 'max:255'],
             'business_id' => ['nullable', 'exists:businesses,id'],
             'brand_id' => ['nullable', 'exists:brands,id'],

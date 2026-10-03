@@ -3,5 +3,5 @@
         {"id": "120210000000000001", "name": "Hilsa pickle, Dhaka [hq:exp-1]", "status": "ACTIVE", "effective_status": "ACTIVE", "objective": "OUTCOME_SALES", "daily_budget": "50000", "special_ad_categories": [], "created_time": "2026-09-10T11:00:00+0600", "updated_time": "2026-09-12T09:00:00+0600"},
         {"id": "120210000000000002", "name": "Mustard oil, retargeting", "status": "PAUSED", "effective_status": "PAUSED", "objective": "OUTCOME_SALES", "lifetime_budget": "300000", "spend_cap": "300000", "special_ad_categories": ["NONE"], "created_time": "2026-09-01T10:00:00+0600", "updated_time": "2026-09-05T10:00:00+0600"}
     ],
-    "paging": {"cursors": {"before": "QVFIUA", "after": "CURSOR-PAGE-2"}, "next": "https://graph.facebook.com/v26.0/act_28164410319885213/campaigns?after=CURSOR-PAGE-2&access_token=NEVER-FOLLOWED"}
+    "paging": {"cursors": {"before": "QVFIUA", "after": "CURSOR-PAGE-2"}, "next": "https://graph.facebook.com/v26.0/act_530866839523958/campaigns?after=CURSOR-PAGE-2&access_token=NEVER-FOLLOWED"}
 }

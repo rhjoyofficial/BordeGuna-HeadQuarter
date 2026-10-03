@@ -422,6 +422,10 @@ return [
     // nothing here is reached outside tests. The version is the one Meta's send pages show on 22 September
     // 2026; the rates are HQ's own ceiling per sending account, below Meta's, refused locally before a request.
     'messaging' => [
+        // docs/95 §5 "Delivery": how long a `sending` or `uncertain` attempt may sit before the daily
+        // reconciliation (`hq:deliveries:reconcile`) asks the provider what became of it. Never a resend.
+        'reconcile_after_minutes' => 30,
+
         'meta' => [
             'graph_base' => 'https://graph.facebook.com',
             'graph_version' => 'v25.0',

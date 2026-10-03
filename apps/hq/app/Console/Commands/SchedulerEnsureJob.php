@@ -2,10 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Gateway\Descriptor\RiskTier;
 use App\Models\ScheduledJob;
 use App\Models\User;
+use App\Scheduling\Enums\ApprovalState;
 use App\Scheduling\Enums\JobState;
 use App\Scheduling\ScheduledJobService;
+use App\Tools\ToolRegistry;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 use Throwable;
@@ -30,12 +33,16 @@ final class SchedulerEnsureJob extends Command
         {--timezone=Asia/Dhaka : the timezone the cron expression is read in}
         {--payload= : tool payload as JSON, e.g. {"store_slug":"laladia-com","hours":48}}
         {--owner= : email of the HQ user to own the job; system-owned when omitted}
+        {--created-from=api : the origin recorded on the job: ui, api, nl or skill}
         {--run-now : after ensuring it, trigger one immediate run through the scheduler}
         {--apply : actually write. Without it the command only reports what it would do.}';
 
     protected $description = 'Create or update one recurring scheduled job by name (idempotent).';
 
-    public function handle(ScheduledJobService $service): int
+    /** `scheduled_jobs.created_from` values (doc 21). */
+    private const ORIGINS = ['ui', 'api', 'nl', 'skill'];
+
+    public function handle(ScheduledJobService $service, ToolRegistry $tools): int
     {
         $name = (string) $this->argument('name');
         $existing = ScheduledJob::where('name', $name)->whereNot('state', JobState::Cancelled)->get();
@@ -49,6 +56,13 @@ final class SchedulerEnsureJob extends Command
         $job = $existing->first();
         $payload = $this->payload();
         if ($payload === null) {
+            return self::FAILURE;
+        }
+
+        $createdFrom = (string) $this->option('created-from');
+        if (! in_array($createdFrom, self::ORIGINS, true)) {
+            $this->error('--created-from must be one of: '.implode(', ', self::ORIGINS).'.');
+
             return self::FAILURE;
         }
 
@@ -75,7 +89,7 @@ final class SchedulerEnsureJob extends Command
         try {
             $job = $job
                 ? $service->update($job, $attributes, reason: 'hq:scheduler:ensure')
-                : $service->create($attributes, $this->owner(), createdFrom: 'api');
+                : $service->create($attributes + ['approval_state' => $this->approvalFor($tools, (string) ($attributes['tool_key'] ?? ''))], $this->owner(), createdFrom: $createdFrom);
         } catch (InvalidArgumentException $e) {
             $this->error($e->getMessage());
 
@@ -117,6 +131,23 @@ final class SchedulerEnsureJob extends Command
         }
 
         return $decoded;
+    }
+
+    /**
+     * docs/48 L.5, the rule Scheduling in words already applies: a NEW job that runs an R3 or higher
+     * tool is created waiting for a person's approval and nothing runs it until then. An existing job
+     * keeps the approval it has; updating it in place never re-opens or skips that decision. An
+     * unregistered tool is left to the service, which refuses it.
+     */
+    private function approvalFor(ToolRegistry $tools, string $toolKey): string
+    {
+        if (! $tools->has($toolKey)) {
+            return ApprovalState::Approved->value;
+        }
+
+        return $tools->get($toolKey)->descriptor()->riskTier->atLeast(RiskTier::R3)
+            ? ApprovalState::Pending->value
+            : ApprovalState::Approved->value;
     }
 
     private function owner(): ?User

@@ -61,16 +61,7 @@ final class MetaGraphClient
 
         RateLimiter::hit($limiterKey, 60);
 
-        $query = [];
-        $appSecret = $this->vault->optional(MetaWebhookController::SECRET_PROVIDER, MetaWebhookController::ACCOUNT_REF);
-        if ($appSecret !== null) {
-            $query['appsecret_proof'] = hash_hmac('sha256', $token, $appSecret);
-        }
-
-        $url = rtrim((string) config('hq.messaging.meta.graph_base', 'https://graph.facebook.com'), '/')
-            .'/'.trim((string) config('hq.messaging.meta.graph_version', 'v25.0'), '/')
-            .'/'.ltrim($path, '/')
-            .($query === [] ? '' : '?'.http_build_query($query));
+        $url = $this->endpoint($path, $token);
 
         try {
             $response = Http::withToken($token)
@@ -107,6 +98,54 @@ final class MetaGraphClient
         }
 
         return $this->failed($now, MetaSendError::fromResponse($response->status(), $json));
+    }
+
+    /**
+     * One GET of a Graph node HQ already holds the id of (docs/95 §5 "Delivery": the reconciliation
+     * reads a sent message back by id). The same guards as a send, except the local send rate, which a
+     * read does not spend: the token from the OPEN scope only, the `appsecret_proof` when the secret is
+     * in the vault, the token in the header and never in the URL.
+     *
+     * @param  array<string, string>  $query
+     * @return array{status: int|null, json: array|null, error: string|null} the answer as it was, or
+     *                                                                       status null with the reason
+     *                                                                       no answer could be had
+     */
+    public function read(string $path, array $query, string $tokenProvider, string $accountRef): array
+    {
+        try {
+            $token = $this->vault->secret($tokenProvider, $accountRef);
+        } catch (Unsupported) {
+            return ['status' => null, 'json' => null, 'error' => "no [{$tokenProvider}] credential is open for [{$accountRef}]"];
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout((int) config('hq.messaging.meta.timeout', 15))
+                ->get($this->endpoint($path, $token, $query));
+        } catch (Throwable $e) {
+            return ['status' => null, 'json' => null, 'error' => 'no answer from Meta: '.$this->short($e->getMessage())];
+        }
+
+        $json = $response->json();
+
+        return ['status' => $response->status(), 'json' => is_array($json) ? $json : null, 'error' => null];
+    }
+
+    /** @param  array<string, string>  $query */
+    private function endpoint(string $path, string $token, array $query = []): string
+    {
+        $appSecret = $this->vault->optional(MetaWebhookController::SECRET_PROVIDER, MetaWebhookController::ACCOUNT_REF);
+        if ($appSecret !== null) {
+            $query['appsecret_proof'] = hash_hmac('sha256', $token, $appSecret);
+        }
+
+        return rtrim((string) config('hq.messaging.meta.graph_base', 'https://graph.facebook.com'), '/')
+            .'/'.trim((string) config('hq.messaging.meta.graph_version', 'v25.0'), '/')
+            .'/'.ltrim($path, '/')
+            .($query === [] ? '' : '?'.http_build_query($query));
     }
 
     private function failed(CarbonImmutable $at, MetaSendError $error): DeliveryReceipt
