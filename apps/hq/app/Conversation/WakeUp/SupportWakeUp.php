@@ -54,7 +54,8 @@ use Throwable;
  *
  * What happens to the thread afterwards is the state machine's, decided here and audited there:
  *   - the run proposed a reply: `conversation.reply_proposed` is emitted with the run, and the thread
- *     moves `ai_active`/`ai_resumed` -> `ai_waiting` (docs/72 §B: the agent answered and waits; a second
+ *     moves `ai_active` -> `ai_waiting`, or `ai_resumed` -> `ai_active` -> `ai_waiting` (docs/14 table;
+ *     confirmed lifecycle, docs/101 §11 ruling 9.3) (docs/72 §B: the agent answered and waits; a second
  *     customer message while it waits reaches a person, by the core's existing rule);
  *   - the run proposed nothing (a silent hand-over the runtime decided before the model, a refusal, a
  *     failure, an answer with no reply): the thread moves to `human_required` with reason
@@ -270,6 +271,14 @@ final class SupportWakeUp
                 businessId: (int) $conversation->business_id,
                 dedupeKey: "conversation:reply_proposed:{$message->uuid}",
             );
+
+            // docs/14: AI_RESUMED -> AI_ACTIVE. A thread a person handed back is the agent's again once
+            // it has answered, and only then waits on the customer (ruling 9.3). Without this step the
+            // table refused ai_resumed -> ai_waiting and a valid proposal left the thread in ai_resumed.
+            if ($conversation->state === ConversationState::AiResumed) {
+                $conversation = $this->states->transition($conversation, ConversationState::AiActive, null,
+                    'the agent took the handed-back thread (run '.$run->uuid.')', ConversationService::SUPPORT_AGENT);
+            }
 
             if ($conversation->state->canMoveTo(ConversationState::AiWaiting)) {
                 $this->states->transition($conversation, ConversationState::AiWaiting, null,
