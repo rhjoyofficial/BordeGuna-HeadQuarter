@@ -28,6 +28,8 @@ class RetentionPlanCommand extends Command
 
         $events = $plan['event_payloads'];
         $this->line("events.payload: keep {$events['keep_days']} days; {$events['eligible_rows']} processed event(s) created before {$events['eligible_before']} would keep only a digest.");
+        $wf = $plan['workflows'];
+        $this->line("workflows: keep {$wf['keep_days']} days; {$wf['eligible_runs']} completed or cancelled run(s) finished before {$wf['eligible_before']} would be removed with their steps and signals; {$wf['kept_unreconciled_runs']} kept until reconciled.");
         $this->line('Kept forever: rows an agent, approval, evaluation result, conversation message or consent event refers to, rows sharing an agent run\'s correlation id, and rows that never finished.');
 
         return self::SUCCESS;

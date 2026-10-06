@@ -24,8 +24,8 @@ use Throwable;
  * rows up and deletes exactly those rows in ONE transaction, so a failure leaves either both or
  * neither; a watermark records each fully drained day, and the next pass starts after it.
  *
- * ⛔ The only DELETE is on a detail table named by `RetentionPolicy`, by id, for ids selected under
- * that table's keep condition. The only UPDATE outside retention's own tables replaces the payload of a
+ * ⛔ The only DELETE here is on a detail table named by `RetentionPolicy`, by id, for ids selected under
+ * that table's keep condition (the workflow state has its own, in `WorkflowRetention`). The only UPDATE outside retention's own tables replaces the payload of a
  * `processed` event with its digest. Nothing here can name a permanent table.
  */
 final class RetentionRunner
@@ -35,6 +35,7 @@ final class RetentionRunner
     public function __construct(
         private readonly RetentionPolicy $policy,
         private readonly Auditor $auditor,
+        private readonly WorkflowRetention $workflows,
     ) {}
 
     /**
@@ -74,6 +75,7 @@ final class RetentionRunner
                 'eligible_before' => $eventCutoff->toDateString(),
                 'eligible_rows' => $this->retainableEvents($eventCutoff)->count(),
             ],
+            'workflows' => $this->workflows->plan($this->firstKeptDay($this->policy->workflowKeepDays(), $now)),
         ];
     }
 
@@ -100,13 +102,14 @@ final class RetentionRunner
             ]);
 
             $deadline = microtime(true) + $this->policy->maxSeconds();
-            $summary = ['tables' => [], 'event_payloads' => null];
+            $summary = ['tables' => [], 'event_payloads' => null, 'workflows' => null];
 
             try {
                 foreach ($this->policy->detailTables() as $detail) {
                     $summary['tables'][$detail->table] = $this->drain($detail, $run, $now, $deadline);
                 }
                 $summary['event_payloads'] = $this->compactEvents($run, $now, $deadline);
+                $summary['workflows'] = $this->workflows->prune($run, $this->firstKeptDay($this->policy->workflowKeepDays(), $now), $deadline);
             } catch (Throwable $e) {
                 $run->forceFill([
                     'status' => RetentionRun::FAILED,

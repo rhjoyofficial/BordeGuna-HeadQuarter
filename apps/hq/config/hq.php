@@ -489,17 +489,24 @@ return [
     // environment: a production that quietly kept less than the decision says would be the policy lying
     // about itself, so changing a number is a deploy somebody reviews, and a test pins these values.
     //
-    // ⛔ Only the three detail tables and the event payloads are named, and naming anything else does
-    // nothing: `RetentionPolicy` knows these four keys and no others. audit_logs, decision_records, the
+    // ⛔ Only the three detail tables, the event payloads and the workflow state are named, and naming
+    // anything else does nothing: `RetentionPolicy` knows these keys and no others. audit_logs, decision_records, the
     // evaluation, shadow, agent-run, approval and consent tables are kept forever by not being here.
     'retention' => [
-        'version' => 'retention.v1',
+        // v2 (6 Oct 2026): adds the workflow state below.
+        'version' => 'retention.v2',
         'detail_keep_days' => [
             'tool_calls' => 180,
             'ai_runs' => 180,
             'connector_calls' => 180,
         ],
         'event_payload_keep_days' => 365,
+        // ChatGPT ruling Q3c (docs/101 section 12): the workflow tables are operational state. A run is
+        // removed (its steps and signals with it) only when it is terminal (completed or cancelled),
+        // reconciled (no step running or uncertain, no call of its steps started, uncertain or awaiting
+        // approval, no approval of its steps pending), and finished more than this many days ago.
+        // Its tool calls, approvals and audit rows are separate records and stay.
+        'workflow_keep_days' => 180,
         // The bounds of one pass: rows per transaction, rows per table, days per table, and wall time.
         // A pass that reaches a bound stops cleanly between transactions and the next pass continues.
         'batch_size' => 500,
