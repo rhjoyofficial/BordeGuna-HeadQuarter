@@ -25,6 +25,28 @@ final class RetentionPolicy
     public const EVENT_PAYLOADS = 'events.payload';
 
     /**
+     * Ruling Q3c (docs/101 section 12): the workflow engine's operational state. Only whole runs are
+     * removed, by id, from `workflow_instances`; the steps and signals go with them by cascade.
+     */
+    public const WORKFLOW_TABLES = ['workflow_instances', 'workflow_steps', 'workflow_signals'];
+
+    /**
+     * A terminal run is kept while any of this holds (alias `w`): a step whose effect may have landed
+     * (running or uncertain), a call made under one of its steps that never settled, or an approval
+     * one of its steps parked that is still open. "Reconciled" is the absence of all three.
+     */
+    public const WORKFLOW_KEEP_CONDITION = <<<'SQL'
+        EXISTS (SELECT 1 FROM workflow_steps s WHERE s.workflow_instance_id = w.id AND s.status IN ('running', 'uncertain'))
+        OR EXISTS (SELECT 1 FROM workflow_steps s JOIN tool_calls c ON (c.id = s.tool_call_id OR c.idempotency_key = s.idempotency_key)
+            WHERE s.workflow_instance_id = w.id AND c.status IN ('started', 'uncertain', 'awaiting_approval'))
+        OR EXISTS (SELECT 1 FROM workflow_steps s JOIN approvals a ON a.id = s.approval_id
+            WHERE s.workflow_instance_id = w.id AND a.status = 'pending')
+        SQL;
+
+    /** Only these run statuses are terminal; a failed run can still be retried, so it is never removed. */
+    public const WORKFLOW_TERMINAL = ['completed', 'cancelled'];
+
+    /**
      * The permanent evidence classes: kept forever. `audit_logs` and `decision_records` are V.7's own
      * words; the rest are the record autonomy, approval, evaluation, shadow and consent decisions rest on.
      */
@@ -97,6 +119,11 @@ final class RetentionPolicy
         return max(1, (int) config('hq.retention.event_payload_keep_days', 365));
     }
 
+    public function workflowKeepDays(): int
+    {
+        return max(1, (int) config('hq.retention.workflow_keep_days', 180));
+    }
+
     public function batchSize(): int
     {
         return max(1, (int) config('hq.retention.batch_size', 500));
@@ -125,6 +152,8 @@ final class RetentionPolicy
             'detail_keep_days' => array_combine(self::DETAIL_TABLES, array_map($this->keepDays(...), self::DETAIL_TABLES)),
             'event_payload_keep_days' => $this->eventPayloadKeepDays(),
             'event_payload_scope' => 'processed events only; dead, failed and pending events keep their payload',
+            'workflow_keep_days' => $this->workflowKeepDays(),
+            'workflow_scope' => 'completed or cancelled runs, finished before the window, reconciled; steps and signals go with the run',
             'batch_size' => $this->batchSize(),
             'max_rows_per_table' => $this->maxRowsPerTable(),
             'max_days_per_table' => $this->maxDaysPerTable(),

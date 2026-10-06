@@ -14,7 +14,7 @@ class RetentionRunCommand extends Command
 {
     protected $signature = 'hq:retention:run';
 
-    protected $description = 'Apply the retention policy: roll old unattended detail up into daily aggregates, remove it, and reduce old event payloads to digests.';
+    protected $description = 'Apply the retention policy: roll old unattended detail up into daily aggregates, remove it, and reduce old event payloads to digests, and remove old finished, reconciled workflow runs.';
 
     public function handle(RetentionRunner $runner): int
     {
@@ -41,6 +41,9 @@ class RetentionRunCommand extends Command
 
         $events = $run->summary['event_payloads'] ?? [];
         $this->line('events.payload: '.($events['compacted'] ?? 0).' reduced to a digest'.(($events['stopped_by'] ?? null) ? ", stopped by {$events['stopped_by']}" : '').'.');
+
+        $wf = $run->summary['workflows'] ?? [];
+        $this->line('workflows: '.($wf['runs_removed'] ?? 0).' finished run(s) removed'.(($wf['stopped_by'] ?? null) ? ", stopped by {$wf['stopped_by']}" : '').'.');
 
         return self::SUCCESS;
     }
