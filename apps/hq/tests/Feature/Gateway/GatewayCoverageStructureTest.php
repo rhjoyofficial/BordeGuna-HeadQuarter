@@ -16,8 +16,10 @@ use App\Tools\ToolRegistry;
  |   2. Nothing outside app/Tools constructs or resolves a concrete tool; tools are reached through the registry.
  |   3. The services behind the effectful tools are called from their tool and nowhere else, so the effect cannot be
  |      reached around the tool (which is how `hq:facts:reconcile` used to reach `commerce.reconcile_facts`'s).
- |   4. The registered effectful tools are exactly the ten reviewed in docs/105 §1.2. Registering another effectful
- |      tool fails here until docs/105's coverage table (and this list) is updated in the same reviewed change.
+ |   4. The registered effectful tools are exactly the nine reviewed in docs/105 §1.2 plus the two added deliberately
+ |      afterwards: `consent.lift_restriction` (docs/114, row 9) and `outcomes.attribute` (docs/115, row 10).
+ |      Registering another effectful tool fails here until docs/105's coverage table (and this list) is updated in
+ |      the same reviewed change.
  */
 
 /** PHP source with comments and docblocks removed, so prose that names a method is never read as a call. */
@@ -149,7 +151,7 @@ it('reaches the services behind the effectful tools only from their tools, never
         ->and(preg_match('/->liftDoNotContact\s*\(/', $files['Tools/Consent/LiftRestrictionTool.php']))->toBe(1);
 });
 
-it('pins the registered effectful tools to the ten reviewed in docs/105, and classifies every tool class in app/Tools', function () {
+it('pins the registered effectful tools to the nine reviewed in docs/105 plus consent.lift_restriction (docs/114) and outcomes.attribute (docs/115), and classifies every tool class in app/Tools', function () {
     $registry = app(ToolRegistry::class);
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => $registry->get($key)->descriptor()->hasEffect()));
     sort($effectful);
@@ -166,6 +168,9 @@ it('pins the registered effectful tools to the ten reviewed in docs/105, and cla
         'erp.poll_overview',
         'messaging.send_reply',
         'messaging.send_whatsapp_reply',
+        // docs/115 §4 (ruling Q11): the operator-asserted attribution. R3 write of one HQ ledger row through
+        // OutcomeRecorder, permanently human-only, held by no agent. Added here deliberately, with docs/105 §1.2 row 9.
+        'outcomes.attribute',
     ]);
 
     // Every concrete tool class in app/Tools has a readable descriptor, so the effect rule applies to it the day it

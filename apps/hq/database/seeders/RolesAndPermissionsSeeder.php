@@ -75,6 +75,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // docs/114 (S7 follow-up, ruling (k)): asking for, and approving, the lift of a do-not-contact. Two
         // different holders are needed for one lift; owner/operator hold it through `*`, support_agent never.
         'hq.consent.lift_restriction',
+        // docs/110 §3 Q11, docs/115 §4: the operator-asserted outcome attribution, through the gateway tool
+        // `outcomes.attribute` only. Held by owner and operator (`*`); given to no other role.
+        'hq.outcomes.attribute',
     ];
 
     public const ROLES = [

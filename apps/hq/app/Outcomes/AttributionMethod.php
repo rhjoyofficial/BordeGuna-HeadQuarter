@@ -46,4 +46,18 @@ enum AttributionMethod: string
     {
         return in_array($this, [self::DeterministicKey, self::Correlation, self::OperatorAsserted], true);
     }
+
+    /**
+     * Whether a claim made this way is independent deterministic proof: proven by key arithmetic or a
+     * stored join, with no person's judgement in it.
+     *
+     * ⚠ Ruling of 10 Oct 2026 (docs/110 §3, constraint C7): an operator assertion is evidence-grade
+     *    (a named human, a reason, an evidence reference) but is NEVER independent deterministic
+     *    proof. The two questions are kept apart here so a future consumer of these rows cannot
+     *    collapse them: a decision that needs proof may not rest on an `operator_asserted` row alone.
+     */
+    public function isDeterministicProof(): bool
+    {
+        return $this === self::DeterministicKey || $this === self::Correlation;
+    }
 }

@@ -53,6 +53,7 @@ use App\Tools\Facts\SnapshotFreshnessTool;
 use App\Tools\Hq\ListApprovalsTool;
 use App\Tools\Hq\ListJobsTool;
 use App\Tools\Hq\RecentEventsTool;
+use App\Tools\Outcomes\AttributeOutcomeTool;
 
 /*
  | BordeGuna-HeadQuarter application configuration.
@@ -153,6 +154,12 @@ return [
         // HQ's own consent ledger; its policy parks EVERY call for a second person, the requester never decides
         // it, and no agent may ever run it (permanently human-only). Reaches no provider and no customer.
         LiftRestrictionTool::class,
+        // S3 follow-up (docs/110 §3 Q11, docs/115 §4): the operator-asserted attribution, the ONLY way a person
+        // records an `operator_asserted` row in the outcome ledger. R3 (one row in HQ's own append-only
+        // ledger, nothing outside HQ), permission `hq.outcomes.attribute`, PERMANENTLY human-only, held by no
+        // agent; the actor is the gateway-authenticated person, never an argument. ⛔ INERT: nothing reads the
+        // rows it writes (D13), and no screen, controller or command writes them (OutcomeWritePathStructureTest).
+        AttributeOutcomeTool::class,
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)

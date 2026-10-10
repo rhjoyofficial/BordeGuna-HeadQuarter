@@ -59,6 +59,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         // docs/114 (S7 follow-up, ruling (k)): the two-person lift of a do-not-contact. R3 write of HQ's own
         // ledger, parks on every call, permanently human-only. No scheduled job names it.
         'consent.lift_restriction',
+        // S3 follow-up (docs/115 §4, ruling Q11): the operator-asserted attribution, R3, permanently human-only, held by no agent.
+        'outcomes.attribute',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

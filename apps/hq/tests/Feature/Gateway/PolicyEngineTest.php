@@ -364,11 +364,15 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     // never the count - it is that NOTHING is permanently human-only yet, so the first genuinely
     // permanent tool is a deliberate, visible change rather than one more `false` nobody looked at.
     //
-    // The writes and the R4 demo are still "not yet" (a stage evaluation evidence can end). docs/114 §3
-    // (S7 follow-up, ruling (k)) made the first "never" decision, on purpose and here, visibly: lifting a
-    // do-not-contact is overriding consent, one of the categories the descriptor names as permanent, and
-    // no approval, configuration or autonomy grant may ever let an agent run it.
-    expect($never)->toBe(['consent.lift_restriction']);
+    // The writes and the R4 demo are still "not yet" (a stage evaluation evidence can end). Two decisions made
+    // "never" on purpose, each visibly and in its own reviewed change, both on 10-11 Oct 2026:
+    //   - docs/114 §3 (S7 follow-up, ruling (k)): lifting a do-not-contact is overriding consent, one of the
+    //     categories the descriptor names as permanent; no approval, configuration or grant may let an agent run it.
+    //   - docs/115 §4 (ruling Q11): an operator assertion of an outcome attribution is by definition a human's
+    //     claim (an agent's claim would be `model_inferred`, refused in v1); no agent may ever run it.
+    // Sorted, so the order tools are registered in cannot move this pin.
+    sort($never);
+    expect($never)->toBe(['consent.lift_restriction', 'outcomes.attribute']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 

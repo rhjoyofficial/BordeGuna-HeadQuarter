@@ -122,10 +122,16 @@ it('credits only the call when the order was placed directly, without an approva
     expect(OutcomeAttribution::where('outcome_id', $outcome->id)->pluck('action_type')->all())->toBe([ActionType::ToolCall]);
 });
 
-it('is inert: nothing outside the outcome namespace and its tests refers to the recorders', function () {
+it('is inert: nothing outside the outcome namespace, the one gateway tool and the tests refers to the recorders', function () {
+    // docs/115 §4 (ruling Q11): `app/Tools/Outcomes/AttributeOutcomeTool.php` is the ONE reviewed caller of OutcomeRecorder outside
+    // app/Outcomes, named here deliberately; OutcomeWritePathStructureTest holds the full write-path pin.
+    $permitted = [app_path('Tools'.DIRECTORY_SEPARATOR.'Outcomes'.DIRECTORY_SEPARATOR.'AttributeOutcomeTool.php')];
     $hits = [];
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path())) as $file) {
-        if ($file->getExtension() !== 'php' || str_contains($file->getPathname(), DIRECTORY_SEPARATOR.'Outcomes'.DIRECTORY_SEPARATOR)) {
+        if ($file->getExtension() !== 'php' || str_starts_with($file->getPathname(), app_path('Outcomes').DIRECTORY_SEPARATOR)) {
+            continue;
+        }
+        if (in_array($file->getPathname(), $permitted, true)) {
             continue;
         }
         $source = file_get_contents($file->getPathname());

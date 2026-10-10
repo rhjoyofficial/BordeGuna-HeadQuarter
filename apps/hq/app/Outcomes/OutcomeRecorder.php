@@ -27,8 +27,13 @@ use InvalidArgumentException;
  *    fork the history.
  *
  * ⛔ Fail closed: an unregistered type, a source or provenance the type does not allow, a missing
- *    subject, a reference or action in another business, an impossible confidence for the method, or
+ *    subject, a reference or action in another business, an action with no business of its own
+ *    (`ImplicitHqScopeRefused`, ruling Q6), a method the running policy does not admit
+ *    (`AttributionMethodInactive`, ruling Q3), an impossible confidence for the method, or
  *    oversized evidence writes nothing (`InvalidArgumentException`).
+ *
+ * Writers: the recorders under `App\Outcomes\Recorders` and the one gateway tool `outcomes.attribute`
+ * (docs/115 §4); `OutcomeWritePathStructureTest` holds that nothing else reaches this class or the tables.
  *
  * ⛔ Recording grants nothing (D13). No permission, approval, gate or autonomy level reads these rows.
  *
@@ -399,6 +404,8 @@ final class OutcomeRecorder
         if (trim($spec->methodVersion) === '' || strlen($spec->methodVersion) > 32) {
             throw new InvalidArgumentException('An attribution names the version of the method that made it.');
         }
+        // Q3 / C6: a method the running policy does not admit is refused before its confidence rule is read.
+        AttributionPolicy::requireActive($spec->method);
         if (($violation = $spec->method->confidenceViolation($spec->confidence)) !== null) {
             throw new InvalidArgumentException("Attribution refused: {$violation}.");
         }
@@ -414,8 +421,14 @@ final class OutcomeRecorder
         if ($owner === false) {
             throw new InvalidArgumentException("The [{$spec->actionType->value}] action {$spec->actionId} does not exist.");
         }
-        // A null business is an HQ-scope action (docs/107 Q6); a different one is refused.
-        if ($owner !== null && $owner !== (int) $outcome->business_id) {
+        // ⛔ Q6 (docs/110 §3, docs/115 §3): an action with no business of its own is refused, fail closed. docs/107
+        //    accepted it as "an HQ-scope action"; the ruling reversed that. An explicit, validated HQ-scope
+        //    declaration is the only future way in, and no v1 recorder needs one, so none exists.
+        if ($owner === null) {
+            throw new ImplicitHqScopeRefused("The [{$spec->actionType->value}] action {$spec->actionId} has no business of its own, and an attribution to business "
+                .(int) $outcome->business_id.' may not rest on an implicit HQ scope (ruling Q6). Crediting an HQ-wide action needs an explicit, validated HQ-scope declaration, which v1 does not define.');
+        }
+        if ($owner !== (int) $outcome->business_id) {
             throw new InvalidArgumentException("The [{$spec->actionType->value}] action {$spec->actionId} belongs to another business.");
         }
     }
@@ -435,7 +448,7 @@ final class OutcomeRecorder
         return $row === null ? false : ($row->business_id === null ? null : (int) $row->business_id);
     }
 
-    /** The business an action belongs to: null for an HQ-scope action, false when it does not exist. */
+    /** The business an action belongs to: null when it has none of its own (refused, Q6), false when it does not exist. */
     private function actionBusiness(ActionType $type, int $id): int|false|null
     {
         $row = match ($type) {
