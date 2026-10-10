@@ -9,6 +9,7 @@ use App\Models\Business;
 use App\Models\Conversation;
 use App\Models\DecisionRecord;
 use App\Models\UserBusinessScope;
+use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -284,4 +285,17 @@ it('writes nothing when it is read or printed', function () {
     $this->artisan('hq:decisions:report', ['--window' => 'all'])->assertSuccessful();
 
     expect($snapshot())->toBe($before);
+});
+
+it('counts a record the database stamped by rounding up past the window end', function () {
+    // CI run 38078297032: `decision_records.created_at` is timestamptz(0), so Postgres rounds the write time to
+    // the nearest second. A record written at 10:00:05.6 is stored as 10:00:06, later than a window that ends
+    // at 10:00:05.6 by PHP's clock; with the old bound it fell outside the window.
+    $record = corpusReply($this->laladia, 'তোমার অর্ডার', 'আপনার অর্ডার');
+    DB::table('decision_records')->where('id', $record->id)->update(['created_at' => '2026-10-11 10:00:05.600000+00']);
+    expect(DB::table('decision_records')->where('id', $record->id)->value('created_at'))->toContain('10:00:06');
+
+    $report = app(DecisionCorpusReader::class)->read(DecisionCorpusWindow::from('all', CarbonImmutable::parse('2026-10-11 10:00:05.600000', 'UTC')));
+
+    expect($report['totals']['records'])->toBe(1);
 });

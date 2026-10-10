@@ -33,6 +33,9 @@ use Illuminate\Support\Collection;
  */
 final class DecisionCorpusReader
 {
+    /** A window bound as sent to Postgres: ISO 8601 with microseconds and offset. */
+    private const BOUND_FORMAT = 'Y-m-d\TH:i:s.uP';
+
     public const KIND_TOOL_ARGUMENTS = 'tool_arguments';
 
     public const KIND_REPLY_TEXT = 'reply_text';
@@ -69,11 +72,15 @@ final class DecisionCorpusReader
 
         // `created_at` is timestamptz; a bound is sent as an ISO string WITH its offset, so the session
         // timezone cannot move the window (a zone-less Carbon binding is read in the session zone).
+        // ⚠ `created_at` is timestamptz(0): Postgres ROUNDS the write time to the nearest second, so a record
+        // written at hh:mm:05.6 is stored as hh:mm:06, later than a window ending at hh:mm:05.6. The bounds are
+        // therefore widened to whole seconds (start floored, end rounded up), which covers every stamp the
+        // column can round to. Found by CI run 38078297032, where the records and the report fell in one second.
         $query = DecisionRecord::query()->orderBy('id');
         if ($window->since !== null) {
-            $query->where('created_at', '>=', $window->since->toIso8601String());
+            $query->where('created_at', '>=', $window->since->floorSecond()->format(self::BOUND_FORMAT));
         }
-        $query->where('created_at', '<=', $window->until->toIso8601String());
+        $query->where('created_at', '<=', $window->until->ceilSecond()->format(self::BOUND_FORMAT));
         $records = $query->get();
 
         $rows = $this->resolve($records);
