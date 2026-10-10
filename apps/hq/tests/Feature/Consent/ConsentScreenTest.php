@@ -128,3 +128,39 @@ it('keeps a restricted person inside their businesses', function () {
     $this->actingAsHq($owner)->post(...csPost($this->customer, ['act' => 'do_not_contact']))->assertForbidden();
     expect(ConsentEvent::where('customer_id', $this->customer->id)->count())->toBe(0);
 });
+
+it('records an act for one identity of the person, refuses another person\'s identity or a channel the identity does not live on, and shows the per-identity grid (docs/114 §2)', function () {
+    $owner = $this->hqUser('owner');
+    $wa = \App\Models\CustomerIdentity::create(['customer_id' => $this->customer->id, 'channel' => 'whatsapp', 'external_id' => '8801711000999']);
+    $stranger = Customer::create(['business_id' => $this->lld->business_id, 'name' => 'Someone else']);
+    $foreign = \App\Models\CustomerIdentity::create(['customer_id' => $stranger->id, 'channel' => 'whatsapp', 'external_id' => '8801711000111']);
+    $url = '/customers/'.$this->customer->id.'/consent';
+
+    $this->actingAsHq($owner)->post(...csPost($this->customer, ['act' => 'do_not_contact', 'identity_id' => $wa->id]))->assertSessionHasNoErrors();
+    $event = ConsentEvent::where('customer_id', $this->customer->id)->sole();
+    expect((int) $event->identity_id)->toBe($wa->id)->and($event->channel)->toBeNull()->and($event->state->value)->toBe('do_not_contact');
+
+    // Another person's identity, and a Messenger channel on a WhatsApp identity: both refused, nothing written.
+    $this->actingAsHq($owner)->post(...csPost($this->customer, ['act' => 'do_not_contact', 'identity_id' => $foreign->id]))->assertSessionHasErrors('act');
+    $this->actingAsHq($owner)->post(...csPost($this->customer, ['act' => 'withdraw', 'identity_id' => $wa->id, 'channel' => 'messenger']))->assertSessionHasErrors('act');
+    expect(ConsentEvent::where('customer_id', $this->customer->id)->count())->toBe(1);
+
+    $label = 'whatsapp ...0999 (#'.$wa->id.')';
+    $this->actingAsHq($owner)->get($url)->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('customers/consent')
+            ->has('identities', 1)
+            ->where('identities.0.id', $wa->id)
+            ->where('identities.0.label', $label)
+            ->where('identity_grid.0.identity_id', $wa->id)
+            ->where('identity_grid.0.channel', 'whatsapp')
+            ->where('identity_grid.0.cells.service.refusal', ConsentRefusal::DoNotContact->value)
+            ->where('identity_grid.0.cells.marketing.refusal', ConsentRefusal::DoNotContact->value)
+            ->where('position.0.identity_id', $wa->id)
+            ->where('position.0.identity', $label)
+            ->where('position.0.two_person', true)
+            ->where('history.0.identity', $label)
+            // The customer-wide grid asks with no identity resolved: the identity's denial still applies.
+            ->where('grid.0.cells.whatsapp.refusal', ConsentRefusal::DoNotContact->value)
+            ->has('pending_lifts', 0)
+            ->where('can.lift_restriction', true));
+});

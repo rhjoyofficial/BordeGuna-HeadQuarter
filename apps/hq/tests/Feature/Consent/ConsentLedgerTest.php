@@ -193,3 +193,71 @@ it('keeps each brand its own row in the projection, and the rebuild agrees (docs
         ->and($ledger->permits($customerId, $businessId, 'sms', ConsentPurpose::Marketing, $first->id)->permitted)->toBeTrue()
         ->and($ledger->permits($customerId, $businessId, 'sms', ConsentPurpose::Marketing, $second->id)->permitted)->toBeFalse();
 });
+
+/** Two identities of one person (docs/114 §2): two WhatsApp numbers. */
+function consentIdentities(int $customerId): array
+{
+    $a = \App\Models\CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000001']);
+    $b = \App\Models\CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000002']);
+
+    return [$a->id, $b->id];
+}
+
+it('scopes a restriction to one identity, which no grant on another identity defeats, while a customer-wide restriction covers every identity (docs/114 §2)', function () {
+    [$businessId, $customerId] = consentSubject();
+    [$a, $b] = consentIdentities($customerId);
+    $ledger = app(ConsentLedger::class);
+
+    // A customer-wide Service grant on WhatsApp (every identity), then a do-not-contact on identity A only,
+    // then a grant on identity B recorded AFTER it, as explicit as a grant gets. B's grant says nothing about A.
+    $ledger->record($customerId, $businessId, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp');
+    $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null, attributes: ['identity_id' => $a]);
+    $ledger->record($customerId, $businessId, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp', attributes: ['identity_id' => $b]);
+
+    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $a)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact)
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->permitted)->toBeTrue()
+        // Unresolved identity: A's denial still applies (fail closed), whatever the customer-wide grant says.
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact);
+
+    // A customer-wide do-not-contact stops B as well, whatever B's own grant says.
+    $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null);
+    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact);
+});
+
+it('covers only its own identity with an identity-scoped grant: never another identity, never a send whose identity is unresolved', function () {
+    [$businessId, $customerId] = consentSubject();
+    [$a, $b] = consentIdentities($customerId);
+    $ledger = app(ConsentLedger::class);
+
+    $ledger->record($customerId, $businessId, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp', attributes: ['identity_id' => $a]);
+
+    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $a)->permitted)->toBeTrue()
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->permitted)->toBeFalse()
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(\App\Consent\ConsentRefusal::NotRecorded)
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->permitted)->toBeFalse()
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(\App\Consent\ConsentRefusal::NotRecorded);
+
+    // The historical question carries the identity too.
+    expect($ledger->permittedAt($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, now()->subMinute(), null, $a)->permitted)->toBeFalse()
+        ->and($ledger->permittedAt($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, now()->addMinute(), null, $a)->permitted)->toBeTrue();
+});
+
+it('keeps each identity its own row in the projection, answers latestAtScope at the exact identity, and the rebuild agrees', function () {
+    [$businessId, $customerId] = consentSubject();
+    [$a, $b] = consentIdentities($customerId);
+    $ledger = app(ConsentLedger::class);
+
+    $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null, attributes: ['identity_id' => $a]);
+    $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null, attributes: ['identity_id' => $b]);
+    $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null);
+
+    expect(ConsentProjection::where('customer_id', $customerId)->count())->toBe(3)
+        ->and(ConsentProjection::where('customer_id', $customerId)->whereNotNull('identity_id')->pluck('identity_id')->map(fn ($i) => (int) $i)->sort()->values()->all())->toBe([$a, $b])
+        ->and((int) $ledger->latestAtScope($customerId, $businessId, null, null, null, $a)->identity_id)->toBe($a)
+        ->and($ledger->latestAtScope($customerId, $businessId, null, null, null, null)->identity_id)->toBeNull();
+
+    $shape = fn () => ConsentProjection::where('customer_id', $customerId)->orderBy('last_event_id')->get(['identity_id', 'state', 'last_event_id'])->toArray();
+    $before = $shape();
+    expect($ledger->rebuild($customerId))->toBe(3)
+        ->and($shape())->toEqual($before);
+});
