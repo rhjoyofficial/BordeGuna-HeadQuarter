@@ -369,6 +369,9 @@ return [
             'conversation.message_received' => [ConversationEventHandler::class, SupportWakeUpHandler::class],
             'conversation.state_changed' => [ConversationEventHandler::class],
             'conversation.reply_proposed' => [ConversationEventHandler::class],
+            // docs/105 (S1): a Support reply that actually executed (A2 and above; unreachable while ADR-024 caps
+            // customer-reading runs at A1). Recorded, and for now nothing more, like reply_proposed.
+            'conversation.reply_sent' => [ConversationEventHandler::class],
         ],
         'default_max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800, 3600],
