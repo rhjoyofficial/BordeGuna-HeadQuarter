@@ -5,6 +5,7 @@ use App\Consent\ConsentLedger;
 use App\Consent\ConsentPurpose;
 use App\Consent\ConsentState;
 use App\Models\AuditLog;
+use App\Models\Brand;
 use App\Models\Business;
 use App\Models\ConsentEvent;
 use App\Models\ConsentProjection;
@@ -172,4 +173,23 @@ it('audits that consent was recorded, because adding consent is itself a privile
     expect($audit->after['purpose'])->toBe('marketing')
         ->and($audit->after['state'])->toBe('granted')
         ->and($audit->after['basis'])->toBe('operator');
+});
+
+it('keeps each brand its own row in the projection, and the rebuild agrees (docs/108 §6)', function () {
+    [$businessId, $customerId] = consentSubject();
+    $ledger = app(ConsentLedger::class);
+    $first = Brand::create(['business_id' => $businessId, 'code' => 'PJA', 'slug' => 'pja', 'name' => 'Brand A', 'is_active' => true]);
+    $second = Brand::create(['business_id' => $businessId, 'code' => 'PJB', 'slug' => 'pjb', 'name' => 'Brand B', 'is_active' => true]);
+
+    $ledger->record($customerId, $businessId, ConsentPurpose::Marketing, ConsentState::Granted, ConsentBasis::Checkout, 'sms', attributes: ['brand_id' => $first->id]);
+    $ledger->record($customerId, $businessId, ConsentPurpose::Marketing, ConsentState::Withdrawn, ConsentBasis::Operator, 'sms', attributes: ['brand_id' => $second->id]);
+
+    $rows = fn () => ConsentProjection::where('customer_id', $customerId)->orderBy('brand_id')->get(['brand_id', 'state'])
+        ->map(fn ($r) => [$r->brand_id, $r->state->value])->all();
+    expect($rows())->toBe([[$first->id, 'granted'], [$second->id, 'withdrawn']]);
+
+    $ledger->rebuild($customerId);
+    expect($rows())->toBe([[$first->id, 'granted'], [$second->id, 'withdrawn']])
+        ->and($ledger->permits($customerId, $businessId, 'sms', ConsentPurpose::Marketing, $first->id)->permitted)->toBeTrue()
+        ->and($ledger->permits($customerId, $businessId, 'sms', ConsentPurpose::Marketing, $second->id)->permitted)->toBeFalse();
 });
