@@ -6,6 +6,7 @@ use App\Customer360\Customer360Reader;
 use App\Http\Controllers\Controller;
 use App\Identity\CrossBusinessMerge;
 use App\Identity\IdentityResolver;
+use App\Identity\Quarantine\CrossBusinessSuppression;
 use App\Identity\PhoneCanonical;
 use App\Models\Customer;
 use App\Models\CustomerMergeCandidate;
@@ -29,6 +30,7 @@ final class CustomerController extends Controller
     public function __construct(
         private readonly IdentityResolver $identity,
         private readonly BusinessScope $businessScope,
+        private readonly CrossBusinessSuppression $suppression,
     ) {}
 
     /** Customers of the businesses this person may see. Nobody signed in sees none. */
@@ -48,19 +50,29 @@ final class CustomerController extends Controller
 
     public function index(Request $request): Response
     {
-        $customers = $this->readable($request)->with('business:id,name')->whereNull('merged_into_id')
+        // A row absorbed by a merge is hidden behind its survivor, unless that merge crossed a business
+        // (docs/117): then the survivor is not this business's, and the row stays listed in its own business.
+        $customers = $this->readable($request)->with('business:id,name')
+            ->where(fn ($w) => $w->whereNull('merged_into_id')->orWhereExists(fn ($e) => $e->selectRaw('1')->from('customers as merged_target')
+                ->whereColumn('merged_target.id', 'customers.merged_into_id')->whereColumn('merged_target.business_id', '!=', 'customers.business_id')))
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = trim($request->string('q'));
                 $phone = PhoneCanonical::normalize($term);
                 $q->where(fn ($w) => $w->where('name', 'ilike', "%{$term}%")->orWhere('email', 'ilike', "%{$term}%")->when($phone, fn ($x) => $x->orWhere('primary_phone_canonical', $phone)));
             })
             ->orderByDesc('last_seen_at')->paginate(25)->withQueryString();
+        // docs/117: the same cross-business suppression as the 360 page, applied server-side to every row.
+        $touched = $this->suppression->touched($customers->getCollection()->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $customers->through(fn (Customer $c) => $this->suppression->listRow($c, $touched));
 
         return Inertia::render('customers/index', [
             'customers' => $customers,
             'candidates' => CustomerMergeCandidate::with(['customer:id,name,primary_phone_canonical,email', 'candidate:id,name,primary_phone_canonical,email'])
                 ->whereIn('customer_id', $this->readable($request)->select('id'))
                 ->whereIn('candidate_id', $this->readable($request)->select('id'))
+                // Only pairs of one business: a candidate across businesses is never offered (ruling docs/103 §11).
+                ->whereExists(fn ($e) => $e->selectRaw('1')->from('customers as cand_a')->join('customers as cand_b', 'cand_b.business_id', '=', 'cand_a.business_id')
+                    ->whereColumn('cand_a.id', 'customer_merge_candidates.customer_id')->whereColumn('cand_b.id', 'customer_merge_candidates.candidate_id'))
                 ->where('status', 'pending')->latest()->limit(50)->get(),
             'filters' => ['q' => $request->string('q')->toString()],
         ]);
@@ -68,12 +80,13 @@ final class CustomerController extends Controller
 
     /**
      * Customer 360 (docs/109, ruling docs/103 §5): read-only and business-scoped. Both the requested row
-     * and the surviving row a merge led to must be readable; the page itself writes nothing.
+     * and the surviving row a merge led to must be readable; the page itself writes nothing. A merge is
+     * followed only within one business (docs/117): a link into another business is held, not followed.
      */
     public function show(Request $request, Customer $customer, Customer360Reader $reader): Response
     {
         $this->assertReadable($request, $customer);
-        $customer = $customer->canonical();
+        $customer = $this->suppression->subject($customer);
         $this->assertReadable($request, $customer);
 
         return Inertia::render('customers/show', $reader->read($customer, $request->user()));

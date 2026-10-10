@@ -231,14 +231,29 @@ it('enforces business scope: a person restricted to one business cannot open or 
     $this->actingAsHq($this->owner)->get("/customers/{$bnc->id}")->assertOk();
 });
 
-it('follows a merge only to a customer the viewer may also see', function () {
+it('follows a merge within one business, and never into another business (docs/117)', function () {
+    // Within one business: the absorbed row's link opens the survivor.
+    $survivor = c360Customer($this->laladia, '01711000020', 'L');
+    $old = Customer::create(['business_id' => $this->laladia->id, 'name' => 'Old L row', 'merged_into_id' => $survivor->id]);
+    $this->actingAsHq($this->owner)->get("/customers/{$old->id}")->assertOk()
+        ->assertInertia(fn ($page) => $page->where('customer.id', $survivor->id));
+
+    // Across businesses (a pre-guard link): it stops at the requested row. Before docs/117 a person restricted
+    // to LaLaDia got a 404 here and an unrestricted one landed on the Bionic page; now both see the LaLaDia
+    // row itself, with nothing of Bionic and the link held.
     $kept = c360Customer($this->bionic, '01711000021', 'B');
     $absorbed = Customer::create(['business_id' => $this->laladia->id, 'name' => 'Old row', 'merged_into_id' => $kept->id]);
 
     $scoped = $this->hqUser('owner');
     UserBusinessScope::create(['user_id' => $scoped->id, 'business_id' => $this->laladia->id, 'access' => 'full']);
 
-    $this->actingAsHq($scoped)->get("/customers/{$absorbed->id}")->assertNotFound();
+    foreach ([$scoped, $this->owner] as $viewer) {
+        $props = c360Props($this->actingAsHq($viewer)->get("/customers/{$absorbed->id}")->assertOk());
+        expect($props['customer']['id'])->toBe($absorbed->id)
+            ->and($props['customer']['business']['slug'])->toBe('laladia')
+            ->and($props['quarantine']['link_held'])->toBeTrue()
+            ->and(json_encode($props))->not->toContain('Rahim B')->not->toContain('B-ORD')->not->toContain('"id":'.$kept->id.',');
+    }
 });
 
 it('refuses to merge customers of different businesses, for anyone, and a restricted person cannot merge outside their businesses', function () {
