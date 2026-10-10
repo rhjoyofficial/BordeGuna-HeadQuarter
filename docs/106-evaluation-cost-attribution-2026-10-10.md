@@ -35,4 +35,59 @@ success, failure (failed agent run with failed ai_runs), multiple model calls pe
 No production access, no deploy, no merge to main. No change to graders, status, thresholds, autonomy or activation.
 
 ## 2. What was built
-(filled in at the end)
+
+### Root cause (confirmed)
+`evaluation_runs.cost_usd` (`decimal(10,6) default 0`, migration `2026_09_09_320000`) was in `EvaluationRun::$fillable` and was never written anywhere in `app/`. `EvaluationRunner::run()` set status, counts, rates, external outcomes and regressions, never cost. Every evaluation run ever recorded therefore holds the column default; #45 and #46 are not special. Secondary defect: `evaluation_results.ai_run_id` held one arbitrary `ai_runs` row (`->value('id')` with no order) of a case that may have made several calls, so even a naive "sum the linked rows" would have under-counted multi-turn cases and every retry.
+
+### Files
+- `apps/hq/database/migrations/2026_10_10_100000_add_cost_attribution_to_evaluation.php`: `evaluation_results.correlation_id` (string 64, nullable, indexed); `evaluation_runs.cost_estimated_usd` and `cost_provider_usd` (decimal 12,6, nullable) and `cost_attribution` (jsonb, nullable). Schema only; no data touched.
+- `apps/hq/app/Evaluation/EvaluationCostAttributor.php` (new): `compute()` / `attribute()`. Evidence = the SET of `ai_runs` rows whose correlation is any result's (`COALESCE(result.correlation_id, linked ai_run.correlation_id)`) UNION the directly linked rows; one SQL aggregate; overwrite, never increment. Writes `cost_usd`, `cost_estimated_usd`, `cost_provider_usd`, `cost_attribution` and nothing else.
+- `apps/hq/app/Evaluation/EvaluationRunner.php`: records `correlation_id` on every result (graded and unmeasured); after the verdict is saved, attributes cost inside a savepoint and a try/catch (failure: `report()`, `cost_attribution.error`, `complete=false`; status, counts, rates and exit code untouched); the `evaluation.run_completed` audit row carries the cost figures.
+- `apps/hq/app/Evaluation/EvaluationObservation.php`: new `correlationId` (last, optional; every existing caller unchanged).
+- `apps/hq/app/Agents/AgentEvaluationSubject.php`: sets `correlationId` from the agent run; `aiRunId` now the run's FIRST model call (`orderBy('id')`), deterministic.
+- `apps/hq/app/Models/EvaluationRun.php`, `EvaluationResult.php`: fillable and casts.
+- `apps/hq/app/Console/Commands/EvaluationAttributeCost.php` (new): `hq:evaluation:attribute-cost [--run=ID ...] [--apply]`.
+- `apps/hq/app/Console/Commands/AgentEvaluate.php`: one `cost` line per suite in the gate report.
+
+### The figures, defined
+| Column | Meaning |
+|---|---|
+| `cost_estimated_usd` | Sum of `ai_runs.estimated_cost_usd` over the evidence set. NULL = never attributed (every run before this change until backfilled). |
+| `cost_provider_usd` | Sum of `ai_runs.actual_cost_usd` over the calls that carry one. NULL = no call carries a provider-reported cost. **Today always NULL**: nothing in HQ writes `actual_cost_usd` (`ModelRuntime::recordUsage` leaves it for a future billing reconciliation). Not filled from the estimate. |
+| `cost_usd` | Sum of `COALESCE(actual_cost_usd, estimated_cost_usd, 0)` per call: the convention of `AiBudget`, `CostDashboard`, `ShadowEvidence`. Equal to the estimate today. |
+| `cost_attribution` | `method` (`ai_runs.correlation_id.v1`), `complete`, `ai_runs`, `ai_runs_provider_reported`, `retry_attempts` (`attempt > 1`), `failed_attempts`, `correlations`, `results`, `results_linked`, `results_without_model_call` (`model_turns = 0`), `results_unaccounted`, `provider_cost_note`, `computed_at`; or `error`. |
+
+A result is **unaccounted** when it reaches no `ai_runs` row and its observation does not record `model_turns = 0`: the subject's `observe()` caught an exception thrown by `AgentRunner::run()` (no run returned, so no correlation to read), a scenario not replayed, or an old result with neither link nor turn count. Its cost is not guessed; the run is marked `complete = false`.
+
+### Backfill (`hq:evaluation:attribute-cost`)
+- Dry run by default: prints, per finished run, recorded `cost_usd`, computed `cost_usd`, estimated, provider, ai_runs count, results linked/no-call/unaccounted, and the action. Writes nothing.
+- `--apply` writes only runs whose attribution is `complete`; incomplete runs are listed as "skipped: incomplete evidence" and never written. `--run=` narrows to given ids.
+- Computes only from `ai_runs` rows that exist (`ai_runs` with an `agent_key` or a linked evaluation result are kept forever by `RetentionPolicy`). No time window, no average, no estimate of a missing call.
+- Not run anywhere but the test DB. Running it on production (first dry, then `--apply`, e.g. `--run=45 --run=46`) is Joy's line after merge and release.
+
+### Tests: `apps/hq/tests/Feature/Evaluation/EvaluationCostAttributionTest.php` (10, all red on `c12792f` + the plan commit, green after)
+1. attributes EVERY model call of a case to the run, not the one call the result links to (multiple calls)
+2. counts every retry and fallback attempt once, failed attempts included, and nothing outside the case (retries; foreign and null-correlation rows ignored)
+3. attributes the cost of a FAILED case exactly as a passed one (failure)
+4. is idempotent: attributing again gives the same number, and a correlation shared by two results counts once
+5. keeps the provider-reported cost apart from the estimate, and leaves it NULL when no provider figure exists
+6. records a case that made no model call as zero and accounted, and a case with no evidence as unaccounted, never guessed (missing costs)
+7. never changes the gate outcome: an attribution failure is recorded on the run and the verdict stands
+8. attributes a real agent run end to end (Executive, fixture provider down, fallback serves: two `ai_runs` rows, attempt 2)
+9. attributes a Support run on a rolled-back thread: the model calls carried across the rollback (`EvidenceCarryOver`) are the evidence (three turns)
+10. backfills only from existing evidence: a dry run by default, and `--apply` writes complete runs only
+
+### Gate outcomes and posture
+Unchanged by construction: attribution runs after status/counts/rates/regressions are saved, writes only cost columns, cannot throw out of the runner, and nothing reads the cost columns for any gate, grant or autonomy decision. Test 7 holds it.
+
+### Decisions for a ruling
+1. **Headline `cost_usd` = `COALESCE(provider, estimate)` per call** (the budget-ledger convention), with both pure figures beside it. The alternative is `cost_usd` = estimate only. Identical today, because no provider figure exists.
+2. **Backfilling production runs** (#45, #46 and earlier): the command is ready and safe (dry run, complete-only). Whether and when to run `--apply` on production is Joy's call after release.
+3. **Exception path stays unaccounted**: when `AgentRunner::run()` itself throws, the subject never learns the run's correlation, so any model calls made before the throw are not attributed and the run says `complete = false`. Closing it would mean the runner exposing the correlation on its exceptions; a separate change if wanted.
+
+### Verification (local, 10 Oct)
+- Full Pest suite `DB_DATABASE=hq_test_f php artisan test --parallel --processes=4`: **1857 passed** (21660 assertions; 1847 before + the 10 new).
+- The 10 new tests: 9 red on the unmodified code (WIP commit `8d3625c`), all green after; the thread-path test was added with the fix.
+- Migration applied, rolled back and re-applied on Postgres 17 (`hq_test_f`).
+- `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: exit 0. No frontend file touched, so no `vite build`.
+- Not merged, not deployed; production untouched.

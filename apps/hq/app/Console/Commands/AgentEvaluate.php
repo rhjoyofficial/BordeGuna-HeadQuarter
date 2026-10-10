@@ -123,6 +123,15 @@ class AgentEvaluate extends Command
             ."passed {$run->cases_passed}, failed {$run->cases_failed}, agreement {$run->agreement_rate}"
             .($run->cases_unmeasured > 0 ? ", <error>unmeasured {$run->cases_unmeasured}</error> (provider refused; not evidence, never green)" : ''));
 
+        // docs/106: what the run cost, from the ai_runs ledger; the estimate and any provider figure apart.
+        $cost = (array) $run->cost_attribution;
+        $this->line(isset($cost['error'])
+            ? '    cost   not attributed: '.$cost['error']
+            : sprintf('    cost   $%s (estimated $%s, provider-reported %s) over %d model call(s), %d retry attempt(s)%s',
+                $run->cost_usd, $run->cost_estimated_usd ?? '-', $run->cost_provider_usd === null ? 'none' : '$'.$run->cost_provider_usd,
+                $cost['ai_runs'] ?? 0, $cost['retry_attempts'] ?? 0,
+                ($cost['complete'] ?? true) ? '' : ', INCOMPLETE: '.($cost['results_unaccounted'] ?? 0).' case(s) with no cost evidence'));
+
         // ⭐ Per check and per dimension, because one number averages things that fail for different
         // reasons. "must_not_call 12/12 while the suite scored 0.333" is the finding a single figure
         // cannot express (docs/61).
