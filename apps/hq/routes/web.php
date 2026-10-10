@@ -11,6 +11,7 @@ use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
 use App\Http\Controllers\Observe\DecisionCorpusController;
 use App\Http\Controllers\Observe\ObserveController;
+use App\Http\Controllers\Playbooks\PlaybookController;
 use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
@@ -157,6 +158,20 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // ledger, checked per act against hq.consent.restrict (stop contact) or hq.consent.grant (start it).
     Route::get('customers/{customer}/consent', [CustomerConsentController::class, 'show'])->middleware('permission:hq.consent.view')->name('customers.consent');
     Route::post('customers/{customer}/consent', [CustomerConsentController::class, 'store'])->middleware('permission:hq.consent.restrict|hq.consent.grant')->name('customers.consent.store');
+
+    // docs/112 (S6): the playbook store. Reading needs view; drafting, editing, submitting and withdrawing need draft;
+    // approving or sending back needs review; activating and retiring need activate. Every act is business-scoped in the controller.
+    Route::prefix('playbooks')->name('playbooks.')->group(function () {
+        Route::get('/', [PlaybookController::class, 'index'])->middleware('permission:hq.playbooks.view')->name('index');
+        Route::post('/', [PlaybookController::class, 'store'])->middleware('permission:hq.playbooks.draft')->name('store');
+        Route::get('{version:uuid}', [PlaybookController::class, 'show'])->middleware('permission:hq.playbooks.view')->name('show');
+        Route::put('{version:uuid}', [PlaybookController::class, 'update'])->middleware('permission:hq.playbooks.draft')->name('update');
+        Route::post('{version:uuid}/submit', [PlaybookController::class, 'submit'])->middleware('permission:hq.playbooks.draft')->name('submit');
+        Route::post('{version:uuid}/withdraw', [PlaybookController::class, 'withdraw'])->middleware('permission:hq.playbooks.draft')->name('withdraw');
+        Route::post('{version:uuid}/review', [PlaybookController::class, 'review'])->middleware('permission:hq.playbooks.review')->name('review');
+        Route::post('{version:uuid}/activate', [PlaybookController::class, 'activate'])->middleware('permission:hq.playbooks.activate')->name('activate');
+        Route::post('{version:uuid}/retire', [PlaybookController::class, 'retire'])->middleware('permission:hq.playbooks.activate')->name('retire');
+    });
 });
 
 require __DIR__.'/settings.php';

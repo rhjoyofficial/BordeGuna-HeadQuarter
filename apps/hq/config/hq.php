@@ -59,6 +59,19 @@ use App\Tools\Hq\RecentEventsTool;
 return [
     'timezone' => env('HQ_DEFAULT_TIMEZONE', 'Asia/Dhaka'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Playbook store (docs/112, S6)
+    |--------------------------------------------------------------------------
+    | Size caps on the written business guidance a run loads read-only into context. Per version:
+    | validation and a pgsql CHECK. Per run: the loader stops, in PlaybookKind::loadOrder(), when the
+    | next playbook would not fit, and records what it skipped. It never cuts a playbook mid-text.
+    */
+    'playbooks' => [
+        'max_chars_per_version' => (int) env('HQ_PLAYBOOK_MAX_CHARS', 16000),
+        'max_chars_per_run' => (int) env('HQ_PLAYBOOK_RUN_MAX_CHARS', 40000),
+    ],
+
     // The capability list. A tool absent from here cannot be scheduled, called or run by anything:
     // this is the OUTER kill switch, and changing it takes a deploy, which is the right weight for
     // "does this capability exist at all". The `tools` table is the inner switch and can only ever

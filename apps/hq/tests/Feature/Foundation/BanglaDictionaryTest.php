@@ -36,6 +36,9 @@ const BANGLA_SCREENS = [
     'js/pages/customers/show.tsx',
     // docs/111 (S5): the decision corpus page.
     'js/pages/observe/decision-corpus.tsx',
+    // docs/112 (S6): the playbook store.
+    'js/pages/playbooks/index.tsx',
+    'js/pages/playbooks/show.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

@@ -62,6 +62,11 @@ class RolesAndPermissionsSeeder extends Seeder
         // only ever stop contact); `grant` records an opt-in, operator-recorded consent or a lift (it can
         // start contact), so the two are never one permission.
         'hq.consent.view', 'hq.consent.restrict', 'hq.consent.grant',
+
+        // docs/112 (S6): the playbook store. `draft` writes and submits guidance, `review` approves or sends
+        // it back, `activate` is the one act that puts a version in front of an agent (and retires it). Three
+        // permissions so the person who writes a rule is not, by that fact, the person who makes it live.
+        'hq.playbooks.view', 'hq.playbooks.draft', 'hq.playbooks.review', 'hq.playbooks.activate',
     ];
 
     public const ROLES = [
@@ -72,6 +77,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'hq.credentials.view', 'hq.flags.view', 'hq.customers.view',
             // Sees what the control plane holds; changes none of it.
             'hq.tools.view', 'hq.approvals.view', 'hq.agents.view', 'hq.policies.view',
+            // Writes the brand's guidance; a review and an activation are somebody else's acts.
+            'hq.playbooks.view', 'hq.playbooks.draft',
         ],
         'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage',
             // The person who hears "stop messaging me" can record it; starting contact is not theirs.

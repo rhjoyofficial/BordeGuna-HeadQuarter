@@ -329,6 +329,9 @@ final class AgentRunner
             'conversation_message_uuid' => $request->conversationMessageUuid,
             'support_workflow' => $workflow?->toArray(),
             'language_requirement' => $language,
+            // docs/112 (S6): every playbook version this run read, by id and content digest, so the run can
+            // be traced to the exact text; read from the framing block's metadata, never from the store.
+            'playbooks' => $this->playbookRecord($bundle),
             'question' => $request->question,
             'autonomy_level' => $decision->level->value,
             'autonomy_reason' => $decision->boundBy,
@@ -1871,6 +1874,24 @@ final class AgentRunner
             'tool_calls_count' => $toolCalls,
             'stop_reason' => $stopReason,
         ])->save();
+    }
+
+    /**
+     * The run's playbook record (docs/112 §2): what context assembly loaded, skipped, or why it loaded
+     * nothing, carried as metadata on a block of the opening bundle (metadata renders nothing). Null only
+     * when no block carries it, which no bundle built by `ContextAssembler::open()` lacks.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function playbookRecord(ContextBundle $bundle): ?array
+    {
+        foreach ($bundle->blocks as $block) {
+            if (isset($block->metadata['playbooks'])) {
+                return (array) $block->metadata['playbooks'];
+            }
+        }
+
+        return null;
     }
 
     private function promptVersion(Agent $agent): ?string

@@ -7,6 +7,7 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     Activity,
     Bell,
+    BookOpen,
     Bot,
     Building2,
     CalendarClock,
@@ -71,6 +72,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Tools', url: '/tools', icon: Wrench, permission: 'hq.tools.view' },
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
+            { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
         ],
     },
     {
