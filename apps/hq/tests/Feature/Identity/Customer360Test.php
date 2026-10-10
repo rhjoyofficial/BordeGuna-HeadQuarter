@@ -100,9 +100,10 @@ it('is a GET behind auth, both 2FA gates and the customers permission that alrea
     expect($route->methods())->toBe(['GET', 'HEAD'])
         ->and($route->gatherMiddleware())->toContain('auth', '2fa.enabled', '2fa.verified', 'permission:hq.customers.view')
         // The write routes under /customers, pinned on purpose: identity merge and dismiss (pre-existing) and the
-        // consent ledger write of docs/108 (S7). Sorted, so registration order cannot move the pin.
+        // consent ledger write of docs/108 (S7), and the quarantine review decision of docs/117. Sorted, so
+        // registration order cannot move the pin.
         ->and(collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_starts_with($r->uri(), 'customers') && array_diff($r->methods(), ['GET', 'HEAD']) !== [])
-            ->map(fn ($r) => $r->uri())->sort()->values()->all())->toBe(['customers/candidates/{candidate}/dismiss', 'customers/merge', 'customers/{customer}/consent']);
+            ->map(fn ($r) => $r->uri())->sort()->values()->all())->toBe(['customers/candidates/{candidate}/dismiss', 'customers/merge', 'customers/quarantine/{quarantine}/review', 'customers/{customer}/consent']);
 });
 
 it('opens for the roles that may see customers and for no other', function () {

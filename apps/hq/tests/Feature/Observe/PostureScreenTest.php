@@ -159,6 +159,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/108 (S7): records a consent EVENT in the append-only ledger as the acting person, behind
         // hq.consent.restrict or hq.consent.grant. It reaches no provider and bypasses no gateway step.
         'POST customers/{customer}/consent',
+        // docs/117: an audited, append-only review decision on a cross-business quarantine flag, behind
+        // hq.customers.quarantine.review. It undoes no merge, re-points nothing and reaches no provider.
+        'POST customers/quarantine/{quarantine}/review',
         'POST flags', 'POST flags/{flag}/toggle',
         'POST inbox/{conversation}/assign', 'POST inbox/{conversation}/close', 'POST inbox/{conversation}/comparisons/{comparison}/verdict',
         'POST inbox/{conversation}/memory/{memory}/forget', 'POST inbox/{conversation}/note', 'POST inbox/{conversation}/proposals/{run}/decide',

@@ -7,6 +7,7 @@ use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
+use App\Http\Controllers\Identity\CustomerQuarantineController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
 use App\Http\Controllers\Observe\ObserveController;
@@ -147,6 +148,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('businesses', [AdminController::class, 'businesses'])->middleware('permission:hq.businesses.view')->name('businesses.index');
 
     Route::get('customers', [CustomerController::class, 'index'])->middleware('permission:hq.customers.view')->name('customers.index');
+    // docs/117 (ruling docs/110 §5 (m)): quarantine flags on cross-business relationships and their audited
+    // human review. Registered BEFORE customers/{customer} so "quarantine" is never read as a customer id.
+    // The review records a decision only: it lifts no suppression, undoes no merge, re-points nothing.
+    Route::get('customers/quarantine', [CustomerQuarantineController::class, 'index'])->middleware('permission:hq.customers.quarantine.review')->name('customers.quarantine');
+    Route::post('customers/quarantine/{quarantine}/review', [CustomerQuarantineController::class, 'review'])->middleware('permission:hq.customers.quarantine.review')->name('customers.quarantine.review');
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');
