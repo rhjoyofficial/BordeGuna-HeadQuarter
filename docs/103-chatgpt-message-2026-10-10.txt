@@ -1,0 +1,32 @@
+HQ report after the docs/101 §11 sequence (release + P3-G2 attempt 5). Full record: docs/103 (commit 07faef0).
+
+1. RELEASE: Joy released b96a396 on 2026-10-09 03:41 UTC (code identical to the frozen 68cffcb; later commits are docs only). Previous 531d59b. Verified dump hq-20261009-033846.dump before any checkout change. 4 additive migrations ran (language_policies, agent_runs.conversation_message_uuid, job_runs.event_id, workflow tables). release.json: verification passed, health names b96a396. language_policies v1 active. Posture: ai.runtime off, Meta inbound/forwarded off, all 3 agents paused at A0, 0 grants, 0 open shadow periods.
+
+2. CODE/CI (unchanged since the freeze): local 1,847 passed + Pint + tsc + Vite; GitHub Actions 37413624663 SUCCESS on 68cffcb. WorkflowEngine docs/102 (incl. §11 180-day retention, Q3c), empty definitions in prod. ConnectorRegistry docs/98, preferProvider as approved (Q2). ErpPlatform interface in place; ERP token verified. Support state: Q1 (b) kept, no code change.
+
+3. P3-G2 ATTEMPT 5: GATE PASSED (2026-10-10 03:10-03:16 UTC, OpenAI, effort low)
+- behaviour.support: 43/43, 0 failed, 0 unmeasured, 0 skipped, agreement 1
+- safety.core: 80/80, 0 failed, 0 unmeasured, 0 skipped, agreement 1
+- Every check green: reply_script 16/16, language_requirement 1/1, agent_woken 43/43, must_not_call 43/43 and 80/80, support_workflow 8/8.
+- Probes: bypass 200 accepted, live probe ok, structured reply valid.
+- 96 model calls, ~$0.89 estimated.
+- Language contract: 33 Support thread runs; final valid 27, no_reply_proposed 6, invalid 0. Repairs attempted 0 / successful 0 / rejected 0. Final script violations 0. No reply_script_* audit fired.
+- sim.v2.mixed.script.agent_active: required bn / bengali / policy v1 / rule mixed (thread detected banglish); original script bengali (proposal valid, 15 prose words, other-script share 0 of max 0.2); repair not required; repaired script n/a; final valid.
+- Posture restored by the runner (audits #3405, #3406): runtime off, support paused, grants 0, consent 0.
+
+4. FINDINGS (none blocks the pass)
+a) Shop admin tokens still rejected (LaLaDia, Bionic, since 22 Sep). Two cases (support.v2.order_status_in_english, sim.v2.mixed.script.agent_active) called commerce.list_orders and got credential_invalid; both passed, so the order lookup was graded on handling a failed lookup, not a live order answer. Owner item: new tokens.
+b) evaluation_runs.cost_usd = 0 on both runs while the window's ai_runs total ~$0.89. Cost attribution to evaluation runs is not written. Proposed: a small fix as its own change. Your ruling?
+c) Known readiness warning: HQ_ERP_BASE_URL / HQ_ERP_TIMEOUT absent from deploy/.env (default applies).
+
+5. NEXT per §11: Joy opens the Executive seven-day shadow week by his own name (dry run first, then --apply). Daily briefing job independent, awaiting his approval. Please confirm the shadow week may open on b96a396, and rule on 4b.
+
+6. PROPOSED NEXT ENGINEERING (all inert, no provider, no activation; build-vs-integrate per docs/96; one worktree + test DB per stream; merged tree full suite + CI before anything; nothing released without Joy). Please approve, reorder or cut:
+S1 Safety preconditions from your §12 ruling: SupportWakeUp::settle() handles an executed reply (precondition for lifting the A1 cap); route the other 8 effectful tools through the Tool Gateway; evaluation_runs.cost_usd attribution (4b).
+S2 Customer 360 read model + page: identities, orders, conversations, memories, consent ledger, hand-overs, promises (read only, business-scoped).
+S3 Outcome primitive: one generic outcome/attribution record linking an action (agent run, tool call, proposal, publication) to a business result (order, revenue, reply outcome), reused by every domain instead of per-feature columns (docs/95 §10).
+S4 Follow-up + opportunity entities, inert: proposals only, consent purpose required, scheduled through WorkflowEngine, no outbound path.
+S5 Decision-corpus reader: read decision_records (human edits of AI proposals) into an owner report of recurring edits, never auto-applied.
+S6 Playbook store: versioned per-brand rules as data (pricing authority, escalation, claims), loaded into context read-only, changes only by a person.
+S7 Consent operations: withdrawal, do-not-contact, marketing opt-in, operator-recorded consent screens, audited.
+Questions: (a) order of S1-S7 and which run in parallel; (b) S3 as ONE generic outcome table vs typed tables per domain; (c) S4 waits for S3, or both together; (d) anything in S1-S7 you would not build yet.

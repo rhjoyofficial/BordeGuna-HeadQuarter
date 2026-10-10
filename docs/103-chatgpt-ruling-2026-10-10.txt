@@ -1,0 +1,127 @@
+# HQ Architecture Ruling — Release b96a396, P3-G2 Attempt 5, and S1–S7
+
+Apply the following decisions as the authoritative ruling.
+
+## 1. Executive Shadow Week
+
+APPROVED WITH CONDITIONS.
+
+Joy may open the seven-day Executive Shadow Week on production release `b96a396`, using the documented dry-run-first procedure followed by `--apply`.
+
+Before applying, verify the release identity and confirm the operation affects only the intended Executive shadow scope. Do not grant permissions, elevate autonomy, activate customer-facing outbound, enable Meta inbound/forwarding, or activate consequential external writes.
+
+Keep the daily briefing separate and approval-gated.
+
+Shadow results are evidence for a subsequent explicit activation decision. A successful shadow week does not itself authorize production autonomy.
+
+## 2. Evaluation cost attribution
+
+APPROVED as a separate, small engineering change.
+
+Fix `evaluation_runs.cost_usd` attribution from the underlying `ai_runs` evidence.
+
+Requirements:
+- Correct attribution across multiple model calls and retries.
+- Idempotent aggregation without double-counting.
+- Preserve estimated versus provider-reported cost.
+- Test success, failure, multiple calls, retries and missing costs.
+- Do not invent historical costs.
+- Do not let this reporting fix change gate outcomes or activation posture.
+
+Merge and verify this change before relying on evaluation cost reporting in future gates. It does not block the isolated Executive Shadow Week.
+
+## 3. S1 — Safety preconditions
+
+Highest implementation priority.
+
+- Correct `SupportWakeUp::settle()` for an actually executed Support reply.
+- Route the other eight effectful tools through the Tool Gateway.
+- Preserve authorization, policy, permission, consent, idempotency, audit and verification boundaries.
+- Keep all effectful tools inert unless separately activated.
+- The Support settlement correction is mandatory before lifting the A1 customer-reading execution cap.
+- Gateway migration is mandatory before consequential activation of the affected tools.
+
+Implement and test these changes without widening current autonomy.
+
+## 4. S3 — Canonical outcome/attribution model
+
+Use ONE canonical generic outcome/attribution model across domains.
+
+Do not create independent, incompatible attribution systems for each feature.
+
+The canonical model must support business/brand scope, outcome type, timestamps, related actions and business results, evidence/provenance, attribution method, confidence, source and schema version.
+
+Use typed relationship tables or domain-specific detail tables when needed for referential integrity or domain semantics. Do not create one oversized table containing every domain-specific field.
+
+ERP orders, revenue and other systems-of-record facts remain authoritative in their existing systems. HQ records references and attribution; it does not duplicate source-of-truth business facts.
+
+Define and review this contract before implementing S4's complete outcome-dependent behavior.
+
+## 5. S2 — Customer 360
+
+APPROVED as a read-only, business-scoped read model and owner page.
+
+Begin the read-model foundation in parallel with S3, but keep the initial model independent of any unapproved cross-brand identity merging.
+
+Clearly distinguish observed facts, inferred information, memory, consent records, promises, handovers and source-of-truth order data.
+
+Do not introduce autonomous identity merges or cross-brand identity assumptions.
+
+## 6. S4 — Follow-up and opportunity
+
+APPROVED, with dependencies.
+
+Preliminary contracts and inert proposal interfaces may be developed in parallel. Complete outcome-dependent implementation only after the S3 contract is agreed. Consent enforcement must use S7's applicable checks.
+
+Keep S4 proposal-only:
+- No autonomous outbound.
+- No automatic customer contact.
+- No autonomous sales commitments.
+- Every scheduled workflow uses the WorkflowEngine.
+- Every consequential effect remains subject to the Tool Gateway.
+
+## 7. S5 — Decision-corpus reader
+
+APPROVED.
+
+Read existing `decision_records` and produce owner-facing analysis of recurring human edits to AI proposals.
+
+This is reporting and evaluation only. It must not automatically change prompts, policies, playbooks, model behavior or autonomy.
+
+## 8. S6 — Playbook store
+
+APPROVED as versioned, per-brand business guidance loaded read-only into context.
+
+Playbooks may explain pricing authority, escalation, product claims and other approved business rules. They do not grant permissions, override policies, establish consent or change autonomy.
+
+Changes to playbook versions require a human-controlled process with auditability.
+
+## 9. S7 — Consent operations
+
+APPROVED. Prioritize the enforcement semantics before S4 can use consent-dependent workflows.
+
+Implement audited consent withdrawal, do-not-contact, marketing opt-in and operator-recorded consent events/screens.
+
+Consent is purpose- and scope-specific. Withdrawal and applicable contact restrictions must be enforced at runtime before communication; a UI-only status is insufficient.
+
+This work does not authorize outbound activation.
+
+## 10. Parallelization and merge discipline
+
+Use separate worktrees and test databases for independent streams.
+
+Recommended order:
+1. S1 safety preconditions.
+2. S3 canonical outcome contract and implementation.
+3. S2, S5, S6 and S7 as independent workstreams; S2 may begin its read-only foundation while S3 is being designed.
+4. S4's outcome-dependent implementation after S3 is agreed and the relevant S7 consent checks exist.
+
+Evaluation cost attribution is a separate small change and may run independently.
+
+Before merging the combined tree, run the full suite and CI. Resolve schema or contract conflicts centrally. Nothing is released without Joy's explicit release action.
+
+## 11. Explicit non-goals
+
+Do not activate autonomous follow-up, outbound customer contact, autonomous opportunity conversion, self-modifying playbooks, cross-brand customer merging or broader customer-facing execution as part of these changes.
+
+Return a concise report with exact commits, test and CI results, schema/contract decisions, Gateway coverage, consent enforcement evidence, cost-attribution tests and any new architectural decisions requiring a ruling.
