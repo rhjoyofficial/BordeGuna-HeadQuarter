@@ -9,10 +9,11 @@ use App\Tools\ToolRegistry;
  | STRUCTURAL: no effectful tool can execute without passing the Tool Gateway. These tests read the source, so they
  | fail on a new call site before anybody has to remember to write a behavioural test for it:
  |
- |   1. Only `ToolGateway` invokes `execute()`, `reconcile()` or `preview()` on a tool. The scheduler's direct path is
- |      the one other site, and it refuses an effectful tool before it touches one. Every other call of a method by
- |      those names in app/ is on a receiver that is not a tool (the gateway itself, the workflow engine, ...), and a
- |      receiver not on that list fails the suite, so a new one is a conscious, reviewed addition.
+ |   1. Only `ToolGateway` invokes `execute()`, `reconcile()` or `preview()` on a tool, with NO exception: the
+ |      scheduler's direct path, the one exception docs/105 allowed (tools with no effect), was retired with the
+ |      `scheduler.gateway` flag by docs/116 (ruling 110 §2f). Every other call of a method by those names in app/ is
+ |      on a receiver that is not a tool (the gateway itself, the workflow engine, ...), and a receiver not on that
+ |      list fails the suite, so a new one is a conscious, reviewed addition.
  |   2. Nothing outside app/Tools constructs or resolves a concrete tool; tools are reached through the registry.
  |   3. The services behind the effectful tools are called from their tool and nowhere else, so the effect cannot be
  |      reached around the tool (which is how `hq:facts:reconcile` used to reach `commerce.reconcile_facts`'s).
@@ -55,12 +56,12 @@ function gcAppFiles(): array
     return $files;
 }
 
-it('lets only the gateway invoke a tool, and the scheduler\'s direct path only for a tool with no effect', function () {
+it('lets only the gateway invoke a tool: the scheduler is a gateway caller with no direct path (docs/116)', function () {
     // Every receiver of ->execute( / ->reconcile( / ->preview( in app/, by file. Anything else fails.
     $allowed = [
         'Gateway/ToolGateway.php' => ['$tool->execute', '$tool->reconcile', '$tool->preview', '$this->preview'],
-        'Scheduling/Jobs/RunScheduledJob.php' => ['$tool->execute', '$tool->reconcile', '$gateway->execute'],
-        // Gateway callers.
+        // Gateway callers. The scheduler among them, and nothing more (docs/116).
+        'Scheduling/Jobs/RunScheduledJob.php' => ['$gateway->execute'],
         'Agents/AgentRunner.php' => ['$this->gateway->execute'],
         'Gateway/Approval/ApprovalExecutor.php' => ['$this->gateway->execute'],
         'Http/Controllers/Inbox/InboxController.php' => ['$this->gateway->execute'],
@@ -95,15 +96,24 @@ it('lets only the gateway invoke a tool, and the scheduler\'s direct path only f
         }
     }
 
-    // The direct path refuses an effectful tool before it touches the tool, and handle() routes one to the gateway.
+    // docs/116: the scheduler holds no direct path, no effect test to choose one, no flag read and no tool of its own.
     $scheduler = gcCode(app_path('Scheduling/Jobs/RunScheduledJob.php'));
-    preg_match('/private function executeDirectly\(.*?\n    }\n/s', $scheduler, $direct);
-    preg_match('/private function mustUseGateway\(.*?\n    }\n/s', $scheduler, $must);
-    expect($direct)->not->toBeEmpty()
-        ->and(strpos($direct[0], '$this->mustUseGateway('))->toBeLessThan(strpos($direct[0], '$tool->reconcile('))
-        ->and(strpos($direct[0], '$this->mustUseGateway('))->toBeLessThan(strpos($direct[0], '$tool->execute('))
-        ->and($must[0] ?? '')->toContain('->hasEffect()')->toContain('! $tools->has($key)')
-        ->and($scheduler)->toMatch('/\$viaGateway = \$this->mustUseGateway\(\$tools, \(string\) \$job->tool_key\)\s*\|\|/');
+    expect($scheduler)->not->toContain('executeDirectly')
+        ->and($scheduler)->not->toContain('mustUseGateway')
+        ->and($scheduler)->not->toContain('$tool')
+        ->and($scheduler)->not->toContain('ToolRegistry')
+        ->and($scheduler)->not->toContain('Features')
+        ->and($scheduler)->not->toContain('scheduler_gateway_flag')
+        ->and($scheduler)->not->toContain('scheduler.gateway')
+        ->and(preg_match_all('/->execute\s*\(/', $scheduler))->toBe(1)
+        ->and($scheduler)->toContain('$gateway->execute(ToolRequest::forScheduledJob(');
+
+    // And nothing in app/ or config/ reads the retired control.
+    foreach (gcAppFiles() as $path => $code) {
+        expect(str_contains($code, 'scheduler.gateway') || str_contains($code, 'scheduler_gateway_flag'))->toBeFalse("{$path} reads the retired scheduler.gateway control");
+    }
+    expect(str_contains(gcCode(config_path('hq.php')), 'scheduler_gateway_flag'))->toBeFalse()
+        ->and(config()->has('hq.scheduler_gateway_flag'))->toBeFalse();
 });
 
 it('constructs or resolves no concrete tool outside app/Tools: tools are reached through the registry', function () {

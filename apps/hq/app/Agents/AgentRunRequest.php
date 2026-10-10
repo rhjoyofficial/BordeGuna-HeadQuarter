@@ -54,5 +54,14 @@ final readonly class AgentRunRequest
          * rule, and this is the key it is kept on.
          */
         public ?string $conversationMessageUuid = null,
+        /**
+         * docs/116 (ruling 110 §1c): the `correlation_id` this run and every one of its `ai_runs` rows will
+         * carry, when the CALLER owns the run's accounting and must keep the key even if `run()` throws (the
+         * evaluation subject: a case's model calls are billed under it whether or not an `AgentRun` comes
+         * back). Null means the runner mints one, as every other entry point lets it. An evidence key, not a
+         * control-plane decision: it chooses nothing about tools, model, autonomy or prompt, and it is never
+         * taken from the model or a browser.
+         */
+        public ?string $correlationId = null,
     ) {}
 }

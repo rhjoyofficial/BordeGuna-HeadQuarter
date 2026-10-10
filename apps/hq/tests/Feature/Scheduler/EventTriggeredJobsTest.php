@@ -3,7 +3,6 @@
 use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\DomainEvent;
-use App\Models\FeatureFlag;
 use App\Models\JobRun;
 use App\Models\ScheduledJob;
 use App\Models\ToolCall;
@@ -13,7 +12,6 @@ use App\Scheduling\Enums\RunStatus;
 use App\Scheduling\EventTriggeredJobs;
 use App\Scheduling\ScheduledJobService;
 use App\Support\Events\EventRecorder;
-use App\Support\Features\Features;
 use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -151,13 +149,10 @@ it('hands the event only to a tool whose schema can take it; another tool runs w
         ->and($args->arguments($counting, $countingRun))->toBe(['label' => 'x']);
 });
 
-it('passes the event argument through the gateway\'s schema validation when the scheduler runs in gateway mode', function () {
+it('passes the event argument through the gateway\'s schema validation (the scheduler\'s only path, docs/116)', function () {
     (new RolesAndPermissionsSeeder)->run();
     $owner = User::factory()->create();
     $owner->assignRole('owner');
-    FeatureFlag::updateOrCreate(['key' => 'scheduler.gateway', 'environment' => '*'], ['enabled' => true]);
-    app(Features::class)->forget();
-    Cache::forget('hq:feature_flags');
 
     evJob([], $owner->fresh());
     $event = evEvent();

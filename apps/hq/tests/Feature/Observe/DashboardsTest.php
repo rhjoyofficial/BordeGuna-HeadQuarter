@@ -305,7 +305,7 @@ it('lists open alerts worst first, what cleared this week, and every rule with w
         ->assertInertia(fn ($page) => $page->component('observe/alerts')
             ->where('open', fn ($rows) => collect($rows)->pluck('fingerprint')->all() === ['b-critical', 'a-warning'])
             ->where('resolved', fn ($rows) => collect($rows)->pluck('fingerprint')->all() === ['c-cleared'])
-            ->has('rules', 15)
+            ->has('rules', 16)
             ->where('rules', fn ($rows) => collect($rows)->firstWhere('key', 'host.disk')['paged_by'] === 'hq-monitor.sh'));
 
     // The badge counts what HQ itself sends; the host monitor's alert is on the page only.

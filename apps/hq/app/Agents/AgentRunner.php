@@ -35,6 +35,7 @@ use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Business;
 use App\Models\Store;
+use App\Observe\Alerts\GuardGatewayDisagreements;
 use App\Support\Audit\Auditor;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Log;
@@ -271,6 +272,7 @@ final class AgentRunner
         private readonly RoleBoundary $roleBoundary,
         private readonly Auditor $auditor,
         private readonly SupportWorkflow $supportWorkflow,
+        private readonly GuardGatewayDisagreements $disagreements,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -289,7 +291,9 @@ final class AgentRunner
         $execution = $this->contexts->resolve($agent, $request->requester, $request->trigger, $request->businessId, $request->brandId);
 
         $business = $request->businessId === null ? null : Business::find($request->businessId);
-        $correlationId = (string) Str::uuid();
+        // docs/116: a caller that owns the run's accounting may supply the key (the evaluation subject does, so
+        // the calls of a run that throws are still found in `ai_runs`); everyone else gets a fresh one.
+        $correlationId = $request->correlationId !== null && $request->correlationId !== '' ? $request->correlationId : (string) Str::uuid();
         $catalogue = $this->toolset->catalogueFor($execution);
 
         // ⭐ docs/90 A.1 steps 3 and 5: a run woken on a thread is bound to that thread, and the runtime
@@ -1397,6 +1401,12 @@ final class AgentRunner
             reason: "the runtime's {$guard} guard refused [{$key}] before execution, and the gateway was asked too: {$verdict['decision']}"
                 .($permits ? ' (the guard is narrower than the gateway here; the refusal stands)' : ''),
             correlationId: $correlationId);
+
+        // docs/116 (ruling 110 §2g): the audit row above is the record; this is the measure. The alert rule
+        // `agents.guard_gateway_disagreement` fires on a repeated pattern, never on this one refusal.
+        if ($permits) {
+            $this->disagreements->record((string) $run->agent_key, $key);
+        }
 
         return ['gateway' => $verdict];
     }

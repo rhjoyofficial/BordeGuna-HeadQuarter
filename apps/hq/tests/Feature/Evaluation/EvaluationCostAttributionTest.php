@@ -365,3 +365,89 @@ it('backfills only from existing evidence: a dry run by default, and --apply wri
         ->and($gap->cost_attribution)->toBeNull()
         ->and($gap->status)->toBe('failed');
 });
+
+// ---------------------------------------------------------------- docs/116 (ruling 110 §1c): the exception path
+
+/** The real Executive run of the end-to-end test above: first provider down, fallback refuses. Two ai_runs rows. */
+function costPrethrowRun(): EvaluationSuite
+{
+    Cache::flush();
+    FixtureProvider::reset();
+    test()->seed(DomainSeeder::class);
+    test()->seed(RolesAndPermissionsSeeder::class);
+    aiProviders();
+    enableAiRuntime();
+    aiModel('fixture', 'fixture-model', ModelTier::Medium, priority: 10);
+    aiModel('fixture2', 'second', ModelTier::Medium, priority: 50);
+    $owner = User::factory()->create();
+    $owner->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view']);
+    test()->seed(AgentSeeder::class);
+    Agent::query()->update(['status' => 'active', 'enabling_user_id' => $owner->id]);
+
+    $refusal = FixtureProvider::reply((string) json_encode([
+        'status' => AgentResponseSchema::STATUS_REFUSE, 'answer' => '', 'refusal_reason' => 'I will not do that.',
+        'facts' => [], 'inferences' => [], 'tool_calls' => [], 'task' => 'the operator question', 'authority_request' => 'none',
+    ]));
+    FixtureProvider::script('fixture', [FixtureProvider::outage()]);
+    FixtureProvider::script('fixture2', [$refusal]);
+
+    $suite = costSuite(['prethrow' => ['refusal' => true]]);
+    EvaluationCase::where('key', 'prethrow')->update(['input' => ['prompt' => 'What were yesterday\'s sales across the group?']]);
+
+    return $suite;
+}
+
+it('attributes the model calls made before AgentRunner::run() threw: exactly those calls, from the ledger, and the run is complete', function () {
+    $suite = costPrethrowRun();
+
+    // The run's closing save (the one that writes finished_at, after the loop) fails, so run() throws AFTER the
+    // two provider attempts were made and recorded. The subject never receives an AgentRun.
+    AgentRun::saving(function (AgentRun $run) {
+        if ($run->isDirty('finished_at') && $run->finished_at !== null) {
+            throw new RuntimeException('the database went away while closing the run');
+        }
+    });
+
+    $run = runCostSuite($suite, new AgentEvaluationSubject(app(AgentRunner::class), 'executive'));
+
+    $agentRun = AgentRun::latest('id')->firstOrFail();
+    $evidence = AiRun::where('correlation_id', $agentRun->correlation_id)->get();
+    $result = EvaluationResult::sole();
+
+    expect($evidence->count())->toBe(2)
+        ->and($result->actual['stop_reason'])->toBe('exception')
+        ->and($result->actual['refusal_reason'])->toContain('the database went away')
+        // The correlation survived the throw: it is the one on the agent_runs row every ai_runs row carries.
+        ->and($result->correlation_id)->toBe($agentRun->correlation_id)
+        ->and($result->ai_run_id)->toBe($evidence->min('id'));
+    expect((string) $run->cost_usd)->toBe(number_format((float) $evidence->sum('estimated_cost_usd'), 6, '.', ''))
+        ->and((float) $run->cost_usd)->toBeGreaterThan(0.0)
+        ->and($run->cost_attribution['ai_runs'])->toBe(2)
+        ->and($run->cost_attribution['results_linked'])->toBe(1)
+        ->and($run->cost_attribution['results_unaccounted'])->toBe(0)
+        ->and($run->cost_attribution['complete'])->toBeTrue()
+        ->and($run->cost_provider_usd)->toBeNull();
+});
+
+it('attributes zero, and is complete, when AgentRunner::run() threw before any model call: the ledger holds no row for the correlation', function () {
+    $suite = costPrethrowRun();
+
+    // The agent_runs insert itself fails: nothing after it ran, no provider was asked.
+    AgentRun::creating(function () {
+        throw new RuntimeException('no room for the run row');
+    });
+
+    $run = runCostSuite($suite, new AgentEvaluationSubject(app(AgentRunner::class), 'executive'));
+    $result = EvaluationResult::sole();
+
+    expect(AgentRun::count())->toBe(0)
+        ->and(AiRun::count())->toBe(0)
+        ->and($result->actual['stop_reason'])->toBe('exception')
+        ->and($result->correlation_id)->not->toBeNull()
+        ->and($result->actual['model_turns'])->toBe(0)
+        ->and($result->ai_run_id)->toBeNull();
+    expect((string) $run->cost_usd)->toBe('0.000000')
+        ->and($run->cost_attribution['results_without_model_call'])->toBe(1)
+        ->and($run->cost_attribution['results_unaccounted'])->toBe(0)
+        ->and($run->cost_attribution['complete'])->toBeTrue();
+});

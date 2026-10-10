@@ -9,6 +9,7 @@ use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
 use App\Observe\Alerts\Rules\CredentialExpiring;
 use App\Observe\Alerts\Rules\EventsDeadLettered;
 use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
+use App\Observe\Alerts\Rules\GuardGatewayDisagreement;
 use App\Observe\Alerts\Rules\HorizonDown;
 use App\Observe\Alerts\Rules\HostDisk;
 use App\Observe\Alerts\Rules\HostMemory;
@@ -351,14 +352,9 @@ return [
         ],
     ],
 
-    // M2: the scheduler runs its tools THROUGH the gateway when this feature flag is on.
-    //
-    // The flag is the rollback switch for the migration, not a permanent fork in the road. Direct
-    // mode is the known-good Phase 1 path and stays available until a separately approved step
-    // removes it; gateway mode is the intended path once the equivalence suite has passed against
-    // production (ADR-016).
-    'scheduler_gateway_flag' => 'scheduler.gateway',
-
+    // The scheduler runs every tool THROUGH the gateway, with no other path (ADR-016). The M2 rollback flag
+    // `scheduler.gateway` and its config key were retired by docs/116 (ruling 110 §2f); a row by that name
+    // in `feature_flags` governs nothing.
     'scheduler' => [
         'heartbeat_stale_after_seconds' => 180,
         'default_retry_max' => 3,
@@ -571,6 +567,8 @@ return [
             HostDisk::class,
             HostMemory::class,
             WebhookSignatureFailures::class,
+            // docs/116 (ruling 110 §2g): a guard refusing what the gateway would authorize, as a pattern only.
+            GuardGatewayDisagreement::class,
         ],
 
         // A condition must be absent on this many consecutive checks before its alert resolves, so a
@@ -593,6 +591,8 @@ return [
             'disk_critical_percent' => 90,
             'memory_min_available_mb' => 1024,
             'webhook_signature_failures' => ['count' => 10, 'window_hours' => 2],
+            // docs/116: one disagreement is audit only; this many for one agent in the window is a pattern.
+            'guard_gateway_disagreement' => ['count' => 3, 'window_hours' => 24],
         ],
     ],
 ];
