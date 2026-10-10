@@ -4,11 +4,14 @@ namespace App\Customer360;
 
 use App\Conversation\ConversationState;
 use App\Conversation\HandoverReason;
+use App\Identity\Quarantine\CrossBusinessSuppression;
+use App\Identity\Quarantine\SuppressionView;
 use App\Memory\MemoryKind;
 use App\Models\AuditLog;
 use App\Models\ConsentEvent;
 use App\Models\ConsentProjection;
 use App\Models\Conversation;
+use App\Models\CrossBusinessQuarantine;
 use App\Models\Customer;
 use App\Models\CustomerIdentity;
 use App\Models\CustomerMerge;
@@ -32,11 +35,19 @@ use Illuminate\Support\Carbon;
  *
  * ⛔ NO S3 DEPENDENCY. Outcomes are a marked placeholder until the canonical outcome model is agreed.
  *
+ * ⛔ CROSS-BUSINESS QUARANTINE (docs/117, ruling docs/110 §5 (m)). A merge made before the guard could
+ * have joined customers of two businesses and moved identities, orders and memories across. Every section
+ * here applies `CrossBusinessSuppression`: what crossed the boundary is not shown (a merge row only as a
+ * held item with its id), withheld kinds are named in the `quarantine` section, and nothing is undone.
+ * This is enforced here, in the reader, not in the page.
+ *
  * The caller (the controller) checks the viewer's business scope before calling; this class decides
  * only what each section shows to a viewer holding or lacking the inbox permission.
  */
 final class Customer360Reader
 {
+    public function __construct(private readonly CrossBusinessSuppression $suppression) {}
+
     public const ORDER_LIMIT = 50;
 
     public const CONVERSATION_LIMIT = 50;
@@ -53,6 +64,7 @@ final class Customer360Reader
         $businessId = (int) $customer->business_id;
         $business = $customer->business()->first(['id', 'name', 'slug']);
         $inbox = $viewer->can('hq.inbox.view');
+        $view = $this->suppression->forCustomer($customer);
 
         $conversations = Conversation::query()
             ->where('customer_id', $customer->id)
@@ -64,17 +76,18 @@ final class Customer360Reader
                 'name' => $customer->name,
                 'business' => $business === null ? null : ['id' => $business->id, 'name' => $business->name, 'slug' => $business->slug],
             ],
-            'observed' => $this->observed($customer),
-            'inferred' => $this->inferred($customer, $businessId),
+            'observed' => $this->observed($customer, $view),
+            'inferred' => $this->inferred($customer, $businessId, $view),
             'orders' => $this->orders($customer, $businessId),
             'conversations' => $inbox ? $this->conversations(clone $conversations) : null,
-            'memory' => $inbox ? $this->memory($customer, $businessId) : null,
+            'memory' => $inbox ? $this->memory($customer, $view) : null,
             'consent' => $this->consent($customer, $businessId),
             // No table records a promise (docs/109 §8 question 1). Nothing is inferred from message text.
             'promises' => ['recorded' => false],
             'handovers' => $inbox ? $this->handovers(clone $conversations) : null,
             // Waits for the canonical outcome/attribution model (ruling §4, S3). Deliberately no query.
             'outcomes' => ['status' => 'awaiting_s3'],
+            'quarantine' => $this->quarantine($customer, $view),
             'can' => [
                 'inbox' => $inbox,
                 'manage' => $viewer->can('hq.customers.manage'),
@@ -83,24 +96,28 @@ final class Customer360Reader
     }
 
     /** What a channel, a shop or a person put on the record. */
-    private function observed(Customer $customer): array
+    private function observed(Customer $customer, SuppressionView $view): array
     {
         $identities = CustomerIdentity::query()
             ->where('customer_id', $customer->id)
+            ->whereNotIn('customer_identities.id', $view->heldIdentityIds)
             ->leftJoin('stores', 'stores.id', '=', 'customer_identities.source_store_id')
             ->orderBy('customer_identities.id')
             ->get(['customer_identities.id', 'customer_identities.channel', 'customer_identities.external_id', 'customer_identities.verified_at', 'customer_identities.last_seen_at', 'customer_identities.created_at', 'stores.name as store_name']);
 
         $merges = CustomerMerge::query()
             ->where('kept_id', $customer->id)
+            // A merge with a customer of another business is held (docs/117): shown only in `quarantine`.
+            ->whereNotIn('customer_merges.id', array_column($view->keptMerges, 'id'))
             ->leftJoin('customers as absorbed', 'absorbed.id', '=', 'customer_merges.absorbed_id')
             ->orderBy('customer_merges.id')
             ->get(['customer_merges.id', 'customer_merges.absorbed_id', 'customer_merges.merged_by', 'customer_merges.undone_at', 'customer_merges.created_at', 'absorbed.business_id as absorbed_business_id']);
 
         return [
             'name' => $customer->name,
-            'phone' => $customer->primary_phone_canonical,
-            'email' => $customer->email,
+            // Withheld when a cross-business merge may have copied it from the other business's row.
+            'phone' => $view->withholdPhone ? null : $customer->primary_phone_canonical,
+            'email' => $view->withholdEmail ? null : $customer->email,
             'first_seen_at' => $this->iso($customer->first_seen_at),
             'last_seen_at' => $this->iso($customer->last_seen_at),
             'identities' => $identities->map(fn ($i) => [
@@ -126,10 +143,11 @@ final class Customer360Reader
     }
 
     /** What HQ concluded or computed. Never a fact about the person; always shown as HQ's own reading. */
-    private function inferred(Customer $customer, int $businessId): array
+    private function inferred(Customer $customer, int $businessId, SuppressionView $view): array
     {
         $links = CustomerIdentity::query()
             ->where('customer_id', $customer->id)
+            ->whereNotIn('id', $view->heldIdentityIds)
             ->orderBy('id')
             ->get(['id', 'channel', 'confidence'])
             ->map(fn (CustomerIdentity $i) => [
@@ -153,9 +171,7 @@ final class Customer360Reader
             ]);
         $sameBusiness = Customer::query()->whereIn('id', $candidates->pluck('other_id'))->where('business_id', $businessId)->pluck('id')->all();
 
-        $beliefs = Memory::query()
-            ->where('customer_id', $customer->id)
-            ->where(fn ($q) => $q->where('business_id', $businessId)->orWhereNull('business_id'))
+        $beliefs = $this->suppression->restrictMemories(Memory::query()->where('customer_id', $customer->id), $view)
             ->where('kind', MemoryKind::Semantic->value)
             ->orderByDesc('id')
             ->limit(self::MEMORY_LIMIT)
@@ -170,6 +186,11 @@ final class Customer360Reader
             ])->values()->all();
 
         $attributes = (array) ($customer->attributes ?? []);
+        // The stored figures of a customer a cross-business merge touched include the other business's
+        // orders (the merge recounted all copies); derive them from this business's copies instead.
+        [$ordersCount, $lifetimeValue] = $view->recomputeAggregates
+            ? $this->suppression->ownAggregates($customer)
+            : [(int) $customer->orders_count, (string) $customer->lifetime_value];
 
         return [
             'identity_links' => $links,
@@ -177,8 +198,8 @@ final class Customer360Reader
             'stranger' => (bool) ($attributes['stranger'] ?? false),
             'arrived_via' => isset($attributes['arrived_via']) ? (string) $attributes['arrived_via'] : null,
             'aliases' => array_values(array_filter((array) ($attributes['aliases'] ?? []), 'is_string')),
-            'orders_count' => (int) $customer->orders_count,
-            'lifetime_value' => (string) $customer->lifetime_value,
+            'orders_count' => $ordersCount,
+            'lifetime_value' => $lifetimeValue,
             'beliefs' => $beliefs,
         ];
     }
@@ -246,11 +267,9 @@ final class Customer360Reader
     }
 
     /** Structured and episodic memory, with provenance. Beliefs (semantic) are inferred and live there. */
-    private function memory(Customer $customer, int $businessId): array
+    private function memory(Customer $customer, SuppressionView $view): array
     {
-        $rows = Memory::query()
-            ->where('customer_id', $customer->id)
-            ->where(fn ($q) => $q->where('business_id', $businessId)->orWhereNull('business_id'))
+        $rows = $this->suppression->restrictMemories(Memory::query()->where('customer_id', $customer->id), $view)
             ->whereIn('kind', [MemoryKind::Structured->value, MemoryKind::Episodic->value])
             ->orderByRaw('valid_to is not null')
             ->orderByDesc('id')
@@ -367,6 +386,41 @@ final class Customer360Reader
             ->all();
 
         return ['rows' => $rows];
+    }
+
+    /**
+     * What is held back from this page because it crosses a business boundary (docs/117 §4). Merge ids and
+     * the side this customer was on, whether the detector command has flagged it, and the newest review
+     * decision. Never the other customer's id, name or business, and no counts of what is withheld.
+     */
+    private function quarantine(Customer $customer, SuppressionView $view): array
+    {
+        $mergeIds = $view->mergeIds();
+        $flags = CrossBusinessQuarantine::query()
+            ->with('latestReview')
+            ->where(fn ($q) => $q->where(fn ($w) => $w->where('subject_table', 'customer_merges')->whereIn('subject_id', $mergeIds === [] ? [0] : $mergeIds))
+                ->orWhere(fn ($w) => $w->where('subject_table', 'customers')->where('subject_id', $customer->id)))
+            ->get();
+        $byMerge = $flags->where('subject_table', 'customer_merges')->keyBy('subject_id');
+
+        $merge = fn (array $m, string $side) => [
+            'id' => $m['id'],
+            'side' => $side,
+            'at' => $this->iso($m['at']),
+            'flagged' => $byMerge->has($m['id']),
+            'review' => $byMerge->get($m['id'])?->latestReview?->decision->value,
+        ];
+
+        return [
+            'held' => $view->held(),
+            'withheld' => $view->withheld(),
+            'merges' => [
+                ...array_map(fn ($m) => $merge($m, 'kept'), $view->keptMerges),
+                ...array_map(fn ($m) => $merge($m, 'absorbed'), $view->absorbedMerges),
+            ],
+            'link_held' => $view->pointerCrosses,
+            'link_flagged' => $flags->contains('subject_table', 'customers'),
+        ];
     }
 
     /** Which deterministic resolver rule links an identity of this channel (IdentityResolver, docs/14). */

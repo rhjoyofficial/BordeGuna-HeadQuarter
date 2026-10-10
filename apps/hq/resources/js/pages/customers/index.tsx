@@ -21,6 +21,8 @@ type Customer = {
     lifetime_value: string;
     last_seen_at: string | null;
     business?: { name: string };
+    // docs/117: the server withheld what an earlier cross-business merge may have brought in.
+    quarantine_held?: boolean;
 };
 type Candidate = { id: number; confidence: string; reason: string; customer: Customer; candidate: Customer };
 type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
@@ -55,6 +57,7 @@ export default function CustomersIndex({
 }) {
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.customers.manage');
+    const canReview = auth.permissions.includes('hq.customers.quarantine.review');
     const [q, setQ] = useState(filters.q ?? '');
     const [merging, setMerging] = useState<Candidate | null>(null);
     const [busy, setBusy] = useState(false);
@@ -78,8 +81,15 @@ export default function CustomersIndex({
                     title="Customers"
                     description="One customer per person per business, matched on the phone number first, across every shop. A read model: the shops keep the transactional truth, and this can be rebuilt from them."
                     actions={
-                        <span className="text-muted-foreground text-sm">
-                            {customers.total.toLocaleString('en-US')} {customers.total === 1 ? 'customer' : 'customers'}
+                        <span className="flex items-center gap-3">
+                            {canReview && (
+                                <Button asChild variant="outline" size="sm">
+                                    <Link href="/customers/quarantine">Cross-business review</Link>
+                                </Button>
+                            )}
+                            <span className="text-muted-foreground text-sm">
+                                {customers.total.toLocaleString('en-US')} {customers.total === 1 ? 'customer' : 'customers'}
+                            </span>
                         </span>
                     }
                 >
@@ -182,6 +192,11 @@ export default function CustomersIndex({
                                             <Link href={`/customers/${c.id}`} className="font-medium hover:underline">
                                                 {c.name ?? `Customer #${c.id}`}
                                             </Link>
+                                            {c.quarantine_held && (
+                                                <StatusBadge tone="warn" dot={false} className="ml-2">
+                                                    held for review
+                                                </StatusBadge>
+                                            )}
                                         </td>
                                         <td className="px-3 py-2 text-xs tabular-nums">
                                             {c.primary_phone_canonical ?? <span className="text-muted-foreground">-</span>}

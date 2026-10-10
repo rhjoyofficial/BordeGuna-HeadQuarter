@@ -78,6 +78,10 @@ class RolesAndPermissionsSeeder extends Seeder
         // docs/110 §3 Q11, docs/115 §4: the operator-asserted outcome attribution, through the gateway tool
         // `outcomes.attribute` only. Held by owner and operator (`*`); given to no other role.
         'hq.outcomes.attribute',
+        // docs/117 (ruling docs/110 §5 (m)): reviewing quarantine flags on cross-business relationships.
+        // Records an audited decision only; it lifts no suppression and repairs nothing. Owner and operator
+        // hold it through '*'; no other role is given it.
+        'hq.customers.quarantine.review',
     ];
 
     public const ROLES = [

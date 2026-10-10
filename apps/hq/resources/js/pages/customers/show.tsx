@@ -25,6 +25,8 @@ type Identity = {
     last_seen_at: string | null;
 };
 type Merge = { id: number; absorbed_id: number; by_person: boolean; undone: boolean; cross_business: boolean; at: string | null };
+type QuarantineMerge = { id: number; side: 'kept' | 'absorbed'; at: string | null; flagged: boolean; review: string | null };
+type Quarantine = { held: boolean; withheld: string[]; merges: QuarantineMerge[]; link_held: boolean; link_flagged: boolean };
 type IdentityLink = { identity_id: number; channel: string; rule: string; confidence: string | null };
 type Candidate = { id: number; other_id: number; confidence: string | null; reason: string | null; at: string | null };
 type Belief = { id: number; text: string; confidence: number | null; provenance: string; current: boolean; at: string | null };
@@ -128,6 +130,7 @@ type Props = {
     promises: { recorded: boolean };
     handovers: { rows: Handover[] } | null;
     outcomes: { status: string };
+    quarantine: Quarantine;
     can: { inbox: boolean; manage: boolean };
 };
 
@@ -200,6 +203,70 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
+/**
+ * docs/117 (ruling docs/110 §5 (m)): what is held back because an earlier merge crossed a business boundary.
+ * The server has already removed it; this panel only says that something is held, and which kinds.
+ */
+function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; canReview: boolean }) {
+    const t = useT();
+    const withheldLabel = (w: string) =>
+        ({
+            phone: t('Phone'),
+            email: t('Email'),
+            aggregates: t('Order count and lifetime value are counted from this business only'),
+            identities: t('Identities moved by that merge'),
+            memories: t('Memories that may have come from the other customer'),
+            merge_link: t('The link to the other customer'),
+        })[w] ?? w;
+    const decisionLabel = (d: string | null) =>
+        d === null
+            ? t('No review yet')
+            : (({ confirmed_wrong: t('Confirmed wrong'), needs_repair: t('Needs repair'), disputed: t('Disputed (needs a ruling)') }) as Record<string, string>)[d] ??
+              d;
+
+    return (
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong>{t('Held for review: records that cross a business boundary')}</strong>
+                {canReview && (
+                    <Button asChild variant="outline" size="sm">
+                        <Link href="/customers/quarantine">{t('Review flags')}</Link>
+                    </Button>
+                )}
+            </div>
+            <p>
+                {t(
+                    'An earlier merge, made before merges across businesses were refused, linked this customer with a customer of another business. What crossed the boundary is not shown here and nothing has been undone. A person reviews it; only a ruled repair can change it.',
+                )}
+            </p>
+            {quarantine.withheld.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs">{t('Withheld')}:</span>
+                    {quarantine.withheld.map((w) => (
+                        <StatusBadge key={w} tone="warn" dot={false}>
+                            {withheldLabel(w)}
+                        </StatusBadge>
+                    ))}
+                </div>
+            )}
+            {quarantine.merges.length > 0 && (
+                <DataTable
+                    rowKey={(m) => `${m.side}-${m.id}`}
+                    rows={quarantine.merges}
+                    empty="No merges."
+                    columns={[
+                        { key: 'merge', label: 'Merge', render: (m) => <span className="font-mono text-xs">#{m.id}</span> },
+                        { key: 'side', label: 'This customer was', render: (m) => (m.side === 'kept' ? t('kept') : t('absorbed')) },
+                        { key: 'flagged', label: 'Flagged for review', render: (m) => (m.flagged ? t('yes') : t('not yet')) },
+                        { key: 'review', label: 'Latest review', render: (m) => decisionLabel(m.review) },
+                        { key: 'at', label: 'When', render: (m) => formatDateTime(m.at) },
+                    ]}
+                />
+            )}
+        </div>
+    );
+}
+
 function NeedsInbox() {
     const t = useT();
     return (
@@ -211,7 +278,7 @@ function NeedsInbox() {
 
 export default function CustomerShow(props: Props) {
     const t = useT();
-    const { customer, observed, inferred, orders, conversations, memory, consent, handovers } = props;
+    const { customer, observed, inferred, orders, conversations, memory, consent, handovers, quarantine } = props;
     const name = customer.name ?? t('Customer #{id}', { id: customer.id });
     // docs/108 (S7): the consent screen is reached from here by people who may read the ledger.
     const permissions = (usePage().props as { auth?: { permissions?: string[] } }).auth?.permissions ?? [];
@@ -247,6 +314,8 @@ export default function CustomerShow(props: Props) {
                         'Each section says what kind of information it holds. Observed facts, what HQ inferred, memory, consent records, promises, hand-overs and order copies are kept apart. The same phone in another business is a different customer and is not shown here.',
                     )}
                 </div>
+
+                {quarantine.held && <QuarantinePanel quarantine={quarantine} canReview={permissions.includes('hq.customers.quarantine.review')} />}
 
                 {/* Observed */}
                 <Section kind="observed" title="Identity" explain="What a channel, a shop or a person put on the record.">

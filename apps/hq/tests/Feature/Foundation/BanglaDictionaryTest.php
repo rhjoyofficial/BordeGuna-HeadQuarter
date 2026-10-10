@@ -41,6 +41,8 @@ const BANGLA_SCREENS = [
     'js/pages/playbooks/show.tsx',
     // docs/113 (S4 part 1): follow-ups and opportunities.
     'js/pages/follow-ups/index.tsx',
+    // docs/117: the cross-business quarantine review screen.
+    'js/pages/customers/quarantine.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */
