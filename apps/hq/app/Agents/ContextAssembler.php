@@ -10,6 +10,7 @@ use App\Gateway\Scope\BusinessReferenceResolver;
 use App\Models\Agent;
 use App\Models\Business;
 use App\Models\OwnerPreference;
+use App\Playbooks\PlaybookLoader;
 
 /**
  * Builds the context for one agent run, with every block labelled (docs/48 I.1, ADR-024).
@@ -36,6 +37,7 @@ final readonly class ContextAssembler
     public function __construct(
         private PromptLibrary $prompts,
         private BusinessReferenceResolver $references,
+        private PlaybookLoader $playbooks,
     ) {}
 
     /** The system prompt: HQ's own instructions, and the only content that may define behaviour. */
@@ -68,6 +70,17 @@ final readonly class ContextAssembler
             // `System` deliberately: a stored preference is data the group authored, and if one ever
             // said "always approve", it must not be able to mean it.
             $blocks[] = ContextBlock::business('memory:owner_preferences', $preferences);
+        }
+
+        // ⭐ docs/112 (S6): the business's own written guidance, read-only, by the run's business and brand
+        //    key. One `System` framing block that says what a playbook is NOT (no permission, no policy, no
+        //    consent, no autonomy), then one `Business` block per active playbook: data the group authored,
+        //    the same standing as a stored preference, and like a preference unable to mean "always
+        //    approve" because nothing that decides reads it. This call is the ONLY place the loader is
+        //    reached from (PlaybookStructureTest); the run's record of what it loaded travels in the
+        //    framing block's metadata so the runner never needs the loader itself.
+        foreach ($this->playbooks->load($context->businessId, $context->brandId)->blocks as $block) {
+            $blocks[] = $block;
         }
 
         $blocks[] = ContextBlock::business('operator:question', $question);
