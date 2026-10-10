@@ -129,7 +129,11 @@ Questions:
 ### Commits
 - `2ff0812` docs/111 plan.
 - `d9d0d72` WIP checkpoint 1: reader, classifier, window, page, command, tests, dictionary.
-- GATE_PLACEHOLDER
+- `8c5b334` WIP checkpoint 2: this record.
+- Final commit: this record completed with the gate results (the commit that carries this line; hash in the stream report).
 
 ### Gate
-GATE_RESULTS_PLACEHOLDER
+- New tests: `DecisionCorpusReaderTest` 8 passed (126 assertions); `BanglaDictionaryTest` 7 passed with the new screen registered.
+- Full Pest suite, run 1 (`--parallel --processes=3`, real Postgres `hq_test_j`): **1,948 passed, 1 failed** (25,948 assertions, 398 s). The failure was `WorkflowEngineTest` "retries a failed step with backoff" at `expect($engine->reconcile())->toBe(0)` after `travel(29)->seconds()` against a 30 s backoff: a wall-clock boundary one second wide, in a file S5 does not touch (branch diff: 12 files, none under `app/Workflow` or `tests/Feature/Workflow`). Re-run alone: 14 passed (153 assertions). A second full parallel run was made for the record: **1,949 passed, 0 failed (25,962 assertions, 388 s)**. The branch is green on the full suite.
+- `vendor/bin/pint --test` on the changed PHP files: passed. `npx tsc --noEmit`: clean. `npx vite build`: built. `npx prettier --check` on the changed frontend files: clean after one `--write` on the new page.
+- Note for whoever merges: the three Python-made edits (routes, sidebar, dictionary registry) were written with CRLF on this Windows checkout and converted back to LF before the checkpoint commit; `.gitattributes` would have normalised them at commit anyway, and Pint confirmed LF.
