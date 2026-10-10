@@ -21,7 +21,7 @@ class ConsentEvent extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'customer_id', 'business_id', 'brand_id', 'channel', 'purpose', 'state', 'basis',
+        'customer_id', 'business_id', 'brand_id', 'identity_id', 'channel', 'purpose', 'state', 'basis',
         'occurred_at', 'recorded_at', 'expires_at', 'evidence_ref', 'evidence',
         'actor_type', 'actor_id', 'actor_label', 'reason', 'data_class', 'retention_days',
         'correlation_id', 'tool_call_id',
@@ -57,6 +57,12 @@ class ConsentEvent extends Model
     public function brand(): BelongsTo
     {
         return $this->belongsTo(Brand::class);
+    }
+
+    /** docs/114 §2: the one identity of the customer this event is about, or null for every identity. */
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(CustomerIdentity::class, 'identity_id');
     }
 
     public function business(): BelongsTo

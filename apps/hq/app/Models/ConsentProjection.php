@@ -19,7 +19,7 @@ class ConsentProjection extends Model
     protected $table = 'consent_state';
 
     protected $fillable = [
-        'customer_id', 'business_id', 'brand_id', 'channel', 'purpose', 'state',
+        'customer_id', 'business_id', 'brand_id', 'identity_id', 'channel', 'purpose', 'state',
         'effective_from', 'expires_at', 'last_event_id',
     ];
 
@@ -41,6 +41,11 @@ class ConsentProjection extends Model
     public function brand(): BelongsTo
     {
         return $this->belongsTo(Brand::class);
+    }
+
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(CustomerIdentity::class, 'identity_id');
     }
 
     public function lastEvent(): BelongsTo

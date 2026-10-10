@@ -24,7 +24,7 @@ use App\Models\Conversation;
  */
 final readonly class ConsentGate
 {
-    public function __construct(private ConsentLedger $ledger) {}
+    public function __construct(private ConsentLedger $ledger, private ThreadIdentity $identities) {}
 
     /** @return ConsentDecision permitted, or refused with the reason, the refusal class and the deciding event */
     public function check(ToolDescriptor $descriptor, ToolRequest $request, array $args, ?int $businessId): ConsentDecision
@@ -49,7 +49,7 @@ final readonly class ConsentGate
                 ConsentRefusal::SubjectUnresolved,
             );
         }
-        [$customerId, $threadBrandId] = $subject;
+        [$customerId, $threadBrandId, $identityId] = $subject;
 
         $channel = ($requirement->channel ?? $descriptor->channel)->value;
 
@@ -58,10 +58,13 @@ final readonly class ConsentGate
         // fail-closed in the ledger: a brand's denial applies, a brand's grant does not.
         $brandId = $threadBrandId ?? $request->brandId;
 
-        return $this->ledger->permits($customerId, $businessId, $channel, $requirement->purpose, $brandId);
+        // docs/114 §2: the identity the thread reaches, from the thread row (`ThreadIdentity`), or null
+        // when the subject is not a thread or nothing resolves. Null is fail-closed in the ledger: every
+        // identity's denial applies, no identity's grant does.
+        return $this->ledger->permits($customerId, $businessId, $channel, $requirement->purpose, $brandId, $identityId);
     }
 
-    /** @return array{0: int, 1: ?int}|null the customer id and, for a thread subject, the thread's brand */
+    /** @return array{0: int, 1: ?int, 2: ?int}|null the customer id and, for a thread subject, the thread's brand and identity */
     private function subject(ConsentRequirement $requirement, array $args): ?array
     {
         $path = $requirement->subjectFrom;
@@ -74,12 +77,12 @@ final readonly class ConsentGate
             if (! is_string($uuid) || $uuid === '') {
                 return null;
             }
-            $row = Conversation::query()->where('uuid', $uuid)->first(['customer_id', 'brand_id']);
+            $row = Conversation::query()->where('uuid', $uuid)->first();
             if ($row === null || $row->customer_id === null) {
                 return null;
             }
 
-            return [(int) $row->customer_id, $row->brand_id === null ? null : (int) $row->brand_id];
+            return [(int) $row->customer_id, $row->brand_id === null ? null : (int) $row->brand_id, $this->identities->resolve($row)];
         }
 
         if (! str_starts_with($path, 'args.')) {
@@ -88,6 +91,6 @@ final readonly class ConsentGate
 
         $value = data_get($args, substr($path, 5));
 
-        return is_numeric($value) ? [(int) $value, null] : null;
+        return is_numeric($value) ? [(int) $value, null, null] : null;
     }
 }

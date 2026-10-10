@@ -62,6 +62,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // only ever stop contact); `grant` records an opt-in, operator-recorded consent or a lift (it can
         // start contact), so the two are never one permission.
         'hq.consent.view', 'hq.consent.restrict', 'hq.consent.grant',
+        // docs/114 (S7 follow-up, ruling (k)): asking for, and approving, the lift of a do-not-contact. Two
+        // different holders are needed for one lift; owner/operator hold it through `*`, support_agent never.
+        'hq.consent.lift_restriction',
     ];
 
     public const ROLES = [

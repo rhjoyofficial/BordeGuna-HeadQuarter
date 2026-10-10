@@ -16,7 +16,7 @@ use App\Tools\ToolRegistry;
  |   2. Nothing outside app/Tools constructs or resolves a concrete tool; tools are reached through the registry.
  |   3. The services behind the effectful tools are called from their tool and nowhere else, so the effect cannot be
  |      reached around the tool (which is how `hq:facts:reconcile` used to reach `commerce.reconcile_facts`'s).
- |   4. The registered effectful tools are exactly the nine reviewed in docs/105 §1.2. Registering another effectful
+ |   4. The registered effectful tools are exactly the ten reviewed in docs/105 §1.2. Registering another effectful
  |      tool fails here until docs/105's coverage table (and this list) is updated in the same reviewed change.
  */
 
@@ -62,6 +62,8 @@ it('lets only the gateway invoke a tool, and the scheduler\'s direct path only f
         'Agents/AgentRunner.php' => ['$this->gateway->execute'],
         'Gateway/Approval/ApprovalExecutor.php' => ['$this->gateway->execute'],
         'Http/Controllers/Inbox/InboxController.php' => ['$this->gateway->execute'],
+        // docs/114 §3: the consent screen asks the gateway to park the lift of a do-not-contact for a second person.
+        'Http/Controllers/Identity/CustomerConsentController.php' => ['$this->gateway->execute'],
         'Workflow/WorkflowRunner.php' => ['$this->gateway->execute'],
         'Console/Commands/FactsReconcile.php' => ['$gateway->execute'],
         // Not tools: the workflow engine's reconcile, the publication service's own method, two previews of
@@ -128,6 +130,8 @@ it('reaches the services behind the effectful tools only from their tools, never
         '/\bChannelSender\b/' => ['Conversation/Deliveries/ChannelSender.php'],
         '/->(createSalesOrderDraft|recordSalesOrder|cancelSalesOrder)\s*\(/' => ['Tools/Commerce/TakeOrderTool.php', 'Tools/Commerce/CancelSalesOrderTool.php'],
         '/FactsErpSnapshot::(create|updateOrCreate|firstOrCreate|insert|upsert|updateOrInsert)\s*\(/' => ['Tools/Erp/PollErpTool.php'],
+        // docs/114 §3: the only writer of a lifted do-not-contact is reached from its tool, after a second person approved.
+        '/->liftDoNotContact\s*\(/' => ['Tools/Consent/LiftRestrictionTool.php'],
     ];
 
     $files = gcAppFiles();
@@ -141,10 +145,11 @@ it('reaches the services behind the effectful tools only from their tools, never
     expect(preg_match('/->reconcileStore\s*\(/', $files['Tools/Commerce/ReconcileShopFactsTool.php']))->toBe(1)
         ->and(preg_match('/FactsErpSnapshot::updateOrCreate\s*\(/', $files['Tools/Erp/PollErpTool.php']))->toBe(1)
         ->and(preg_match('/->createSalesOrderDraft\s*\(/', $files['Tools/Commerce/TakeOrderTool.php']))->toBe(1)
-        ->and(preg_match('/->cancelSalesOrder\s*\(/', $files['Tools/Commerce/CancelSalesOrderTool.php']))->toBe(1);
+        ->and(preg_match('/->cancelSalesOrder\s*\(/', $files['Tools/Commerce/CancelSalesOrderTool.php']))->toBe(1)
+        ->and(preg_match('/->liftDoNotContact\s*\(/', $files['Tools/Consent/LiftRestrictionTool.php']))->toBe(1);
 });
 
-it('pins the registered effectful tools to the nine reviewed in docs/105, and classifies every tool class in app/Tools', function () {
+it('pins the registered effectful tools to the ten reviewed in docs/105, and classifies every tool class in app/Tools', function () {
     $registry = app(ToolRegistry::class);
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => $registry->get($key)->descriptor()->hasEffect()));
     sort($effectful);
@@ -154,6 +159,8 @@ it('pins the registered effectful tools to the nine reviewed in docs/105, and cl
         'commerce.cancel_sales_order',
         'commerce.reconcile_facts',
         'commerce.take_order',
+        // docs/114 §3 (S7 follow-up): the two-person lift of a do-not-contact, docs/105 §1.2 row 9.
+        'consent.lift_restriction',
         'demo.request_approval',
         'erp.poll_low_stock',
         'erp.poll_overview',

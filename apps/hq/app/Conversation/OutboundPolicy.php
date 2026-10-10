@@ -4,6 +4,7 @@ namespace App\Conversation;
 
 use App\Consent\ConsentLedger;
 use App\Consent\ConsentPurpose;
+use App\Consent\ThreadIdentity;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use Carbon\CarbonImmutable;
@@ -18,7 +19,7 @@ use Carbon\CarbonImmutable;
  */
 final readonly class OutboundPolicy
 {
-    public function __construct(private ConsentLedger $consent) {}
+    public function __construct(private ConsentLedger $consent, private ThreadIdentity $identities) {}
 
     /** The reason this reply may not go, or null when it may. */
     public function refusal(Conversation $conversation, bool $humanAuthor, ?CarbonImmutable $now = null): ?string
@@ -31,8 +32,10 @@ final readonly class OutboundPolicy
             return 'the thread is not linked to a person, so there is nobody consent could have been recorded for';
         }
 
-        // Suppression: a person who said stop is not contacted, whoever is typing.
-        $decision = $this->consent->permits($conversation->customer_id, $conversation->business_id, $conversation->channel->value, ConsentPurpose::Service, $conversation->brand_id);
+        // Suppression: a person who said stop is not contacted, whoever is typing. The brand and the
+        // identity are the thread's own (docs/108 §4, docs/114 §2), the same answer the gateway gets.
+        $decision = $this->consent->permits($conversation->customer_id, $conversation->business_id, $conversation->channel->value, ConsentPurpose::Service,
+            $conversation->brand_id, $this->identities->resolve($conversation));
         if (! $decision->permitted) {
             return 'consent does not permit contacting this person on this channel: '.$decision->reason;
         }

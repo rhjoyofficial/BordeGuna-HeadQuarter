@@ -218,15 +218,16 @@ it('keeps consent inside its brand: one brand\'s opt-in never permits another br
     expect(ceMarketing($this->owner, $customer, $sister->id)->status)->toBe(OutcomeStatus::Succeeded);
 });
 
-it('lifts a restriction only where one stands, and a lift grants nothing by itself', function () {
+it('lifts a withdrawal only where one stands, single-person, and a lift grants nothing by itself', function () {
     $conversation = ceThread();
     $customer = $conversation->customer;
 
     expect(fn () => ceOperator($this->owner, $customer, ConsentOperations::ACT_LIFT))
         ->toThrow(InvalidArgumentException::class, 'no withdrawal or do-not-contact standing');
 
-    ceOperator($this->owner, $customer, ConsentOperations::ACT_DO_NOT_CONTACT);
-    expectConsentRefused(ceReply($this->owner, $conversation), ConsentRefusal::DoNotContact);
+    // A withdrawal of every purpose (not a do-not-contact: that lift is two-person, ConsentLiftTwoPersonTest).
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_WITHDRAW, ['purpose' => null]);
+    expectConsentRefused(ceReply($this->owner, $conversation), ConsentRefusal::Withdrawn);
 
     ceOperator($this->owner, $customer, ConsentOperations::ACT_LIFT);
     // The inbound Service grant applies again; marketing still has no opt-in.
