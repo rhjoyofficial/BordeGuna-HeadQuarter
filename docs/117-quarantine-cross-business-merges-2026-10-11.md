@@ -1,6 +1,6 @@
 # 117 - Quarantine of pre-existing cross-business merges (11 October 2026)
 
-Status: PLAN, then BUILT on branch `p3/s2-quarantine-cross-business-merges` (worktree `hq-wt/i`, from `main` `a8a6410`). Not merged, not deployed, nothing activated.
+Status: BUILT on branch `p3/s2-quarantine-cross-business-merges` (worktree `hq-wt/i`, from `main` `a8a6410`). Not merged, not deployed, nothing activated. Gate results and release notes in §9 and §10.
 Asked by: `docs/110-chatgpt-ruling-2026-10-10.txt` §5 (m), answering `docs/109` §8 question 2:
 
 > Flag and quarantine questionable cross-business merge rows from affected Customer 360 reads. Do not blindly undo rows. Flagging alone is insufficient if information could leak across businesses. Suppress questionable relationships until a human-reviewed, audited correction preserves lineage.
@@ -82,3 +82,28 @@ Planted historical merge (guard bypassed by writing the rows the old merge wrote
 ## 8. Non-goals
 
 No automatic undo, no deletion, no re-pointing, no activation, no change to production.
+
+## 9. As built and gate (11 Oct)
+
+- Detector: `apps/hq/app/Identity/Quarantine/CrossBusinessDetector.php`; command `hq:identity:cross-business` (`app/Console/Commands/IdentityCrossBusiness.php`).
+- Flags and reviews: migration `2026_10_11_100000_create_cross_business_quarantine_tables.php` (CHECK constraints, append-only triggers, no cascading FK into them), models `CrossBusinessQuarantine` / `CrossBusinessQuarantineReview`, writer `QuarantineLedger`, enum `QuarantineDecision`. Both tables added to `RetentionPolicy::PERMANENT`.
+- Suppression: `CrossBusinessSuppression` + `SuppressionView`, applied in `Customer360Reader::read()` (every section) and in `CustomerController::index()` / `show()` (list rows, subject resolution).
+- Review: `CustomerQuarantineController`, `GET /customers/quarantine`, `POST /customers/quarantine/{quarantine}/review`, page `customers/quarantine.tsx` (in `BANGLA_SCREENS`); held panel on `customers/show.tsx`; "held for review" badge and link on `customers/index.tsx`.
+- One existing test changed on purpose: `Customer360Test` "follows a merge only to a customer the viewer may also see" asserted a 404 for a LaLaDia-restricted viewer on an absorbed LaLaDia row merged into a Bionic customer. The link now stops at the LaLaDia row, so that viewer sees the LaLaDia row's own page (with nothing of Bionic) and an unrestricted viewer no longer lands on the Bionic page. The test now asserts that, plus same-business follow.
+- New tests: `tests/Feature/Identity/CrossBusinessQuarantineTest.php` (8 tests). Mutation-checked: removing the memory cutoff, the email withholding, the identity hold or the aggregate recount each fails a test.
+- Gate: full Pest suite 1,949 passed (25,921 assertions, `--parallel --processes=3`, Postgres `hq_test_i`); `pint --test` passed; `tsc --noEmit` clean; `vite build` ok. Migration applied, rolled back and re-applied cleanly on Postgres.
+
+## 10. Release notes
+
+1. Migration `2026_10_11_100000_create_cross_business_quarantine_tables` (additive: two new tables, a trigger function, four triggers).
+2. Seeder: run `php artisan db:seed --class=RolesAndPermissionsSeeder` to create `hq.customers.quarantine.review` (owner and operator get it through `*`; no other role).
+3. After deploy, run `php artisan hq:identity:cross-business` (dry run) on production and read the list. Only if it finds something, and on the owner's word, run it with `--flag` so the rows reach the review screen. Suppression is on from the deploy regardless.
+4. Behaviour change: an absorbed customer whose merge crossed a business now opens as itself and is listed in its own business; a kept customer touched by such a merge shows count and value from its own business only, and may show phone/email blank (withheld).
+
+## 11. Open questions for a ruling
+
+1. Repair (§6): build it? Who runs it (second permission, two-person rule, approval)? Is setting `customer_merges.undone_at` allowed, or must a reversal be a separate row? How are business-less memories assigned?
+2. Unscoped identity lookup: `IdentityResolver::byIdentity()` finds phone, email and channel identities without a business filter, so a new Bionic order or message from a phone already known in LaLaDia attaches to the LaLaDia customer, with no merge. Detection and suppression cover the result; the cause is outside this change. Fix it (scope the lookup per business; phone/email identities are globally unique rows today, so this needs a schema decision)?
+3. `hq:customers:rebuild --recount-only` recounts a customer's figures across all its order copies, including another business's. Suppression ignores the stored figures for touched customers, but should the recount be business-scoped?
+4. List search by phone or email still matches the stored column, so searching a withheld value finds the row (the value itself stays withheld). Acceptable?
+5. Messages and participants (`conversation_messages.customer_id`, `conversation_participants.customer_id`) are not in detection: the 360 page shows no message bodies. Add them if a later screen reads them.
