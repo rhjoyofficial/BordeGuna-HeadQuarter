@@ -30,6 +30,8 @@ const BANGLA_SCREENS = [
     'js/pages/approvals/index.tsx',
     'js/pages/agents/index.tsx',
     'js/pages/audit/index.tsx',
+    // docs/108 (S7): the consent screen.
+    'js/pages/customers/consent.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

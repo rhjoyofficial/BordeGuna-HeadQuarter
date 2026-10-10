@@ -1,10 +1,12 @@
 import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { type ReactNode } from 'react';
 
 type Identity = { id: number; channel: string; external_id: string; confidence: string; last_seen_at: string | null };
@@ -51,6 +53,8 @@ export default function CustomerShow({ customer, orders }: { customer: Customer;
         { title: name, href: `/customers/${customer.id}` },
     ];
     const consentEntries = Object.entries(customer.consent ?? {});
+    const t = useT();
+    const permissions = (usePage().props as { auth?: { permissions?: string[] } }).auth?.permissions ?? [];
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -65,6 +69,13 @@ export default function CustomerShow({ customer, orders }: { customer: Customer;
                             {customer.last_seen_at ? `, last seen ${timeAgo(customer.last_seen_at)}` : ''}.
                         </>
                     }
+                    actions={
+                        permissions.includes('hq.consent.view') ? (
+                            <Button asChild variant="outline" size="sm">
+                                <Link href={`/customers/${customer.id}/consent`}>{t('Consent history')}</Link>
+                            </Button>
+                        ) : null
+                    }
                 />
 
                 <section className="bg-card rounded-xl border p-4">
@@ -78,7 +89,7 @@ export default function CustomerShow({ customer, orders }: { customer: Customer;
                         {customer.attributes?.aliases && customer.attributes.aliases.length > 0 && (
                             <Fact label="Also known as">{customer.attributes.aliases.join(', ')}</Fact>
                         )}
-                        <Fact label="Consent">
+                        <Fact label="Legacy consent field">
                             {consentEntries.length === 0 ? (
                                 <span className="text-muted-foreground">none recorded</span>
                             ) : (

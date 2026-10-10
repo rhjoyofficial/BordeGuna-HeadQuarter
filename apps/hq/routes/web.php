@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
+use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
@@ -149,6 +150,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');
+    // docs/108 (S7): a customer's consent history and the operator acts. Recording is an event in the
+    // ledger, checked per act against hq.consent.restrict (stop contact) or hq.consent.grant (start it).
+    Route::get('customers/{customer}/consent', [CustomerConsentController::class, 'show'])->middleware('permission:hq.consent.view')->name('customers.consent');
+    Route::post('customers/{customer}/consent', [CustomerConsentController::class, 'store'])->middleware('permission:hq.consent.restrict|hq.consent.grant')->name('customers.consent.store');
 });
 
 require __DIR__.'/settings.php';
