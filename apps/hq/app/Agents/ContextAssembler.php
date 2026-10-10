@@ -77,13 +77,15 @@ final readonly class ContextAssembler
         //    consent, no autonomy), then one `Business` block per active playbook: data the group authored,
         //    the same standing as a stored preference, and like a preference unable to mean "always
         //    approve" because nothing that decides reads it. This call is the ONLY place the loader is
-        //    reached from (PlaybookStructureTest); the run's record of what it loaded travels in the
-        //    framing block's metadata so the runner never needs the loader itself.
-        foreach ($this->playbooks->load($context->businessId, $context->brandId)->blocks as $block) {
+        //    reached from (PlaybookStructureTest). With nothing active the bundle is byte for byte what it
+        //    was before playbooks existed; the record of what was (not) loaded, and why, travels as metadata
+        //    on the question block, which renders nothing extra, so the runner never needs the loader itself.
+        $playbooks = $this->playbooks->load($context->businessId, $context->brandId);
+        foreach ($playbooks->blocks as $block) {
             $blocks[] = $block;
         }
 
-        $blocks[] = ContextBlock::business('operator:question', $question);
+        $blocks[] = ContextBlock::business('operator:question', $question, ['playbooks' => $playbooks->record]);
 
         return new ContextBundle($blocks);
     }

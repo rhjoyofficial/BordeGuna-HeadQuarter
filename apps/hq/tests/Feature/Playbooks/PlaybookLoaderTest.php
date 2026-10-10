@@ -151,10 +151,10 @@ it('loads the brand\'s own playbooks with the business-wide ones for a brand run
     $azmion = pbRun(Business::where('slug', 'azmion')->sole()->id);
     expect($azmion->playbooks['loaded'])->toBe([])
         ->and($azmion->playbooks['reason'])->toBe('no active playbook for this business')
-        ->and(pbFirstPrompt())->toContain('No business playbook applies to this run')->not->toContain('Mangrove Gold')->not->toContain('DDT-free');
+        ->and(pbFirstPrompt())->not->toContain('laybook')->not->toContain('Mangrove Gold')->not->toContain('DDT-free');
 });
 
-it('loads nothing for a group-wide run and tells the model so', function () {
+it('loads nothing for a group-wide run, adds nothing to the context, and records why', function () {
     pbLive($this->store, $this->owner, $this->laladia, null, PlaybookKind::General, 'LaLaDia only.');
 
     $run = pbRun();
@@ -162,7 +162,8 @@ it('loads nothing for a group-wide run and tells the model so', function () {
     expect($run->playbooks)->toMatchArray(['loaded' => [], 'skipped' => []])
         ->and($run->playbooks['reason'])->toContain('no business scope')
         ->and(pbBlocks($run, 'playbook:'))->toBe([])
-        ->and(pbFirstPrompt())->toContain('No business playbook applies to this run (no business scope')->not->toContain('LaLaDia only.');
+        ->and(pbBlocks($run, 'playbooks:framing'))->toBe([])
+        ->and(pbFirstPrompt())->not->toContain('laybook')->not->toContain('LaLaDia only.');
 });
 
 it('reads only an ACTIVE version: a draft, a reviewed or a retired one reaches no run', function () {
@@ -230,8 +231,9 @@ it('holds the kind load order and business-wide before brand within a kind, with
 
     expect(array_column($selection->record['loaded'], 'id'))->toBe([$wideClaims->id, $brandClaims->id, $escalation->id, $general->id])
         ->and($selection->blocks[0]->source)->toBe(PlaybookLoader::FRAMING_SOURCE)
-        ->and($selection->blocks[0]->metadata['playbooks'])->toBe($selection->record)
+        ->and($selection->blocks[0]->metadata)->toBe([])
         ->and(count($selection->blocks))->toBe(5)
         ->and($selection->isEmpty())->toBeFalse()
-        ->and(app(PlaybookLoader::class)->load(null, null)->isEmpty())->toBeTrue();
+        ->and(app(PlaybookLoader::class)->load(null, null)->isEmpty())->toBeTrue()
+        ->and(app(PlaybookLoader::class)->load(null, null)->blocks)->toBe([]);
 });

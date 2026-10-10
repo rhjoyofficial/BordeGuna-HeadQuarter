@@ -101,7 +101,7 @@ it('has the agent runner read the run record from the bundle, never from the sto
     $runner = pbAppSources()['app/Agents/AgentRunner.php'];
 
     expect($runner)->toContain("'playbooks' => \$this->playbookRecord(\$bundle)")
-        ->and($runner)->toContain("\$block->source === 'playbooks:framing'")
+        ->and($runner)->toContain("isset(\$block->metadata['playbooks'])")
         ->and(preg_match('/\bPlaybook(?:Loader|Selection|Version|VersionEvent|s)\b/', $runner))->toBe(0)
         ->and(preg_match('/App\\\\Playbooks/', $runner))->toBe(0);
 });

@@ -124,12 +124,14 @@ final class PlaybookLoader
     {
         $record = ['loaded' => $loaded, 'skipped' => $skipped, 'budget_chars' => $budget, 'reason' => $reason];
 
-        // The framing block is always first and always present, so the run record travels with the bundle
-        // and the model is told, in so many words, when no guidance exists rather than left to assume some.
-        $framing = new ContextBlock(Provenance::System, self::FRAMING_SOURCE,
-            $loaded === [] ? 'No business playbook applies to this run ('.$reason.'). Do not assume any business guidance that is not in your context.' : self::FRAMING,
-            metadata: ['playbooks' => $record]);
+        // ⚠ Nothing loaded means NOTHING added: not even a framing line. With an empty store every run's
+        //   context is byte for byte what it was before this class existed (the EEC identity case holds
+        //   that), and the run record says why nothing was loaded. The framing block exists only to
+        //   introduce playbooks that are actually there.
+        if ($loaded === []) {
+            return new PlaybookSelection([], $record);
+        }
 
-        return new PlaybookSelection([$framing, ...$blocks], $record);
+        return new PlaybookSelection([new ContextBlock(Provenance::System, self::FRAMING_SOURCE, self::FRAMING), ...$blocks], $record);
     }
 }

@@ -1877,15 +1877,16 @@ final class AgentRunner
     }
 
     /**
-     * The run's playbook record (docs/112 §2), from the framing block context assembly put in the bundle.
-     * Null only when no framing block exists, which no bundle built by `ContextAssembler::open()` lacks.
+     * The run's playbook record (docs/112 §2): what context assembly loaded, skipped, or why it loaded
+     * nothing, carried as metadata on a block of the opening bundle (metadata renders nothing). Null only
+     * when no block carries it, which no bundle built by `ContextAssembler::open()` lacks.
      *
      * @return array<string, mixed>|null
      */
     private function playbookRecord(ContextBundle $bundle): ?array
     {
         foreach ($bundle->blocks as $block) {
-            if ($block->source === 'playbooks:framing' && isset($block->metadata['playbooks'])) {
+            if (isset($block->metadata['playbooks'])) {
                 return (array) $block->metadata['playbooks'];
             }
         }

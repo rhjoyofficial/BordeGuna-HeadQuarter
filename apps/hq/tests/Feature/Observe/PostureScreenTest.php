@@ -159,6 +159,11 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/108 (S7): records a consent EVENT in the append-only ledger as the acting person, behind
         // hq.consent.restrict or hq.consent.grant. It reaches no provider and bypasses no gateway step.
         'POST customers/{customer}/consent',
+        // docs/112 (S6): the playbook store's human acts, each behind its own permission (draft, review,
+        // activate) and the business scope. A playbook is read-only guidance in context; these routes write
+        // versions and append-only events, reach no provider and bypass no gateway step.
+        'POST playbooks', 'PUT playbooks/{version}', 'POST playbooks/{version}/submit', 'POST playbooks/{version}/withdraw',
+        'POST playbooks/{version}/review', 'POST playbooks/{version}/activate', 'POST playbooks/{version}/retire',
         'POST flags', 'POST flags/{flag}/toggle',
         'POST inbox/{conversation}/assign', 'POST inbox/{conversation}/close', 'POST inbox/{conversation}/comparisons/{comparison}/verdict',
         'POST inbox/{conversation}/memory/{memory}/forget', 'POST inbox/{conversation}/note', 'POST inbox/{conversation}/proposals/{run}/decide',
