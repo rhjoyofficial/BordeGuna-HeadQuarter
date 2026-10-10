@@ -209,6 +209,21 @@ final readonly class ToolDescriptor
     }
 
     /**
+     * Whether a call to this tool changes something: it writes, or it sits at risk tier R3 or above.
+     *
+     * ⭐ The ONE definition of an effectful tool (docs/101 §11 "effectful tool governance", docs/105, S1).
+     * Every effectful call goes through the Tool Gateway on every path: the agent runtime puts each one
+     * to the gateway (at A0 as `authorize()`, never executed), the scheduler runs each one through the
+     * gateway whatever `scheduler.gateway` says, and `GatewayCoverageStructureTest` fails the suite if
+     * anything outside the gateway invokes a tool. Declared on the descriptor, not re-derived by each
+     * caller, so the runner, the scheduler and the tests cannot drift apart.
+     */
+    public function hasEffect(): bool
+    {
+        return $this->readWrite === ReadWrite::Write || $this->riskTier->atLeast(RiskTier::R3);
+    }
+
+    /**
      * Why an agent may not execute this, or null when it may.
      *
      * The distinction is surfaced rather than merely stored: a refusal that says "not yet" invites a

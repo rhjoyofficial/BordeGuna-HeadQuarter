@@ -30,6 +30,7 @@ use App\Tools\ToolResult;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Tests\Support\Ai\FixtureProvider;
@@ -101,6 +102,38 @@ beforeEach(function () {
 function governanceHasEffect(ToolDescriptor $descriptor): bool
 {
     return $descriptor->readWrite === ReadWrite::Write || $descriptor->riskTier->atLeast(RiskTier::R3);
+}
+
+/**
+ * docs/105 (S1): every record of an effectful call names the gateway decision it rests on. A proposal carries the
+ * gateway's authorization; an executed or gateway-refused call its `tool_call_id`; a script rejection follows an
+ * authorize() that permitted (D4); every other refusal (the A0 authorize refusal, and a runtime guard's refusal)
+ * carries `gateway` = what authorize() answered. A guard's refusal is also audited with that verdict. Nothing such
+ * a record says can make the call run: a guard's refusal stands whatever the gateway answered.
+ */
+function governanceRecordsRestOnTheGateway(Collection $records, string $key, int $since): void
+{
+    $guarded = 0;
+    foreach ($records as $record) {
+        if (($record['kind'] ?? null) === 'proposal') {
+            expect($record['authorization'] ?? null)->toBeIn(['authorized', 'awaits_approval'], "[{$key}] proposal without the gateway's authorization");
+
+            continue;
+        }
+        if (isset($record['tool_call_id']) || ($record['outcome_class'] ?? null) === 'content_policy_rejected') {
+            continue;
+        }
+        expect($record['gateway']['asked'] ?? null)->toBe('authorize', "[{$key}] was refused without the gateway being asked")
+            ->and($record['kind'] ?? null)->toBeIn(['refused', 'failed'], $key);
+        if (($record['gateway']['guard'] ?? null) !== null) {
+            expect($record['gateway']['guard'])->toBeIn(['bound_thread', 'refused_role_action', 'catalogue'], $key);
+            $guarded++;
+        }
+    }
+    if ($guarded > 0) {
+        expect(AuditLog::where('action', 'agent_run.effectful_call_refused')->where('id', '>', $since)->get()
+            ->contains(fn (AuditLog $a) => ($a->after['tool'] ?? null) === $key))->toBeTrue("[{$key}] guard refusal not audited with the gateway's verdict");
+    }
 }
 
 /** Run the executive at A0, enabled by $user, proposing one call to $key, and return the run. */
@@ -198,6 +231,11 @@ it('stores no effectful proposal without the gateway\'s decision, for every regi
     $registry = app(ToolRegistry::class);
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => governanceHasEffect($registry->get($key)->descriptor())));
 
+    // The descriptor's own rule (docs/105) is the restated one, for every registered tool.
+    foreach ($registry->keys() as $key) {
+        expect($registry->get($key)->descriptor()->hasEffect())->toBe(governanceHasEffect($registry->get($key)->descriptor()), $key);
+    }
+
     // The release has effectful tools; an empty list would make this test say nothing.
     expect($effectful)->not->toBeEmpty()->toContain('messaging.send_reply');
 
@@ -222,11 +260,14 @@ it('stores no effectful proposal without the gateway\'s decision, for every regi
 
         $audited = AuditLog::where('action', 'agent_run.proposal_not_authorized')->where('id', '>', $since)->get()
             ->contains(fn (AuditLog $a) => ($a->after['tool'] ?? null) === $key);
+        governanceRecordsRestOnTheGateway($records, $key, $since);
 
         // A call the runtime's own guards admit (the agent's catalogue, the descriptor's agent rule,
         // availability) MUST have been put to the gateway: it permitted a proposal, its refusal is audited,
         // or the reply's script check (which runs only AFTER authorize() permitted, D4) refused it. One the
-        // guards refuse never reaches the gateway and is refused, never proposed. A tool that names a
+        // guards refuse is refused, never proposed, AND (docs/105, S1) was put to the gateway too, read-only,
+        // with the gateway's verdict on the record and in the audit: no effectful call stops at the runtime
+        // alone. A tool that names a
         // conversation is put again on a run BOUND to a real thread, as the wake-up runs it, because an
         // unbound run refuses it before the gateway by design.
         $namesThread = array_key_exists('conversation_uuid', (array) ($registry->get($key)->inputSchema()['properties'] ?? []));
@@ -240,6 +281,7 @@ it('stores no effectful proposal without the gateway\'s decision, for every regi
             foreach ($records->where('kind', 'proposal') as $proposal) {
                 expect($proposal['authorization'] ?? null)->toBeIn(['authorized', 'awaits_approval'], "[{$key}] was recorded as a proposal without the gateway's decision");
             }
+            governanceRecordsRestOnTheGateway($records, $key, $since);
         }
 
         $agent = Agent::where('key', $namesThread ? 'support' : 'executive')->sole();
@@ -251,14 +293,17 @@ it('stores no effectful proposal without the gateway\'s decision, for every regi
             expect($decided)->toBeTrue("[{$key}] passed the runtime's guards but shows no gateway decision");
             $reachedGateway[] = $key;
         } else {
+            // Refused by a guard (today: not cleared for agents). Never a proposal, and the gateway was asked:
+            // in the inert posture it refuses too, so the two layers agree.
             expect($records->where('kind', 'proposal')->count())->toBe(0, $key)
-                ->and($records->pluck('kind')->unique()->all())->toBe(['refused'], $key);
+                ->and($records->pluck('kind')->unique()->all())->toBe(['refused'], $key)
+                ->and($records->pluck('gateway.decision')->unique()->all())->toBe(['refused'], $key);
+            $reachedGateway[] = $key;
         }
     }
 
-    // Not vacuous: the effectful tool an agent may execute today, the Messenger reply, was put to the gateway.
-    // (The others are refused by the runtime's guards before it, today: not cleared for agents, or switched off.)
-    expect($reachedGateway)->toContain('messaging.send_reply');
+    // docs/101 §12 Q5 closed (docs/105): EVERY effectful tool, not only the Messenger reply, reached the gateway.
+    expect($reachedGateway)->toBe($effectful)->toContain('messaging.send_reply');
 });
 
 it('has exactly two places that record a proposal, both after the gateway decided', function () {
