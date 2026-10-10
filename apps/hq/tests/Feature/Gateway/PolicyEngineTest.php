@@ -364,9 +364,11 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     // never the count - it is that NOTHING is permanently human-only yet, so the first genuinely
     // permanent tool is a deliberate, visible change rather than one more `false` nobody looked at.
     //
-    // Still true, and still the honest state: the writes and the R4 demo are "not yet" (a stage
-    // evaluation evidence can end), and nothing anywhere is "never" (a decision).
-    expect($never)->toBe([]);
+    // The writes and the R4 demo are still "not yet" (a stage evaluation evidence can end). docs/114 §3
+    // (S7 follow-up, ruling (k)) made the first "never" decision, on purpose and here, visibly: lifting a
+    // do-not-contact is overriding consent, one of the categories the descriptor names as permanent, and
+    // no approval, configuration or autonomy grant may ever let an agent run it.
+    expect($never)->toBe(['consent.lift_restriction']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 

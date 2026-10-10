@@ -56,6 +56,9 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         // Phase 4 order completion (docs/88 A point 3): two R2 reads held by no agent, and the R4
         // compensating cancel under the same empty store list.
         'commerce.quote_order', 'commerce.get_order_status', 'commerce.cancel_sales_order',
+        // docs/114 (S7 follow-up, ruling (k)): the two-person lift of a do-not-contact. R3 write of HQ's own
+        // ledger, parks on every call, permanently human-only. No scheduled job names it.
+        'consent.lift_restriction',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

@@ -20,10 +20,17 @@ use InvalidArgumentException;
  *
  * ## The resolution rule, stated once
  *
- * A request names a brand (or none), a channel and a purpose. Events may be recorded at up to eight
- * levels of scope: each of brand, channel and purpose either specific or "all" (null on the event).
- * For each scope, the latest event at or before the instant is taken (docs/108 §3). A brand-scoped
- * event when the request names no brand: a denial still applies (fail closed), a grant does not.
+ * A request names a brand (or none), an identity (or none), a channel and a purpose. Events may be
+ * recorded at up to sixteen levels of scope: each of brand, identity, channel and purpose either
+ * specific or "all" (null on the event). For each scope, the latest event at or before the instant is
+ * taken (docs/108 §3). A brand-scoped or identity-scoped event when the request names no brand or no
+ * identity: a denial still applies (fail closed), a grant does not (docs/114 §2).
+ *
+ * ⭐ Identity (docs/114 §2, ruling (i)): an identity is one `customer_identities` row, a phone or a
+ * PSID. An event scoped to identity A is not an applicable event for a send to identity B at all, so
+ * a restriction on one identity can never be defeated by a grant on another, and a customer-wide
+ * restriction (identity null) is applicable to every identity. The identity is resolved from the
+ * thread row by the caller (`ThreadIdentity`), never from an id anybody typed.
  *
  * **Then: any denial wins.** A person-level "do not contact" cannot be overridden by a
  * channel-level grant recorded afterwards, because the broad refusal is a statement about the
@@ -75,6 +82,7 @@ final readonly class ConsentLedger
                 'customer_id' => $customerId,
                 'business_id' => $businessId,
                 'brand_id' => $attributes['brand_id'] ?? null,
+                'identity_id' => $attributes['identity_id'] ?? null,
                 'channel' => $channel,
                 'purpose' => $purposeValue,
                 'state' => $state->value,
@@ -103,6 +111,7 @@ final readonly class ConsentLedger
                 'customer_id' => $customerId, 'business_id' => $businessId,
                 'channel' => $channel, 'purpose' => $purposeValue, 'state' => $state->value,
                 'basis' => $basis->value, 'brand_id' => $attributes['brand_id'] ?? null,
+                'identity_id' => $attributes['identity_id'] ?? null,
             ], reason: $attributes['reason'] ?? null);
 
             return $event;
@@ -110,9 +119,9 @@ final readonly class ConsentLedger
     }
 
     /** Is contacting this person permitted RIGHT NOW. */
-    public function permits(int $customerId, int $businessId, ?string $channel, ConsentPurpose $purpose, ?int $brandId = null): ConsentDecision
+    public function permits(int $customerId, int $businessId, ?string $channel, ConsentPurpose $purpose, ?int $brandId = null, ?int $identityId = null): ConsentDecision
     {
-        return $this->permittedAt($customerId, $businessId, $channel, $purpose, now(), $brandId);
+        return $this->permittedAt($customerId, $businessId, $channel, $purpose, now(), $brandId, $identityId);
     }
 
     /**
@@ -128,6 +137,7 @@ final readonly class ConsentLedger
         ConsentPurpose $purpose,
         DateTimeInterface $at,
         ?int $brandId = null,
+        ?int $identityId = null,
     ): ConsentDecision {
         $instant = Carbon::instance(Carbon::parse($at));
 
@@ -140,6 +150,9 @@ final readonly class ConsentLedger
             // A brand-scoped event is read when the request names that brand, and ALSO when it names
             // none: such a denial must still apply (fail closed). Such a grant is skipped below.
             ->when($brandId !== null, fn ($q) => $q->where(fn ($w) => $w->whereNull('brand_id')->orWhere('brand_id', $brandId)))
+            // The same for identity (docs/114 §2): another identity's events are never read for this one;
+            // with no identity resolved every identity's denial is read, and every identity's grant skipped.
+            ->when($identityId !== null, fn ($q) => $q->where(fn ($w) => $w->whereNull('identity_id')->orWhere('identity_id', $identityId)))
             ->orderBy('occurred_at')
             ->orderBy('id')
             ->get();
@@ -149,7 +162,7 @@ final readonly class ConsentLedger
         if ($events->isEmpty()) {
             return ConsentDecision::unrecorded(
                 "no consent event has ever been recorded for customer {$customerId}, business {$businessId}, "
-                .'brand ['.($brandId ?? 'any').'], channel ['.($channel ?? 'any')."], purpose [{$purpose->value}]",
+                .'brand ['.($brandId ?? 'any').'], identity ['.($identityId ?? 'unresolved').'], channel ['.($channel ?? 'any')."], purpose [{$purpose->value}]",
                 $optIn ? ConsentRefusal::OptInMissing : ConsentRefusal::NotRecorded,
             );
         }
@@ -158,7 +171,7 @@ final readonly class ConsentLedger
         // class docblock. Brand is part of the scope (docs/108 §3.2).
         $latest = [];
         foreach ($events as $event) {
-            $scope = ($event->brand_id ?? '*').'|'.($event->channel ?? '*').'|'.($event->purpose?->value ?? '*');
+            $scope = ($event->brand_id ?? '*').'|'.($event->identity_id ?? '*').'|'.($event->channel ?? '*').'|'.($event->purpose?->value ?? '*');
             $latest[$scope] = $event;
         }
 
@@ -188,6 +201,9 @@ final readonly class ConsentLedger
             }
             if ($event->brand_id !== null && $brandId === null) {
                 continue; // a brand's grant never covers a send whose brand is unknown
+            }
+            if ($event->identity_id !== null && $identityId === null) {
+                continue; // an identity's grant never covers a send whose identity is unresolved (fail closed)
             }
             if ($optIn && ($event->purpose !== $purpose || ! $event->basis->evidencesOptIn())) {
                 $unqualified ??= $event;
@@ -228,13 +244,14 @@ final readonly class ConsentLedger
      * The latest event recorded at EXACTLY this scope (null = "all" for that dimension), at or before
      * now. What a lift checks (docs/108 §5): only a restriction standing at the same scope may be lifted.
      */
-    public function latestAtScope(int $customerId, int $businessId, ?int $brandId, ?string $channel, ?string $purpose): ?ConsentEvent
+    public function latestAtScope(int $customerId, int $businessId, ?int $brandId, ?string $channel, ?string $purpose, ?int $identityId = null): ?ConsentEvent
     {
         return ConsentEvent::query()
             ->where('customer_id', $customerId)
             ->where('business_id', $businessId)
             ->where('occurred_at', '<=', now())
             ->when($brandId === null, fn ($q) => $q->whereNull('brand_id'), fn ($q) => $q->where('brand_id', $brandId))
+            ->when($identityId === null, fn ($q) => $q->whereNull('identity_id'), fn ($q) => $q->where('identity_id', $identityId))
             ->when($channel === null, fn ($q) => $q->whereNull('channel'), fn ($q) => $q->where('channel', $channel))
             ->when($purpose === null, fn ($q) => $q->whereNull('purpose'), fn ($q) => $q->where('purpose', $purpose))
             ->orderByDesc('occurred_at')
@@ -250,6 +267,7 @@ final readonly class ConsentLedger
                 'customer_id' => $event->customer_id,
                 'business_id' => $event->business_id,
                 'brand_id' => $event->brand_id,
+                'identity_id' => $event->identity_id,
                 'channel' => $event->channel,
                 'purpose' => $event->purpose?->value,
             ],

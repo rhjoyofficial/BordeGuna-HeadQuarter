@@ -22,6 +22,7 @@ use App\Models\Brand;
 use App\Models\ConsentEvent;
 use App\Models\Conversation;
 use App\Models\Customer;
+use App\Models\CustomerIdentity;
 use App\Models\PlatformAccount;
 use App\Models\ToolCall;
 use App\Models\User;
@@ -218,15 +219,16 @@ it('keeps consent inside its brand: one brand\'s opt-in never permits another br
     expect(ceMarketing($this->owner, $customer, $sister->id)->status)->toBe(OutcomeStatus::Succeeded);
 });
 
-it('lifts a restriction only where one stands, and a lift grants nothing by itself', function () {
+it('lifts a withdrawal only where one stands, single-person, and a lift grants nothing by itself', function () {
     $conversation = ceThread();
     $customer = $conversation->customer;
 
     expect(fn () => ceOperator($this->owner, $customer, ConsentOperations::ACT_LIFT))
         ->toThrow(InvalidArgumentException::class, 'no withdrawal or do-not-contact standing');
 
-    ceOperator($this->owner, $customer, ConsentOperations::ACT_DO_NOT_CONTACT);
-    expectConsentRefused(ceReply($this->owner, $conversation), ConsentRefusal::DoNotContact);
+    // A withdrawal of every purpose (not a do-not-contact: that lift is two-person, ConsentLiftTwoPersonTest).
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_WITHDRAW, ['purpose' => null]);
+    expectConsentRefused(ceReply($this->owner, $conversation), ConsentRefusal::Withdrawn);
 
     ceOperator($this->owner, $customer, ConsentOperations::ACT_LIFT);
     // The inbound Service grant applies again; marketing still has no opt-in.
@@ -262,4 +264,57 @@ it('refuses with consent_subject_unresolved when the call names nobody, and cons
         identity: ActingIdentity::human($this->owner), correlationId: (string) Str::uuid(),
     ));
     expectConsentRefused($outcome, ConsentRefusal::SubjectUnresolved);
+});
+
+it('enforces identity scope at the gateway and in the outbound policy: a do-not-contact on one PSID stops that thread, not the same person\'s other thread (docs/114 §2)', function () {
+    $threadA = ceThread('psid-ida');
+    $customer = $threadA->customer;
+    $identityA = CustomerIdentity::where('channel', 'messenger_psid')->where('external_id', 'psid-ida')->sole();
+    // The same person's second Messenger identity, linked before they write from it: the thread resolves to them.
+    $identityB = CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => 'psid-idb']);
+    $threadB = ceThread('psid-idb');
+    expect($threadB->customer_id)->toBe($customer->id)->and($threadB->id)->not->toBe($threadA->id);
+    expectPassedConsent(ceReply($this->owner, $threadA));
+    expectPassedConsent(ceReply($this->owner, $threadB));
+
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_DO_NOT_CONTACT, ['identity_id' => $identityB->id]);
+
+    // Thread B is refused at the gateway and by the outbound policy, from the thread row's identity; thread A is not.
+    expectConsentRefused(ceReply($this->owner, $threadB), ConsentRefusal::DoNotContact);
+    expect(app(OutboundPolicy::class)->refusal($threadB->fresh(), humanAuthor: true))->toContain('do-not-contact');
+    expectPassedConsent(ceReply($this->owner, $threadA));
+    expect(app(OutboundPolicy::class)->refusal($threadA->fresh(), humanAuthor: true))->toBeNull();
+
+    // A grant on identity A, recorded after, never defeats B's restriction; nor does a customer-wide opt-in.
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_OPERATOR_CONSENT, ['channel' => 'messenger', 'brand_id' => $this->lld->id, 'identity_id' => $identityA->id]);
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_MARKETING_OPT_IN, ['channel' => 'whatsapp', 'brand_id' => $this->lld->id]);
+    expectConsentRefused(ceReply($this->owner, $threadB), ConsentRefusal::DoNotContact);
+    expectPassedConsent(ceReply($this->owner, $threadA));
+
+    // A send that names the person but no thread resolves no identity: B's denial still applies (fail closed).
+    expectConsentRefused(ceMarketing($this->owner, $customer, $this->lld->id), ConsentRefusal::DoNotContact);
+    expect(MarketingMessageTool::$executions)->toBe(0);
+
+    // The refusal audit names the deciding event, B's do-not-contact.
+    $dnc = ConsentEvent::where('customer_id', $customer->id)->where('state', 'do_not_contact')->sole();
+    expect(AuditLog::where('action', 'consent.refused')->latest('id')->firstOrFail()->after['consent_event_id'])->toBe($dnc->id)
+        ->and((int) $dnc->identity_id)->toBe($identityB->id);
+});
+
+it('never reopens service on a new inbound after a withdrawal of every purpose: an explicit, audited lift is required (ruling h)', function () {
+    $conversation = ceThread('psid-h');
+    $customer = $conversation->customer;
+
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_WITHDRAW, ['purpose' => null]);
+    expectConsentRefused(ceReply($this->owner, $conversation), ConsentRefusal::Withdrawn);
+
+    // The customer writes again: a fresh inbound Service grant is recorded, and it changes nothing.
+    ceThread('psid-h');
+    expectConsentRefused(ceReply($this->owner, $conversation->fresh()), ConsentRefusal::Withdrawn);
+    expect(app(OutboundPolicy::class)->refusal($conversation->fresh(), humanAuthor: true))->toContain('withdrawn');
+
+    // Only the explicit lift, by a person with evidence and a reason, reopens it.
+    ceOperator($this->owner, $customer, ConsentOperations::ACT_LIFT);
+    expectPassedConsent(ceReply($this->owner, $conversation->fresh()));
+    expect(AuditLog::where('action', 'consent.operator_recorded')->latest('id')->firstOrFail()->after['act'])->toBe('lift');
 });

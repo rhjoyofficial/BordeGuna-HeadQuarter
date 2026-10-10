@@ -12,16 +12,41 @@ import { Head, Link, useForm } from '@inertiajs/react';
 import { useRef } from 'react';
 
 /**
- * A customer's consent (docs/108 §7, S7). The grid is the same ledger answer the Tool Gateway gets before
- * any message; the form records an EVENT, never an edit. Restricting (withdraw, do not contact) and
- * widening (opt-in, operator-recorded consent, lift) are separate permissions.
+ * A customer's consent (docs/108 §7, S7; docs/114, the follow-ups). The grid is the same ledger answer the
+ * Tool Gateway gets before any message; the form records an EVENT, never an edit. Restricting (withdraw, do
+ * not contact) and widening (opt-in, operator-recorded consent, lift) are separate permissions.
+ *
+ * docs/114: every act may name ONE identity of the person (a phone, a PSID) or the whole customer, and a
+ * do-not-contact is lifted by two people: the form asks the gateway to park it, a second person approves it
+ * in the Approval Centre, and the pending lift is listed here until then.
  */
 
 type Cell = { permitted: boolean; refusal: string | null; event_id: number | null };
 type GridRow = { brand_id: number | null; brand: string | null; purpose: string; cells: Record<string, Cell> };
+type IdentityGridRow = {
+    identity_id: number;
+    identity: string;
+    channel: string;
+    brand_id: number | null;
+    brand: string | null;
+    cells: Record<string, Cell>;
+};
+type PendingLift = {
+    id: number;
+    uuid: string;
+    brand: string | null;
+    identity: string | null;
+    channel: string | null;
+    requested_by: string | null;
+    requested_by_id: number | null;
+    requested_at: string | null;
+    reason: string | null;
+};
 type Position = {
     brand_id: number | null;
     brand: string | null;
+    identity_id: number | null;
+    identity: string | null;
     channel: string | null;
     purpose: string | null;
     state: string;
@@ -29,10 +54,12 @@ type Position = {
     expires_at: string | null;
     last_event_id: number;
     liftable: boolean;
+    two_person: boolean;
 };
 type HistoryRow = {
     id: number;
     brand: string | null;
+    identity: string | null;
     channel: string | null;
     purpose: string | null;
     state: string;
@@ -44,16 +71,20 @@ type HistoryRow = {
     actor_type: string;
     actor_label: string | null;
     reason: string | null;
+    two_person: boolean;
 };
 type Props = {
     customer: { id: number; name: string | null; phone: string | null; business: string | null };
     brands: { id: number; code: string; name: string }[];
+    identities: { id: number; channel: string; label: string }[];
     channels: string[];
     purposes: string[];
     grid: GridRow[];
+    identity_grid: IdentityGridRow[];
     position: Position[];
     history: HistoryRow[];
-    can: { restrict: boolean; grant: boolean };
+    pending_lifts: PendingLift[];
+    can: { restrict: boolean; grant: boolean; lift_restriction: boolean };
 };
 
 const CHANNEL_NAMES: Record<string, string> = {
@@ -77,7 +108,7 @@ const ACTS: { key: string; group: 'restrict' | 'grant' }[] = [
     { key: 'lift', group: 'grant' },
 ];
 
-export default function CustomerConsent({ customer, brands, channels, purposes, grid, position, history, can }: Props) {
+export default function CustomerConsent({ customer, brands, identities, channels, purposes, grid, identity_grid, position, history, pending_lifts, can }: Props) {
     const t = useT();
     const formRef = useRef<HTMLFormElement>(null);
     const name = customer.name ?? t('Customer #{id}', { id: customer.id });
@@ -107,6 +138,7 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
               }) as Record<string, string>)[p] ?? p;
     const channelLabel = (c: string | null) => (c === null ? t('All channels') : t(CHANNEL_NAMES[c] ?? c));
     const brandLabel = (b: string | null) => b ?? t('All brands');
+    const identityLabel = (i: string | null) => i ?? t('Whole customer');
     const refusalLabel = (r: string | null) =>
         (({
             consent_do_not_contact: t('Do not contact'),
@@ -130,15 +162,16 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
             do_not_contact: t('Stops every purpose, including service replies. Beats every grant.'),
             marketing_opt_in: t('The person agreed to marketing on this channel from this brand.'),
             operator_consent: t('The person agreed to service messages on this channel.'),
-            lift: t('Ends a withdrawal or do not contact at exactly this scope. Grants nothing.'),
+            lift: t('Ends a withdrawal at exactly this scope (one person), or asks for a do-not-contact to be lifted (two people must agree). Grants nothing.'),
         })[a] ?? '';
 
-    const allowedActs = ACTS.filter((a) => (a.group === 'restrict' ? can.restrict : can.grant));
+    const allowedActs = ACTS.filter((a) => (a.key === 'lift' ? can.grant || can.lift_restriction : a.group === 'restrict' ? can.restrict : can.grant));
     const form = useForm({
         act: allowedActs[0]?.key ?? '',
         purpose: '',
         channel: '',
         brand_id: '',
+        identity_id: '',
         evidence_ref: '',
         reason: '',
         occurred_at: '',
@@ -156,6 +189,7 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
             purpose: p.purpose ?? '',
             channel: p.channel ?? '',
             brand_id: p.brand_id === null ? '' : String(p.brand_id),
+            identity_id: p.identity_id === null ? '' : String(p.identity_id),
         });
         formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -223,6 +257,96 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                 </section>
 
                 <section className="flex flex-col gap-2">
+                    <SectionHeader title={t('Per identity')} aside={t('On the channel each identity lives on')} />
+                    {identity_grid.length === 0 ? (
+                        <EmptyState title={t('No identities linked yet')} description={t('A restriction on one identity is never defeated by a grant on another.')} />
+                    ) : (
+                        <div className="bg-card overflow-x-auto rounded-xl border">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                    <tr>
+                                        <th className="px-3 py-2 font-medium">{t('Identity')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Channel')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Brand')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Service')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Marketing')}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {identity_grid.map((row) => (
+                                        <tr key={`${row.identity_id}-${row.brand_id ?? 'all'}`} className="border-t">
+                                            <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{row.identity}</td>
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">{channelLabel(row.channel)}</td>
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">{brandLabel(row.brand)}</td>
+                                            {['service', 'marketing'].map((purpose) => {
+                                                const cell = row.cells[purpose];
+                                                return (
+                                                    <td key={purpose} className="px-3 py-2" title={cell?.event_id ? `#${cell.event_id}` : undefined}>
+                                                        {cell?.permitted ? (
+                                                            <StatusBadge tone="ok" dot={false}>
+                                                                {t('Allowed')}
+                                                            </StatusBadge>
+                                                        ) : (
+                                                            <StatusBadge
+                                                                tone={cell?.refusal === 'consent_do_not_contact' ? 'danger' : cell?.refusal === 'consent_withdrawn' ? 'warn' : 'neutral'}
+                                                                dot={false}
+                                                            >
+                                                                {refusalLabel(cell?.refusal ?? null)}
+                                                            </StatusBadge>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
+
+                {pending_lifts.length > 0 && (
+                    <section className="flex flex-col gap-2">
+                        <SectionHeader title={t('Lifts waiting for a second person')} aside={t('{count} pending', { count: pending_lifts.length })} />
+                        <div className="bg-card overflow-x-auto rounded-xl border">
+                            <table className="w-full text-sm">
+                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                    <tr>
+                                        <th className="px-3 py-2 font-medium">#</th>
+                                        <th className="px-3 py-2 font-medium">{t('Scope')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Requested by')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Requested')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Reason')}</th>
+                                        <th className="px-3 py-2" />
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pending_lifts.map((l) => (
+                                        <tr key={l.uuid} className="border-t align-top">
+                                            <td className="px-3 py-2 font-mono text-xs">{l.id}</td>
+                                            <td className="px-3 py-2 text-xs">
+                                                {brandLabel(l.brand)}, {identityLabel(l.identity)}, {channelLabel(l.channel)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs break-all">{l.requested_by ?? '-'}</td>
+                                            <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap">{formatDateTime(l.requested_at)}</td>
+                                            <td className="text-muted-foreground px-3 py-2 text-xs">{l.reason ?? '-'}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <Button asChild variant="outline" size="sm">
+                                                    <Link href="/approvals">{t('Open in the Approval Centre')}</Link>
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                            {t('The requester never approves their own lift; a second person holding the lift permission decides it in the Approval Centre. The do-not-contact stays in force until then.')}
+                        </p>
+                    </section>
+                )}
+
+                <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Current position')} aside={t('{count} scopes', { count: position.length })} />
                     {position.length === 0 ? (
                         <EmptyState title={t('No consent recorded')} description={t('Nothing is allowed until something is recorded.')} />
@@ -232,6 +356,7 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                 <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Brand')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Identity')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Channel')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Purpose')}</th>
                                         <th className="px-3 py-2 font-medium">{t('State')}</th>
@@ -242,8 +367,9 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                 </thead>
                                 <tbody>
                                     {position.map((p) => (
-                                        <tr key={`${p.brand_id}-${p.channel}-${p.purpose}`} className="border-t">
+                                        <tr key={`${p.brand_id}-${p.identity_id}-${p.channel}-${p.purpose}`} className="border-t">
                                             <td className="px-3 py-2 text-xs">{brandLabel(p.brand)}</td>
+                                            <td className="px-3 py-2 font-mono text-xs">{identityLabel(p.identity)}</td>
                                             <td className="px-3 py-2 text-xs">{channelLabel(p.channel)}</td>
                                             <td className="px-3 py-2 text-xs">{purposeLabel(p.purpose)}</td>
                                             <td className="px-3 py-2">
@@ -253,11 +379,18 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap">{formatDateTime(p.effective_from)}</td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap">{formatDateTime(p.expires_at)}</td>
-                                            <td className="px-3 py-2 text-right">
-                                                {p.liftable && can.grant && (
+                                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                                                {p.liftable && (p.two_person ? can.lift_restriction : can.grant) && (
                                                     <Button variant="outline" size="sm" onClick={() => startLift(p)}>
                                                         {t('Lift')}
                                                     </Button>
+                                                )}
+                                                {p.two_person && (
+                                                    <span className="ml-2">
+                                                        <StatusBadge tone="info" dot={false}>
+                                                            {t('Two-person')}
+                                                        </StatusBadge>
+                                                    </span>
                                                 )}
                                             </td>
                                         </tr>
@@ -281,6 +414,7 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                     purpose: purposeChoice && d.purpose !== '' ? d.purpose : null,
                                     channel: d.channel === '' ? null : d.channel,
                                     brand_id: d.brand_id === '' ? null : Number(d.brand_id),
+                                    identity_id: d.identity_id === '' ? null : Number(d.identity_id),
                                     // The browser's local time, sent as an absolute instant so the server never guesses a zone.
                                     occurred_at: d.occurred_at === '' ? null : new Date(d.occurred_at).toISOString(),
                                     expires_at: expiryAllowed && d.expires_at !== '' ? new Date(d.expires_at).toISOString() : null,
@@ -341,6 +475,24 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                             {brands.map((b) => (
                                                 <option key={b.id} value={b.id}>
                                                     {b.name}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                    </Field>
+                                )}
+                                {identities.length > 0 && (
+                                    <Field
+                                        label={t('Identity')}
+                                        htmlFor="identity"
+                                        size="auto"
+                                        hint={t('One phone or account of this person, or the whole customer.')}
+                                        error={form.errors.identity_id}
+                                    >
+                                        <NativeSelect id="identity" value={form.data.identity_id} onChange={(e) => form.setData('identity_id', e.target.value)}>
+                                            <option value="">{t('Whole customer')}</option>
+                                            {identities.map((i) => (
+                                                <option key={i.id} value={i.id}>
+                                                    {i.label}
                                                 </option>
                                             ))}
                                         </NativeSelect>
@@ -437,7 +589,14 @@ export default function CustomerConsent({ customer, brands, channels, purposes, 
                                                 </StatusBadge>
                                             </td>
                                             <td className="px-3 py-2 text-xs">
-                                                {brandLabel(h.brand)}, {channelLabel(h.channel)}, {purposeLabel(h.purpose)}
+                                                {brandLabel(h.brand)}, {identityLabel(h.identity)}, {channelLabel(h.channel)}, {purposeLabel(h.purpose)}
+                                                {h.two_person ? (
+                                                    <div>
+                                                        <StatusBadge tone="info" dot={false}>
+                                                            {t('Two-person')}
+                                                        </StatusBadge>
+                                                    </div>
+                                                ) : null}
                                                 {h.expires_at ? (
                                                     <div className="text-muted-foreground">{t('Expires {at}', { at: formatDateTime(h.expires_at) })}</div>
                                                 ) : null}

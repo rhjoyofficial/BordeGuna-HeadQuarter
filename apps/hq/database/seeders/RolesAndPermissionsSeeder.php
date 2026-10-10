@@ -72,6 +72,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // which a WorkflowEngine run that only waits for a person is started. Deciding stays with
         // owner/operator until the roles are ruled (docs/113 Q4).
         'hq.followups.view', 'hq.followups.propose', 'hq.followups.decide',
+        // docs/114 (S7 follow-up, ruling (k)): asking for, and approving, the lift of a do-not-contact. Two
+        // different holders are needed for one lift; owner/operator hold it through `*`, support_agent never.
+        'hq.consent.lift_restriction',
     ];
 
     public const ROLES = [

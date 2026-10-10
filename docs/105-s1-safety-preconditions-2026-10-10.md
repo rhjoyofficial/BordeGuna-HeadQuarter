@@ -47,6 +47,7 @@ The registered tools it selects, from `config('hq.tools')`:
 | 6 | `commerce.take_order` | R4 write | ERP draft + sales order (inert: empty store list) |
 | 7 | `messaging.send_whatsapp_reply` | R3 write | WhatsApp message to a customer (inert: no provider) |
 | 8 | `commerce.cancel_sales_order` | R4 write | cancels an ERP order (inert: empty store list) |
+| 9 | `consent.lift_restriction` | R3 write | lifts a do-not-contact in HQ's own ledger under two-person control (docs/114 §3, added after this document; every call parks for a second approver, permanently human-only) |
 
 Where each of the eight stops short of the gateway today (found by reading every caller of `Tool::execute`,
 `Tool::reconcile` and the services behind the tools):

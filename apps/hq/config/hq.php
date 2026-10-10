@@ -32,6 +32,7 @@ use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\QuoteOrderTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Commerce\TakeOrderTool;
+use App\Tools\Consent\LiftRestrictionTool;
 use App\Tools\Conversation\ReadThreadTool;
 use App\Tools\Conversation\SendReplyTool;
 use App\Tools\Conversation\SendWhatsAppReplyTool;
@@ -147,6 +148,11 @@ return [
         QuoteOrderTool::class,
         GetOrderStatusTool::class,
         CancelSalesOrderTool::class,
+
+        // docs/114 §3 (S7 follow-up, ruling (k)): lifting a do-not-contact under two-person control. R3 write of
+        // HQ's own consent ledger; its policy parks EVERY call for a second person, the requester never decides
+        // it, and no agent may ever run it (permanently human-only). Reaches no provider and no customer.
+        LiftRestrictionTool::class,
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)
