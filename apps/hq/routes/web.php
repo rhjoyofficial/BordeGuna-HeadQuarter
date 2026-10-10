@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
+use App\Http\Controllers\FollowUps\FollowUpController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
@@ -171,6 +172,22 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{version:uuid}/review', [PlaybookController::class, 'review'])->middleware('permission:hq.playbooks.review')->name('review');
         Route::post('{version:uuid}/activate', [PlaybookController::class, 'activate'])->middleware('permission:hq.playbooks.activate')->name('activate');
         Route::post('{version:uuid}/retire', [PlaybookController::class, 'retire'])->middleware('permission:hq.playbooks.activate')->name('retire');
+    });
+
+    // docs/113 (S4 part 1): follow-ups and opportunities, proposal-only. Every POST is a state transition
+    // of an HQ-owned row by a named person; approval starts a WorkflowEngine run that only waits for a
+    // person. No route takes a message, a tool key or a provider; nothing here reaches a customer.
+    Route::prefix('follow-ups')->name('follow-ups.')->group(function () {
+        Route::get('/', [FollowUpController::class, 'index'])->middleware('permission:hq.followups.view')->name('index');
+        Route::post('/', [FollowUpController::class, 'store'])->middleware('permission:hq.followups.propose')->name('store');
+        Route::post('opportunities', [FollowUpController::class, 'storeOpportunity'])->middleware('permission:hq.followups.propose')->name('opportunities.store');
+        Route::post('opportunities/{opportunity:uuid}/open', [FollowUpController::class, 'openOpportunity'])->middleware('permission:hq.followups.decide')->name('opportunities.open');
+        Route::post('opportunities/{opportunity:uuid}/decline', [FollowUpController::class, 'declineOpportunity'])->middleware('permission:hq.followups.decide')->name('opportunities.decline');
+        Route::post('opportunities/{opportunity:uuid}/close', [FollowUpController::class, 'closeOpportunity'])->middleware('permission:hq.followups.decide')->name('opportunities.close');
+        Route::post('{followUp:uuid}/approve', [FollowUpController::class, 'approve'])->middleware('permission:hq.followups.decide')->name('approve');
+        Route::post('{followUp:uuid}/decline', [FollowUpController::class, 'decline'])->middleware('permission:hq.followups.decide')->name('decline');
+        Route::post('{followUp:uuid}/complete', [FollowUpController::class, 'complete'])->middleware('permission:hq.followups.decide')->name('complete');
+        Route::post('{followUp:uuid}/cancel', [FollowUpController::class, 'cancel'])->middleware('permission:hq.followups.decide')->name('cancel');
     });
 });
 

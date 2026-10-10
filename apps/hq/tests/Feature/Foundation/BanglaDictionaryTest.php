@@ -39,6 +39,8 @@ const BANGLA_SCREENS = [
     // docs/112 (S6): the playbook store.
     'js/pages/playbooks/index.tsx',
     'js/pages/playbooks/show.tsx',
+    // docs/113 (S4 part 1): follow-ups and opportunities.
+    'js/pages/follow-ups/index.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

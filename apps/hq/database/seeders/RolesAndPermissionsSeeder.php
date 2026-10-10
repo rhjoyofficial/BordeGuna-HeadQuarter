@@ -67,6 +67,11 @@ class RolesAndPermissionsSeeder extends Seeder
         // it back, `activate` is the one act that puts a version in front of an agent (and retires it). Three
         // permissions so the person who writes a rule is not, by that fact, the person who makes it live.
         'hq.playbooks.view', 'hq.playbooks.draft', 'hq.playbooks.review', 'hq.playbooks.activate',
+        // docs/113 (S4 part 1): follow-ups and opportunities. `propose` records a proposal (a plan, never a
+        // message); `decide` approves, declines, completes, cancels or closes, and is the permission under
+        // which a WorkflowEngine run that only waits for a person is started. Deciding stays with
+        // owner/operator until the roles are ruled (docs/113 Q4).
+        'hq.followups.view', 'hq.followups.propose', 'hq.followups.decide',
     ];
 
     public const ROLES = [
@@ -79,10 +84,14 @@ class RolesAndPermissionsSeeder extends Seeder
             'hq.tools.view', 'hq.approvals.view', 'hq.agents.view', 'hq.policies.view',
             // Writes the brand's guidance; a review and an activation are somebody else's acts.
             'hq.playbooks.view', 'hq.playbooks.draft',
+            // docs/113 section 4: may record a follow-up or an interest; deciding is owner/operator (Q4).
+            'hq.followups.view', 'hq.followups.propose',
         ],
         'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage',
             // The person who hears "stop messaging me" can record it; starting contact is not theirs.
-            'hq.consent.view', 'hq.consent.restrict'],
+            'hq.consent.view', 'hq.consent.restrict',
+            // docs/113 section 4: the person who hears a promise can record it.
+            'hq.followups.view', 'hq.followups.propose'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view', 'hq.ai.cost.view'],
     ];
 

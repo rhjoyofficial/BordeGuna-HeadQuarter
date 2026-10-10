@@ -165,6 +165,12 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST playbooks', 'PUT playbooks/{version}', 'POST playbooks/{version}/submit', 'POST playbooks/{version}/withdraw',
         'POST playbooks/{version}/review', 'POST playbooks/{version}/activate', 'POST playbooks/{version}/retire',
         'POST flags', 'POST flags/{flag}/toggle',
+        // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
+        // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.
+        // No route takes a message, a tool key or a provider; nothing reaches a customer.
+        'POST follow-ups', 'POST follow-ups/opportunities',
+        'POST follow-ups/opportunities/{opportunity}/close', 'POST follow-ups/opportunities/{opportunity}/decline', 'POST follow-ups/opportunities/{opportunity}/open',
+        'POST follow-ups/{followUp}/approve', 'POST follow-ups/{followUp}/cancel', 'POST follow-ups/{followUp}/complete', 'POST follow-ups/{followUp}/decline',
         'POST inbox/{conversation}/assign', 'POST inbox/{conversation}/close', 'POST inbox/{conversation}/comparisons/{comparison}/verdict',
         'POST inbox/{conversation}/memory/{memory}/forget', 'POST inbox/{conversation}/note', 'POST inbox/{conversation}/proposals/{run}/decide',
         'POST inbox/{conversation}/remember', 'POST inbox/{conversation}/reply', 'POST inbox/{conversation}/resolve',

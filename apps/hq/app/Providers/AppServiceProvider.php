@@ -19,6 +19,8 @@ use App\Connectors\Legacy\LegacyConnectors;
 use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\RubricGrader;
+use App\FollowUps\Outcomes\FollowUpOutcomeLink;
+use App\FollowUps\Outcomes\NoFollowUpOutcomeLink;
 use App\Gateway\Credentials\CredentialHealth;
 use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
@@ -55,6 +57,8 @@ class AppServiceProvider extends ServiceProvider
         // docs/102: the workflow seam. The catalogue is empty in production config, so nothing can start.
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
         $this->app->bind(WorkflowEngine::class, HqWorkflowEngine::class);
+        // docs/113 section 10: S4's only seam to the S3 outcome model; nothing until docs/107 is ruled on.
+        $this->app->bind(FollowUpOutcomeLink::class, NoFollowUpOutcomeLink::class);
         // The vault holds the credentials open for the CURRENT call. Every consumer must share
         // one instance or the scope the gateway opens is invisible to the connector that needs it.
         $this->app->singleton(CredentialVault::class);

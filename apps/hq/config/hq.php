@@ -3,6 +3,7 @@
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\OpenAiProvider;
 use App\Briefing\ExecutiveBriefingContract;
+use App\FollowUps\Workflow\FollowUpWorkflow;
 use App\Observe\Alerts\Rules\AiBudgetPressure;
 use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
 use App\Observe\Alerts\Rules\CredentialExpiring;
@@ -354,7 +355,10 @@ return [
     // docs/102: the HQ-native WorkflowEngine. ⛔ `definitions` is EMPTY in this release: a type that is
     // not listed cannot be started, so nothing runs. Tests register their own.
     'workflows' => [
-        'definitions' => [],
+        // docs/113 section 7 (S4 part 1): the first listed type. It sleeps until a follow-up is due and
+        // then waits for a person; it has no tool step, so a run has no effect. Started only by a person
+        // approving a follow-up. Listing it schedules nothing by itself.
+        'definitions' => [FollowUpWorkflow::class],
         // Longer than the scheduler queue's job timeout, so an expired lease means a dead worker.
         'lease_seconds' => 300,
         'default_max_attempts' => 3,
