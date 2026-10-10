@@ -77,6 +77,10 @@ final class RetentionPolicy
         'outcomes',
         'outcome_result_refs',
         'outcome_attributions',
+        // docs/117: the quarantine flags on cross-business relationships and the human reviews of them are
+        // the lineage a future repair rests on (ruling docs/110 §5 (m)). Append-only and kept forever.
+        'cross_business_quarantines',
+        'cross_business_quarantine_reviews',
     ];
 
     /**
