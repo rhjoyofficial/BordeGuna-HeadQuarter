@@ -18,7 +18,7 @@ Main = **`a8a6410`**, pushed.
 - Each branch alone: full suite green (1,857 / 1,857 / 1,875 / 1,863+34 / 1,857), Pint, `tsc`, Vite where frontend changed.
 - **Combined tree, first run: 1,940 passed, 1 failed.** The failure was cross-stream and invisible to any single branch: S2's Customer 360 test pins the set of write routes under `/customers`; S7 added `POST customers/{customer}/consent`. Fixed in `a8a6410` by naming the S7 route in the pin deliberately and comparing sorted. (Also: S2 and S7 both edited the customer page, the Bangla dictionary and its registry test; resolved by keeping both, 7 identical dictionary keys deduplicated, S2's page with S7's Consent history button.)
 - **Combined tree after the fix: 1,941 passed, 0 failed, 25,264 assertions.** Pint passed, `tsc --noEmit` clean, `vite build` clean.
-- **GitHub Actions run 38029016996 on `a8a6410`: CI_RESULT_PLACEHOLDER**
+- **GitHub Actions run 38029016996 on `a8a6410`: SUCCESS**, all three jobs (Pest + Pint + TypeScript + Vite on PostgreSQL 17 / Redis 7; deployment/backup safety invariant; production image builds).
 
 ## 3. S1: safety preconditions (docs/105)
 - `SupportWakeUp::settle()` now settles an executed reply: accepted only when the gateway's `tool_calls` row confirms `messaging.send_reply` succeeded/replayed for this thread; records `conversation.reply_sent`; thread goes to `ai_waiting`; an `uncertain` delivery or an unconfirmed record goes to a person with the reason. The A1 cap is NOT lifted (test: a grant and ceiling of A3 still resolve to A1, reply stays a proposal, no outbound).
