@@ -57,6 +57,11 @@ class RolesAndPermissionsSeeder extends Seeder
         // Phase 3 (docs/72 C): the operator inbox. `view` reads threads; `manage` takes them over,
         // resolves them, and is the permission the reply tool requires of a human.
         'hq.inbox.view', 'hq.inbox.manage',
+
+        // docs/108 (S7): consent operations. `restrict` records a withdrawal or a do-not-contact (it can
+        // only ever stop contact); `grant` records an opt-in, operator-recorded consent or a lift (it can
+        // start contact), so the two are never one permission.
+        'hq.consent.view', 'hq.consent.restrict', 'hq.consent.grant',
     ];
 
     public const ROLES = [
@@ -68,7 +73,9 @@ class RolesAndPermissionsSeeder extends Seeder
             // Sees what the control plane holds; changes none of it.
             'hq.tools.view', 'hq.approvals.view', 'hq.agents.view', 'hq.policies.view',
         ],
-        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage'],
+        'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage',
+            // The person who hears "stop messaging me" can record it; starting contact is not theirs.
+            'hq.consent.view', 'hq.consent.restrict'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view', 'hq.ai.cost.view'],
     ];
 

@@ -8,6 +8,7 @@ use App\Support\Audit\Auditor;
 use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * The append-only consent ledger and its projection (ADR-021).
@@ -19,19 +20,24 @@ use Illuminate\Support\Facades\DB;
  *
  * ## The resolution rule, stated once
  *
- * A request names a channel and a purpose. Events may be recorded at four levels of scope: exactly
- * that channel and purpose, that purpose on every channel, every purpose on that channel, or
- * everything for this business. For each of the four, the latest event at or before the instant is
- * taken.
+ * A request names a brand (or none), a channel and a purpose. Events may be recorded at up to eight
+ * levels of scope: each of brand, channel and purpose either specific or "all" (null on the event).
+ * For each scope, the latest event at or before the instant is taken (docs/108 §3). A brand-scoped
+ * event when the request names no brand: a denial still applies (fail closed), a grant does not.
  *
  * **Then: any denial wins.** A person-level "do not contact" cannot be overridden by a
  * channel-level grant recorded afterwards, because the broad refusal is a statement about the
  * person and the narrow grant is a statement about a channel. Getting this backwards is how a
  * business keeps messaging somebody who asked it to stop.
  *
- * If nothing denies and at least one live grant applies, it is permitted. Otherwise it is not:
- * silence is never consent, and `ConsentPurpose::permittedWithoutRecord()` returns false for every
- * purpose including service, deliberately.
+ * If nothing denies and at least one live QUALIFYING grant applies, it is permitted. Otherwise it is
+ * not: silence is never consent, and `ConsentPurpose::permittedWithoutRecord()` returns false for
+ * every purpose including service, deliberately. For an opt-in purpose (marketing and the others,
+ * `ConsentPurpose::requiresOptIn()`) only a grant of exactly that purpose on a basis that can
+ * evidence an opt-in qualifies; a wildcard grant or a customer's message never does (docs/108 §3.4).
+ *
+ * `lifted` is neutral at its scope: as the latest event there it ends a restriction recorded at that
+ * same scope and grants nothing.
  */
 final readonly class ConsentLedger
 {
@@ -53,6 +59,16 @@ final readonly class ConsentLedger
         array $attributes = [],
     ): ConsentEvent {
         $purposeValue = $purpose instanceof ConsentPurpose ? $purpose->value : $purpose;
+
+        // docs/108 §3.4, defence in depth: an opt-in purpose is never GRANTED on a basis that cannot
+        // evidence an opt-in. The resolution rule would not count such a row anyway; refusing to
+        // write it keeps the ledger from ever appearing to hold permission it does not.
+        $purposeEnum = $purposeValue === null ? null : ConsentPurpose::from($purposeValue);
+        if ($state === ConsentState::Granted && $purposeEnum?->requiresOptIn() && ! $basis->evidencesOptIn()) {
+            throw new InvalidArgumentException(
+                "A [{$purposeEnum->value}] grant needs an opt-in; basis [{$basis->value}] cannot evidence one."
+            );
+        }
 
         return DB::transaction(function () use ($customerId, $businessId, $purposeValue, $state, $basis, $channel, $occurredAt, $attributes) {
             $event = ConsentEvent::create([
@@ -86,7 +102,7 @@ final readonly class ConsentLedger
             $this->auditor->record('consent.recorded', $event, after: [
                 'customer_id' => $customerId, 'business_id' => $businessId,
                 'channel' => $channel, 'purpose' => $purposeValue, 'state' => $state->value,
-                'basis' => $basis->value,
+                'basis' => $basis->value, 'brand_id' => $attributes['brand_id'] ?? null,
             ], reason: $attributes['reason'] ?? null);
 
             return $event;
@@ -94,9 +110,9 @@ final readonly class ConsentLedger
     }
 
     /** Is contacting this person permitted RIGHT NOW. */
-    public function permits(int $customerId, int $businessId, ?string $channel, ConsentPurpose $purpose): ConsentDecision
+    public function permits(int $customerId, int $businessId, ?string $channel, ConsentPurpose $purpose, ?int $brandId = null): ConsentDecision
     {
-        return $this->permittedAt($customerId, $businessId, $channel, $purpose, now());
+        return $this->permittedAt($customerId, $businessId, $channel, $purpose, now(), $brandId);
     }
 
     /**
@@ -111,6 +127,7 @@ final readonly class ConsentLedger
         ?string $channel,
         ConsentPurpose $purpose,
         DateTimeInterface $at,
+        ?int $brandId = null,
     ): ConsentDecision {
         $instant = Carbon::instance(Carbon::parse($at));
 
@@ -120,58 +137,109 @@ final readonly class ConsentLedger
             ->where('occurred_at', '<=', $instant)
             ->where(fn ($q) => $q->whereNull('channel')->orWhere('channel', $channel))
             ->where(fn ($q) => $q->whereNull('purpose')->orWhere('purpose', $purpose->value))
+            // A brand-scoped event is read when the request names that brand, and ALSO when it names
+            // none: such a denial must still apply (fail closed). Such a grant is skipped below.
+            ->when($brandId !== null, fn ($q) => $q->where(fn ($w) => $w->whereNull('brand_id')->orWhere('brand_id', $brandId)))
             ->orderBy('occurred_at')
             ->orderBy('id')
             ->get();
 
+        $optIn = $purpose->requiresOptIn();
+
         if ($events->isEmpty()) {
             return ConsentDecision::unrecorded(
                 "no consent event has ever been recorded for customer {$customerId}, business {$businessId}, "
-                .'channel ['.($channel ?? 'any')."], purpose [{$purpose->value}]"
+                .'brand ['.($brandId ?? 'any').'], channel ['.($channel ?? 'any')."], purpose [{$purpose->value}]",
+                $optIn ? ConsentRefusal::OptInMissing : ConsentRefusal::NotRecorded,
             );
         }
 
-        // The latest event at each of the four scopes. A narrower scope does not outrank a broader
-        // refusal; see the class docblock.
+        // The latest event at each scope. A narrower scope does not outrank a broader refusal; see the
+        // class docblock. Brand is part of the scope (docs/108 §3.2).
         $latest = [];
         foreach ($events as $event) {
-            $scope = ($event->channel ?? '*').'|'.($event->purpose?->value ?? '*');
+            $scope = ($event->brand_id ?? '*').'|'.($event->channel ?? '*').'|'.($event->purpose?->value ?? '*');
             $latest[$scope] = $event;
         }
 
-        $grant = null;
-        foreach ($latest as $event) {
-            $state = $event->state;
-
-            if ($state === ConsentState::DoNotContact) {
-                return ConsentDecision::refuse(
-                    "customer {$customerId} is marked do-not-contact by consent event #{$event->id}",
-                    $event, $state,
-                );
-            }
-
-            if ($state === ConsentState::Withdrawn) {
-                return ConsentDecision::refuse("consent was withdrawn by event #{$event->id}", $event, $state);
-            }
-
-            if ($state === ConsentState::Expired) {
-                return ConsentDecision::refuse("consent expired, recorded by event #{$event->id}", $event, $state);
-            }
-
-            if ($state === ConsentState::Granted) {
-                if ($event->expires_at !== null && $event->expires_at->lessThanOrEqualTo($instant)) {
-                    return ConsentDecision::refuse(
-                        "the grant in event #{$event->id} expired at {$event->expires_at->toIso8601String()}",
-                        $event, ConsentState::Expired,
-                    );
+        // Denials first, strongest first, whatever order the scopes were met in: do-not-contact beats
+        // everything, then a withdrawal, then a recorded expiry.
+        foreach ([ConsentState::DoNotContact, ConsentState::Withdrawn, ConsentState::Expired] as $denial) {
+            foreach ($latest as $event) {
+                if ($event->state !== $denial) {
+                    continue;
                 }
-                $grant ??= $event;
+
+                return match ($denial) {
+                    ConsentState::DoNotContact => ConsentDecision::refuse(
+                        "customer {$customerId} is marked do-not-contact by consent event #{$event->id}", $event, $denial),
+                    ConsentState::Withdrawn => ConsentDecision::refuse("consent was withdrawn by event #{$event->id}", $event, $denial),
+                    default => ConsentDecision::refuse("consent expired, recorded by event #{$event->id}", $event, $denial),
+                };
             }
         }
 
-        return $grant !== null
-            ? ConsentDecision::permit($grant)
-            : ConsentDecision::unrecorded("no live grant applies for purpose [{$purpose->value}]");
+        $grant = null;
+        $expired = null;
+        $unqualified = null;
+        foreach ($latest as $event) {
+            if ($event->state !== ConsentState::Granted) {
+                continue; // `lifted`: neutral at its scope
+            }
+            if ($event->brand_id !== null && $brandId === null) {
+                continue; // a brand's grant never covers a send whose brand is unknown
+            }
+            if ($optIn && ($event->purpose !== $purpose || ! $event->basis->evidencesOptIn())) {
+                $unqualified ??= $event;
+
+                continue;
+            }
+            if ($event->expires_at !== null && $event->expires_at->lessThanOrEqualTo($instant)) {
+                $expired ??= $event;
+
+                continue;
+            }
+            $grant ??= $event;
+        }
+
+        if ($grant !== null) {
+            return ConsentDecision::permit($grant);
+        }
+
+        if ($expired !== null) {
+            return ConsentDecision::refuse(
+                "the grant in event #{$expired->id} expired at {$expired->expires_at->toIso8601String()}",
+                $expired, ConsentState::Expired,
+            );
+        }
+
+        if ($optIn) {
+            return ConsentDecision::unrecorded(
+                "[{$purpose->value}] needs its own opt-in and none applies"
+                .($unqualified !== null ? " (event #{$unqualified->id} is not an opt-in for this purpose)" : ''),
+                ConsentRefusal::OptInMissing,
+            );
+        }
+
+        return ConsentDecision::unrecorded("no live grant applies for purpose [{$purpose->value}]");
+    }
+
+    /**
+     * The latest event recorded at EXACTLY this scope (null = "all" for that dimension), at or before
+     * now. What a lift checks (docs/108 §5): only a restriction standing at the same scope may be lifted.
+     */
+    public function latestAtScope(int $customerId, int $businessId, ?int $brandId, ?string $channel, ?string $purpose): ?ConsentEvent
+    {
+        return ConsentEvent::query()
+            ->where('customer_id', $customerId)
+            ->where('business_id', $businessId)
+            ->where('occurred_at', '<=', now())
+            ->when($brandId === null, fn ($q) => $q->whereNull('brand_id'), fn ($q) => $q->where('brand_id', $brandId))
+            ->when($channel === null, fn ($q) => $q->whereNull('channel'), fn ($q) => $q->where('channel', $channel))
+            ->when($purpose === null, fn ($q) => $q->whereNull('purpose'), fn ($q) => $q->where('purpose', $purpose))
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /** Rewrite the projection row this event affects. */
@@ -181,6 +249,7 @@ final readonly class ConsentLedger
             [
                 'customer_id' => $event->customer_id,
                 'business_id' => $event->business_id,
+                'brand_id' => $event->brand_id,
                 'channel' => $event->channel,
                 'purpose' => $event->purpose?->value,
             ],

@@ -32,7 +32,7 @@ final readonly class OutboundPolicy
         }
 
         // Suppression: a person who said stop is not contacted, whoever is typing.
-        $decision = $this->consent->permits($conversation->customer_id, $conversation->business_id, $conversation->channel->value, ConsentPurpose::Service);
+        $decision = $this->consent->permits($conversation->customer_id, $conversation->business_id, $conversation->channel->value, ConsentPurpose::Service, $conversation->brand_id);
         if (! $decision->permitted) {
             return 'consent does not permit contacting this person on this channel: '.$decision->reason;
         }

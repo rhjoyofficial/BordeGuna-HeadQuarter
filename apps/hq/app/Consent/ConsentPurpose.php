@@ -40,4 +40,14 @@ enum ConsentPurpose: string
     {
         return false;
     }
+
+    /**
+     * docs/108 §3.4: whether this purpose needs its OWN opt-in. Only a grant of exactly this purpose,
+     * on a basis that can evidence an opt-in, satisfies it; a wildcard grant (purpose null) or a
+     * customer's message never does. Service is the one purpose a broader grant may cover.
+     */
+    public function requiresOptIn(): bool
+    {
+        return $this !== self::Service;
+    }
 }

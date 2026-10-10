@@ -26,7 +26,7 @@ final readonly class ConsentGate
 {
     public function __construct(private ConsentLedger $ledger) {}
 
-    /** @return ConsentDecision permitted, or refused with the reason and the deciding event */
+    /** @return ConsentDecision permitted, or refused with the reason, the refusal class and the deciding event */
     public function check(ToolDescriptor $descriptor, ToolRequest $request, array $args, ?int $businessId): ConsentDecision
     {
         $requirement = $descriptor->consentRequired;
@@ -37,23 +37,32 @@ final readonly class ConsentGate
 
         if ($businessId === null) {
             return ConsentDecision::unrecorded(
-                "[{$descriptor->key}] requires consent but the call resolved to no business, so there is nothing to check consent against"
+                "[{$descriptor->key}] requires consent but the call resolved to no business, so there is nothing to check consent against",
+                ConsentRefusal::SubjectUnresolved,
             );
         }
 
-        $customerId = $this->subject($requirement, $args);
-        if ($customerId === null) {
+        $subject = $this->subject($requirement, $args);
+        if ($subject === null) {
             return ConsentDecision::unrecorded(
-                "[{$descriptor->key}] requires consent but [{$requirement->subjectFrom}] resolved to no customer"
+                "[{$descriptor->key}] requires consent but [{$requirement->subjectFrom}] resolved to no customer",
+                ConsentRefusal::SubjectUnresolved,
             );
         }
+        [$customerId, $threadBrandId] = $subject;
 
         $channel = ($requirement->channel ?? $descriptor->channel)->value;
 
-        return $this->ledger->permits($customerId, $businessId, $channel, $requirement->purpose);
+        // docs/108 §4: the brand the send is made under. The thread's own brand when the subject came
+        // from a thread (never an id the caller typed), else the request's brand. Unknown brand is
+        // fail-closed in the ledger: a brand's denial applies, a brand's grant does not.
+        $brandId = $threadBrandId ?? $request->brandId;
+
+        return $this->ledger->permits($customerId, $businessId, $channel, $requirement->purpose, $brandId);
     }
 
-    private function subject(ConsentRequirement $requirement, array $args): ?int
+    /** @return array{0: int, 1: ?int}|null the customer id and, for a thread subject, the thread's brand */
+    private function subject(ConsentRequirement $requirement, array $args): ?array
     {
         $path = $requirement->subjectFrom;
 
@@ -65,9 +74,12 @@ final readonly class ConsentGate
             if (! is_string($uuid) || $uuid === '') {
                 return null;
             }
-            $customerId = Conversation::query()->where('uuid', $uuid)->value('customer_id');
+            $row = Conversation::query()->where('uuid', $uuid)->first(['customer_id', 'brand_id']);
+            if ($row === null || $row->customer_id === null) {
+                return null;
+            }
 
-            return $customerId === null ? null : (int) $customerId;
+            return [(int) $row->customer_id, $row->brand_id === null ? null : (int) $row->brand_id];
         }
 
         if (! str_starts_with($path, 'args.')) {
@@ -76,6 +88,6 @@ final readonly class ConsentGate
 
         $value = data_get($args, substr($path, 5));
 
-        return is_numeric($value) ? (int) $value : null;
+        return is_numeric($value) ? [(int) $value, null] : null;
     }
 }

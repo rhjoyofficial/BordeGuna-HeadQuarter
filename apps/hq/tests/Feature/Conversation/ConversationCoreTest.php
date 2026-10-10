@@ -90,10 +90,14 @@ it('ingests a first message into a thread for the page\'s business and brand, a 
     // and the message is dated, so "now" walked out of it the day after this was written.
     $ledger = app(ConsentLedger::class);
     $inWindow = CarbonImmutable::parse('2026-09-13T10:05:00+06:00');
-    expect($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow)->permitted)->toBeTrue()
-        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Marketing, $inWindow)->permitted)->toBeFalse()
-        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service, $inWindow)->permitted)->toBeFalse()
-        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow->addHours(25))->permitted)->toBeFalse();
+    // docs/108: the grant is the receiving page's BRAND's, so the question names the thread's brand.
+    $brand = $conversation->brand_id;
+    expect($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow, $brand)->permitted)->toBeTrue()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Marketing, $inWindow, $brand)->permitted)->toBeFalse()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service, $inWindow, $brand)->permitted)->toBeFalse()
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow->addHours(25), $brand)->permitted)->toBeFalse()
+        // A brand's grant never covers a send whose brand is unknown.
+        ->and($ledger->permittedAt($customer->id, $conversation->business_id, 'messenger', ConsentPurpose::Service, $inWindow)->permitted)->toBeFalse();
 
     $event = DomainEvent::where('type', 'conversation.message_received')->sole();
     expect($event->aggregate_id)->toBe($conversation->uuid)

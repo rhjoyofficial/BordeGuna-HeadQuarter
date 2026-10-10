@@ -2,7 +2,9 @@
 
 namespace App\Gateway;
 
+use App\Consent\ConsentDecision;
 use App\Consent\ConsentGate;
+use App\Consent\ConsentRefusal;
 use App\Execution\ExecutionContextResolver;
 use App\Gateway\Approval\ApprovalGuard;
 use App\Gateway\Approval\ApprovalService;
@@ -221,10 +223,19 @@ final class ToolGateway
         //     the newest channel. It sits below policy because a call policy already denies needs
         //     no consent lookup, and above execution because consent is not something to discover
         //     afterwards.
+        //
+        //     docs/108 (S7): the refusal names its consent class (do-not-contact, withdrawn, opt-in
+        //     missing...) inside the reason, and an executing call writes its own `consent.refused`
+        //     audit row as the acting identity. The read-only `authorize()` path writes nothing.
         $consent = $this->consent->check($descriptor, $request, $args, $scope->businessId);
         if (! $consent->permitted) {
+            $refusal = ($consent->refusal ?? ConsentRefusal::NotRecorded)->value;
+            if ($call !== null) {
+                $this->auditConsentRefusal($request, $descriptor, $call, $consent, $scope->businessId);
+            }
+
             return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused, OutcomeClass::ConsentDenied,
-                'consent refused: '.$consent->reason, $tool, $args, $scope, $decision);
+                "consent refused: [{$refusal}] ".$consent->reason, $tool, $args, $scope, $decision);
         }
 
         return new GatewayAuthorization(
@@ -648,6 +659,38 @@ final class ToolGateway
             // An audit failure must not swallow a completed tool call: the tool_calls row already
             // holds the truth, and losing it too would make a bad moment worse.
             Log::warning('gateway: audit write failed', ['tool' => $request->toolKey, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * docs/108 §4: a send consent refused is its own audit row, beside the generic denial, so "who was
+     * stopped from contacting whom, under which rule, decided by which event" is one query.
+     */
+    private function auditConsentRefusal(ToolRequest $request, ToolDescriptor $descriptor, ToolCall $call, ConsentDecision $consent, ?int $businessId): void
+    {
+        $context = [
+            'tool_call_id' => $call->id,
+            'tool_key' => $request->toolKey,
+            'caller' => $request->caller->value,
+            'business_id' => $businessId,
+            'brand_id' => $request->brandId,
+            'purpose' => $descriptor->consentRequired?->purpose->value,
+            'channel' => ($descriptor->consentRequired?->channel ?? $descriptor->channel)->value,
+            'refusal' => $consent->refusal?->value,
+            'consent_event_id' => $consent->eventId,
+            'state' => $consent->state?->value,
+        ];
+
+        try {
+            $identity = $request->identity;
+            if ($identity->isAgent() && $identity->agent !== null) {
+                $this->auditor->recordAgent($identity->agent->key, 'consent.refused', 'tool_calls', after: $context, reason: $consent->reason);
+            } else {
+                $this->auditor->record('consent.refused', 'tool_calls', after: $context, reason: $consent->reason,
+                    actorUserId: $identity->enablingUser()?->getKey());
+            }
+        } catch (Throwable $e) {
+            Log::warning('gateway: consent refusal audit write failed', ['tool' => $request->toolKey, 'error' => $e->getMessage()]);
         }
     }
 

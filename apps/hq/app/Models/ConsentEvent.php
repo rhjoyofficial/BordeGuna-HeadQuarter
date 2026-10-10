@@ -54,6 +54,11 @@ class ConsentEvent extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function brand(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class);
+    }
+
     public function business(): BelongsTo
     {
         return $this->belongsTo(Business::class);
