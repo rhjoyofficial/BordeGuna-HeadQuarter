@@ -225,7 +225,9 @@ export default function CustomerShow(props: Props) {
                     title={name}
                     description={
                         customer.business
-                            ? t('A customer of {business} only. Read-only: nothing on this page changes anything.', { business: customer.business.name })
+                            ? t('A customer of {business} only. Read-only: nothing on this page changes anything.', {
+                                  business: customer.business.name,
+                              })
                             : t('Read-only: nothing on this page changes anything.')
                     }
                 />
@@ -273,8 +275,16 @@ export default function CustomerShow(props: Props) {
                                     label: 'Notes',
                                     render: (m) => (
                                         <div className="flex flex-wrap gap-1">
-                                            {m.undone && <StatusBadge tone="neutral" dot={false}>{t('undone')}</StatusBadge>}
-                                            {m.cross_business && <StatusBadge tone="danger" dot={false}>{t('across businesses: not allowed')}</StatusBadge>}
+                                            {m.undone && (
+                                                <StatusBadge tone="neutral" dot={false}>
+                                                    {t('undone')}
+                                                </StatusBadge>
+                                            )}
+                                            {m.cross_business && (
+                                                <StatusBadge tone="danger" dot={false}>
+                                                    {t('across businesses: not allowed')}
+                                                </StatusBadge>
+                                            )}
                                         </div>
                                     ),
                                 },
@@ -319,7 +329,11 @@ export default function CustomerShow(props: Props) {
                             {
                                 key: 'other',
                                 label: 'Possible duplicate',
-                                render: (c) => <Link href={`/customers/${c.other_id}`} className="underline">{t('Customer #{id}', { id: c.other_id })}</Link>,
+                                render: (c) => (
+                                    <Link href={`/customers/${c.other_id}`} className="underline">
+                                        {t('Customer #{id}', { id: c.other_id })}
+                                    </Link>
+                                ),
                             },
                             { key: 'reason', label: 'Why', render: (c) => orDash(c.reason) },
                             { key: 'confidence', label: 'Confidence', align: 'right', render: (c) => orDash(c.confidence) },
@@ -360,7 +374,9 @@ export default function CustomerShow(props: Props) {
                                     o.owner_system === 'erp' ? (
                                         <span>
                                             {t('ERP')}
-                                            {o.erp_order_number ? <span className="text-muted-foreground font-mono text-xs"> {o.erp_order_number}</span> : null}
+                                            {o.erp_order_number ? (
+                                                <span className="text-muted-foreground font-mono text-xs"> {o.erp_order_number}</span>
+                                            ) : null}
                                         </span>
                                     ) : (
                                         <span>
@@ -369,14 +385,22 @@ export default function CustomerShow(props: Props) {
                                         </span>
                                     ),
                             },
-                            { key: 'source', label: 'Came in by', render: (o) => orDash(o.source ? humanKey(o.source) : o.provenance ? humanKey(o.provenance) : null) },
+                            {
+                                key: 'source',
+                                label: 'Came in by',
+                                render: (o) => orDash(o.source ? humanKey(o.source) : o.provenance ? humanKey(o.provenance) : null),
+                            },
                             {
                                 key: 'status',
                                 label: 'Status in the copy',
                                 render: (o) => (
                                     <div className="flex flex-wrap gap-1">
                                         <StatusBadge status={o.status} />
-                                        {o.payment_status && <StatusBadge status={o.payment_status} dot={false}>{humanKey(o.payment_status).toLowerCase()}</StatusBadge>}
+                                        {o.payment_status && (
+                                            <StatusBadge status={o.payment_status} dot={false}>
+                                                {humanKey(o.payment_status).toLowerCase()}
+                                            </StatusBadge>
+                                        )}
                                     </div>
                                 ),
                             },
@@ -391,7 +415,9 @@ export default function CustomerShow(props: Props) {
                 <Section
                     kind="observed"
                     title="Conversations"
-                    aside={conversations ? t('{shown} of {total} shown', { shown: conversations.rows.length, total: conversations.total }) : undefined}
+                    aside={
+                        conversations ? t('{shown} of {total} shown', { shown: conversations.rows.length, total: conversations.total }) : undefined
+                    }
                     explain="Threads with this customer in this business. Open a thread in the inbox to read it."
                 >
                     {conversations === null ? (
@@ -435,7 +461,11 @@ export default function CustomerShow(props: Props) {
                             rows={handovers.rows}
                             empty="No hand-overs recorded."
                             columns={[
-                                { key: 'direction', label: 'Direction', render: (h) => (h.direction === 'to_person' ? t('Agent to a person') : t('A person to the agent')) },
+                                {
+                                    key: 'direction',
+                                    label: 'Direction',
+                                    render: (h) => (h.direction === 'to_person' ? t('Agent to a person') : t('A person to the agent')),
+                                },
                                 { key: 'reason', label: 'Reason', render: (h) => (h.label ? t(h.label) : '-') },
                                 { key: 'by', label: 'By', render: (h) => h.by ?? t('the system') },
                                 {
@@ -476,9 +506,13 @@ export default function CustomerShow(props: Props) {
                                     label: 'Current',
                                     render: (m) =>
                                         m.current ? (
-                                            <StatusBadge tone="ok" dot={false}>{t('current')}</StatusBadge>
+                                            <StatusBadge tone="ok" dot={false}>
+                                                {t('current')}
+                                            </StatusBadge>
                                         ) : (
-                                            <StatusBadge tone="neutral" dot={false}>{t('closed')}</StatusBadge>
+                                            <StatusBadge tone="neutral" dot={false}>
+                                                {t('closed')}
+                                            </StatusBadge>
                                         ),
                                 },
                                 { key: 'at', label: 'When', render: (m) => formatDateTime(m.at) },
@@ -543,7 +577,11 @@ export default function CustomerShow(props: Props) {
                 </Section>
 
                 {/* Outcomes: S3 placeholder */}
-                <Section kind="placeholder" title="Outcomes" explain="Waits for the canonical outcome model (S3). Nothing is computed here until it is agreed.">
+                <Section
+                    kind="placeholder"
+                    title="Outcomes"
+                    explain="Waits for the canonical outcome model (S3). Nothing is computed here until it is agreed."
+                >
                     <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{t('Not built yet.')}</div>
                 </Section>
             </div>
