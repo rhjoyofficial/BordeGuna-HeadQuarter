@@ -8,6 +8,7 @@ use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
 use App\Observe\Alerts\Rules\CredentialExpiring;
 use App\Observe\Alerts\Rules\EventsDeadLettered;
 use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
+use App\Observe\Alerts\Rules\GuardGatewayDisagreement;
 use App\Observe\Alerts\Rules\HorizonDown;
 use App\Observe\Alerts\Rules\HostDisk;
 use App\Observe\Alerts\Rules\HostMemory;
@@ -536,6 +537,8 @@ return [
             HostDisk::class,
             HostMemory::class,
             WebhookSignatureFailures::class,
+            // docs/116 (ruling 110 §2g): a guard refusing what the gateway would authorize, as a pattern only.
+            GuardGatewayDisagreement::class,
         ],
 
         // A condition must be absent on this many consecutive checks before its alert resolves, so a
@@ -558,6 +561,8 @@ return [
             'disk_critical_percent' => 90,
             'memory_min_available_mb' => 1024,
             'webhook_signature_failures' => ['count' => 10, 'window_hours' => 2],
+            // docs/116: one disagreement is audit only; this many for one agent in the window is a pattern.
+            'guard_gateway_disagreement' => ['count' => 3, 'window_hours' => 24],
         ],
     ],
 ];
