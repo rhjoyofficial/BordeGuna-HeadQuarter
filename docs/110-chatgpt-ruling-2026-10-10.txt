@@ -1,0 +1,86 @@
+# HQ Wave 1 — Consolidated Architecture Rulings
+
+Apply the following rulings to the Wave 1 report on main `a8a6410`. These decisions approve engineering direction, not a production release.
+
+## 1. Cost attribution
+
+**(a) APPROVE.** Keep `cost_usd = COALESCE(provider_cost, estimated_cost)` per AI call. Preserve the separate provider-reported and estimated fields. Never invent provider costs.
+
+**(b) APPROVE WITH A DRY-RUN/OWNER GATE.** A bounded historical backfill of runs #45/#46 and earlier eligible evaluation runs is permitted after the relevant code is released. First run the backfill in dry-run mode and report eligibility counts, missing evidence, proposed updates and totals. Only complete, verifiable source evidence may be applied. Joy explicitly authorizes `--apply` after reviewing the dry-run. Backfill must never alter evaluation verdicts. Preserve unknown costs as unaccounted.
+
+**(c) APPROVE AS A SEPARATE FIX.** Repair the case where calls made before `AgentRunner::run()` throws are lost from cost attribution. Persist attribution from durable call/correlation evidence where available. Do not fabricate missing calls or costs. Complete and test this fix before the next evaluation gate that relies on cost completeness.
+
+## 2. S1 — Gateway and Support settlement
+
+**(d) CONFIRM `conversation.reply_sent`.** Retain it as HQ's normalized operation-level settlement event. Emit it only after Gateway evidence confirms the operation succeeded or was safely recognized as replayed. Keep provider events—accepted, delivered, failed—separate. Do not equate operation settlement with delivery confirmation.
+
+**(e) CONFIRM CONSERVATIVE HANDOVER.** Preserve the current Q1 rule: a second inbound while `ai_waiting` goes to a person. This remains the rule after any future A1-cap lift unless a later evidence-based ruling changes it. Do not widen Support re-entry in this wave.
+
+**(f) RETIRE THE BYPASS.** Effectful scheduled tools must always go through Tool Gateway. Remove the obsolete `scheduler.gateway` control only after checking that no legitimate consumers remain. Do not seed a misleading feature flag that appears to govern a bypass which no longer exists. Any separate scheduling pause control must pause work; it must never permit Gateway bypass.
+
+**(g) AUDIT + METRIC; ALERT ON PATTERNS.** When a runtime check refuses a call that Gateway authorization would allow, retain the audit evidence and a counter. Alert on repeated, unexpected or policy-drift patterns, not every isolated runtime refusal.
+
+All consequential effects continue to require Gateway governance before execution. Do not lift the A1 cap or activate effectful tools as part of this wave.
+
+## 3. S3 — Canonical Outcome model
+
+APPROVE the three-table shape: `outcomes`, `outcome_result_refs`, and `outcome_attributions`.
+
+1. Keep result references separate from outcome records.
+2. Use typed foreign keys and business-scope constraints; avoid unconstrained polymorphic references.
+3. S3 owns the generic attribution contract and mechanism. Attribution rules belong in a versioned, human-governed policy registry. Do not activate `rule_window` in v1.
+4. Defer numerical multi-touch credit allocation. Multiple attribution rows/roles are supported, but v1 does not split revenue automatically.
+5. Conversation-resolution vocabulary belongs to the Conversation/Support domain, not generic S3. S2 reads and presents it. Do not add a speculative detail table without a concrete need.
+6. Reject implicit null business scope for HQ-wide actions. Introduce an explicit, validated HQ-scope representation when needed.
+7. Require explicit `BusinessScope::restrict()` at service/query boundaries. A global scope can supplement but never replace explicit enforcement.
+8. Start outcome recording at activation. Do not infer historical outcomes from read-back order snapshots. Any future historical import requires explicit evidence and provenance.
+9. Keep `RESTRICT` foreign keys. Future erasure should be addressed through reviewed redaction/tombstoning or appropriate anonymization, not casual cascade deletion. Review legal/privacy requirements before implementing erasure workflows.
+10. Defer frozen attribution-value snapshots. Keep rule/version metadata, evidence references and relevant timestamps; authoritative financial facts remain in their system of record. Add immutable snapshots only for a demonstrated audit/reproducibility requirement.
+11. Operator-asserted attribution is approved only as a typed, human-authorized Gateway capability, provisionally `hq.outcomes.attribute`. Require actor, reason and evidence reference. No direct controller/database write path.
+
+Additional contract constraints:
+- Outcomes are business-scoped; brand/store references must belong to that business.
+- Cross-business attribution must fail closed.
+- Do not duplicate ERP amount, currency, order-line or financial-status fields in the outcome model.
+- Preserve append-only corrections through successor records with reason and audit trail.
+- Retractions are explicit and auditable.
+- Only the documented confidence rules apply. `rule_window` and `model_inferred` remain unused in v1.
+- Do not treat operator assertion as independent deterministic proof.
+
+The report references D1–D19, but their individual wording was not included in the summary supplied for this ruling. Map the decisions above to the corresponding documented items. Return any additional D1–D19 decisions that are not covered here as review-pending; do not silently interpret them as approved.
+
+## 4. S7 — Consent
+
+**(h) CONFIRM NO AUTOMATIC REOPEN.** A new inbound does not automatically lift a business-wide service withdrawal/restriction. An explicit, audited lift is required. Any per-message service exception must be separately designed and approved.
+
+**(i) REQUIRE IDENTITY SCOPE BEFORE BROADER CUSTOMER-FACING ACTIVATION.** Add identity-specific consent/restriction scope alongside customer, channel, purpose and brand. A restriction on one identity must not be defeated by a grant on another. Unresolved identity fails closed; no cross-business scope expansion.
+
+**(j) CONFIRM.** `support_agent` receives `hq.consent.view` and `hq.consent.restrict`, never consent-grant authority.
+
+**(k) REQUIRE TWO-PERSON CONTROL.** Lifting a do-not-contact restriction requires evidence, a reason, explicit lift authority and a second independent approver. Use a distinct permission such as `hq.consent.lift_restriction`; an ordinary consent grant alone is insufficient. Fail closed if independent approval is unavailable.
+
+Consent stays purpose-, channel-, identity- and brand-sensitive. Inbound messages never create a marketing opt-in.
+
+## 5. S2 — Customer 360
+
+**(l) PROMISE OWNERSHIP.** S4 should own the eventual `CustomerPromise` record. Initially, a promise must be created or confirmed by a human through a governed operation. AI may propose but cannot silently commit the company. S2 remains read-only. S7 owns consent, not promises.
+
+**(m) PRE-EXISTING CROSS-BUSINESS MERGES.** Flag and quarantine questionable cross-business merge rows from affected Customer 360 reads. Do not blindly undo rows. Flagging alone is insufficient if information could leak across businesses. Suppress questionable relationships until a human-reviewed, audited correction preserves lineage.
+
+**(n) INBOX PERMISSION.** Keep inbox-derived sections behind `hq.inbox.view` for now. Do not add a duplicate permission without a demonstrated role-matrix need.
+
+Preserve explicit business scoping on every query and the existing separation between observed facts, inferred facts, memory, consent, source-of-truth data and copy age.
+
+## 6. Engineering sequence
+
+Continue S5 decision-corpus reporting, S6 read-only playbooks and S4 inert proposal contracts.
+
+S4's outcome-dependent implementation must wait until the S3 contract is implemented and tested. Consent-dependent behavior must use S7's enforced consent checks.
+
+Run the full suite and CI on the combined tree after changes. Report exact commits, test and CI results, remaining D1–D19 items, Gateway coverage, cost-attribution evidence, consent enforcement and cross-business isolation tests.
+
+No release without Joy's explicit release action. These rulings do not authorize production outbound, autonomous follow-up, broader customer-facing execution or an A1-cap lift.
+
+## 7. Executive Shadow Week
+
+The prior approval remains valid for the already-deployed `b96a396` and the specifically approved Executive shadow scope. Joy may perform the previously approved `--apply` after the successful dry run. This is separate from releasing the Wave 1 code and does not activate consequential external actions.
