@@ -1,7 +1,11 @@
 <?php
 
+use App\Gateway\Credentials\CredentialResolver;
+use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\Registry\ToolSwitch;
+use App\Gateway\Scope\ScopeResolver;
+use App\Gateway\ToolRequest;
 use App\Models\Approval;
 use App\Models\AuditLog;
 use App\Models\Business;
@@ -12,9 +16,10 @@ use App\Models\ScheduledJob;
 use App\Models\ToolCall;
 use App\Models\User;
 use App\Scheduling\Enums\RunStatus;
+use App\Scheduling\EventTriggeredJobs;
 use App\Scheduling\Jobs\RunScheduledJob;
 use App\Scheduling\ScheduledJobService;
-use App\Support\Features\Features;
+use App\Tools\ToolContext;
 use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DomainSeeder;
@@ -28,11 +33,13 @@ use Tests\Support\Tools\CountingTool;
 use Tests\Support\Tools\WriteTool;
 
 /*
- | M2: the scheduler as an ordinary gateway caller (ADR-016, docs/50).
+ | M2: the scheduler as an ordinary gateway caller (ADR-016, docs/50). docs/116 (ruling 110 §2f): the ONLY caller
+ | path. The direct path and the `scheduler.gateway` flag that chose it are gone; a leftover flag row governs nothing.
  |
- | The acceptance criterion is EQUIVALENCE, not merely "it still runs". Each live job is executed on
- | the direct path and on the gateway path and the two outputs are compared field by field, with only
- | the fields that are necessarily nondeterministic normalised away.
+ | The acceptance criterion is still EQUIVALENCE, not merely "it still runs". Each live job is executed through the
+ | gateway and compared field by field with the tool run directly by the test (`referenceOutput()`, the retired
+ | direct path kept here as the reference implementation), with only the necessarily nondeterministic fields
+ | normalised away.
  |
  | ⚠ The defect this milestone had to fix first: every one of the live jobs names its target in its
  | PAYLOAD (`business_slug`, `store_slug`) and leaves the request's business and store null. M1's
@@ -93,20 +100,46 @@ function runOnce(ScheduledJob $job): JobRun
     return $run->fresh();
 }
 
-function gatewayMode(bool $on): void
+/**
+ * The retired direct path (docs/50 M2, retired docs/116), kept HERE and only here as the reference the
+ * equivalence tests compare the gateway against: the tool itself with its declared credentials opened, and
+ * nothing of the gateway. Test code; `GatewayCoverageStructureTest` keeps app/ free of any such call.
+ *
+ * @return array<string, mixed> the tool's output
+ */
+function referenceOutput(ScheduledJob $job): array
 {
-    FeatureFlag::updateOrCreate(
-        ['key' => 'scheduler.gateway', 'environment' => '*'],
-        ['enabled' => $on],
+    $tool = app(ToolRegistry::class)->get($job->tool_key);
+    $run = JobRun::create([
+        'scheduled_job_id' => $job->id,
+        'scheduled_for' => CarbonImmutable::now()->addSeconds(random_int(1, 100000)),
+        'trigger' => 'run_now',
+        'attempt' => 1,
+        'status' => RunStatus::Running,
+        'correlation_id' => (string) Str::uuid(),
+    ]);
+    $args = app(EventTriggeredJobs::class)->arguments($job, $run);
+    $request = ToolRequest::forScheduledJob($job, $run, $job->owner, $args);
+    $context = new ToolContext(
+        idempotencyKey: "job-run:{$run->correlation_id}",
+        correlationId: (string) $run->correlation_id,
+        businessId: $job->business_id,
+        brandId: $job->brand_id,
+        jobRunId: $run->id,
+        actorUserId: $job->owner_user_id,
+        attempt: 1,
+        environment: (string) app()->environment(),
     );
-    app(Features::class)->forget();
-    Cache::forget('hq:feature_flags');
+    $resolution = app(CredentialResolver::class)->resolve(
+        $tool->descriptor(), $request, $args, app(ScopeResolver::class)->resolve($tool->descriptor(), $request, $args),
+    );
+
+    return app(CredentialVault::class)->open($resolution->found, fn () => $tool->execute($args, $context))->toArray()['output'];
 }
 
 beforeEach(function () {
     Cache::flush();
     CountingTool::reset();
-    gatewayMode(false);
 
     // ⚠ The queue connection is `sync` in tests, so a failed run's delayed retry dispatch executes
     // IMMEDIATELY and recursively until the attempts run out, and every failure ends up `dead`

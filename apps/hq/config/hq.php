@@ -324,14 +324,9 @@ return [
         ],
     ],
 
-    // M2: the scheduler runs its tools THROUGH the gateway when this feature flag is on.
-    //
-    // The flag is the rollback switch for the migration, not a permanent fork in the road. Direct
-    // mode is the known-good Phase 1 path and stays available until a separately approved step
-    // removes it; gateway mode is the intended path once the equivalence suite has passed against
-    // production (ADR-016).
-    'scheduler_gateway_flag' => 'scheduler.gateway',
-
+    // The scheduler runs every tool THROUGH the gateway, with no other path (ADR-016). The M2 rollback flag
+    // `scheduler.gateway` and its config key were retired by docs/116 (ruling 110 §2f); a row by that name
+    // in `feature_flags` governs nothing.
     'scheduler' => [
         'heartbeat_stale_after_seconds' => 180,
         'default_retry_max' => 3,

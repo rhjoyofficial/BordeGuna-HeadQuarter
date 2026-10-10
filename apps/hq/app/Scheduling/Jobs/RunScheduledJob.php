@@ -2,10 +2,7 @@
 
 namespace App\Scheduling\Jobs;
 
-use App\Gateway\Credentials\CredentialResolver;
-use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
-use App\Gateway\Scope\ScopeResolver;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\JobRun;
@@ -13,9 +10,6 @@ use App\Models\ScheduledJob;
 use App\Scheduling\Enums\RunStatus;
 use App\Scheduling\EventTriggeredJobs;
 use App\Support\Audit\Auditor;
-use App\Support\Features\Features;
-use App\Tools\ToolContext;
-use App\Tools\ToolRegistry;
 use App\Tools\ToolResult;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,22 +26,19 @@ use Throwable;
  * the run row is the single record and the tool is idempotent on the run's correlation id.
  * Retries are our own (attempt counter + backoff), so the queue job itself never retries.
  *
- * ⚠ M2: this class now has TWO execution paths, chosen by a feature flag.
+ * ⭐ The scheduler is an ordinary gateway caller (ADR-016) and nothing else. Every scheduled tool, effectful
+ * or not, runs through `ToolGateway::execute()` and inherits every deterministic control: registry, schema,
+ * scope, permission, policy, idempotency, credential resolution, `tool_calls`, audit.
  *
- *   gateway mode (ADR-016)  the scheduler is an ordinary gateway caller and inherits every
- *                           deterministic control: registry, schema, scope, permission, policy,
- *                           idempotency, credential resolution, tool_calls, audit.
- *   direct mode             the Phase 1 path, kept as the rollback switch for tools WITH NO EFFECT only.
+ * History, so nobody looks for the switch: M2 (docs/50) gave this class a second, direct path chosen by the
+ * feature flag `scheduler.gateway`, as the rollback for the migration onto the gateway. docs/105 (S1) confined
+ * the direct path to tools with no effect. docs/116 (ruling 110 §2f) retired it and the flag: a flag row named
+ * `scheduler.gateway` governs nothing now, and no flag implies a bypass that does not exist. A job that must
+ * not run is PAUSED (`ScheduledJobService::pause()`), which stops its work; nothing routes around the gateway.
  *
- * ⛔ docs/105 (S1, ruling docs/103 §3): an EFFECTFUL tool (`ToolDescriptor::hasEffect()`: a write, or R3 and
- * above) always runs through the gateway, whatever the flag says, and a tool the registry does not know goes to
- * the gateway too (which refuses it as unavailable, on the record). The flag is read as OFF when its row is
- * missing, so before this rule a fresh database would have run every scheduled write, an approval-gated R4
- * order write included, with no policy, approval, consent, idempotency key, tool_calls row or audit.
- *
- * Everything a scheduler owns stays here in both modes: creating the run, the attempt log, backoff,
- * dead-lettering, missed-job behaviour and job state. Nothing the gateway owns is duplicated here,
- * because two implementations of one rule eventually disagree.
+ * Everything a scheduler owns stays here: creating the run, the attempt log, backoff, dead-lettering,
+ * missed-job behaviour and job state. Nothing the gateway owns is duplicated here, because two
+ * implementations of one rule eventually disagree.
  */
 final class RunScheduledJob implements ShouldQueue
 {
@@ -57,36 +48,17 @@ final class RunScheduledJob implements ShouldQueue
 
     public int $timeout = 120;
 
-    /**
-     * Resolved from the container rather than injected, because a queued job is serialised and
-     * these are services rather than data. They are only used by direct mode.
-     */
-    private CredentialResolver $credentials;
-
-    private ScopeResolver $scopes;
-
-    private CredentialVault $vault;
-
     public function __construct(public readonly int $jobRunId)
     {
         $this->onQueue('scheduler');
     }
 
     public function handle(
-        ToolRegistry $tools,
         Auditor $auditor,
         ToolGateway $gateway,
-        Features $features,
-        CredentialResolver $credentials,
-        ScopeResolver $scopes,
-        CredentialVault $vault,
         EventTriggeredJobs $eventJobs,
     ): void {
-        $this->credentials = $credentials;
-        $this->scopes = $scopes;
-        $this->vault = $vault;
-
-        // The owner is eager-loaded because gateway mode reads it to build the acting identity, and
+        // The owner is eager-loaded because the gateway reads it to build the acting identity, and
         // lazy loading is an error outside production.
         $run = JobRun::with(['job', 'job.owner'])->find($this->jobRunId);
         if (! $run || $run->isTerminal() || $run->status === RunStatus::Running) {
@@ -104,31 +76,15 @@ final class RunScheduledJob implements ShouldQueue
 
         Context::add(['run_id' => $run->id, 'job_id' => $job->id, 'correlation_id' => $run->correlation_id]);
 
-        $context = new ToolContext(
-            idempotencyKey: "job-run:{$run->correlation_id}",
-            correlationId: (string) $run->correlation_id,
-            businessId: $job->business_id,
-            brandId: $job->brand_id,
-            jobRunId: $run->id,
-            actorUserId: $job->owner_user_id,
-            attempt: $run->attempt,
-            environment: (string) app()->environment(),
-        );
-
-        $viaGateway = $this->mustUseGateway($tools, (string) $job->tool_key)
-            || $features->enabled((string) config('hq.scheduler_gateway_flag', 'scheduler.gateway'), $job->business_id);
-
         // The job's payload, plus `event` for a run a domain event started (docs/95 §16 NOW item 4).
         $args = $eventJobs->arguments($job, $run);
 
         $started = microtime(true);
         try {
-            $result = $viaGateway
-                ? $this->executeThroughGateway($gateway, $job, $run, $args)
-                : $this->executeDirectly($tools, $job, $context, $run, $args);
+            $result = $this->executeThroughGateway($gateway, $job, $run, $args);
         } catch (Throwable $e) {
             $result = ToolResult::failed(get_class($e).': '.$e->getMessage());
-            Log::error('scheduled tool threw', ['tool' => $job->tool_key, 'run_id' => $run->id, 'via_gateway' => $viaGateway, 'exception' => $e]);
+            Log::error('scheduled tool threw', ['tool' => $job->tool_key, 'run_id' => $run->id, 'exception' => $e]);
         }
         $durationMs = (int) ((microtime(true) - $started) * 1000);
 
@@ -158,7 +114,9 @@ final class RunScheduledJob implements ShouldQueue
 
         $auditor->recordSystem('job_run.finished', $job, after: [
             'job_run_id' => $run->id, 'attempt' => $run->attempt, 'status' => $run->status->value,
-            'duration_ms' => $durationMs, 'via_gateway' => $viaGateway,
+            'duration_ms' => $durationMs,
+            // Always true since docs/116; kept so the audit row reads the same as every row before it.
+            'via_gateway' => true,
         ], correlationId: (string) $run->correlation_id);
 
         // A retryable failure stays visibly `failed` while it waits; the delayed retry claims it
@@ -170,15 +128,14 @@ final class RunScheduledJob implements ShouldQueue
     }
 
     /**
-     * Gateway mode (ADR-016). The scheduler becomes an ordinary caller: registry, schema, scope,
-     * permission, policy, idempotency and credential resolution all happen in the gateway, exactly
-     * as they do for every other caller.
+     * The scheduler as an ordinary caller (ADR-016): registry, schema, scope, permission, policy, idempotency
+     * and credential resolution all happen in the gateway, exactly as they do for every other caller.
      *
-     * The gateway's own reconcile-on-retry handles what the direct path did by hand here, so this
-     * method deliberately contains no gateway logic of its own. Duplicating any of it would give the
-     * scheduler a second, subtly different set of rules, which is the whole thing ADR-016 forbids.
+     * The gateway's own reconcile-on-retry handles a re-attempt, so this method deliberately contains no
+     * gateway logic of its own. Duplicating any of it would give the scheduler a second, subtly different
+     * set of rules, which is the whole thing ADR-016 forbids.
      *
-     * The outcome is translated back into a ToolResult so that everything below (attempt log, retry,
+     * The outcome is translated back into a ToolResult so that everything above (attempt log, retry,
      * dead-lettering, job state) is unchanged. A refusal is a failed run: the job did not do its
      * work, and the reason is on the record in both `job_runs` and `tool_calls`.
      */
@@ -195,60 +152,5 @@ final class RunScheduledJob implements ShouldQueue
         }
 
         return ToolResult::succeeded($outcome->output, $outcome->providerRef);
-    }
-
-    /**
-     * Direct mode: the Phase 1 path, kept as the immediate rollback switch for the migration.
-     *
-     * ⚠ It is NOT quite byte-for-byte Phase 1 any more, and the difference is deliberate. The same
-     * milestone moved credential resolution into the gateway, so a connector can no longer look one
-     * up for itself. Without the scope below, four of the six live jobs would fail on the rollback
-     * path, which would make the rollback switch decorative exactly when it is needed.
-     *
-     * So direct mode opens the credentials the tool declared, and nothing else. This is the one
-     * piece of gateway-adjacent work it does, it exists only because the two changes landed
-     * together, and it disappears with direct mode itself.
-     */
-    private function executeDirectly(ToolRegistry $tools, ScheduledJob $job, ToolContext $context, JobRun $run, array $args): ToolResult
-    {
-        // ⛔ docs/105: never an effectful tool. handle() already routes one to the gateway; this is the second
-        // lock on the same door, so a later edit to handle() cannot reopen it.
-        if ($this->mustUseGateway($tools, (string) $job->tool_key)) {
-            return ToolResult::failed("[{$job->tool_key}] has an effect, and an effectful tool runs only through the Tool Gateway (docs/105).");
-        }
-
-        $tool = $tools->get($job->tool_key);
-
-        $resolution = $this->credentials->resolve(
-            $tool->descriptor(),
-            ToolRequest::forScheduledJob($job, $run, $job->owner, $args),
-            $args,
-            $this->scopes->resolve($tool->descriptor(), ToolRequest::forScheduledJob($job, $run, $job->owner, $args), $args),
-        );
-
-        return $this->vault->open($resolution->found, function () use ($tool, $args, $context, $run) {
-            // ADR-011: on a re-attempt, ask the tool whether the previous attempt already took effect.
-            $result = $run->attempt > 1 ? $tool->reconcile($context) : null;
-
-            return $result ?? $tool->execute($args, $context);
-        });
-    }
-
-    /**
-     * Whether this job's tool must run through the gateway whatever `scheduler.gateway` says (docs/105): it has
-     * an effect, or the registry does not know it, or its descriptor cannot be read. Fails closed: only a known
-     * tool that declares no effect may take the direct path.
-     */
-    private function mustUseGateway(ToolRegistry $tools, string $key): bool
-    {
-        if (! $tools->has($key)) {
-            return true;
-        }
-
-        try {
-            return $tools->get($key)->descriptor()->hasEffect();
-        } catch (Throwable) {
-            return true;
-        }
     }
 }
