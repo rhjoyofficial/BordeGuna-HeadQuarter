@@ -146,6 +146,13 @@ final readonly class EvaluationObservation
          * attempted, successful and rejected, the final verdict). Null when the subject records none.
          */
         public ?array $languageRequirement = null,
+        /**
+         * docs/106: the agent run's `correlation_id`, the key every `ai_runs` row of the case carries (each
+         * turn, each retry and fallback attempt). `aiRunId` names one of those rows; this names them all, so
+         * the run's cost is attributed from the whole ledger. Null when no agent run exists to name (a stub,
+         * a case not replayed, a run that threw before returning).
+         */
+        public ?string $correlationId = null,
     ) {}
 
     /**

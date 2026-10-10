@@ -16,7 +16,7 @@ class EvaluationResult extends Model
 {
     protected $fillable = [
         'run_id', 'case_id', 'passed', 'unmeasured', 'score', 'grader', 'dimension', 'checks', 'expected', 'actual', 'reason',
-        'latency_ms', 'ai_run_id', 'context_provenance',
+        'latency_ms', 'ai_run_id', 'correlation_id', 'context_provenance',
     ];
 
     protected function casts(): array

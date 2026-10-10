@@ -7,8 +7,10 @@ use App\Models\EvaluationResult;
 use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
 use App\Support\Audit\Auditor;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * Runs a suite and records the evidence (ADR-023).
@@ -131,6 +133,7 @@ final readonly class EvaluationRunner
                     'reason' => 'unmeasured: the model provider refused the run ('.($observation->stopReason ?? 'provider_refused').'); this is not evidence about the agent',
                     'latency_ms' => $observation->latencyMs,
                     'ai_run_id' => $observation->aiRunId,
+                    'correlation_id' => $observation->correlationId,
                     'context_provenance' => $observation->contextProvenance,
                 ]);
 
@@ -152,6 +155,7 @@ final readonly class EvaluationRunner
                 'reason' => $result->reason,
                 'latency_ms' => $observation->latencyMs,
                 'ai_run_id' => $observation->aiRunId,
+                'correlation_id' => $observation->correlationId,
                 'context_provenance' => $observation->contextProvenance,
             ]);
 
@@ -221,15 +225,43 @@ final readonly class EvaluationRunner
             'regressions' => $this->regressions($run),
         ])->save();
 
+        // ⭐ docs/106: what the run cost, from the `ai_runs` ledger, written AFTER the verdict is saved and
+        //    unable to touch it. A failure here is reported and recorded on the run; it never fails the
+        //    run, changes its status or its exit code. Reporting is not a gate input.
+        $cost = $this->attributeCost($run);
+
         $this->auditor->record('evaluation.run_completed', $run, after: [
             'suite' => $suite->key, 'status' => $status, 'agreement_rate' => $rate,
             'passed' => $passed, 'failed' => $failed, 'skipped' => $skipped, 'unmeasured' => $unmeasured,
             'blocker_failed' => $blockerFailed, 'role' => $role,
             'dimension_rates' => $this->rates($byDimension), 'check_rates' => $this->rates($byCheck),
             'family_rates' => $this->rates($byFamily),
+            'cost_usd' => $cost['cost_usd'] ?? null,
+            'cost_estimated_usd' => $cost['cost_estimated_usd'] ?? null,
+            'cost_provider_usd' => $cost['cost_provider_usd'] ?? null,
+            'cost_complete' => $cost['cost_attribution']['complete'] ?? null,
         ]);
 
         return $run->refresh();
+    }
+
+    /** @return array<string, mixed> what was written, or [] when attribution failed (recorded on the run) */
+    private function attributeCost(EvaluationRun $run): array
+    {
+        try {
+            // A savepoint, so a failed statement inside it cannot poison an enclosing transaction.
+            return DB::transaction(fn () => app(EvaluationCostAttributor::class)->attribute($run));
+        } catch (Throwable $e) {
+            report($e);
+            $run->forceFill(['cost_attribution' => [
+                'method' => EvaluationCostAttributor::METHOD,
+                'complete' => false,
+                'error' => substr(get_class($e).': '.$e->getMessage(), 0, 500),
+                'computed_at' => now()->toIso8601String(),
+            ]])->save();
+
+            return [];
+        }
     }
 
     /**
