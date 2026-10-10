@@ -56,7 +56,7 @@ return new class extends Migration
 
         DB::statement("ALTER TABLE cross_business_quarantines ADD CONSTRAINT cross_business_quarantines_kind_check CHECK (kind IN ('merge', 'merge_pointer', 'identity', 'order', 'conversation', 'memory', 'consent_event', 'consent_state'))");
         DB::statement("ALTER TABLE cross_business_quarantine_reviews ADD CONSTRAINT cross_business_quarantine_reviews_decision_check CHECK (decision IN ('confirmed_wrong', 'needs_repair', 'disputed'))");
-        DB::statement("ALTER TABLE cross_business_quarantine_reviews ADD CONSTRAINT cross_business_quarantine_reviews_note_present CHECK (length(btrim(note)) > 0)");
+        DB::statement('ALTER TABLE cross_business_quarantine_reviews ADD CONSTRAINT cross_business_quarantine_reviews_note_present CHECK (length(btrim(note)) > 0)');
 
         DB::unprepared(<<<'SQL'
             CREATE OR REPLACE FUNCTION hq_cross_business_quarantine_immutable() RETURNS trigger AS $$
