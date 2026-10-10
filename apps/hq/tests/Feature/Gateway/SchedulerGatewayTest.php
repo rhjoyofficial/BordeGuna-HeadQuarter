@@ -148,26 +148,15 @@ beforeEach(function () {
     Queue::fake();
 });
 
-// ---------------------------------------------------------------- the flag itself
+// ---------------------------------------------------------------- one path (docs/116)
 
-it('runs on the direct path by default, so the known-good behaviour is what production keeps', function () {
-    app(ToolRegistry::class)->register(CountingTool::class);
-    $job = makeJob('test.counting', ['label' => 'x'], schedulerUser());
-
-    $run = runOnce($job);
-
-    expect($run->status)->toBe(RunStatus::Succeeded)
-        ->and(CountingTool::$executions)->toBe(1)
-        // The tell-tale: direct mode never touches the gateway, so there is no tool_calls row.
-        ->and(ToolCall::count())->toBe(0);
-});
-
-it('runs through the gateway when the flag is on, and records the call', function () {
+it('runs a tool with no effect through the gateway with no flag row at all, and records the call', function () {
     app(ToolRegistry::class)->register(CountingTool::class);
     app(ToolAvailability::class)->forget();
-    gatewayMode(true);
     $user = schedulerUser();
     $job = makeJob('test.counting', ['label' => 'x'], $user);
+
+    expect(FeatureFlag::where('key', 'scheduler.gateway')->exists())->toBeFalse();
 
     $run = runOnce($job);
 
@@ -182,26 +171,27 @@ it('runs through the gateway when the flag is on, and records the call', functio
         ->and($call->enabling_user_id)->toBe($user->id)
         ->and($call->job_run_id)->toBe($run->id)
         ->and($call->correlation_id)->toBe($run->correlation_id);
+    expect(AuditLog::where('action', 'job_run.finished')->latest('id')->first()->after['via_gateway'])->toBeTrue();
 });
 
-it('can be switched back to direct mode, which is the rollback for the migration', function () {
+it('ignores a leftover scheduler.gateway row: switched OFF, every tool still runs through the gateway', function () {
+    // Production holds this row (ON) from docs/50. Retired by docs/116, it governs nothing either way.
+    FeatureFlag::updateOrCreate(['key' => 'scheduler.gateway', 'environment' => '*'], ['enabled' => false]);
+    Cache::forget('hq:feature_flags');
     app(ToolRegistry::class)->register(CountingTool::class);
     app(ToolAvailability::class)->forget();
-    $user = schedulerUser();
-    $job = makeJob('test.counting', ['label' => 'x'], $user);
+    $job = makeJob('test.counting', ['label' => 'x'], schedulerUser());
 
-    gatewayMode(true);
     runOnce($job);
-    expect(ToolCall::count())->toBe(1);
+    runOnce($job);
 
-    gatewayMode(false);
-    runOnce($job);
-    expect(ToolCall::count())->toBe(1)->and(CountingTool::$executions)->toBe(2);
+    expect(CountingTool::$executions)->toBe(2)
+        ->and(ToolCall::where('tool_key', 'test.counting')->count())->toBe(2);
 });
 
-// ---------------------------------------------------------------- docs/105 (S1): effectful tools never take the direct path
+// ---------------------------------------------------------------- docs/105 (S1): effectful tools through the gateway
 
-it('runs an EFFECTFUL tool through the gateway even with the flag off: an R4 write parks for approval and does not run', function () {
+it('runs an EFFECTFUL tool through the gateway: an R4 write parks for approval and does not run', function () {
     app(ToolRegistry::class)->register(WriteTool::class);
     app(ToolAvailability::class)->forget();
     WriteTool::$executions = 0;
@@ -219,7 +209,7 @@ it('runs an EFFECTFUL tool through the gateway even with the flag off: an R4 wri
         ->and($run->status)->not->toBe(RunStatus::Succeeded);
 });
 
-it('runs a real effectful job (an ERP poll, R3 write) through the gateway with the flag off, on the record', function () {
+it('runs a real effectful job (an ERP poll, R3 write) through the gateway, on the record', function () {
     $this->seed(DomainSeeder::class);
     config(['hq.erp.base_url' => ERP_BASE]);
     $business = Business::where('slug', 'bor-de-guna')->sole();
@@ -237,20 +227,20 @@ it('runs a real effectful job (an ERP poll, R3 write) through the gateway with t
     expect(AuditLog::where('action', 'job_run.finished')->latest('id')->first()->after['via_gateway'])->toBeTrue();
 });
 
-it('keeps the direct path only for a tool with no effect, and the direct path itself refuses an effectful tool', function () {
+it('has no direct path left: the scheduler reaches a tool only through the gateway, and reads no flag', function () {
     $source = file_get_contents(app_path('Scheduling/Jobs/RunScheduledJob.php'));
-    preg_match('/private function executeDirectly\(.*?\n    }\n/s', $source, $direct);
 
-    expect($direct)->not->toBeEmpty()
-        // The first statement of the direct path is the effect check, before any tool is touched.
-        ->and(strpos($direct[0], 'mustUseGateway('))->toBeLessThan(strpos($direct[0], '->execute('))
-        ->and(strpos($direct[0], 'mustUseGateway('))->toBeLessThan(strpos($direct[0], '->reconcile('))
-        ->and($source)->toContain('$viaGateway = $this->mustUseGateway($tools, (string) $job->tool_key)');
+    expect($source)->not->toContain('executeDirectly')
+        ->and($source)->not->toContain('mustUseGateway')
+        ->and($source)->not->toContain('Features')
+        ->and($source)->not->toContain('scheduler_gateway_flag')
+        ->and($source)->toContain('$gateway->execute(')
+        ->and(config()->has('hq.scheduler_gateway_flag'))->toBeFalse();
 });
 
 // ---------------------------------------------------------------- equivalence
 
-it('produces equivalent output on both paths for the ERP poll jobs', function () {
+it('produces the same output through the gateway as the tool run directly, for the ERP poll jobs', function () {
     $this->seed(DomainSeeder::class);
     config(['hq.erp.base_url' => ERP_BASE]);
     $business = Business::where('slug', 'bor-de-guna')->sole();
@@ -270,46 +260,40 @@ it('produces equivalent output on both paths for the ERP poll jobs', function ()
     foreach (['erp.poll_overview', 'erp.poll_low_stock'] as $key) {
         $job = makeJob($key, ['business_slug' => 'bor-de-guna']);
 
-        gatewayMode(false);
-        $direct = runOnce($job)->output['output'];
+        $direct = referenceOutput($job);
 
-        gatewayMode(true);
         $viaGateway = runOnce($job)->output['output'];
 
-        expect(normalise($viaGateway))->toBe(normalise($direct), "[{$key}] output differs between the two paths");
+        expect(normalise($viaGateway))->toBe(normalise($direct), "[{$key}] output differs between the gateway and the tool itself");
     }
 });
 
-it('produces equivalent output on both paths for the fact integrity job', function () {
+it('produces the same output through the gateway as the tool run directly, for the fact integrity job', function () {
     $this->seed(DomainSeeder::class);
     $job = makeJob('commerce.check_fact_integrity', ['hours' => 168]);
 
-    gatewayMode(false);
-    $direct = runOnce($job)->output['output'];
+    $direct = referenceOutput($job);
 
-    gatewayMode(true);
     $viaGateway = runOnce($job)->output['output'];
 
     expect(normalise($viaGateway))->toBe(normalise($direct))
         ->and($viaGateway['discrepancies'])->toBe(0);
 });
 
-it('produces equivalent output on both paths for a shop reconcile job', function () {
+it('produces the same output through the gateway as the tool run directly, for a shop reconcile job', function () {
     $this->seed(DomainSeeder::class);
     IntegrationCredential::create(['provider' => 'shop_admin_token', 'account_ref' => 'laladia-com', 'credential_type' => 'token', 'payload' => ['value' => 'admin'], 'status' => 'active']);
     Http::fake(['*' => Http::response(['data' => [], 'meta' => ['total' => 0]])]);
 
     $job = makeJob('commerce.reconcile_facts', ['store_slug' => 'laladia-com', 'hours' => 168]);
 
-    gatewayMode(false);
-    $direct = runOnce($job)->output['output'];
+    $direct = referenceOutput($job);
 
-    gatewayMode(true);
     $viaGateway = runOnce($job)->output['output'];
 
     expect(normalise($viaGateway))->toBe(normalise($direct))
         // The safety assertion that matters on production: reconciliation inserted nothing, so no
-        // fact changed on either path.
+        // fact changed either way.
         ->and($viaGateway['inserted'])->toBe(0);
 });
 
@@ -324,7 +308,6 @@ it('resolves a scoped job target from its payload, which is where the live jobs 
         'credential_type' => 'token', 'payload' => ['value' => 'tok'], 'status' => 'active',
     ]);
     Http::fake([ERP_BASE.'/api/hq/v1/4/stock/low' => Http::response(['data' => [], 'meta' => ['count' => 0]])]);
-    gatewayMode(true);
 
     // business_id null on the job, exactly like production. Before the ScopeResolver this was a
     // denial, and four of six live jobs would have stopped on their first run.
@@ -341,7 +324,6 @@ it('resolves a scoped job target from its payload, which is where the live jobs 
 
 it('refuses a scoped job whose target cannot be resolved anywhere', function () {
     $this->seed(DomainSeeder::class);
-    gatewayMode(true);
 
     $job = makeJob('erp.poll_overview', ['business_slug' => 'no-such-business']);
     $run = runOnce($job);
@@ -354,7 +336,6 @@ it('refuses a scoped job whose target cannot be resolved anywhere', function () 
 
 it('runs an ownerless job as the narrow system identity, which is what the live jobs are', function () {
     $this->seed(DomainSeeder::class);
-    gatewayMode(true);
 
     // Jobs 2 to 6 in production have no owner.
     $job = makeJob('commerce.check_fact_integrity', ['hours' => 168], null);
@@ -370,7 +351,6 @@ it('runs an ownerless job as the narrow system identity, which is what the live 
 it('lets the runtime kill switch stop a scheduled job, with no exemption for the scheduler', function () {
     app(ToolRegistry::class)->register(CountingTool::class);
     app(ToolAvailability::class)->forget();
-    gatewayMode(true);
     $user = schedulerUser();
     $job = makeJob('test.counting', ['label' => 'x'], $user);
 
@@ -385,7 +365,6 @@ it('lets the runtime kill switch stop a scheduled job, with no exemption for the
 it('keeps the scheduler owning retry, history and dead-lettering in gateway mode', function () {
     app(ToolRegistry::class)->register(AlwaysFailingTool::class);
     app(ToolAvailability::class)->forget();
-    gatewayMode(true);
     $job = makeJob('test.always_fail', [], schedulerUser());
     $job->update(['retry_max' => 0]);
 

@@ -9,10 +9,12 @@ use App\Scheduling\Enums\RunStatus;
 use App\Scheduling\Jobs\RunScheduledJob;
 use App\Scheduling\ScheduledJobService;
 use Carbon\CarbonImmutable;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Spatie\Permission\Models\Role;
 
 /*
  | Scheduler acceptance (brief section 14). Queue is `sync` in tests, so dispatch executes
@@ -24,9 +26,20 @@ function makeService(): ScheduledJobService
     return app(ScheduledJobService::class);
 }
 
+/**
+ * The job's owner, as a person who may run the tools the jobs name. docs/116: every scheduled tool runs through
+ * the gateway, which checks the owner's permission; before it, a no-effect tool took the direct path and an owner
+ * with no permission at all could run it. That owner is now refused, as every other caller would be.
+ */
 function owner(): User
 {
-    return User::factory()->create();
+    if (! Role::where('name', 'owner')->exists()) {
+        (new RolesAndPermissionsSeeder)->run();
+    }
+    $user = User::factory()->create();
+    $user->assignRole('owner');
+
+    return $user->fresh();
 }
 
 it('1-7: creates a no-op job, tick claims one run, horizon job executes it, result stored, visible in history', function () {
@@ -132,7 +145,8 @@ it('a thrown exception inside a tool is a failed attempt, not a crashed worker',
     $service = makeService();
     $job = $service->create(['name' => 'throws', 'kind' => 'cron', 'cron_expression' => '* * * * *', 'tool_key' => 'test.fail', 'retry_max' => 0, 'payload' => ['mode' => 'throw']], owner());
     $run = $service->runNow($job, owner())->fresh();
-    expect($run->status)->toBe(RunStatus::Dead)->and($run->error)->toContain('RuntimeException');
+    // docs/116: the gateway catches the tool's exception and records its message on the outcome (and the tool_calls row).
+    expect($run->status)->toBe(RunStatus::Dead)->and($run->error)->toContain('test.fail threw on attempt 1');
 });
 
 it('refuses unknown tools, invalid cron, and sub-minute intervals', function () {
