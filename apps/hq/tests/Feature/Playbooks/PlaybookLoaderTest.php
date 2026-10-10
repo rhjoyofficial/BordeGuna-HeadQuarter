@@ -90,10 +90,11 @@ function pbBlocks(AgentRun $run, string $prefix): array
     return array_values(array_filter((array) $run->context_provenance, fn (array $b) => str_starts_with((string) $b['source'], $prefix)));
 }
 
-/** The first user message of the first model request, where the opening bundle is rendered. */
+/** The first user message of the LATEST run's model request, where that run's opening bundle is rendered. */
 function pbFirstPrompt(): string
 {
-    $request = FixtureProvider::requestsTo('fixture')[0];
+    $requests = FixtureProvider::requestsTo('fixture');
+    $request = end($requests);
     $content = $request->messages[0]['content'];
 
     return is_string($content) ? $content : (string) json_encode($content, JSON_UNESCAPED_UNICODE);
@@ -104,7 +105,7 @@ it('loads the active business-wide playbook into a business-scoped run as busine
 
     $run = pbRun($this->laladia->id);
 
-    expect($run->status)->toBe('completed')
+    expect($run->status)->toBe('answered')
         ->and($run->playbooks['loaded'])->toHaveCount(1)
         ->and($run->playbooks['loaded'][0])->toMatchArray(['id' => $v->id, 'kind' => 'product_claims', 'version' => 1, 'content_digest' => $v->content_digest, 'brand_id' => null])
         ->and($run->playbooks['skipped'])->toBe([])

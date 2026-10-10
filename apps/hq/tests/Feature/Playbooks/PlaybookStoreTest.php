@@ -31,6 +31,12 @@ beforeEach(function () {
     $this->store = app(Playbooks::class);
 });
 
+/** A write expected to be refused, inside its own savepoint, so the refusal does not poison the test transaction. */
+function pbRefused(callable $write): Closure
+{
+    return fn () => DB::transaction($write);
+}
+
 function pbContent(string $body = "Never say organic. Say natural.\nEvery claim carries its proof.", string $title = 'Claims v-test'): array
 {
     return ['title' => $title, 'summary' => 'What may be said', 'body' => $body];
@@ -140,7 +146,7 @@ it('sends a version back to draft with a note, lets it be edited (new digest) an
 
     // Content is frozen once submitted: the class refuses, and so does the database.
     expect(fn () => $this->store->edit($this->owner, $v, pbContent('sneaky')))->toThrow(InvalidArgumentException::class, 'only a draft can be edited');
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['body' => 'sneaky']))->toThrow(QueryException::class, 'frozen');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['body' => 'sneaky'])))->toThrow(QueryException::class, 'frozen');
 
     $v = $this->store->review($this->owner, $v, false, 'too vague');
     expect($v->status)->toBe('draft')->and($v->review_note)->toBe('too vague')->and($v->reviewed_by)->toBe($this->owner->id);
@@ -157,23 +163,23 @@ it('sends a version back to draft with a note, lets it be edited (new digest) an
 it('is immutable at the database once active or ended, refuses every delete, and keeps the events append-only', function () {
     $v = pbActivated($this->store, $this->owner, $this->laladia, null, PlaybookKind::General, pbContent('live'));
 
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['body' => 'changed']))->toThrow(QueryException::class, 'frozen');
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['activation_reason' => 'rewritten']))->toThrow(QueryException::class, 'active and immutable');
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['status' => 'draft']))->toThrow(QueryException::class, 'active and immutable');
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->delete())->toThrow(QueryException::class, 'kept forever');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['body' => 'changed'])))->toThrow(QueryException::class, 'frozen');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['activation_reason' => 'rewritten'])))->toThrow(QueryException::class, 'active and immutable');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['status' => 'draft'])))->toThrow(QueryException::class, 'active and immutable');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->delete()))->toThrow(QueryException::class, 'kept forever');
 
     $draft = $this->store->draft($this->owner, $this->laladia, null, PlaybookKind::General, pbContent('draft'));
-    expect(fn () => DB::table('playbook_versions')->where('id', $draft->id)->delete())->toThrow(QueryException::class, 'kept forever');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $draft->id)->delete()))->toThrow(QueryException::class, 'kept forever');
     // A draft cannot be made active by hand either: only a reviewed row may.
-    expect(fn () => DB::table('playbook_versions')->where('id', $draft->id)->update(['status' => 'active', 'activated_by' => $this->owner->id, 'activated_at' => now(), 'activation_reason' => 'hand']))
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $draft->id)->update(['status' => 'active', 'activated_by' => $this->owner->id, 'activated_at' => now(), 'activation_reason' => 'hand'])))
         ->toThrow(QueryException::class, 'only a reviewed version');
 
     $this->store->retire($this->owner, $v, 'withdrawn for a rewrite');
-    expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['retirement_reason' => 'x']))->toThrow(QueryException::class, 'retired and immutable');
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['retirement_reason' => 'x'])))->toThrow(QueryException::class, 'retired and immutable');
 
     $event = PlaybookVersionEvent::query()->first();
-    expect(fn () => DB::table('playbook_version_events')->where('id', $event->id)->update(['reason' => 'x']))->toThrow(QueryException::class, 'append-only');
-    expect(fn () => DB::table('playbook_version_events')->where('id', $event->id)->delete())->toThrow(QueryException::class, 'append-only');
+    expect(pbRefused(fn () => DB::table('playbook_version_events')->where('id', $event->id)->update(['reason' => 'x'])))->toThrow(QueryException::class, 'append-only');
+    expect(pbRefused(fn () => DB::table('playbook_version_events')->where('id', $event->id)->delete()))->toThrow(QueryException::class, 'append-only');
 });
 
 it('holds one active version per key at the database, whatever path tries a second', function () {
@@ -182,7 +188,7 @@ it('holds one active version per key at the database, whatever path tries a seco
     $this->store->submit($this->owner, $v2);
     $this->store->review($this->owner, $v2, true, 'ok');
 
-    expect(fn () => DB::table('playbook_versions')->where('id', $v2->id)->update(['status' => 'active', 'activated_by' => $this->owner->id, 'activated_at' => now(), 'activation_reason' => 'hand']))
+    expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v2->id)->update(['status' => 'active', 'activated_by' => $this->owner->id, 'activated_at' => now(), 'activation_reason' => 'hand'])))
         ->toThrow(QueryException::class, 'playbook_versions_one_active');
     expect(PlaybookVersion::where('status', 'active')->count())->toBe(1);
 });
@@ -197,7 +203,7 @@ it('withdraws a draft, an in-review or a reviewed version with a reason and neve
     foreach ([$a, $b, $c] as $v) {
         $v = $this->store->withdraw($this->owner, $v, 'not wanted');
         expect($v->status)->toBe('withdrawn')->and($v->withdrawn_by)->toBe($this->owner->id);
-        expect(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['title' => 'x']))->toThrow(QueryException::class, 'withdrawn and immutable');
+        expect(pbRefused(fn () => DB::table('playbook_versions')->where('id', $v->id)->update(['title' => 'x'])))->toThrow(QueryException::class, 'withdrawn and immutable');
     }
     expect(fn () => $this->store->withdraw($this->owner, $a, ''))->toThrow(InvalidArgumentException::class);
 

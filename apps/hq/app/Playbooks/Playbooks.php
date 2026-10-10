@@ -60,7 +60,8 @@ final class Playbooks
 
             $latest = PlaybookVersion::query()->where('business_id', $business->id)->where('kind', $kind->value)
                 ->where(fn ($q) => $brand === null ? $q->whereNull('brand_id') : $q->where('brand_id', $brand->id))
-                ->lockForUpdate()->max('version');
+                // The newest row is locked (an aggregate cannot be); the unique key index catches any race that slips past.
+                ->orderByDesc('version')->lockForUpdate()->value('version');
 
             $version = PlaybookVersion::create([
                 'uuid' => (string) Str::uuid(),
