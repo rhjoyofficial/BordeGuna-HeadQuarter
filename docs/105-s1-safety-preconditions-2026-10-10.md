@@ -47,6 +47,7 @@ The registered tools it selects, from `config('hq.tools')`:
 | 6 | `commerce.take_order` | R4 write | ERP draft + sales order (inert: empty store list) |
 | 7 | `messaging.send_whatsapp_reply` | R3 write | WhatsApp message to a customer (inert: no provider) |
 | 8 | `commerce.cancel_sales_order` | R4 write | cancels an ERP order (inert: empty store list) |
+| 9 | `outcomes.attribute` | R3 write | one `outcome_attributions` row through `OutcomeRecorder` (added 11 Oct by docs/115 §4, ruling Q11; permanently human-only, held by no agent, nothing reads the row) |
 
 Where each of the eight stops short of the gateway today (found by reading every caller of `Tool::execute`,
 `Tool::reconcile` and the services behind the tools):

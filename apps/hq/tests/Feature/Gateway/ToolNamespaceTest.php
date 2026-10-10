@@ -56,6 +56,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         // Phase 4 order completion (docs/88 A point 3): two R2 reads held by no agent, and the R4
         // compensating cancel under the same empty store list.
         'commerce.quote_order', 'commerce.get_order_status', 'commerce.cancel_sales_order',
+        // S3 follow-up (docs/115 §4, ruling Q11): the operator-asserted attribution, R3, permanently human-only, held by no agent.
+        'outcomes.attribute',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

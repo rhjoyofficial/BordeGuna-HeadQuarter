@@ -364,9 +364,13 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     // never the count - it is that NOTHING is permanently human-only yet, so the first genuinely
     // permanent tool is a deliberate, visible change rather than one more `false` nobody looked at.
     //
-    // Still true, and still the honest state: the writes and the R4 demo are "not yet" (a stage
-    // evaluation evidence can end), and nothing anywhere is "never" (a decision).
-    expect($never)->toBe([]);
+    // Still true for the writes and the R4 demo: "not yet" (a stage evaluation evidence can end).
+    //
+    // ⚠ docs/115 §4 (ruling Q11, 11 Oct 2026): the FIRST genuinely permanent tool, named here deliberately. An
+    // operator assertion of an outcome attribution is by definition a human's claim; an agent's claim would be
+    // `model_inferred`, which the attribution policy refuses in v1. No approval, grant or configuration may ever
+    // let an agent run `outcomes.attribute`: a decision, not a stage, exactly what this flag was reserved for.
+    expect($never)->toBe(['outcomes.attribute']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 

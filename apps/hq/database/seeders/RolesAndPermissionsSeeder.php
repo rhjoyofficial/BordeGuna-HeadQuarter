@@ -62,6 +62,10 @@ class RolesAndPermissionsSeeder extends Seeder
         // only ever stop contact); `grant` records an opt-in, operator-recorded consent or a lift (it can
         // start contact), so the two are never one permission.
         'hq.consent.view', 'hq.consent.restrict', 'hq.consent.grant',
+
+        // docs/110 §3 Q11, docs/115 §4: the operator-asserted outcome attribution, through the gateway tool
+        // `outcomes.attribute` only. Held by owner and operator (`*`); given to no other role.
+        'hq.outcomes.attribute',
     ];
 
     public const ROLES = [

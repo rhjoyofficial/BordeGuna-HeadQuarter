@@ -189,10 +189,12 @@ final class AttributeOutcomeTool implements PreviewableTool, Tool
             confidence: (float) $payload['confidence'],
             idempotencyKey: 'attr:operator:'.$outcome->uuid.':'.$type->value.':'.$actionId.':'.$payload['role'],
             proposalRef: isset($payload['proposal_ref']) ? (string) $payload['proposal_ref'] : null,
+            // The meaning of the assertion: what was asserted and on what evidence. The gateway call that carried it is
+            // found through `correlationId` (the tool_calls row, audit action `tool.outcomes_attribute`), which is not part
+            // of the meaning, so the same assertion made twice is a replay, not a conflict.
             evidence: [
                 'evidence_ref' => (string) $payload['evidence_ref'],
                 'asserted_through' => self::KEY,
-                'gateway_idempotency_key' => $context->idempotencyKey,
             ],
             actor: OutcomeActor::human($actor),
             correlationId: $context->correlationId,
