@@ -100,4 +100,114 @@ Design:
 
 ## 2. Record of what was built
 
-(Filled in as the work lands.)
+### 2.1 Commits (branch `platform/s1-safety-preconditions`, from main `c12792f`)
+
+| Commit | What |
+|---|---|
+| `00d03bf` | this plan |
+| `b00506b` | part 1: `settle()` for an executed reply |
+| `6ecf276` | part 2a: agent runtime, guard refusals of effectful calls put to the gateway; `ToolDescriptor::hasEffect()` |
+| `6b2b299` | part 2b: scheduler, effectful tools always through the gateway |
+| `fd2696e` | part 2c: `hq:facts:reconcile` through the gateway |
+| `8da74ca` | part 2d: `GatewayCoverageStructureTest` |
+| (this commit) | this record |
+
+Not merged, not deployed, nothing on production touched.
+
+### 2.2 Q4: `settle()` as built
+
+`SupportWakeUp::settle()` (still private; one deviation from §1.1, which said public: the tests call it by
+reflection, so no new public surface was added) now settles in this order:
+
+1. **Executed reply**: an `evidence` record for `messaging.send_reply` whose `tool_call_id` names a `tool_calls` row
+   that is the reply tool, `succeeded` or `replayed`, with `input.conversation_uuid` = this thread
+   (`replyCall()`). Then `conversation.reply_sent` (payload: thread, message, run, level, shadow, `tool_call_id`,
+   row status; dedupe `conversation:reply_sent:{message uuid}`; registered on `ConversationEventHandler` in
+   `config/hq.php`), `ai_resumed -> ai_active` if needed, `-> ai_waiting` with reason "the agent sent its reply and
+   waits (run ..., tool call #...)". An executed reply wins over a proposal on the same run.
+2. **Proposal**: unchanged (`conversation.reply_proposed`, `ai_waiting`).
+3. **Neither**: hand-over as `agent_cannot_serve`; when the reply's row is `uncertain` the reason says "a reply was
+   attempted and its delivery is uncertain (tool call #N), so a person must check what the customer received".
+
+A record the row does not confirm (row failed, denied, missing, no id, another tool, another thread, a read's
+evidence) goes to a person. The A1 cap is not lifted: `AutonomyLevel::allowsExecution()`, the ADR-024 context
+ceiling and every Support wake-up path are unchanged.
+
+### 2.3 Q5: gateway coverage, before and after
+
+| Tool | Agent runtime: before | Agent runtime: after | Scheduler: before | Scheduler: after | Other entry points |
+|---|---|---|---|---|---|
+| `messaging.send_reply` | gateway (A0 `authorize`, A2+ `execute`) | same; guard refusals also asked | gateway only if flag ON, else direct | always gateway | inbox send: gateway (unchanged) |
+| `demo.request_approval` | refused by runtime guard (not cleared), gateway never asked | guard refusal + gateway `authorize` verdict on record and audit | direct if flag OFF/missing (R4 with no approval) | always gateway (parks approval) | approval executor: gateway |
+| `erp.poll_overview` | runtime guard only | guard + gateway verdict | direct if flag OFF | always gateway | none |
+| `erp.poll_low_stock` | runtime guard only | guard + gateway verdict | direct if flag OFF | always gateway | none |
+| `commerce.reconcile_facts` | runtime guard only | guard + gateway verdict | direct if flag OFF | always gateway | `hq:facts:reconcile` called `FactsReconciler` directly -> now gateway (console caller) |
+| `briefing.compose` | runtime guard only | guard + gateway verdict | direct if flag OFF | always gateway | none |
+| `commerce.take_order` | runtime guard only | guard + gateway verdict | direct if flag OFF (R4 order write with no approval) | always gateway | workflow runner / approval executor: gateway |
+| `messaging.send_whatsapp_reply` | runtime guard only | guard + gateway verdict | direct if flag OFF | always gateway | none |
+| `commerce.cancel_sales_order` | runtime guard only | guard + gateway verdict | direct if flag OFF (R4) | always gateway | workflow runner / approval executor: gateway |
+
+Every one stays inert: no `config('hq.tools')`, `agentExecutable`, `allowed_tools`, `orders.take_order_stores`,
+provider, flag default or prompt change. Today the gateway refuses every one of the eight for an agent
+(`action_class.human_only`), and for the two order tools and WhatsApp it would refuse every caller (empty store
+list, no provider).
+
+Agent-runtime detail: the guard's refusal text is what the model reads, unchanged. The gateway is asked with
+`authorize()` (no `tool_calls` row, no approval, no quota, no execution) at every level, A2 included, so a guard
+refusal can never become an execution. The record gains `gateway: {asked: authorize, guard, decision, outcome_class,
+reason}` and the audit `agent_run.effectful_call_refused` (with `gateway_would_authorize`). The A0 authorize-refusal
+record also carries `gateway` now, so every record of an effectful call names the gateway decision it rests on.
+
+### 2.4 Tests
+
+Full suite on the branch: **1,876 passed (23,178 assertions)**, `--parallel --processes=3`, `hq_test_e` (main
+`c12792f` was 1,847). `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean; no frontend file touched, so no Vite
+build was needed.
+
+New or changed, each watched failing on the code before its fix:
+
+- `tests/Feature/Conversation/SupportSettleExecutedReplyTest.php` (new, 15 cases): executed reply -> `ai_waiting` +
+  `reply_sent`; `ai_resumed` path; replayed counts; executed wins over a proposal and is recorded once; uncertain ->
+  person with the reason; 7 unconfirmed-record cases -> person; proposal / no-proposal unchanged; handler registered;
+  **A1 cap under a grant and agent ceiling of A3: run at A1, reply a proposal, no reply `tool_calls` row, no delivery,
+  no outbound message**. 6 failed before the fix.
+- `tests/Feature/Agents/EffectfulProposalGovernanceTest.php` (tightened): every registered effectful tool now reaches
+  the gateway (was only `messaging.send_reply`); every record rests on a gateway decision; `hasEffect()` equals the
+  restated rule for every tool. Failed on the old runner.
+- `tests/Feature/Agents/EffectfulGuardRefusalGatewayTest.php` (new, 5): not granted, not cleared (`demo.request_approval`),
+  refused part of a request, an A2 run never executes a guard-refused call, unknown keys and reads untouched. 4 failed
+  on the old runner.
+- `tests/Feature/Gateway/SchedulerGatewayTest.php` (+3): flag off + R4 write parks an approval and does not run; flag
+  off + `erp.poll_low_stock` leaves a gateway `tool_calls` row; the direct path checks the effect first. 3 failed on
+  the old scheduler.
+- `tests/Feature/Facts/ReconcileAndReplayTest.php` (+2): the command's gateway row and R3 audit; switched off -> refused,
+  no fact touched. 2 failed on the old command.
+- `tests/Feature/Gateway/GatewayCoverageStructureTest.php` (new, 4, structural): only the gateway invokes a tool
+  (reviewed receiver list for every `->execute/->reconcile/->preview` in `app/`); no concrete tool constructed outside
+  `app/Tools`; the services behind effectful tools reached only from their tools; the nine effectful tools pinned. 3
+  failed on `c12792f`.
+
+### 2.5 Behaviour changes a reader should know
+
+- `hq:facts:reconcile` now writes a `tool_calls` row and an R3 audit per store, honours the tool's runtime switch,
+  and exits non-zero on any gateway refusal other than a missing admin token (still a warning).
+- A scheduled effectful job runs through the gateway even when `scheduler.gateway` is off or has no row. Production
+  has run gateway mode since docs/50 (flag ON), so production behaviour is unchanged if that row is still ON.
+- Agent runs that name an effectful tool a guard refuses now write one extra audit row each
+  (`agent_run.effectful_call_refused`); model-visible text is unchanged.
+
+### 2.6 Decisions that may need a ChatGPT ruling
+
+1. **Event type for an executed reply.** Built as a new `conversation.reply_sent` (recorded only, like
+   `reply_proposed`). When P3-G4 wires the real outbound adapter, `ChannelSender` / the delivery ledger may emit their
+   own outbound event; confirm `reply_sent` stays the settlement record, or should be folded into that.
+2. **State after an executed reply.** Built as `ai_waiting` (the agent answered and waits on the customer), the same
+   as after a proposal; the Q1 rule (a second inbound while `ai_waiting` goes to a person) therefore also applies after
+   an executed reply. Confirm, or rule a different state for executed replies when the A1 cap is lifted.
+3. **Retiring scheduler direct mode.** Direct mode now serves only tools with no effect. Proposed: retire it entirely
+   in a later change (and seed the `scheduler.gateway` row, or drop the flag), since its purpose was the M2 migration
+   rollback.
+4. **Guard narrower than the gateway.** If the gateway ever WOULD authorize what a runtime guard refused, the refusal
+   stands and the audit says `gateway_would_authorize: true`. Not reachable with today's guards (the gateway enforces
+   the same catalogue, grant, availability and role checks). Confirm "refusal stands, audit only" rather than an
+   alert.
