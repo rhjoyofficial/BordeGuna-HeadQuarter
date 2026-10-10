@@ -18,6 +18,18 @@ enum ConsentState: string
     /** Person-level suppression: outranks every grant on every channel for that business. */
     case DoNotContact = 'do_not_contact';
 
+    /**
+     * docs/108 §3.6: neutral at its exact scope. It ends a withdrawal or do-not-contact recorded at
+     * that same scope and grants nothing; the person still needs a grant for the purpose asked.
+     */
+    case Lifted = 'lifted';
+
+    /** A restriction a later `Lifted` at the same scope may end. */
+    public function isRestriction(): bool
+    {
+        return $this === self::Withdrawn || $this === self::DoNotContact;
+    }
+
     public function permits(): bool
     {
         return $this === self::Granted;

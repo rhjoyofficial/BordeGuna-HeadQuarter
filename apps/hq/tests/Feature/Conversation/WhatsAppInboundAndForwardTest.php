@@ -177,8 +177,8 @@ it('ingests a WhatsApp message in the drain as a customer\'s untrusted words on 
         ->and($message->body)->toBe('ইলিশের আচার ৫০০ গ্রামের দাম কত?');
 
     $ledger = app(ConsentLedger::class);
-    expect($ledger->permits($conversation->customer_id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service)->permitted)->toBeTrue()
-        ->and($ledger->permits($conversation->customer_id, $conversation->business_id, 'whatsapp', ConsentPurpose::Marketing)->permitted)->toBeFalse();
+    expect($ledger->permits($conversation->customer_id, $conversation->business_id, 'whatsapp', ConsentPurpose::Service, $conversation->brand_id)->permitted)->toBeTrue()
+        ->and($ledger->permits($conversation->customer_id, $conversation->business_id, 'whatsapp', ConsentPurpose::Marketing, $conversation->brand_id)->permitted)->toBeFalse();
 });
 
 it('keeps the n8n copy-forward at 404 while its own flag is off, even with channels.meta.inbound on', function () {
