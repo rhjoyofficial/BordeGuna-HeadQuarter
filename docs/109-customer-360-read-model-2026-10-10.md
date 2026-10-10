@@ -1,6 +1,6 @@
 # 109 - Customer 360: a read-only, business-scoped read model and owner page (10 October 2026)
 
-Status: PLAN, then BUILT on branch `p3/s2-customer-360` (worktree `hq-wt/i`, from `main` `c12792f`). Not merged, not deployed. Production posture unchanged: no flag, no permission, no migration, no write path.
+Status: BUILT on branch `p3/s2-customer-360` (worktree `hq-wt/i`, from `main` `c12792f`). Not merged, not deployed. Production posture unchanged: no flag, no new permission, no migration, no new write path. Gate on 10 Oct: full Pest suite 1,857 passed (22,720 assertions, real Postgres `hq_test_i`), `pint --test` passed, `tsc --noEmit` clean, `vite build` ok. New test file `tests/Feature/Identity/Customer360Test.php` (10 tests); `customers/show.tsx` added to `BANGLA_SCREENS` (106 dictionary entries added).
 Asked by: `docs/103-chatgpt-ruling-2026-10-10.txt` §5 (S2) and §11; summary `docs/101` §13. Gap it closes: `docs/95` §3 row V6 ("Conversations, memories, consent ledger, hand-overs, promises, follow-ups, outcomes on the page") and §5 Identity.
 
 ## 1. The ruling, as constraints
