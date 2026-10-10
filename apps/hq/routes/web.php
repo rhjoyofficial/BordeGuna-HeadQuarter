@@ -9,6 +9,7 @@ use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
+use App\Http\Controllers\Observe\DecisionCorpusController;
 use App\Http\Controllers\Observe\ObserveController;
 use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
@@ -126,6 +127,8 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::get('autonomy-evidence', [ObserveController::class, 'autonomyEvidence'])->middleware('permission:hq.agents.view')->name('autonomy-evidence');
         // docs/88 A point 7: the exact activation posture, read-only, behind a permission that already exists.
         Route::get('posture', [ObserveController::class, 'posture'])->middleware('permission:hq.agents.view')->name('posture');
+        // docs/111 (S5): the decision corpus, what people made of agent proposals. Read-only; same permission as the other agent-evaluation screens.
+        Route::get('decision-corpus', [DecisionCorpusController::class, 'index'])->middleware('permission:hq.agents.view')->name('decision-corpus');
         Route::get('platform', [ObserveController::class, 'platform'])->middleware('permission:hq.horizon.view')->name('platform');
 
         // docs/80 C.1: stored briefings and the evidence behind each, read-only. Composing one is the
