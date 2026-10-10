@@ -3,6 +3,7 @@
 use App\Consent\ConsentBasis;
 use App\Consent\ConsentLedger;
 use App\Consent\ConsentPurpose;
+use App\Consent\ConsentRefusal;
 use App\Consent\ConsentState;
 use App\Models\AuditLog;
 use App\Models\Brand;
@@ -10,6 +11,7 @@ use App\Models\Business;
 use App\Models\ConsentEvent;
 use App\Models\ConsentProjection;
 use App\Models\Customer;
+use App\Models\CustomerIdentity;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -197,8 +199,8 @@ it('keeps each brand its own row in the projection, and the rebuild agrees (docs
 /** Two identities of one person (docs/114 §2): two WhatsApp numbers. */
 function consentIdentities(int $customerId): array
 {
-    $a = \App\Models\CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000001']);
-    $b = \App\Models\CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000002']);
+    $a = CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000001']);
+    $b = CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000002']);
 
     return [$a->id, $b->id];
 }
@@ -214,14 +216,14 @@ it('scopes a restriction to one identity, which no grant on another identity def
     $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null, attributes: ['identity_id' => $a]);
     $ledger->record($customerId, $businessId, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp', attributes: ['identity_id' => $b]);
 
-    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $a)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact)
+    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $a)->refusal)->toBe(ConsentRefusal::DoNotContact)
         ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->permitted)->toBeTrue()
         // Unresolved identity: A's denial still applies (fail closed), whatever the customer-wide grant says.
-        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact);
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(ConsentRefusal::DoNotContact);
 
     // A customer-wide do-not-contact stops B as well, whatever B's own grant says.
     $ledger->record($customerId, $businessId, null, ConsentState::DoNotContact, ConsentBasis::Operator, null);
-    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(\App\Consent\ConsentRefusal::DoNotContact);
+    expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(ConsentRefusal::DoNotContact);
 });
 
 it('covers only its own identity with an identity-scoped grant: never another identity, never a send whose identity is unresolved', function () {
@@ -233,9 +235,9 @@ it('covers only its own identity with an identity-scoped grant: never another id
 
     expect($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $a)->permitted)->toBeTrue()
         ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->permitted)->toBeFalse()
-        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(\App\Consent\ConsentRefusal::NotRecorded)
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, $b)->refusal)->toBe(ConsentRefusal::NotRecorded)
         ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->permitted)->toBeFalse()
-        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(\App\Consent\ConsentRefusal::NotRecorded);
+        ->and($ledger->permits($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, null, null)->refusal)->toBe(ConsentRefusal::NotRecorded);
 
     // The historical question carries the identity too.
     expect($ledger->permittedAt($customerId, $businessId, 'whatsapp', ConsentPurpose::Service, now()->subMinute(), null, $a)->permitted)->toBeFalse()

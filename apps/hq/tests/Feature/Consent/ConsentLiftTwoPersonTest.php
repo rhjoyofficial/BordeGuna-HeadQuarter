@@ -1,5 +1,6 @@
 <?php
 
+use App\Consent\ConsentLedger;
 use App\Consent\ConsentOperations;
 use App\Consent\ConsentPurpose;
 use App\Consent\ConsentRefusal;
@@ -321,5 +322,5 @@ it('runs the two-person lift from the consent screen: the lift of a standing do-
             ->where('history.0.two_person', true)
             ->where('history.0.actor_label', $this->approver->email)
             ->where('grid.0.cells.messenger.permitted', true));
-    expect(app(\App\Consent\ConsentLedger::class)->permits($customer->id, $customer->business_id, 'messenger', ConsentPurpose::Service, $this->lld->id)->permitted)->toBeTrue();
+    expect(app(ConsentLedger::class)->permits($customer->id, $customer->business_id, 'messenger', ConsentPurpose::Service, $this->lld->id)->permitted)->toBeTrue();
 });

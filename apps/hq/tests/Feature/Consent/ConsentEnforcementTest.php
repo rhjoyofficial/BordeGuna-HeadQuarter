@@ -22,6 +22,7 @@ use App\Models\Brand;
 use App\Models\ConsentEvent;
 use App\Models\Conversation;
 use App\Models\Customer;
+use App\Models\CustomerIdentity;
 use App\Models\PlatformAccount;
 use App\Models\ToolCall;
 use App\Models\User;
@@ -268,9 +269,9 @@ it('refuses with consent_subject_unresolved when the call names nobody, and cons
 it('enforces identity scope at the gateway and in the outbound policy: a do-not-contact on one PSID stops that thread, not the same person\'s other thread (docs/114 §2)', function () {
     $threadA = ceThread('psid-ida');
     $customer = $threadA->customer;
-    $identityA = \App\Models\CustomerIdentity::where('channel', 'messenger_psid')->where('external_id', 'psid-ida')->sole();
+    $identityA = CustomerIdentity::where('channel', 'messenger_psid')->where('external_id', 'psid-ida')->sole();
     // The same person's second Messenger identity, linked before they write from it: the thread resolves to them.
-    $identityB = \App\Models\CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => 'psid-idb']);
+    $identityB = CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => 'psid-idb']);
     $threadB = ceThread('psid-idb');
     expect($threadB->customer_id)->toBe($customer->id)->and($threadB->id)->not->toBe($threadA->id);
     expectPassedConsent(ceReply($this->owner, $threadA));

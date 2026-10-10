@@ -167,7 +167,7 @@ final readonly class ConsentOperations
             throw new InvalidArgumentException('A do-not-contact is lifted by two different people under one approval: the person who asked and the person who approved. That is not what was handed over.');
         }
         if (! $approver->can(self::PERMISSION_LIFT_RESTRICTION)) {
-            throw new InvalidArgumentException("The approver does not hold [".self::PERMISSION_LIFT_RESTRICTION.'].');
+            throw new InvalidArgumentException('The approver does not hold ['.self::PERMISSION_LIFT_RESTRICTION.'].');
         }
 
         $channel = $scope['channel'] ?? null;
