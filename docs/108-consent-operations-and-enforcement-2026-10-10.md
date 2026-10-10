@@ -1,6 +1,6 @@
 # 108 - Consent operations and runtime enforcement, stream S7 (10 October 2026)
 
-Status: PLAN, then BUILT on branch `platform/s7-consent-enforcement` (worktree `hq-wt/h`, from `main` `c12792f`). Not merged, not deployed. Production posture unchanged: no outbound provider, no flag switched, nothing activated.
+Status: BUILT (section 11) on branch `platform/s7-consent-enforcement` (worktree `hq-wt/h`, from `main` `c12792f`). Not merged, not deployed. Production posture unchanged: no outbound provider, no flag switched, nothing activated.
 Authority: `docs/103-chatgpt-ruling-2026-10-10.txt` §9 (S7: "APPROVED. Prioritize the enforcement semantics", "purpose- and scope-specific", "enforced at runtime before communication; a UI-only status is insufficient", "does not authorize outbound activation") and §11 (non-goals); summary `docs/101` §13; gap named in `docs/95` §5 (Consent bullet: "only inbound service consent (24 h) is ever written; no UI/command for withdrawal, do-not-contact, marketing opt-in, operator-recorded consent").
 
 ## 1. What exists today (read before designing)
@@ -90,3 +90,23 @@ No outbound activation, no provider registration, no flag changes, no change to 
 2. Identity-level scope (one phone of a customer with two) is expressed by channel today; is a `customer_identity_id` scope needed?
 3. Role grants: support_agent gets view + restrict, not grant; confirm.
 4. Lifting a DNC: is the operator's evidence + `hq.consent.grant` enough, or should a lift need a second approver?
+
+## 11. As built (10 October 2026)
+
+Enforcement points (file:line in `apps/hq`):
+
+| Where | What |
+|---|---|
+| `app/Consent/ConsentLedger.php:124` `permittedAt()` | the resolution rule: brand-aware scopes; denials first (`:167`, DNC > withdrawn > expired); opt-in qualification (`:192`) |
+| `app/Consent/ConsentLedger.php:67` `record()` | refuses to write an opt-in-purpose grant on `inbound`/`contract` |
+| `app/Consent/ConsentGate.php:30,59` | subject and brand from the thread row (or the request's brand); `consent_subject_unresolved` when nobody resolves |
+| `app/Gateway/ToolGateway.php:230,238` step 5b | `consent refused: [<class>] <reason>`, outcome class `consent_denied`, before idempotency, credentials and execution |
+| `app/Gateway/ToolGateway.php:669` | `consent.refused` audit row (executing path only) as the acting person or agent |
+| `app/Conversation/OutboundPolicy.php:35` | the same ledger answer with the thread's brand |
+| `app/Http/Controllers/Identity/CustomerConsentController.php:146,159` | per-act permission (restrict vs grant) and business scope on the screen |
+
+Migration `2026_10_10_700000_add_brand_to_consent_state` applied, rolled back and re-applied cleanly on PostgreSQL. No change to `consent_events` DDL.
+
+Tests: `tests/Feature/Consent/ConsentEnforcementTest.php` (9, through `ToolGateway::execute()`/`authorize()`), `ConsentScreenTest.php` (7), `ConsentLedgerTest.php` (+1, projection per brand). Two existing assertions now name the thread's brand (`ConversationCoreTest`, `WhatsAppInboundAndForwardTest`), and one more asserts that a brand's grant does not cover a brandless send.
+
+Release note (when Joy releases): run `php artisan db:seed --class=RolesAndPermissionsSeeder --force` (additive) so the three consent permissions exist; nothing else to switch.
