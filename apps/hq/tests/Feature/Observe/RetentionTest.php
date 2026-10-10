@@ -453,9 +453,11 @@ it('keeps a tool call, a model call and a finished workflow run that an outcome 
         results: [new ResultRefSpec(ResultType::ErpOrder, 'erp', 'erp:SO-RET')],
     ));
 
-    $creditedCall = retToolCall();
-    $creditedModelCall = retAiRun();
+    // Each credited action carries the outcome's business: an action with none is refused (ruling Q6, docs/115 section 3).
+    $creditedCall = retToolCall(['business_id' => $business->id]);
+    $creditedModelCall = retAiRun(['business_id' => $business->id]);
     $creditedRun = retWorkflow('completed', '2026-10-02 10:00');
+    DB::table('workflow_instances')->where('id', $creditedRun)->update(['business_id' => $business->id]);
     $prunableCall = retToolCall();
     $prunableModelCall = retAiRun();
     $prunableRun = retWorkflow('completed', '2026-10-02 10:00');

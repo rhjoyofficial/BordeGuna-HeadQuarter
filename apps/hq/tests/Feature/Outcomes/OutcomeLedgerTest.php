@@ -14,8 +14,11 @@ use App\Models\User;
 use App\Models\UserBusinessScope;
 use App\Outcomes\ActionType;
 use App\Outcomes\AttributionMethod;
+use App\Outcomes\AttributionMethodInactive;
+use App\Outcomes\AttributionPolicy;
 use App\Outcomes\AttributionRole;
 use App\Outcomes\AttributionSpec;
+use App\Outcomes\ImplicitHqScopeRefused;
 use App\Outcomes\OutcomeActor;
 use App\Outcomes\OutcomeConflict;
 use App\Outcomes\OutcomeRecorder;
@@ -224,14 +227,10 @@ it('records attributions with method-bounded confidence, and refuses another bus
         ->and($row->confidence)->toBe(1.0)
         ->and($row->schema_version)->toBe('attribution.v1');
 
-    // An HQ-scope action (no business of its own) is accepted (docs/107 Q6).
-    $this->recorder->attribute($outcome, attributionTo($hqCall = toolCallIn(null), ['idempotencyKey' => 'attr:hq']));
-    expect(OutcomeAttribution::where('tool_call_id', $hqCall->id)->exists())->toBeTrue();
-
     $refusals = [
         [attributionTo(toolCallIn($this->bionic->id), ['idempotencyKey' => 'a1']), 'belongs to another business'],
         [attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'a2', 'confidence' => 0.9]), 'must be exactly 1'],
-        [attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'a3', 'method' => AttributionMethod::ModelInferred]), 'must be below 1'],
+        [attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'a3', 'method' => AttributionMethod::ModelInferred]), 'not active'],
         [attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'a4', 'method' => AttributionMethod::OperatorAsserted, 'confidence' => 0.8]), 'human actor and a reason'],
         [attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'a5', 'proposalRef' => '0']), 'one proposal of an agent run'],
         [new AttributionSpec(ActionType::Approval, 999999, 'approval:x', AttributionRole::Approved, AttributionMethod::Correlation, 'v1', 1.0, 'a6'), 'does not exist'],
@@ -239,24 +238,68 @@ it('records attributions with method-bounded confidence, and refuses another bus
     foreach ($refusals as [$spec, $message]) {
         expect(fn () => $this->recorder->attribute($outcome, $spec))->toThrow(InvalidArgumentException::class, $message);
     }
-    expect(OutcomeAttribution::count())->toBe(2);
+    expect(OutcomeAttribution::count())->toBe(1);
 
     // Idempotent, and conflicting on a changed meaning.
     expect($this->recorder->attribute($outcome, attributionTo(ToolCall::find($row->tool_call_id)))->id)->toBe($row->id);
     expect(fn () => $this->recorder->attribute($outcome, attributionTo(ToolCall::find($row->tool_call_id), ['role' => AttributionRole::Contributed])))
         ->toThrow(OutcomeConflict::class);
 
-    // A model's guess is allowed in the vocabulary, below certainty, and is never evidence-grade (D13).
-    $guess = $this->recorder->attribute($outcome, attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'guess',
-        'method' => AttributionMethod::ModelInferred, 'role' => AttributionRole::Contributed, 'confidence' => 0.4]));
-    expect($guess->method->isEvidenceGrade())->toBeFalse();
-
-    // An operator may assert, as a human, with a reason.
+    // An operator may assert, as a human, with a reason. Evidence-grade (D13), never deterministic proof (ruling C7).
     $operator = User::factory()->create();
     $asserted = $this->recorder->attribute($outcome, attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'op',
         'method' => AttributionMethod::OperatorAsserted, 'role' => AttributionRole::Contributed, 'confidence' => 0.7,
         'actor' => OutcomeActor::human($operator), 'reason' => 'customer said the reply convinced her']));
-    expect($asserted->actor_type)->toBe('human')->and($asserted->actor_id)->toBe($operator->id);
+    expect($asserted->actor_type)->toBe('human')->and($asserted->actor_id)->toBe($operator->id)
+        ->and($asserted->method->isEvidenceGrade())->toBeTrue()
+        ->and($asserted->method->isDeterministicProof())->toBeFalse()
+        ->and($row->method->isDeterministicProof())->toBeTrue();
+});
+
+it('refuses an action with no business of its own: implicit HQ scope fails closed (ruling Q6)', function () {
+    $order = outcomeOrder($this->laladia->id, $this->store->id);
+    $outcome = $this->recorder->record(orderSpec($order));
+
+    $hqCall = toolCallIn(null);
+    $hqRun = DB::table('ai_runs')->insertGetId(['task' => 'hq.briefing', 'provider' => 'anthropic', 'model' => 'm', 'model_tier' => 'medium',
+        'status' => 'succeeded', 'input_tokens' => 1, 'output_tokens' => 1, 'latency_ms' => 1, 'estimated_cost_usd' => '0.000001',
+        'business_id' => null, 'created_at' => now(), 'updated_at' => now()]);
+    $decision = DB::table('decision_records')->insertGetId(['context_type' => 'agent_run', 'context_id' => 'x', 'decision' => 'approved', 'created_at' => now()]);
+
+    $specs = [
+        attributionTo($hqCall, ['idempotencyKey' => 'attr:hq-call']),
+        new AttributionSpec(ActionType::AiRun, $hqRun, 'ai_run:'.$hqRun, AttributionRole::Contributed, AttributionMethod::Correlation, 'v1', 1.0, 'attr:hq-run'),
+        new AttributionSpec(ActionType::DecisionRecord, $decision, 'decision_record:'.$decision, AttributionRole::Approved, AttributionMethod::Correlation, 'v1', 1.0, 'attr:decision'),
+    ];
+    foreach ($specs as $spec) {
+        expect(fn () => $this->recorder->attribute($outcome, $spec))->toThrow(ImplicitHqScopeRefused::class, 'no business of its own');
+        // The typed refusal is still the ledger's fail-closed kind, so every existing contract holds.
+        expect(fn () => $this->recorder->attribute($outcome, $spec))->toThrow(InvalidArgumentException::class);
+    }
+    expect(OutcomeAttribution::count())->toBe(0);
+});
+
+it('refuses rule_window and model_inferred in v1 while keeping their confidence rules in the vocabulary (ruling Q3, C6)', function () {
+    $order = outcomeOrder($this->laladia->id, $this->store->id);
+    $outcome = $this->recorder->record(orderSpec($order));
+
+    expect(AttributionPolicy::VERSION)->toBe('attribution_policy.v1')
+        ->and(AttributionPolicy::activeMethods())->toBe([AttributionMethod::DeterministicKey, AttributionMethod::Correlation, AttributionMethod::OperatorAsserted]);
+
+    foreach ([AttributionMethod::RuleWindow, AttributionMethod::ModelInferred] as $method) {
+        expect(AttributionPolicy::isActive($method))->toBeFalse()
+            ->and($method->isEvidenceGrade())->toBeFalse()
+            ->and($method->isDeterministicProof())->toBeFalse()
+            // The vocabulary is complete: the rule exists, nothing may use it yet.
+            ->and($method->confidenceViolation(0.6))->toBeNull()
+            ->and($method->confidenceViolation(1.0))->toContain('never certain');
+
+        $spec = attributionTo(toolCallIn($this->laladia->id), ['idempotencyKey' => 'attr:'.$method->value, 'method' => $method,
+            'role' => AttributionRole::Contributed, 'confidence' => 0.6]);
+        expect(fn () => $this->recorder->attribute($outcome, $spec))->toThrow(AttributionMethodInactive::class, $method->value);
+        expect(fn () => $this->recorder->attribute($outcome, $spec))->toThrow(InvalidArgumentException::class);
+    }
+    expect(OutcomeAttribution::count())->toBe(0);
 });
 
 it('corrects and retracts through successor rows, audited, one successor per row', function () {
@@ -299,7 +342,7 @@ it('re-judges and retracts attributions through successor rows', function () {
     $order = outcomeOrder($this->laladia->id, $this->store->id);
     $outcome = $this->recorder->record(orderSpec($order));
     $call = toolCallIn($this->laladia->id);
-    $first = $this->recorder->attribute($outcome, attributionTo($call, ['method' => AttributionMethod::RuleWindow, 'role' => AttributionRole::Contributed, 'confidence' => 0.6]));
+    $first = $this->recorder->attribute($outcome, attributionTo($call, ['method' => AttributionMethod::Correlation, 'role' => AttributionRole::Contributed, 'confidence' => 1.0]));
 
     $operator = User::factory()->create();
     $rejudged = $this->recorder->supersedeAttribution($first, attributionTo($call, ['idempotencyKey' => 'attr:rejudged',
