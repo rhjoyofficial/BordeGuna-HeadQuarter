@@ -33,7 +33,8 @@ final class RetentionPolicy
     /**
      * A terminal run is kept while any of this holds (alias `w`): a step whose effect may have landed
      * (running or uncertain), a call made under one of its steps that never settled, or an approval
-     * one of its steps parked that is still open. "Reconciled" is the absence of all three.
+     * one of its steps parked that is still open. "Reconciled" is the absence of all three. A run an
+     * outcome attribution credits is kept as well (docs/107 section 9).
      */
     public const WORKFLOW_KEEP_CONDITION = <<<'SQL'
         EXISTS (SELECT 1 FROM workflow_steps s WHERE s.workflow_instance_id = w.id AND s.status IN ('running', 'uncertain'))
@@ -41,6 +42,7 @@ final class RetentionPolicy
             WHERE s.workflow_instance_id = w.id AND c.status IN ('started', 'uncertain', 'awaiting_approval'))
         OR EXISTS (SELECT 1 FROM workflow_steps s JOIN approvals a ON a.id = s.approval_id
             WHERE s.workflow_instance_id = w.id AND a.status = 'pending')
+        OR EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.workflow_instance_id = w.id)
         SQL;
 
     /** Only these run statuses are terminal; a failed run can still be retried, so it is never removed. */
@@ -70,6 +72,11 @@ final class RetentionPolicy
         // docs/80 C.1: a stored briefing is the evidence a decision record may later point at ("he
         // acted on this recommendation", docs/48 M.4), bundle and all. It is never pruned.
         'briefings',
+        // docs/107 section 9: the outcome and attribution ledgers are permanent evidence, and the tool
+        // calls, model calls and workflow runs an attribution points at are kept for as long as it does.
+        'outcomes',
+        'outcome_result_refs',
+        'outcome_attributions',
     ];
 
     /**
@@ -196,6 +203,7 @@ final class RetentionPolicy
                     OR EXISTS (SELECT 1 FROM conversation_messages m WHERE m.tool_call_id = t.id)
                     OR EXISTS (SELECT 1 FROM consent_events c WHERE c.tool_call_id = t.id)
                     OR EXISTS (SELECT 1 FROM workflow_steps w WHERE w.tool_call_id = t.id)
+                    OR EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.tool_call_id = t.id)
                     OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id::text))
                     SQL,
             ),
@@ -224,6 +232,7 @@ final class RetentionPolicy
                     OR EXISTS (SELECT 1 FROM conversation_messages m WHERE m.ai_run_id = t.id)
                     OR EXISTS (SELECT 1 FROM briefings b WHERE b.ai_run_id = t.id)
                     OR EXISTS (SELECT 1 FROM tool_calls c WHERE c.ai_run_id = t.id)
+                    OR EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.ai_run_id = t.id)
                     OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id::text))
                     SQL,
             ),

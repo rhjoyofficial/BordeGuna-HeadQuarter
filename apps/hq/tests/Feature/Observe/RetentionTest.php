@@ -1,13 +1,25 @@
 <?php
 
+use App\Context\Provenance;
 use App\Models\AgentRun;
 use App\Models\AuditLog;
+use App\Models\Business;
 use App\Models\DailyAggregate;
 use App\Models\RetentionRun;
 use App\Models\RetentionWatermark;
 use App\Observe\Retention\RetentionPolicy;
 use App\Observe\Retention\RetentionRunner;
+use App\Outcomes\ActionType;
+use App\Outcomes\AttributionMethod;
+use App\Outcomes\AttributionRole;
+use App\Outcomes\AttributionSpec;
+use App\Outcomes\OutcomeRecorder;
+use App\Outcomes\OutcomeSource;
+use App\Outcomes\OutcomeSpec;
+use App\Outcomes\ResultRefSpec;
+use App\Outcomes\ResultType;
 use Carbon\CarbonImmutable;
+use Database\Seeders\DomainSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -113,13 +125,16 @@ it('knows every column that points at a detail row, so a new reference cannot be
         'conversation_messages.ai_run_id',
         'conversation_messages.tool_call_id',
         'evaluation_results.ai_run_id',
+        // docs/107 section 9: an attribution credits the call or model call; kept while it does.
+        'outcome_attributions.ai_run_id',
+        'outcome_attributions.tool_call_id',
         'tool_calls.ai_run_id',
         // docs/102: a workflow step's call is its ledger's evidence; kept while the step row exists.
         'workflow_steps.tool_call_id',
     ]);
 
     $source = file_get_contents(app_path('Observe/Retention/RetentionPolicy.php'));
-    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'w.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id', 'ai_run_replies.ai_run_id cascades'] as $reference) {
+    foreach (['a.requesting_tool_call_id', 'a.resulting_tool_call_id', 'c.tool_call_id', 'm.tool_call_id', 'w.tool_call_id', 'a.ai_run_id', 'e.ai_run_id', 'm.ai_run_id', 'b.ai_run_id', 'c.ai_run_id', 'o.tool_call_id', 'o.ai_run_id', 'o.workflow_instance_id', 'ai_run_replies.ai_run_id cascades'] as $reference) {
         expect($source)->toContain($reference);
     }
 
@@ -426,4 +441,38 @@ it('removes only terminal, reconciled workflow runs finished before the window, 
 
     Artisan::call('hq:retention:plan');
     expect(Artisan::output())->toContain('workflows: keep 180 days');
+});
+
+it('keeps a tool call, a model call and a finished workflow run that an outcome attribution credits (docs/107 section 9)', function () {
+    $this->seed(DomainSeeder::class);
+    $business = Business::where('slug', 'laladia')->sole();
+    $recorder = app(OutcomeRecorder::class);
+    $outcome = $recorder->record(new OutcomeSpec(
+        type: 'order.placed', businessId: $business->id, occurredAt: retAt('2026-11-01 09:00'), source: OutcomeSource::ErpReadBack,
+        sourceSystem: 'erp', provenance: Provenance::Business, idempotencyKey: 'order.placed:erp:'.$business->id.':SO-RET',
+        results: [new ResultRefSpec(ResultType::ErpOrder, 'erp', 'erp:SO-RET')],
+    ));
+
+    $creditedCall = retToolCall();
+    $creditedModelCall = retAiRun();
+    $creditedRun = retWorkflow('completed', '2026-10-02 10:00');
+    $prunableCall = retToolCall();
+    $prunableModelCall = retAiRun();
+    $prunableRun = retWorkflow('completed', '2026-10-02 10:00');
+
+    foreach ([[ActionType::ToolCall, $creditedCall], [ActionType::AiRun, $creditedModelCall], [ActionType::WorkflowInstance, $creditedRun]] as [$type, $id]) {
+        $recorder->attribute($outcome, new AttributionSpec($type, $id, "{$type->value}:{$id}", AttributionRole::Produced,
+            AttributionMethod::Correlation, 'test.v1', 1.0, "attr:{$type->value}:{$id}"));
+    }
+
+    $run = app(RetentionRunner::class)->run();
+
+    expect($run->status)->toBe(RetentionRun::SUCCEEDED)
+        ->and(DB::table('tool_calls')->where('id', $creditedCall)->exists())->toBeTrue()
+        ->and(DB::table('ai_runs')->where('id', $creditedModelCall)->exists())->toBeTrue()
+        ->and(DB::table('workflow_instances')->where('id', $creditedRun)->exists())->toBeTrue()
+        ->and(DB::table('tool_calls')->where('id', $prunableCall)->exists())->toBeFalse()
+        ->and(DB::table('ai_runs')->where('id', $prunableModelCall)->exists())->toBeFalse()
+        ->and(DB::table('workflow_instances')->where('id', $prunableRun)->exists())->toBeFalse()
+        ->and(RetentionPolicy::PERMANENT)->toContain('outcomes')->toContain('outcome_result_refs')->toContain('outcome_attributions');
 });
