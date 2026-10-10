@@ -187,6 +187,11 @@ final class IdentityResolver
     /** Human-decided merge: identities and facts move to the kept customer; reversible via customer_merges. */
     public function merge(Customer $kept, Customer $absorbed, ?int $byUserId, ?string $reason = null): void
     {
+        // ⛔ The chokepoint for ruling docs/103 §11 (docs/109 §6): no caller, human or not, merges across businesses.
+        if ((int) $kept->business_id !== (int) $absorbed->business_id) {
+            throw CrossBusinessMerge::between((int) $kept->business_id, (int) $absorbed->business_id);
+        }
+
         DB::transaction(function () use ($kept, $absorbed, $byUserId, $reason) {
             $moved = CustomerIdentity::where('customer_id', $absorbed->id)->pluck('id')->all();
             CustomerIdentity::where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
