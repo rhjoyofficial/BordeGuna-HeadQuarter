@@ -24,6 +24,7 @@ class EvaluationRun extends Model
         'uuid', 'suite_id', 'model', 'model_tier', 'prompt_version', 'skill_version',
         'policy_version', 'autonomy_level', 'agent_key', 'business_id', 'channel', 'status',
         'cases_total', 'cases_passed', 'cases_failed', 'cases_skipped', 'cases_unmeasured', 'agreement_rate', 'dimension_rates', 'check_rates', 'family_rates', 'external_outcomes', 'cost_usd',
+        'cost_estimated_usd', 'cost_provider_usd', 'cost_attribution',
         'compared_to_run_id', 'regressions', 'triggered_by', 'triggered_by_user_id',
         'started_at', 'finished_at',
     ];
@@ -38,6 +39,10 @@ class EvaluationRun extends Model
             'family_rates' => 'array',
             'external_outcomes' => 'array',
             'cost_usd' => 'decimal:6',
+            // docs/106: the estimate and the provider-reported figure, kept apart; how they were reached.
+            'cost_estimated_usd' => 'decimal:6',
+            'cost_provider_usd' => 'decimal:6',
+            'cost_attribution' => 'array',
             'regressions' => 'array',
             'started_at' => 'datetime',
             'finished_at' => 'datetime',

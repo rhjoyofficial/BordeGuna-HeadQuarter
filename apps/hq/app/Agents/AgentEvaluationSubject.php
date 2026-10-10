@@ -266,7 +266,10 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             answer: $run->answer,
             citations: $this->citations($run),
             latencyMs: $run->duration_ms,
-            aiRunId: AiRun::where('correlation_id', $run->correlation_id)->value('id'),
+            // docs/106: the run's first model call, deterministically; the cost is attributed from every
+            // call under `correlationId`, never from this one row.
+            aiRunId: AiRun::where('correlation_id', $run->correlation_id)->orderBy('id')->value('id'),
+            correlationId: (string) $run->correlation_id,
             contextProvenance: (array) $run->context_provenance,
             // ADR-030: what the model asked for and what the control plane allowed are two facts,
             // and a corpus that cannot tell them apart cannot grade tool selection separately from

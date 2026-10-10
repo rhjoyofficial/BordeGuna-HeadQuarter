@@ -20,6 +20,7 @@ use App\Models\User;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Database\Seeders\SupportBehaviourSuiteSeeder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Tests\Support\Ai\FixtureProvider;
@@ -283,6 +284,54 @@ it('attributes a real agent run end to end: every ai_runs row of the run\'s corr
         ->and((string) $run->cost_usd)->toBe(number_format((float) $evidence->sum('estimated_cost_usd'), 6, '.', ''))
         ->and($run->cost_attribution['ai_runs'])->toBe($evidence->count())
         ->and($run->cost_provider_usd)->toBeNull();
+});
+
+it('attributes a Support run on a rolled-back thread: the model calls carried across the rollback are the evidence', function () {
+    Cache::flush();
+    FixtureProvider::reset();
+    $this->seed(DomainSeeder::class);
+    $this->seed(RolesAndPermissionsSeeder::class);
+    aiProviders();
+    enableAiRuntime();
+    aiModel('fixture', 'fixture-model', ModelTier::Medium);
+    $owner = User::factory()->create();
+    $owner->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.tools.diagnostics',
+        'hq.approvals.view', 'hq.jobs.view', 'hq.inbox.view', 'hq.inbox.manage']);
+    $this->seed(AgentSeeder::class);
+    Agent::query()->update(['status' => 'active', 'enabling_user_id' => $owner->id]);
+    $this->seed(SupportBehaviourSuiteSeeder::class);
+
+    $reply = fn (string $status, array $o = []) => FixtureProvider::reply((string) json_encode($o + [
+        'status' => $status, 'answer' => '', 'refusal_reason' => '', 'facts' => [], 'inferences' => [], 'tool_calls' => [],
+        'task' => 'answer the customer on this thread', 'authority_request' => AgentResponseSchema::AUTHORITY_NONE,
+    ]));
+    // Three model turns: read the thread, propose a reply, answer.
+    FixtureProvider::script('fixture', [
+        $reply(AgentResponseSchema::STATUS_NEED_EVIDENCE, ['tool_calls' => [
+            ['tool' => 'conversation.read_thread', 'arguments' => ['business_slug' => 'laladia', 'conversation_uuid' => 'x'], 'why' => 'read'],
+        ]]),
+        $reply(AgentResponseSchema::STATUS_NEED_EVIDENCE, ['tool_calls' => [
+            ['tool' => 'messaging.send_reply', 'arguments' => ['business_slug' => 'laladia', 'conversation_uuid' => 'x', 'text' => 'Your order is on its way.'], 'why' => 'reply'],
+        ]]),
+        $reply(AgentResponseSchema::STATUS_ANSWER, ['answer' => 'Proposed one reply for a person to send.']),
+    ]);
+
+    // One live case of the behaviour suite, alone in a suite of its own, so the script maps to it.
+    $source = EvaluationCase::where('key', 'support.v2.order_status_in_english')->whereNull('retired_at')->sole();
+    $suite = EvaluationSuite::create(['key' => 'cost.thread', 'name' => 'Cost thread', 'kind' => 'quality']);
+    EvaluationCase::create(['suite_id' => $suite->id, 'key' => 'thread', 'input' => $source->input, 'expectation' => ['refusal' => false]]);
+
+    $run = runCostSuite($suite, new AgentEvaluationSubject(app(AgentRunner::class), 'support'));
+
+    $agentRun = AgentRun::sole();
+    $evidence = AiRun::where('correlation_id', $agentRun->correlation_id)->get();
+
+    expect($evidence)->toHaveCount(3)
+        ->and(EvaluationResult::sole()->correlation_id)->toBe($agentRun->correlation_id)
+        ->and($run->cost_attribution['ai_runs'])->toBe(3)
+        ->and($run->cost_attribution['complete'])->toBeTrue()
+        ->and((float) $run->cost_usd)->toBeGreaterThan(0.0)
+        ->and((string) $run->cost_usd)->toBe(number_format((float) $evidence->sum('estimated_cost_usd'), 6, '.', ''));
 });
 
 it('backfills only from existing evidence: a dry run by default, and --apply writes complete runs only', function () {
