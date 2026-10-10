@@ -50,9 +50,45 @@ Ruling lines that change docs/107 outside the numbered decisions:
 
 ---
 
-## 2. Implementation record
+## 2. Implementation record (branch `platform/s3-followups-hqscope-attribute-tool`, 10-11 Oct 2026)
 
-Filled as the work lands (commits, tests, gate). See the end of this document.
+### 2.1 Commits
+
+| Commit | What |
+|---|---|
+| `0b0d81f` | this document, sections 1 and 3-6 (the D1-D19 map first, per the brief) |
+| `ae176fa` | part 1: Q6 `ImplicitHqScopeRefused` (fail closed, tested on a null-business tool call, model call and decision record); Q3 `AttributionPolicy` v1 + `AttributionMethodInactive`; C7 `AttributionMethod::isDeterministicProof()`; retention fixtures carry a business |
+| `939fa1e` | part 2: `App\Tools\Outcomes\AttributeOutcomeTool` (class only) |
+| `890b779` | part 3: tool registered (inert), `hq.outcomes.attribute` seeded, effectful pin extended to ten + docs/105 §1.2 row 9, first permanently-human-only tool named in `PolicyEngineTest`, `AttributeOutcomeToolTest`, `OutcomeWritePathStructureTest` |
+| (final) | this record (section 2) and the full-suite gate line |
+
+No migration: nothing in the ruling's follow-ups needed a schema change (the HQ-scope representation of 3.3 would, and is not built). Additive seeder only (`givePermissionTo`, never `sync`).
+
+### 2.2 Code
+
+- `app/Outcomes/ImplicitHqScopeRefused.php`, `AttributionMethodInactive.php` (both `InvalidArgumentException`), `AttributionPolicy.php` (the Q3 extension point); `AttributionMethod::isDeterministicProof()`; `OutcomeRecorder::validateAttribution()` asks the policy before the confidence rule and refuses a null action business.
+- `app/Tools/Outcomes/AttributeOutcomeTool.php`: descriptor as in 4.1 (R3, `Write`, `Business` scope from `business_slug`, `permanentlyHumanOnly: true`, `Reversible`, `OnePerBusiness`); actor = `ToolContext::actorUserId` (refused when null); outcome read = `restrictBusinesses(Outcome::query())->where('business_id', $context->businessId)->where('uuid', ...)`; action reference composed per kind (`tool_call:{tool_key}:{idempotency_key}`, `{kind}:{uuid}` where the table has one, `{kind}:{id}` otherwise); attribution key `attr:operator:{outcome uuid}:{kind}:{id}:{role}`; evidence `{evidence_ref, asserted_through}` (the gateway call is reached through `correlation_id`, not the meaning, so the same assertion twice is a replay); `OutcomeConflict` and every ledger refusal answered as `failed`, never retried; `reconcile()` null.
+- `config/hq.php` `tools`: registered last, with the inert note. `RolesAndPermissionsSeeder::PERMISSIONS` + `hq.outcomes.attribute`.
+- docs/105 §1.2: row 9.
+
+### 2.3 Tests
+
+- `tests/Feature/Outcomes/OutcomeLedgerTest.php`: the Q6 acceptance became a refusal; `rule_window`/`model_inferred` uses became refusals; new: "refuses an action with no business of its own (Q6)" (tool call, ai run, decision record, typed exception, nothing written), "refuses rule_window and model_inferred in v1 while keeping their confidence rules (Q3, C6)" (policy version and active list pinned); C7 pins on `isDeterministicProof()`.
+- `tests/Feature/Outcomes/AttributeOutcomeToolTest.php` (5 tests): descriptor pins, permission seeded and held by `*` roles only, held by no seeded agent (`Agent::mayUseTool` over the seeded agents and the seeder source), schema takes the ledger vocabularies and no `method`/`actor`; records one `operator_asserted` row as the person with reason and evidence, gateway call row R3 without approval, replay on repeat, refusal on a changed meaning; permission denied, agent refused permanently even when its enabling owner holds the permission and its list names the tool; scope fail-closed (other business's outcome, action of another business, null-business action with the Q6 message, missing action, unknown outcome, restricted user at the gateway, six malformed payloads `Invalid`); no human actor refused inside the tool and a system identity refused by the gateway.
+- `tests/Feature/Outcomes/OutcomeWritePathStructureTest.php` (4 tests, structural): writes to the three tables only in `Outcomes/OutcomeRecorder.php`; `OutcomeRecorder` reached only from `app/Outcomes/**` and the tool; the tool calls `attribute()`, names `OperatorAsserted` only and never `supersede`/`retract`/`record`; nothing under `app/Http`, `app/Console` or `routes/` names the models, the recorder or the tables; no route uri contains `outcome`; Q7: the exact reader list with the reason each is allowed, `scopeVisibleTo` on `Outcome` and `OutcomeAttribution` calls `BusinessScope::restrict` with the qualified column, `OutcomeResultRef` restricts through its outcome, no `addGlobalScope` (D19); behavioural: the tool's own restriction holds with the gateway out of the picture (narrowed permitted businesses, wrong resolved business, no business).
+- `GatewayCoverageStructureTest`: effectful pin = ten, `outcomes.attribute` named with its reason. `ToolNamespaceTest`: key added. `PolicyEngineTest`: `$never` = `['outcomes.attribute']`, the first permanent tool, named. `ErpOrderPlacedRecorderTest`: the inert pin names the tool file as the one caller outside `app/Outcomes`. `RetentionTest`: fixtures carry a business.
+
+### 2.4 Gate
+
+- Targeted: Outcomes (4 files) + every registry/descriptor/permission pin (GatewayCoverage, ToolNamespace, SharedFoundationSafety, AiSafetyPosture, PolicyEngine, ToolGateway, ApprovalCenter, PostureScreen, Dashboards, ToolRegistryScreen, EffectfulProposalGovernance, Retention): 178 passed.
+- `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean.
+- Full suite (`--parallel --processes=3`, `hq_test_g`): see the line appended at the end of this document.
+
+### 2.5 Release notes (for the wave report, not a release)
+
+- Behaviour change for any FUTURE recorder: an attribution to an action with no business of its own now throws `ImplicitHqScopeRefused`; `rule_window`/`model_inferred` claims throw `AttributionMethodInactive`. No live path writes the ledger, so production behaviour is unchanged.
+- New permission `hq.outcomes.attribute`: `php artisan db:seed --class=RolesAndPermissionsSeeder` on deploy (additive). New registered tool `outcomes.attribute`: appears in the tool registry screen and `hq:tools:sync`; R3, human-only, nothing scheduled, nothing reads its rows.
+- Nothing here authorizes activation of outcome recording (Q8), backfill, snapshots (Q10), credit shares (Q4) or any S4 work.
 
 ---
 
@@ -151,3 +187,7 @@ This class is the extension point, documented in its docblock, for the versioned
 5. The HQ-scope representation shape in section 3.3: accept the shape in advance so the first recorder that needs it builds exactly that, or review again when the need arrives?
 6. Under Q6, `decision_records` cannot be credited in v1 (no business column). Accept resolving its business through its context when first needed (3.3 item 4)?
 7. The tool creates assertions only. Retracting or re-judging an operator assertion is today only possible in server code (`retractAttribution`). Should a `outcomes.retract_attribution` tool follow under the same permission, or a distinct one?
+
+---
+
+Full suite, `DB_DATABASE=hq_test_g php artisan test --parallel --processes=3` on `890b779` + this record: **1,952 passed (25,625 assertions), 403 s, exit 0.** `vendor/bin/pint --test` passed; `npx tsc --noEmit` clean. Not merged, not deployed; production untouched.
