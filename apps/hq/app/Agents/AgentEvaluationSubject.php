@@ -19,6 +19,7 @@ use App\Models\AiRun;
 use App\Models\Business;
 use App\Models\EvaluationCase;
 use App\Models\ToolCall;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -122,7 +123,35 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             businessId: $this->businessId($input),
             extraContext: $this->context($input),
             requester: self::requester(),
+            correlationId: self::mintCorrelation(),
         ));
+    }
+
+    /**
+     * docs/116 (ruling 110 §1c): the subject mints the run's `correlation_id` BEFORE the run, so that when
+     * `AgentRunner::run()` throws (and returns no `AgentRun` to read it from) the key every `ai_runs` row of
+     * the attempt carries is still known, and the cost of the calls made before the throw is attributed from
+     * the ledger instead of being lost as "unaccounted".
+     */
+    private static function mintCorrelation(): string
+    {
+        return (string) Str::uuid();
+    }
+
+    /**
+     * What the `ai_runs` ledger holds for a correlation, read when no `AgentRun` came back: the first row's id
+     * (the result's link, as for a run that returned) and, when the ledger holds NO row, `model_turns` 0. That
+     * zero is evidence, not a guess: `ModelRuntime::startRun()` inserts the row before the provider is called,
+     * so no row means no call was ever started. With rows present the turn count is left null; the result is
+     * linked by its correlation and its cost is the sum of those rows.
+     *
+     * @return array{0: int|null, 1: int|null} [aiRunId, modelTurns]
+     */
+    private function ledgerEvidence(string $correlationId): array
+    {
+        $first = AiRun::where('correlation_id', $correlationId)->orderBy('id')->value('id');
+
+        return [$first, $first === null ? 0 : null];
     }
 
     /**
@@ -145,11 +174,13 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
     {
         $carry = new EvidenceCarryOver;
         $evidence = [];
+        // docs/116: minted here, outside the transaction, so the catch below still has it after the rollback.
+        $correlationId = self::mintCorrelation();
 
         try {
-            $observation = app(ConversationSimulator::class)->withThread($scenario, $brand, function (array $thread) use ($scenario, $question, $carry, &$evidence) {
+            $observation = app(ConversationSimulator::class)->withThread($scenario, $brand, function (array $thread) use ($scenario, $question, $carry, &$evidence, $correlationId) {
                 if (! $thread['core_passed']) {
-                    return $this->notReplayed('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']));
+                    return $this->notReplayed('The conversation core did not replay the scenario as written: '.implode('; ', $thread['core_mismatches']), $correlationId);
                 }
 
                 if (! $thread['with_agent']) {
@@ -182,6 +213,7 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
                         // docs/90 A.1 steps 3 and 5: the thread the run is bound to, and the contract it declares.
                         conversationUuid: $thread['conversation_uuid'],
                         supportWorkflow: $scenario->workflow,
+                        correlationId: $correlationId,
                     ), agentWoken: true);
                 } finally {
                     // Read before the rollback, whatever happened: money spent is money spent.
@@ -191,7 +223,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         } catch (Throwable $e) {
             $carry->restore($evidence);
 
-            return $this->notReplayed($e->getMessage());
+            // docs/116: the run's rows are back in the ledger; the correlation finds them.
+            return $this->notReplayed($e->getMessage(), $correlationId);
         }
 
         $carry->restore($evidence);
@@ -199,13 +232,23 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         return $observation;
     }
 
-    private function notReplayed(string $why): EvaluationObservation
+    /**
+     * A thread case that did not run as written. With the correlation the subject minted for it, the ledger
+     * is read (`ledgerEvidence()`): a replay that threw after the agent's calls keeps their cost; one that never
+     * reached the agent is accounted at zero on evidence. Without one (no scenario keyed), the gap stays reported.
+     */
+    private function notReplayed(string $why, ?string $correlationId = null): EvaluationObservation
     {
+        [$aiRunId, $modelTurns] = $correlationId === null ? [null, null] : $this->ledgerEvidence($correlationId);
+
         return new EvaluationObservation(
             refused: true,
             refusalReason: 'the scenario could not be replayed: '.$why,
+            aiRunId: $aiRunId,
             outcome: EvaluationObservation::OUTCOME_FAILED,
             stopReason: 'exception',
+            modelTurns: $modelTurns,
+            correlationId: $correlationId,
         );
     }
 
@@ -250,12 +293,21 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
         } catch (Throwable $e) {
             // A case that could not be run is not a case that passed. Reporting it as a refusal with
             // the reason keeps it visible and lets the grader fail it on its own terms.
+            //
+            // docs/116: no AgentRun came back, but the correlation is the subject's own, so the model calls
+            // made before the throw are still found in `ai_runs` and billed to the case; a ledger with no
+            // row under it is a run that never reached the provider, accounted at zero.
+            [$aiRunId, $modelTurns] = $request->correlationId === null ? [null, null] : $this->ledgerEvidence($request->correlationId);
+
             return new EvaluationObservation(
                 refused: true,
                 refusalReason: 'the run could not be completed: '.get_class($e).': '.$e->getMessage(),
+                aiRunId: $aiRunId,
                 outcome: EvaluationObservation::OUTCOME_FAILED,
                 stopReason: 'exception',
                 agentWoken: $agentWoken,
+                modelTurns: $modelTurns,
+                correlationId: $request->correlationId,
             );
         }
 

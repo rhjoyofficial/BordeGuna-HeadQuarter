@@ -289,7 +289,9 @@ final class AgentRunner
         $execution = $this->contexts->resolve($agent, $request->requester, $request->trigger, $request->businessId, $request->brandId);
 
         $business = $request->businessId === null ? null : Business::find($request->businessId);
-        $correlationId = (string) Str::uuid();
+        // docs/116: a caller that owns the run's accounting may supply the key (the evaluation subject does, so
+        // the calls of a run that throws are still found in `ai_runs`); everyone else gets a fresh one.
+        $correlationId = $request->correlationId !== null && $request->correlationId !== '' ? $request->correlationId : (string) Str::uuid();
         $catalogue = $this->toolset->catalogueFor($execution);
 
         // ⭐ docs/90 A.1 steps 3 and 5: a run woken on a thread is bound to that thread, and the runtime
