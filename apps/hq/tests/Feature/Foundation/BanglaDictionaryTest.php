@@ -34,6 +34,8 @@ const BANGLA_SCREENS = [
     'js/pages/customers/consent.tsx',
     // docs/109 (S2): the Customer 360 page.
     'js/pages/customers/show.tsx',
+    // docs/113 (S4 part 1): follow-ups and opportunities.
+    'js/pages/follow-ups/index.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */
