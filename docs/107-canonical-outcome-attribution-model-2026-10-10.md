@@ -154,7 +154,7 @@ v1 types:
 
 - `record(OutcomeSpec)` writes one outcome and its result refs in one transaction, `INSERT ... ON CONFLICT (idempotency_key) DO NOTHING`. If the key already exists it compares `content_digest`: equal means the same observation again, and the existing row is returned (`replayed`); different means the caller is reporting a different fact under the same identity, and the recorder throws `OutcomeConflict`. It never overwrites.
 - `attribute(Outcome, AttributionSpec)` writes one attribution the same way, with its own key and digest.
-- `supersede(Outcome, OutcomeSpec, reason, actor)` and `retract(Outcome, reason, actor)` write a successor row. The unique index on `supersedes_outcome_id` makes a second, concurrent correction of the same row fail rather than fork the history. `supersedeAttribution` / `retractAttribution` likewise.
+- `supersede(Outcome, OutcomeSpec, reason, actor)` and `retract(Outcome, reason, actor)` write a successor row. The unique index on `supersedes_outcome_id` makes a second, concurrent correction of the same row fail (`OutcomeConflict`) rather than fork the history. A correction keeps the business and the type (a wrong type is a retraction plus a new outcome); a retraction copies the prior's references, uses the key `retract:{prior key}`, and is final (only an `asserted` row can be corrected or retracted; reinstating is a new record). `supersedeAttribution` / `retractAttribution` likewise, and a re-judged attribution keeps its action.
 - `content_digest` is taken over the meaning (type, business, brand, store, state, occurred_at, source_as_of, source, source_system, source_ref, provenance, evidence, sorted result refs; for an attribution: outcome, action, proposal ref, role, method, method version, confidence, state, evidence), with `App\Gateway\Approval\CanonicalPayload`, the single canonical encoder HQ already has (docs/95 §10 item 8: no third encoder). `recorded_at`, actor and correlation are not part of the meaning, so a retry from another worker is still a replay.
 
 **D12. The idempotency key is composed by the caller from the SOURCE identity, never from HQ's clock or row ids.** For example `order.placed:erp:{business_id}:{erp_order_number}`. Two workers observing the same ERP order therefore collide on one key, whichever reads first. The key is namespaced by outcome type so `order.placed` and `order.delivered` of one order never collide.
@@ -171,7 +171,7 @@ When a domain needs columns that only it understands (for example a conversation
 
 - primary key = `outcome_id` (FK `outcomes`, RESTRICT), one detail row per outcome at most;
 - written in the same transaction as the outcome, by that domain's recorder through `OutcomeRecorder`;
-- part of the outcome's `content_digest` (the recorder accepts a detail payload);
+- part of the outcome's `content_digest` (the recorder gains a detail-payload argument when the first detail table is added; v1 has none);
 - append-only with the same trigger;
 - holds HQ-owned semantics only; a number owned by a system of record is still a reference, never a column.
 

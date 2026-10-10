@@ -20,7 +20,6 @@ use App\Outcomes\OutcomeSource;
 use App\Outcomes\OutcomeSpec;
 use App\Outcomes\ResultRefSpec;
 use App\Outcomes\ResultType;
-use App\Tools\Commerce\TakeOrderTool;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -37,13 +36,22 @@ use InvalidArgumentException;
  *   - the agent run that shares the approval's correlation id: `proposed`, `correlation`.
  *
  * ⛔ Copies no amount, status or line from the order. The reference is the ERP order number (the ERP's
- *    own key) plus HQ's read-back row; the evidence is the operation key and the read-back digest.
+ *    own key) plus HQ's read-back row; the evidence is the operation key (the read-back digest stays on
+ *    the fact row the reference points at).
  */
 final class ErpOrderPlacedRecorder
 {
     public const TYPE = 'order.placed';
 
     public const METHOD_VERSION = 'erp_order_placed.v1';
+
+    /**
+     * The take_order tool's key and its order step, by value: the tool is reached only through the
+     * gateway and no other class may name it (TakeOrderTest). A test pins these to the tool's own constants.
+     */
+    public const TAKE_ORDER_KEY = 'commerce.take_order';
+
+    public const ORDER_STEP = 'order';
 
     public function __construct(private readonly OutcomeRecorder $recorder) {}
 
@@ -53,11 +61,11 @@ final class ErpOrderPlacedRecorder
             || ! is_string($fact->hq_key) || $fact->hq_key === '') {
             throw new InvalidArgumentException('Only an ERP read-back fact with an order number and HQ\'s operation key can record an ERP order outcome.');
         }
-        if ($placingCall->tool_key !== TakeOrderTool::KEY || $placingCall->status !== OutcomeStatus::Succeeded->value || ! is_string($placingCall->idempotency_key)) {
+        if ($placingCall->tool_key !== self::TAKE_ORDER_KEY || $placingCall->status !== OutcomeStatus::Succeeded->value || ! is_string($placingCall->idempotency_key)) {
             throw new InvalidArgumentException('The placing call must be a succeeded commerce.take_order call.');
         }
         // The proof: the key the call sent the ERP, recomputed, is the key the ERP echoed back.
-        $operationKey = ErpOperationKey::for($placingCall->idempotency_key, (int) $fact->business_id, TakeOrderTool::ORDER_STEP);
+        $operationKey = ErpOperationKey::for($placingCall->idempotency_key, (int) $fact->business_id, self::ORDER_STEP);
         if (! hash_equals($fact->hq_key, $operationKey)) {
             throw new InvalidArgumentException('That call did not place this order: its ERP operation key does not match the one the ERP read back.');
         }
@@ -90,13 +98,13 @@ final class ErpOrderPlacedRecorder
         $this->recorder->attribute($outcome, new AttributionSpec(
             actionType: ActionType::ToolCall,
             actionId: (int) $placingCall->id,
-            actionRef: 'tool_call:'.TakeOrderTool::KEY.':'.$placingCall->idempotency_key,
+            actionRef: 'tool_call:'.self::TAKE_ORDER_KEY.':'.$placingCall->idempotency_key,
             role: AttributionRole::Produced,
             method: AttributionMethod::DeterministicKey,
             methodVersion: self::METHOD_VERSION,
             confidence: 1.0,
             idempotencyKey: 'attr:'.$outcome->idempotency_key.':tool_call:'.$placingCall->id,
-            evidence: ['erp_operation_key' => $operationKey, 'step' => TakeOrderTool::ORDER_STEP],
+            evidence: ['erp_operation_key' => $operationKey, 'step' => self::ORDER_STEP],
             correlationId: $placingCall->correlation_id,
         ));
 

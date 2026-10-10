@@ -136,3 +136,8 @@ it('is inert: nothing outside the outcome namespace and its tests refers to the 
 
     expect($hits)->toBe([]);
 });
+
+it('names the take_order tool only by value, pinned here to the tool\'s own constants', function () {
+    expect(ErpOrderPlacedRecorder::TAKE_ORDER_KEY)->toBe(TakeOrderTool::KEY)
+        ->and(ErpOrderPlacedRecorder::ORDER_STEP)->toBe(TakeOrderTool::ORDER_STEP);
+});
