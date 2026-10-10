@@ -59,7 +59,7 @@ The controller passes the canonical customer (merges followed) after the scope c
 5. No cross-brand identity: one phone in LaLaDia and Bionic = two customers; the LaLaDia page carries none of the Bionic customer's orders, threads, consent or memories, and its id appears nowhere in the props.
 6. Permission split: `brand_manager` gets `conversations`, `memory`, `handovers` = null.
 7. Leaks: consent `actor_label`, `reason`, `evidence_ref` text never appears in the props.
-8. No write: snapshot of counts/max ids of every table the page reads plus `audit_logs`, `domain_events`, and full `customers` rows, before and after a render, identical.
+8. No write: snapshot of counts/max ids of every table the page reads plus `audit_logs`, `events` (domain events), and the full rows of customers, identities, memories, consent projection, conversations and order copies, before and after a render, identical.
 9. Merge guard: a merge across businesses is refused; a restricted user cannot merge customers of a business they cannot see.
 10. No new write route (the existing `PostureScreenTest` allow-list stays as it is).
 
