@@ -2,6 +2,8 @@
 
 use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\Registry\ToolSwitch;
+use App\Models\Approval;
+use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
@@ -23,6 +25,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\Support\Tools\AlwaysFailingTool;
 use Tests\Support\Tools\CountingTool;
+use Tests\Support\Tools\WriteTool;
 
 /*
  | M2: the scheduler as an ordinary gateway caller (ADR-016, docs/50).
@@ -161,6 +164,55 @@ it('can be switched back to direct mode, which is the rollback for the migration
     gatewayMode(false);
     runOnce($job);
     expect(ToolCall::count())->toBe(1)->and(CountingTool::$executions)->toBe(2);
+});
+
+// ---------------------------------------------------------------- docs/105 (S1): effectful tools never take the direct path
+
+it('runs an EFFECTFUL tool through the gateway even with the flag off: an R4 write parks for approval and does not run', function () {
+    app(ToolRegistry::class)->register(WriteTool::class);
+    app(ToolAvailability::class)->forget();
+    WriteTool::$executions = 0;
+    $user = schedulerUser();
+    $job = makeJob('test.external_write', ['note' => 'x'], $user);
+
+    $run = runOnce($job);
+
+    $call = ToolCall::where('tool_key', 'test.external_write')->sole();
+    expect(WriteTool::$executions)->toBe(0)
+        ->and($call->caller_kind)->toBe('scheduler')
+        ->and($call->status)->toBe('awaiting_approval')
+        ->and(Approval::where('tool_key', 'test.external_write')->count())->toBe(1)
+        // The job did not do its work, and says why: it waits for a person.
+        ->and($run->status)->not->toBe(RunStatus::Succeeded);
+});
+
+it('runs a real effectful job (an ERP poll, R3 write) through the gateway with the flag off, on the record', function () {
+    $this->seed(DomainSeeder::class);
+    config(['hq.erp.base_url' => ERP_BASE]);
+    $business = Business::where('slug', 'bor-de-guna')->sole();
+    IntegrationCredential::create([
+        'provider' => 'erp_api_token', 'account_ref' => 'bor-de-guna', 'business_id' => $business->id,
+        'credential_type' => 'token', 'payload' => ['value' => 'tok'], 'status' => 'active',
+    ]);
+    Http::fake([ERP_BASE.'/api/hq/v1/4/stock/low' => Http::response(['data' => [], 'meta' => ['count' => 0, 'as_of' => '2026-09-08T10:00:00+06:00']])]);
+
+    $run = runOnce(makeJob('erp.poll_low_stock', ['business_slug' => 'bor-de-guna']));
+
+    expect($run->status)->toBe(RunStatus::Succeeded)
+        ->and(ToolCall::where('tool_key', 'erp.poll_low_stock')->sole()->status)->toBe('succeeded')
+        ->and($run->output['via_gateway'] ?? null)->toBeNull(); // the run row keeps its shape
+    expect(AuditLog::where('action', 'job_run.finished')->latest('id')->first()->after['via_gateway'])->toBeTrue();
+});
+
+it('keeps the direct path only for a tool with no effect, and the direct path itself refuses an effectful tool', function () {
+    $source = file_get_contents(app_path('Scheduling/Jobs/RunScheduledJob.php'));
+    preg_match('/private function executeDirectly\(.*?\n    }\n/s', $source, $direct);
+
+    expect($direct)->not->toBeEmpty()
+        // The first statement of the direct path is the effect check, before any tool is touched.
+        ->and(strpos($direct[0], 'mustUseGateway('))->toBeLessThan(strpos($direct[0], '->execute('))
+        ->and(strpos($direct[0], 'mustUseGateway('))->toBeLessThan(strpos($direct[0], '->reconcile('))
+        ->and($source)->toContain('$viaGateway = $this->mustUseGateway($tools, (string) $job->tool_key)');
 });
 
 // ---------------------------------------------------------------- equivalence
