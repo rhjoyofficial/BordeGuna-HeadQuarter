@@ -156,6 +156,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST ask',
         'POST credentials', 'POST credentials/{credential}/revoke',
         'POST customers/candidates/{candidate}/dismiss', 'POST customers/merge',
+        // docs/108 (S7): records a consent EVENT in the append-only ledger as the acting person, behind
+        // hq.consent.restrict or hq.consent.grant. It reaches no provider and bypasses no gateway step.
+        'POST customers/{customer}/consent',
         'POST flags', 'POST flags/{flag}/toggle',
         'POST inbox/{conversation}/assign', 'POST inbox/{conversation}/close', 'POST inbox/{conversation}/comparisons/{comparison}/verdict',
         'POST inbox/{conversation}/memory/{memory}/forget', 'POST inbox/{conversation}/note', 'POST inbox/{conversation}/proposals/{run}/decide',
