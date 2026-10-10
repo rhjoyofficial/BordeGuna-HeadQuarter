@@ -536,5 +536,20 @@
     "needs a person": "মানুষ দরকার",
     "a person is answering": "একজন মানুষ উত্তর দিচ্ছেন",
     "resolved by a person": "মানুষ সমাধান করেছেন",
-    "handed back to the agent": "এজেন্টের কাছে ফেরত দেওয়া হয়েছে"
+    "handed back to the agent": "এজেন্টের কাছে ফেরত দেওয়া হয়েছে",
+
+    "Whole customer": "পুরো গ্রাহক",
+    "Per identity": "পরিচয় অনুযায়ী",
+    "On the channel each identity lives on": "যে চ্যানেলে প্রতিটি পরিচয় আছে, সেখানে",
+    "No identities linked yet": "এখনও কোনো পরিচয় যুক্ত হয়নি",
+    "A restriction on one identity is never defeated by a grant on another.": "এক পরিচয়ের নিষেধাজ্ঞা অন্য পরিচয়ের অনুমতি দিয়ে কখনও বাতিল হয় না।",
+    "Lifts waiting for a second person": "দ্বিতীয় ব্যক্তির অপেক্ষায় থাকা তুলে নেওয়ার অনুরোধ",
+    "{count} pending": "{count}টি অপেক্ষমাণ",
+    "Requested by": "অনুরোধ করেছেন",
+    "Requested": "অনুরোধের সময়",
+    "Open in the Approval Centre": "অনুমোদন কেন্দ্রে খুলুন",
+    "The requester never approves their own lift; a second person holding the lift permission decides it in the Approval Centre. The do-not-contact stays in force until then.": "যিনি অনুরোধ করেছেন তিনি নিজের অনুরোধ কখনও অনুমোদন করতে পারেন না; তুলে নেওয়ার অনুমতিধারী দ্বিতীয় একজন অনুমোদন কেন্দ্রে সিদ্ধান্ত নেন। ততক্ষণ পর্যন্ত যোগাযোগ-নিষেধ বহাল থাকে।",
+    "Two-person": "দুই ব্যক্তি",
+    "One phone or account of this person, or the whole customer.": "এই ব্যক্তির একটি ফোন বা অ্যাকাউন্ট, অথবা পুরো গ্রাহক।",
+    "Ends a withdrawal at exactly this scope (one person), or asks for a do-not-contact to be lifted (two people must agree). Grants nothing.": "ঠিক এই পরিসরে একটি প্রত্যাহার শেষ করে (একজন), অথবা যোগাযোগ-নিষেধ তুলে নেওয়ার অনুরোধ করে (দুইজনকে সম্মত হতে হবে)। কোনো অনুমতি দেয় না।"
 }

@@ -31,7 +31,7 @@ function csPost(Customer $customer, array $data): array
 }
 
 it('registers both routes behind auth, both 2FA gates and a consent permission', function () {
-    foreach (['customers.consent' => 'permission:hq.consent.view', 'customers.consent.store' => 'permission:hq.consent.restrict|hq.consent.grant'] as $name => $permission) {
+    foreach (['customers.consent' => 'permission:hq.consent.view', 'customers.consent.store' => 'permission:hq.consent.restrict|hq.consent.grant|hq.consent.lift_restriction'] as $name => $permission) {
         expect(Route::getRoutes()->getByName($name)->gatherMiddleware())->toContain('auth', '2fa.enabled', '2fa.verified', $permission);
     }
 });

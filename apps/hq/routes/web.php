@@ -153,7 +153,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // docs/108 (S7): a customer's consent history and the operator acts. Recording is an event in the
     // ledger, checked per act against hq.consent.restrict (stop contact) or hq.consent.grant (start it).
     Route::get('customers/{customer}/consent', [CustomerConsentController::class, 'show'])->middleware('permission:hq.consent.view')->name('customers.consent');
-    Route::post('customers/{customer}/consent', [CustomerConsentController::class, 'store'])->middleware('permission:hq.consent.restrict|hq.consent.grant')->name('customers.consent.store');
+    Route::post('customers/{customer}/consent', [CustomerConsentController::class, 'store'])->middleware('permission:hq.consent.restrict|hq.consent.grant|hq.consent.lift_restriction')->name('customers.consent.store');
 });
 
 require __DIR__.'/settings.php';
