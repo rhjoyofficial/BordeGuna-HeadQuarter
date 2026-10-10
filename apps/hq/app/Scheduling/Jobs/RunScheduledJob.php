@@ -37,7 +37,13 @@ use Throwable;
  *   gateway mode (ADR-016)  the scheduler is an ordinary gateway caller and inherits every
  *                           deterministic control: registry, schema, scope, permission, policy,
  *                           idempotency, credential resolution, tool_calls, audit.
- *   direct mode             the Phase 1 path, unchanged, kept as the immediate rollback switch.
+ *   direct mode             the Phase 1 path, kept as the rollback switch for tools WITH NO EFFECT only.
+ *
+ * ⛔ docs/105 (S1, ruling docs/103 §3): an EFFECTFUL tool (`ToolDescriptor::hasEffect()`: a write, or R3 and
+ * above) always runs through the gateway, whatever the flag says, and a tool the registry does not know goes to
+ * the gateway too (which refuses it as unavailable, on the record). The flag is read as OFF when its row is
+ * missing, so before this rule a fresh database would have run every scheduled write, an approval-gated R4
+ * order write included, with no policy, approval, consent, idempotency key, tool_calls row or audit.
  *
  * Everything a scheduler owns stays here in both modes: creating the run, the attempt log, backoff,
  * dead-lettering, missed-job behaviour and job state. Nothing the gateway owns is duplicated here,
@@ -109,7 +115,8 @@ final class RunScheduledJob implements ShouldQueue
             environment: (string) app()->environment(),
         );
 
-        $viaGateway = $features->enabled((string) config('hq.scheduler_gateway_flag', 'scheduler.gateway'), $job->business_id);
+        $viaGateway = $this->mustUseGateway($tools, (string) $job->tool_key)
+            || $features->enabled((string) config('hq.scheduler_gateway_flag', 'scheduler.gateway'), $job->business_id);
 
         // The job's payload, plus `event` for a run a domain event started (docs/95 §16 NOW item 4).
         $args = $eventJobs->arguments($job, $run);
@@ -204,6 +211,12 @@ final class RunScheduledJob implements ShouldQueue
      */
     private function executeDirectly(ToolRegistry $tools, ScheduledJob $job, ToolContext $context, JobRun $run, array $args): ToolResult
     {
+        // ⛔ docs/105: never an effectful tool. handle() already routes one to the gateway; this is the second
+        // lock on the same door, so a later edit to handle() cannot reopen it.
+        if ($this->mustUseGateway($tools, (string) $job->tool_key)) {
+            return ToolResult::failed("[{$job->tool_key}] has an effect, and an effectful tool runs only through the Tool Gateway (docs/105).");
+        }
+
         $tool = $tools->get($job->tool_key);
 
         $resolution = $this->credentials->resolve(
@@ -219,5 +232,23 @@ final class RunScheduledJob implements ShouldQueue
 
             return $result ?? $tool->execute($args, $context);
         });
+    }
+
+    /**
+     * Whether this job's tool must run through the gateway whatever `scheduler.gateway` says (docs/105): it has
+     * an effect, or the registry does not know it, or its descriptor cannot be read. Fails closed: only a known
+     * tool that declares no effect may take the direct path.
+     */
+    private function mustUseGateway(ToolRegistry $tools, string $key): bool
+    {
+        if (! $tools->has($key)) {
+            return true;
+        }
+
+        try {
+            return $tools->get($key)->descriptor()->hasEffect();
+        } catch (Throwable) {
+            return true;
+        }
     }
 }

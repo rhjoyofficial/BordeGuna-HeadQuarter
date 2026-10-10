@@ -1,6 +1,7 @@
 <?php
 
 use App\Facts\FactsOrderUpserter;
+use App\Gateway\Registry\ToolSwitch;
 use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\CustomerIdentity;
@@ -9,6 +10,7 @@ use App\Models\FactsOrder;
 use App\Models\IntegrationCredential;
 use App\Models\ScheduledJob;
 use App\Models\Store;
+use App\Models\ToolCall;
 use App\Scheduling\Enums\JobState;
 use App\Tools\ToolContext;
 use App\Tools\ToolRegistry;
@@ -238,4 +240,29 @@ it('refuses an unregistered tool and a payload that is not an object', function 
     $this->artisan('hq:scheduler:ensure "Bad tool" --tool=does.not.exist --cron="0 2 * * *" --apply')->assertFailed();
     $this->artisan('hq:scheduler:ensure "Bad payload" --tool=commerce.reconcile_facts --cron="0 2 * * *" --payload=nonsense --apply')->assertFailed();
     expect(ScheduledJob::count())->toBe(0);
+});
+
+it('runs hq:facts:reconcile through the Tool Gateway as a console caller, on the record (docs/105, S1)', function () {
+    fakeAdminList([adminListOrder('LLD-RECON-GW')]);
+
+    $this->artisan('hq:facts:reconcile --store=laladia-com --hours=48')
+        ->expectsOutputToContain('checked 1 orders since')->assertSuccessful();
+
+    $call = ToolCall::where('tool_key', 'commerce.reconcile_facts')->sole();
+    expect($call->status)->toBe('succeeded')
+        ->and($call->caller_kind)->toBe('console')
+        ->and($call->input)->toMatchArray(['store_slug' => 'laladia-com', 'hours' => 48])
+        ->and(FactsOrder::where('order_ref', 'LLD-RECON-GW')->count())->toBe(1)
+        // R3: the gateway audits it.
+        ->and(AuditLog::where('action', 'tool.commerce_reconcile_facts')->count())->toBe(1);
+});
+
+it('lets the gateway refuse hq:facts:reconcile when the tool is switched off, and touches no fact', function () {
+    fakeAdminList([adminListOrder('LLD-RECON-OFF')]);
+    app(ToolSwitch::class)->disable('commerce.reconcile_facts', 'docs/105 test');
+
+    $this->artisan('hq:facts:reconcile --store=laladia-com --hours=48')->assertFailed();
+
+    expect(FactsOrder::where('order_ref', 'LLD-RECON-OFF')->count())->toBe(0)
+        ->and(ToolCall::where('tool_key', 'commerce.reconcile_facts')->sole()->status)->toBe('unavailable');
 });

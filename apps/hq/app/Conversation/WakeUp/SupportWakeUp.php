@@ -14,14 +14,17 @@ use App\Conversation\SupportContext;
 use App\Conversation\SupportWorkflow;
 use App\Execution\Requester;
 use App\Execution\RequesterKind;
+use App\Gateway\OutcomeStatus;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Models\Agent;
 use App\Models\AgentRun;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
+use App\Models\ToolCall;
 use App\Support\Audit\Auditor;
 use App\Support\Events\EventRecorder;
 use App\Support\Features\Features;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -57,9 +60,12 @@ use Throwable;
  *     moves `ai_active` -> `ai_waiting`, or `ai_resumed` -> `ai_active` -> `ai_waiting` (docs/14 table;
  *     confirmed lifecycle, docs/101 §11 ruling 9.3) (docs/72 §B: the agent answered and waits; a second
  *     customer message while it waits reaches a person, by the core's existing rule);
+ *   - the reply EXECUTED (A2 and above, verified against the gateway's `tool_calls` row; unreachable while
+ *     ADR-024 caps customer-reading runs at A1): `conversation.reply_sent`, and the thread waits on the
+ *     customer as after a proposal (docs/105, ruling docs/103 §3);
  *   - the run proposed nothing (a silent hand-over the runtime decided before the model, a refusal, a
- *     failure, an answer with no reply): the thread moves to `human_required` with reason
- *     `agent_cannot_serve`, so a customer is never left in silence with nobody told.
+ *     failure, an answer with no reply, a reply whose delivery is uncertain): the thread moves to
+ *     `human_required` with reason `agent_cannot_serve`, so a customer is never left in silence with nobody told.
  *
  * ⚠ A silent hand-over is declared here, by HQ code, from the runtime's own classifier
  * (`SupportWorkflow::recommend`): the thread goes to a person with zero model turns, the run records the
@@ -246,15 +252,33 @@ final class SupportWakeUp
         return $run;
     }
 
-    /** The thread's next state follows from what the run did, and is the state machine's to record. */
+    /**
+     * The thread's next state follows from what the run did, and is the state machine's to record.
+     *
+     * Three outcomes, in this order (docs/101 §11 ruling 9.3; §12 Q4 and docs/103 §3, stream S1):
+     *
+     *   1. The reply was EXECUTED (A2 and above): the runner wrote an `evidence` record carrying the gateway's
+     *      `tool_call_id`, never a proposal. Verified against the gateway's own `tool_calls` row (the reply tool,
+     *      `succeeded` or `replayed`, its validated input naming THIS thread); the record alone is never trusted.
+     *      The thread was answered: `conversation.reply_sent`, then `ai_waiting`, as after a proposal.
+     *   2. A valid PROPOSAL: `conversation.reply_proposed`, then `ai_waiting` (unchanged).
+     *   3. Neither: to a person as `agent_cannot_serve`. A reply the gateway reports `uncertain` (it may have
+     *      reached the customer) is said so on the hand-over, naming the tool call.
+     *
+     * ⛔ Branch 1 is unreachable through `run()` today and the correction does not change that: ADR-024 caps
+     * every run whose context holds a customer's words at A1, and only A2 and above execute. It is the
+     * precondition the ruling set for ever lifting that cap, and is proven by calling this method directly.
+     */
     private function settle(Conversation $conversation, ConversationMessage $message, AgentRun $run): void
     {
-        $proposal = collect((array) $run->proposals)
-            ->first(fn ($p) => is_array($p) && ($p['kind'] ?? null) === 'proposal' && ($p['tool'] ?? null) === SupportWorkflow::REPLY_TOOL);
+        $records = collect((array) $run->proposals)->filter(fn ($p) => is_array($p) && ($p['tool'] ?? null) === SupportWorkflow::REPLY_TOOL);
 
-        if ($proposal !== null) {
+        $executed = $this->replyCall($conversation, $records->where('kind', 'evidence'), [OutcomeStatus::Succeeded, OutcomeStatus::Replayed]);
+        $proposal = $records->first(fn (array $p) => ($p['kind'] ?? null) === 'proposal');
+
+        if ($executed !== null || $proposal !== null) {
             $this->events->record(
-                type: 'conversation.reply_proposed',
+                type: $executed !== null ? 'conversation.reply_sent' : 'conversation.reply_proposed',
                 payload: [
                     'conversation_uuid' => $conversation->uuid,
                     'message_uuid' => $message->uuid,
@@ -262,14 +286,15 @@ final class SupportWakeUp
                     'run_id' => $run->id,
                     'autonomy_level' => $run->autonomy_level->value,
                     'shadow' => (bool) $run->shadow,
-                    'approval_id' => $proposal['approval_id'] ?? null,
-                ],
+                ] + ($executed !== null
+                    ? ['tool_call_id' => $executed->id, 'tool_call_status' => $executed->status]
+                    : ['approval_id' => $proposal['approval_id'] ?? null]),
                 source: 'hq:conversation',
                 direction: 'outbound',
                 aggregateType: 'conversation',
                 aggregateId: (string) $conversation->uuid,
                 businessId: (int) $conversation->business_id,
-                dedupeKey: "conversation:reply_proposed:{$message->uuid}",
+                dedupeKey: ($executed !== null ? 'conversation:reply_sent:' : 'conversation:reply_proposed:').$message->uuid,
             );
 
             // docs/14: AI_RESUMED -> AI_ACTIVE. A thread a person handed back is the agent's again once
@@ -282,18 +307,48 @@ final class SupportWakeUp
 
             if ($conversation->state->canMoveTo(ConversationState::AiWaiting)) {
                 $this->states->transition($conversation, ConversationState::AiWaiting, null,
-                    'the agent proposed a reply and waits (run '.$run->uuid.')', ConversationService::SUPPORT_AGENT);
+                    $executed !== null
+                        ? 'the agent sent its reply and waits (run '.$run->uuid.', tool call #'.$executed->id.')'
+                        : 'the agent proposed a reply and waits (run '.$run->uuid.')',
+                    ConversationService::SUPPORT_AGENT);
             }
 
             return;
         }
 
         $workflow = (array) ($run->support_workflow ?? []);
-        $what = ($workflow['workflow'] ?? null) === SupportWorkflow::SILENT_HANDOVER
-            ? 'a silent hand-over the runtime decided before the model ('.($workflow['kind'] ?? 'unknown').')'
-            : 'the run ended '.$run->status.($run->stop_reason ? ' ('.$run->stop_reason.')' : '').' with no reply proposed';
+        $uncertain = $this->replyCall($conversation, $records->whereIn('kind', ['evidence', 'failed']), [OutcomeStatus::Uncertain]);
+        $what = match (true) {
+            $uncertain !== null => 'a reply was attempted and its delivery is uncertain (tool call #'.$uncertain->id.'), so a person must check what the customer received',
+            ($workflow['workflow'] ?? null) === SupportWorkflow::SILENT_HANDOVER => 'a silent hand-over the runtime decided before the model ('.($workflow['kind'] ?? 'unknown').')',
+            default => 'the run ended '.$run->status.($run->stop_reason ? ' ('.$run->stop_reason.')' : '').' with no reply proposed',
+        };
 
         $this->handToPerson($conversation, $what.'; run '.$run->uuid);
+    }
+
+    /**
+     * The gateway's own row for a reply call one of these records names, when it is the reply tool, has one of
+     * the given statuses and was made for THIS thread; otherwise null. This is the verification: a record in
+     * `agent_runs.proposals` says what the runner saw, the `tool_calls` row is what the gateway did.
+     *
+     * @param  Collection<int, array<string, mixed>>  $records
+     * @param  list<OutcomeStatus>  $statuses
+     */
+    private function replyCall(Conversation $conversation, Collection $records, array $statuses): ?ToolCall
+    {
+        $ids = $records->pluck('tool_call_id')->filter(fn ($id) => is_int($id) || (is_string($id) && ctype_digit($id)))->map(fn ($id) => (int) $id)->values()->all();
+        if ($ids === []) {
+            return null;
+        }
+
+        return ToolCall::query()
+            ->whereIn('id', $ids)
+            ->where('tool_key', SupportWorkflow::REPLY_TOOL)
+            ->whereIn('status', array_map(fn (OutcomeStatus $s) => $s->value, $statuses))
+            ->orderBy('id')
+            ->get()
+            ->first(fn (ToolCall $call) => (string) data_get($call->input, 'conversation_uuid') === (string) $conversation->uuid);
     }
 
     private function handToPerson(Conversation $conversation, string $what): void

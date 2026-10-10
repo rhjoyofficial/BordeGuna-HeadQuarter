@@ -23,7 +23,6 @@ use App\Execution\ExecutionContextResolver;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ReadWrite;
-use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
@@ -1013,6 +1012,21 @@ final class AgentRunner
         $key = (string) ($call['tool'] ?? '');
         $args = is_array($call['args'] ?? null) ? $call['args'] : [];
 
+        // The one request every gateway question of this call is asked with (docs/97 §6 D4), built before the
+        // runtime's guards so a guard that refuses an EFFECTFUL call still puts it to the gateway (docs/105, S1).
+        $requestFor = fn (array $arguments): ToolRequest => new ToolRequest(
+            toolKey: $key,
+            args: $arguments,
+            caller: CallerKind::Agent,
+            identity: ActingIdentity::forExecution($execution),
+            correlationId: $correlationId,
+            businessId: $request->businessId,
+            brandId: $request->brandId,
+            refusedRoleActions: $refusedActions,
+            // The requirement the conversation core resolved for this thread, as the run recorded it.
+            languageRequirement: $this->languageRequirement($run)?->toArray(),
+        );
+
         // docs/90 A.1 steps 3 and 5: a thread-bound run names its own thread on every call that names
         // one, and a greeting-first run names nothing before the reply. Decided by the runtime here,
         // before the gateway, whatever the model wrote.
@@ -1021,7 +1035,8 @@ final class AgentRunner
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $threadRefusal),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $threadRefusal, 'why' => $call['why'] ?? null,
-                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId)
+                    + $this->gatewayOnGuardRefusal($key, $requestFor($args), 'bound_thread', $run, $correlationId),
                 $key,
             ];
         }
@@ -1037,19 +1052,22 @@ final class AgentRunner
                 return [
                     $this->assembler->toolRefusal($key, $reason),
                     ['kind' => 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null,
-                        'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
+                        'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId)
+                        + $this->gatewayOnGuardRefusal($key, $requestFor($args), 'refused_role_action', $run, $correlationId),
                     $key,
                 ];
             }
         }
 
-        // A tool the agent may not name at all: answered here, because there is nothing for the
-        // gateway to decide about a key that does not exist.
+        // A tool the agent may not name at all (unknown, not cleared for agents, not granted, switched off):
+        // answered here. An unknown key has nothing for the gateway to decide; an EFFECTFUL tool refused here is
+        // still put to the gateway, read-only, and its verdict kept beside this refusal (docs/105, S1).
         if (($refusal = $this->toolset->refusalFor($agent, $key, $request->businessId)) !== null) {
             return [
                 $this->assembler->toolRefusal($key === '' ? 'unnamed' : $key, $refusal),
                 ['kind' => 'refused', 'tool' => $key, 'reason' => $refusal, 'why' => $call['why'] ?? null,
-                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId),
+                    'outcome_class' => OutcomeClass::PermissionDenied->value, 'side' => OutcomeClass::SIDE_CONTROL_PLANE] + $this->trace($call, $args, $correlationId)
+                    + $this->gatewayOnGuardRefusal($key, $requestFor($args), 'catalogue', $run, $correlationId),
                 $key,
             ];
         }
@@ -1062,18 +1080,7 @@ final class AgentRunner
         //    credential pre-flight) -> the pre-execution content checks the tool opts into (the reply's
         //    script, docs/92) -> execute. The script is never checked before the gateway has authorized
         //    the call and never after it ran; a correct script cannot make a refused call permitted.
-        $toolRequest = new ToolRequest(
-            toolKey: $key,
-            args: $args,
-            caller: CallerKind::Agent,
-            identity: ActingIdentity::forExecution($execution),
-            correlationId: $correlationId,
-            businessId: $request->businessId,
-            brandId: $request->brandId,
-            refusedRoleActions: $refusedActions,
-            // The requirement the conversation core resolved for this thread, as the run recorded it.
-            languageRequirement: $this->languageRequirement($run)?->toArray(),
-        );
+        $toolRequest = $requestFor($args);
 
         // The autonomy rule, made structural. At A0 nothing with an effect runs: the call is recorded as a
         // proposal for a human, and only when the gateway WOULD authorize it and its pre-execution checks
@@ -1090,7 +1097,10 @@ final class AgentRunner
                 return [
                     $class->isExternal() ? $this->assembler->toolFailure($key, $reason, $class) : $this->assembler->toolRefusal($key, $reason),
                     ['kind' => $class->isExternal() ? 'failed' : 'refused', 'tool' => $key, 'reason' => $reason, 'why' => $call['why'] ?? null,
-                        'outcome_class' => $class->value, 'side' => $class->side()] + $this->trace($call, $args, $correlationId),
+                        'outcome_class' => $class->value, 'side' => $class->side(),
+                        // docs/105: every record of an effectful call names the gateway decision it rests on.
+                        'gateway' => ['asked' => 'authorize', 'guard' => null, 'decision' => 'refused', 'outcome_class' => $class->value, 'reason' => $reason]]
+                    + $this->trace($call, $args, $correlationId),
                     // A control-plane refusal counts toward the repeated-denial stop, as the gateway's own would.
                     $class->isControlPlane() ? $key : null,
                 ];
@@ -1345,7 +1355,47 @@ final class AgentRunner
      */
     private function hasEffect(ToolDescriptor $descriptor): bool
     {
-        return $descriptor->readWrite === ReadWrite::Write || $descriptor->riskTier->atLeast(RiskTier::R3);
+        // The one definition lives on the descriptor (docs/105), shared with the scheduler and the tests.
+        return $descriptor->hasEffect();
+    }
+
+    /**
+     * docs/101 §12 Q5, docs/103 §3 (S1, docs/105): a runtime guard (the bound thread, the refused part of the
+     * request, the catalogue) refused a call BEFORE the gateway. For an EFFECTFUL tool the gateway is asked as
+     * well, so no effectful call an agent names is decided by the runtime alone.
+     *
+     * ⛔ It can only add a record, never a permission. The guard's refusal stands whatever the gateway says (a
+     * guard can only remove); the question is `authorize()`, which records nothing, requests no approval, spends
+     * no quota and executes nothing, at every autonomy level. The model reads the guard's refusal, exactly as
+     * before; the gateway's verdict is kept on the run's record and in the audit. A gateway that WOULD have
+     * permitted what a guard refused is said so in the audit, for a person to look at: the two layers disagree.
+     *
+     * @return array<string, mixed> nothing for a key that names no registered tool or a tool with no effect
+     */
+    private function gatewayOnGuardRefusal(string $key, ToolRequest $toolRequest, string $guard, AgentRun $run, string $correlationId): array
+    {
+        if ($key === '' || ! $this->registry->has($key) || ! $this->hasEffect($this->registry->get($key)->descriptor())) {
+            return [];
+        }
+
+        $authorization = $this->gateway->authorize($toolRequest);
+        $permits = $authorization->permitsProposal();
+        $verdict = [
+            'asked' => 'authorize',
+            'guard' => $guard,
+            'decision' => $permits ? ($authorization->awaitsApproval ? 'would_await_approval' : 'would_authorize') : 'refused',
+            'outcome_class' => $permits ? null : ($authorization->class ?? OutcomeClass::InternalError)->value,
+            'reason' => $permits ? null : $authorization->reason,
+        ];
+
+        $this->auditor->recordSystem('agent_run.effectful_call_refused', $run,
+            after: ['tool' => $key, 'guard' => $guard, 'gateway_decision' => $verdict['decision'], 'gateway_outcome_class' => $verdict['outcome_class'],
+                'gateway_would_authorize' => $permits],
+            reason: "the runtime's {$guard} guard refused [{$key}] before execution, and the gateway was asked too: {$verdict['decision']}"
+                .($permits ? ' (the guard is narrower than the gateway here; the refusal stands)' : ''),
+            correlationId: $correlationId);
+
+        return ['gateway' => $verdict];
     }
 
     /**
