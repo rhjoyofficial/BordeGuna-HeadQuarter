@@ -1,6 +1,6 @@
 # 111 - Decision-corpus reader: owner-facing analysis of recurring human edits to AI proposals (10 October 2026)
 
-Status: PLAN, then BUILT on branch `platform/s5-decision-corpus-reader` (worktree `hq-wt/j`, from `main` `a8a6410`). Not merged, not deployed. Production posture unchanged: no flag, no new permission, no migration, no new write path.
+Status: BUILT on branch `platform/s5-decision-corpus-reader` (worktree `hq-wt/j`, from `main` `a8a6410`). Not merged, not deployed. Production posture unchanged: no flag, no new permission, no migration, no new write path.
 Asked by: `docs/103-chatgpt-ruling-2026-10-10.txt` §7 (S5) and §11; summary `docs/101` §13. Gap it closes: `docs/95` §3 row V18 and §5 ("`decision_records` has no consumer"), §7 Learn row ("no reader"). Rule it works under: `docs/96` §2 (build vs integrate: this is BordeGuna-owned governance reporting over BordeGuna-owned evidence, nothing external does it) and §22 (learning loop: this produces the *insight* step only; "proposed improvement, approval, controlled release" stay human).
 
 ## 1. The ruling, as constraints
@@ -36,16 +36,16 @@ Returned shape:
 
 ```
 window      : {key, since, until, options[]}
-scope       : {restricted: bool, businesses: [{id, name, slug}], unscoped_records: int}
+scope       : {restricted: bool, business_id: int|null, businesses: [{id, name, slug}], unscoped_records: int}
 totals      : {records, kept, edited, rejected, edit_rate, rejection_rate, by_stored_decision: {approved, edited, rejected, send, discard}}
 by_agent    : [{agent_key, role_key, agent_name, records, kept, edited, rejected, edit_rate}]
 by_tool     : [{tool, records, kept, edited, rejected, edit_rate}]            tool = outcome.tool_key (approval), 'messaging.send_reply' (conversation), '(answer)' (agent_run)
 by_kind     : [{kind, records, kept, edited, rejected, edit_rate}]            kind = tool_arguments | reply_text | shadow_answer
-by_business : [{business_id, name, slug, brand, records, kept, edited, rejected, edit_rate}]
+by_business : [{business_id, business, slug, brand, records, kept, edited, rejected, edit_rate}]   keyed by business slug and brand name; the unscoped row sorts last among equals
 categories  : [{category, label, edits, share, examples[]}]                   multi-label over EDITED records only
 fields      : [{tool, key, edits, examples[]}]                                 which argument keys people change, per tool (approval kind)
 patterns    : [{agent_key, tool, category, count, examples[]}]                 count >= 2, the recurring ones
-gaps        : {edits_without_delta: int, shadow_reviews_edited_without_text: int, contexts_missing: int}
+gaps        : {edits_without_delta: int, shadow_reviews_edited_without_text: int, contexts_missing: int, edits_with_reason: int}
 can         : {approvals, agents, inbox}
 ```
 
@@ -113,4 +113,23 @@ Questions:
 
 ## 8. Record of the build
 
-Filled in as work proceeds: commits, test names, gate results.
+### Files
+- `app/Decisions/DecisionCorpusWindow.php` (30d / 90d / 365d / all; default 90d), `app/Decisions/EditClassifier.php` (the rules of §4, constants, labels, precedence), `app/Decisions/DecisionCorpusReader.php` (the read model of §3).
+- `app/Http/Controllers/Observe/DecisionCorpusController.php`; route `GET /observe/decision-corpus` = `observe.decision-corpus` inside the auth + 2FA group, `permission:hq.agents.view`.
+- `resources/js/pages/observe/decision-corpus.tsx`; sidebar item "Decision corpus" under Observe; registered in `BANGLA_SCREENS`; 61 entries added to `bn.json` (English digits, NFC, no em dash).
+- `app/Console/Commands/DecisionsReport.php` = `hq:decisions:report {--window=90d} {--business=} {--json}`.
+- `tests/Feature/Decisions/DecisionCorpusReaderTest.php`, 8 tests (§6 one to one): route and middleware pin; roles; categories derived and identical on a second read; grouping and a recurring pattern with references; no raw text and links only where permitted; business scope from the context row (restricted viewer, out-of-scope `?business=`, unscoped rows for group-wide only); window bounds and console `--json` equal to the reader; no-write snapshot over 12 tables after two renders and one command run.
+
+### Decisions made while building
+- `created_at` is `timestamptz`; the window bounds are bound as ISO strings with their offset, because a zone-less Carbon binding is read in the session time zone and moved the 90-day edge (caught by the window test).
+- The classifier's refusal and pronoun lists are closed and live in code (`EditClassifier`), so a label can be explained by pointing at a line; widening a list is a reviewed change, not a tuning knob.
+- `by_business` is keyed by business slug and brand name (readable order; "unscoped" last among equals), not by id.
+- A reference link is rendered only when the viewer holds the permission of the page it opens (`hq.approvals.view`, `hq.agents.view`, `hq.inbox.view`); the reference text (record id, kind) is shown either way. The console (no viewer) prints references only, never links.
+
+### Commits
+- `2ff0812` docs/111 plan.
+- `d9d0d72` WIP checkpoint 1: reader, classifier, window, page, command, tests, dictionary.
+- GATE_PLACEHOLDER
+
+### Gate
+GATE_RESULTS_PLACEHOLDER
