@@ -211,6 +211,62 @@ Nothing in part 1 calls these with any effect; the null binding exists so the ca
 8. **Q8 Conversation foreign key.** RESTRICT to `conversations` means a future conversation erasure must first deal with these rows (docs/107 Q9). Accept the same answer as S3.
 9. **Q9 Due-time timeout.** 180 days of waiting for a person, then the run completes and the row stays overdue. Accept, or alert on overdue follow-ups through the existing alerts (a later, small change).
 
-## 14. Implementation record (filled in as built)
+## 14. Implementation record (branch `p4/s4-followup-opportunity-contracts`, 10 October 2026)
 
-*(see the final section of this document after the build)*
+Commits: `e74c4d2` this contract (first); `892d8bb` migration, models, vocabularies, service, workflow definition, S3 seam, permissions, contract test; `8f092b1` screen, routes, Bangla, screen and structural tests, write-path allow-list; the final commit adds this section. Nothing merged, nothing deployed, nothing pushed to production.
+
+### 14.1 What was built (all in `apps/hq`)
+
+| Piece | Where |
+|---|---|
+| Migration (two tables, four CHECKs, every FK RESTRICT) | `database/migrations/2026_10_10_800000_create_follow_up_tables.php`; applied, rolled back, re-applied, rolled back, re-applied on Postgres 17 `hq_test_e`, clean each time |
+| Models (`transition()` = one conditional UPDATE, F3; `deleting` refused, F11; `scopeVisibleTo` through `BusinessScope::restrict`) | `app/Models/FollowUp.php`, `app/Models/Opportunity.php` |
+| Vocabularies | `app/FollowUps/FollowUpState`, `OpportunityState`, `FollowUpKind` (-> `ConsentPurpose`), `FollowUpOrigin`, `OpportunityKind`, `OpportunityCloseReason`, `Proposer` (person or agent run), `IllegalTransition` |
+| The only writer | `app/FollowUps/FollowUpProposalService.php`: `proposeOpportunity`, `proposeFollowUp` (consent pre-check, F7), `openOpportunity`, `declineOpportunity`, `closeOpportunity`, `approveFollowUp` (consent re-check, then `WorkflowEngine::start` in the same transaction, F8/F10), `declineFollowUp`, `completeFollowUp` (signals the run, calls the S3 seam), `cancelFollowUp` (cancels the run); every move audited as the acting person or agent (F5) |
+| Human-wait workflow | `app/FollowUps/Workflow/FollowUpWorkflow.php`: type `followup.await_person`, `sleep(until_due)` then `awaitSignal(person_decision, followup.person_decided, 180 d)`; no tool step; listed in `config/hq.php` `hq.workflows.definitions` (the first listed type, Q1) |
+| S3 seam | `app/FollowUps/Outcomes/FollowUpOutcomeLink` (interface) bound to `NoFollowUpOutcomeLink` in `AppServiceProvider` (section 10) |
+| Permissions (additive) | `hq.followups.view`, `hq.followups.propose`, `hq.followups.decide` in `RolesAndPermissionsSeeder`; owner/operator all; brand_manager and support_agent view + propose |
+| Screen | `GET /follow-ups` (Inertia `follow-ups/index`, Bangla through `t()`, 75 dictionary entries, registered in `BanglaDictionaryTest`), behind `auth + 2fa.enabled + 2fa.verified + permission:hq.followups.view`; sidebar entry under Operations |
+| Writes (all state transitions, each in the posture write-path allow-list deliberately) | `POST follow-ups`, `POST follow-ups/opportunities` (propose); `POST follow-ups/{uuid}/approve\|decline\|complete\|cancel`, `POST follow-ups/opportunities/{uuid}/open\|decline\|close` (decide); a row outside the person's business scope is 404; service refusals become form errors |
+| Not under `/customers` | so the docs/109 Customer 360 write-route pin is untouched; `?customer={id}` prefills the forms from the customer page later (Q7) |
+
+### 14.2 Consent pre-check evidence (`tests/Feature/FollowUps/FollowUpContractTest.php`)
+
+Through `FollowUpProposalService::proposeFollowUp` and `approveFollowUp`, against the real S7 ledger (`ConsentLedger::permits`, the same call the gateway's step 5b makes):
+
+- nothing recorded -> `refused` `consent_not_recorded`, no event id;
+- a live **inbound** service grant -> service proposal `proposed`; marketing proposal `refused` `consent_opt_in_missing`;
+- all-purpose withdrawal -> service `refused` `consent_withdrawn`, naming the deciding event;
+- do-not-contact, even with a later operator marketing opt-in -> `refused` `consent_do_not_contact`;
+- LaLaDia-brand WhatsApp marketing opt-in -> LaLaDia WhatsApp marketing `proposed` with the ledger's own event id; brandless marketing `refused` `consent_opt_in_missing`; LaLaDia SMS marketing `refused` `consent_opt_in_missing`;
+- withdrawal between proposal and approval -> approval moves the row to `refused` `consent_withdrawn`, zero workflow runs, audit reason "consent refused at approval";
+- every refusal is a row and an audit entry (`follow_up.refused`, reason carries `[<class>]`); five proposals, four refusals, zero runs in the refusal test;
+- from the screen (`FollowUpScreenTest`): a marketing proposal without opt-in answers `follow-up-refused:consent_opt_in_missing`, the row is `refused`, approval of it is an illegal move.
+
+### 14.3 Scheduling and no-outbound evidence
+
+- Approval starts exactly one run: type `followup.await_person`, requester = the approving person, business = the follow-up's, correlation key `follow_up:{uuid}`, status `waiting` on a `timer` for `until_due`; the only step kinds that ever exist are `sleep` and `signal`; `workflow_steps.tool_key` is null everywhere; `tool_calls`, `conversation_messages`, `message_deliveries`, `scheduled_jobs`, `approvals` counts are identical before and after the whole lifecycle (`fuOutboundSnapshot`).
+- Three days later `reconcile()` moves the run to `waiting` on signal `followup.person_decided`; the follow-up reads as due; still no tool step.
+- Completion sends the signal and the run `completed`; cancellation cancels it (`workflow.cancelled` audited); approving twice is `IllegalTransition`, one run total.
+- `FollowUpStructureTest`: nothing under `app/FollowUps`, the two models or the controller imports `App\Tools`, `ToolGateway`/`ToolRequest`, `App\Connectors`, `App\Platform`, `App\Conversation`, `App\Commerce`, `App\Erp`, `App\Ai`, `App\Outcomes`, `App\Scheduling` or an HTTP client, and none calls `->execute(`, `->send(` or `->dispatch(`; the definition's steps are exactly `[until_due sleep, person_decision signal]` with no `Step::tool` in its source; the type is in the catalogue; no registered tool key or tool class names a follow-up or an opportunity.
+- `WorkflowStructureTest` (existing) holds the definition to the workflow seam alone; `GatewayCoverageStructureTest` (existing) is unaffected: no new `->execute(` receiver.
+
+### 14.4 Tests, gate
+
+- New: `FollowUpContractTest` (9), `FollowUpScreenTest` (9: routes and middleware, 2FA and role matrix, no-write on read over 7 tables and 4 filters, full lifecycle through HTTP with 7 audit rows as the acting person, consent refusal from the screen, support/brand roles propose but never decide, business scope 404s, validation and service refusals as form errors, sidebar), `FollowUpStructureTest` (3). Changed: `PostureScreenTest` allow-list (+9 routes, commented), `BanglaDictionaryTest` screens (+1).
+- Full suite on `hq_test_e` (`--parallel --processes=3`), first run: **1,961 passed, 1 failed, 26,449 assertions, 370 s.** The one failure was the existing docs/102 pin in `WorkflowEngineTest` ("ships with no workflow definition registered"), which this stream's listed type (section 7, Q1) necessarily meets. The pin was re-stated, not weakened: it now asserts the list is exactly `[FollowUpWorkflow::class]`, that every listed definition declares no tool step, and that an unlisted type still cannot start. That is Q10. Second run after the change: **1,962 passed, 0 failed, 26,453 assertions, 379 s** (main's 1,941 + these 21).
+- `vendor/bin/pint --test`: passed. `npx tsc --noEmit`: clean. `npx vite build`: clean.
+
+### 14.5 Release notes (when Joy releases this, with the wave)
+
+1. `php artisan migrate --force` (additive: `opportunities`, `follow_ups`).
+2. `php artisan db:seed --class=RolesAndPermissionsSeeder --force` (additive: three `hq.followups.*` permissions; brand_manager and support_agent gain view + propose).
+3. No flag, no credential, no provider, no tool registration. The listed workflow type starts a run only when a person approves a follow-up, and that run has no effect.
+
+### 14.6 Deliberately not built (pending the S3 ruling or a later activation ruling)
+
+Section 12 stands as written: no outcome read or write (the seam is a null binding), no agent tool, no next-best-action evaluator, no step or provider that reaches a customer, no automatic creation from conversations or orders, no detection or communication policy, no retention rule, no Customer 360 wiring.
+
+### 14.7 Questions needing a ruling
+
+Section 13, Q1 to Q9, unchanged by the build. Added during the build: **Q10** the listed workflow type (Q1) means `config('hq.workflows.definitions')` is no longer empty in production once released; docs/102 §1 described "empty" as the inert posture. Confirm the new wording: "no listed type has a tool step".
