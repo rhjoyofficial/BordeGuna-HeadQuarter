@@ -39,11 +39,13 @@ final class CrossBusinessSuppression
     {
         $businessId = (int) $customer->business_id;
 
-        // Merges where this customer is the kept side and the absorbed row is of another business.
+        // Merges where this customer is the kept side and the absorbed row is of another business. A merge the
+        // repair reversed (docs/126, a `customer_merge_reversals` row names it) is lineage, no longer a hold.
         $kept = DB::table('customer_merges as m')
             ->join('customers as a', 'a.id', '=', 'm.absorbed_id')
             ->where('m.kept_id', $customer->id)
             ->where('a.business_id', '!=', $businessId)
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->orderBy('m.id')
             ->get(['m.id', 'm.created_at', 'm.moved_identity_ids', 'a.primary_phone_canonical as absorbed_phone', 'a.email as absorbed_email']);
 
@@ -52,6 +54,7 @@ final class CrossBusinessSuppression
             ->join('customers as k', 'k.id', '=', 'm.kept_id')
             ->where('m.absorbed_id', $customer->id)
             ->where('k.business_id', '!=', $businessId)
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->orderBy('m.id')
             ->get(['m.id', 'm.created_at']);
 
@@ -100,6 +103,12 @@ final class CrossBusinessSuppression
             heldThreadRows: $foreignThreadRows,
             heldMemoryIds: $heldMemoryIds,
         );
+    }
+
+    /** Subquery of the merge ids a repair reversed (docs/126): lineage, never a hold or a re-proposal. */
+    public static function reversedMergeIds(): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('customer_merge_reversals')->whereNotNull('merge_id')->select('merge_id');
     }
 
     /**
@@ -243,6 +252,7 @@ final class CrossBusinessSuppression
             ->join('customers as a', 'a.id', '=', 'm.absorbed_id')
             ->whereColumn('k.business_id', '!=', 'a.business_id')
             ->where(fn ($q) => $q->whereIn('m.kept_id', $customerIds)->orWhereIn('m.absorbed_id', $customerIds))
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->get(['m.kept_id', 'm.absorbed_id'])
             ->flatMap(fn ($m) => [(int) $m->kept_id, (int) $m->absorbed_id]);
 

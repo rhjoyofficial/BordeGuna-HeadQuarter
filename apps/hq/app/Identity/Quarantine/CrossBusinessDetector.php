@@ -68,10 +68,14 @@ final class CrossBusinessDetector
     /** @return list<Finding> */
     private function mergeFindings(Collection $merges): array
     {
+        // A merge the repair reversed (docs/126) is lineage, not a live relationship: still listed, marked, never re-proposed.
+        $reversed = DB::table('customer_merge_reversals')->whereIn('merge_id', $merges->pluck('id')->all() ?: [0])->pluck('id', 'merge_id');
+
         return $merges->map(fn ($m) => new Finding(
             'merge', 'customer_merges', (int) $m->id, (int) $m->kept_id, (int) $m->kept_business_id, (int) $m->absorbed_business_id, (int) $m->id,
             'cross_business_merge',
-            ['absorbed_id' => (int) $m->absorbed_id, 'merged_at' => $this->iso($m->created_at), 'undone' => $m->undone_at !== null],
+            ['absorbed_id' => (int) $m->absorbed_id, 'merged_at' => $this->iso($m->created_at), 'undone' => $m->undone_at !== null,
+                'reversed_by' => $reversed->has($m->id) ? (int) $reversed->get($m->id) : null],
         ))->values()->all();
     }
 
