@@ -5,8 +5,9 @@ namespace App\Workflow;
 use InvalidArgumentException;
 
 /**
- * Which workflow types exist, from config('hq.workflows.definitions'). Empty in production: a type
- * that is not listed cannot be started, so this release starts nothing.
+ * Which workflow types exist, from config('hq.workflows.definitions'). A type that is not listed cannot
+ * be started. ⛔ No listed definition may declare a tool step (docs/120 item 17): the invariant is held
+ * over the definitions themselves by `ListedWorkflowDefinitionsStructureTest`, not by a list of names.
  */
 final class WorkflowDefinitions
 {
@@ -34,6 +35,12 @@ final class WorkflowDefinitions
     public function has(string $type): bool
     {
         return isset($this->definitions[$type]);
+    }
+
+    /** @return array<string, WorkflowDefinition> every listed definition, by type */
+    public function all(): array
+    {
+        return $this->definitions;
     }
 
     public function get(string $type): WorkflowDefinition

@@ -431,6 +431,12 @@ final class OutcomeRecorder
         if ($owner !== (int) $outcome->business_id) {
             throw new InvalidArgumentException("The [{$spec->actionType->value}] action {$spec->actionId} belongs to another business.");
         }
+        // docs/123: a follow-up is an action only once a person has done it. A plan that was refused,
+        // declined, cancelled or is still waiting contributed nothing, so it is never credited.
+        if ($spec->actionType === ActionType::FollowUp
+            && DB::table('follow_ups')->where('id', $spec->actionId)->value('state') !== 'done') {
+            throw new InvalidArgumentException("Follow-up {$spec->actionId} is not done; only a follow-up a person completed can be credited.");
+        }
     }
 
     /** The business that owns a referenced read-model row; false when the row does not exist. */

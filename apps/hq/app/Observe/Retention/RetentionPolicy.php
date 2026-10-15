@@ -45,6 +45,28 @@ final class RetentionPolicy
         OR EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.workflow_instance_id = w.id)
         SQL;
 
+    /**
+     * docs/120 item 13 (S4 Q6), docs/123 section 4: the follow-up tables. Only refused or declined
+     * follow-ups and declined opportunities are ever removed, by id, after `followup_refused_keep_days`
+     * counted from the decision. Done, cancelled and closed rows are kept as relationship history; open
+     * rows are never touched. Keep-clauses win over the period.
+     */
+    public const FOLLOW_UP_TABLES = ['follow_ups', 'opportunities'];
+
+    public const FOLLOW_UP_PRUNABLE_STATES = ['refused', 'declined'];
+
+    public const OPPORTUNITY_PRUNABLE_STATES = ['declined'];
+
+    /** A follow-up (alias `f`) is kept while an outcome attribution credits it (item 7: attribution and audit win). */
+    public const FOLLOW_UP_KEEP_CONDITION = <<<'SQL'
+        EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.follow_up_id = f.id)
+        SQL;
+
+    /** An opportunity (alias `p`) is kept while any follow-up still points at it (RESTRICT, item 15). */
+    public const OPPORTUNITY_KEEP_CONDITION = <<<'SQL'
+        EXISTS (SELECT 1 FROM follow_ups f WHERE f.opportunity_id = p.id)
+        SQL;
+
     /** Only these run statuses are terminal; a failed run can still be retried, so it is never removed. */
     public const WORKFLOW_TERMINAL = ['completed', 'cancelled'];
 
@@ -135,6 +157,11 @@ final class RetentionPolicy
         return max(1, (int) config('hq.retention.workflow_keep_days', 180));
     }
 
+    public function followUpKeepDays(): int
+    {
+        return max(1, (int) config('hq.retention.followup_refused_keep_days', 365));
+    }
+
     public function batchSize(): int
     {
         return max(1, (int) config('hq.retention.batch_size', 500));
@@ -165,6 +192,8 @@ final class RetentionPolicy
             'event_payload_scope' => 'processed events only; dead, failed and pending events keep their payload',
             'workflow_keep_days' => $this->workflowKeepDays(),
             'workflow_scope' => 'completed or cancelled runs, finished before the window, reconciled; steps and signals go with the run',
+            'followup_refused_keep_days' => $this->followUpKeepDays(),
+            'followup_scope' => 'refused or declined follow-ups and declined opportunities, decided before the window, not credited by an outcome and not served by a follow-up; done, cancelled, closed and open rows are kept',
             'batch_size' => $this->batchSize(),
             'max_rows_per_table' => $this->maxRowsPerTable(),
             'max_days_per_table' => $this->maxDaysPerTable(),

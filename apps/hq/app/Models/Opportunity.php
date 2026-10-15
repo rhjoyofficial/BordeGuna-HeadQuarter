@@ -38,7 +38,7 @@ class Opportunity extends Model
 
     protected static function booted(): void
     {
-        static::deleting(fn () => throw new LogicException('opportunities are never deleted: close or decline one, and the audit log keeps its history.'));
+        static::deleting(fn () => throw new LogicException('opportunities are never deleted by application code: close or decline one, and the audit log keeps its history. Only retention removes declined rows after 365 days (docs/123).'));
     }
 
     public function business(): BelongsTo

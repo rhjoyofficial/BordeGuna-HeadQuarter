@@ -336,6 +336,13 @@ final class FollowUpProposalService
         return $customer;
     }
 
+    /**
+     * docs/120 item 11: deciding is a permission of its own, held by owner and operator only. Proposing a
+     * row never confers it: a brand_manager or support_agent who proposed is refused here like anyone else
+     * without it, and no code path reads "is the proposer" as authority. A holder of the permission who
+     * decides on their own proposal is allowed by role and recorded as such (`self_decided`, audited and
+     * shown), never silently.
+     */
     private function decider(User $by, FollowUp|Opportunity $row): void
     {
         if (! $by->is_active || ! $by->can(self::PERMISSION_DECIDE)) {
@@ -346,7 +353,14 @@ final class FollowUpProposalService
         }
     }
 
-    /** The S7 answer, through the one method the Tool Gateway itself uses (docs/113 section 6). */
+    /**
+     * The S7 answer, through the one method the Tool Gateway itself uses (docs/113 section 6).
+     *
+     * docs/120 item 9: fail closed. Missing consent is a refusal (`consent_not_recorded`), an unresolved
+     * identity reads only denials (docs/114), and a ledger that cannot answer stops the call with nothing
+     * written. Nothing here records consent: a person records it through the consent screen, and then
+     * proposes again; a refused row is final and is never revived.
+     */
     private function consent(Customer $customer, Channel $channel, FollowUpKind $kind, ?int $brandId): ConsentDecision
     {
         return $this->ledger->permits($customer->id, $customer->business_id, $channel->value, $kind->consentPurpose(), $brandId);
@@ -392,6 +406,10 @@ final class FollowUpProposalService
     /** @param  array<string, mixed>  $extra */
     private function auditPerson(User $by, string $action, FollowUp|Opportunity $target, string $fromState, ?string $reason, array $extra = []): void
     {
+        // docs/120 item 11: a decision on one's own proposal is visible in the record, never implicit.
+        if ($target->proposer_type === Proposer::PERSON && (int) $target->proposed_by_user_id === (int) $by->getKey()) {
+            $extra['self_decided'] = true;
+        }
         $this->auditor->record($action, $target, before: ['state' => $fromState], after: ['state' => $target->state->value] + $extra,
             reason: $reason, actorUserId: $by->getKey());
     }

@@ -183,7 +183,7 @@ it('sends an open alert again when it gets worse, and once a day while it stays 
         ->and(alrSent('test.rule:x')[2])->toBe('HQ alert still open: Something is wrong');
 });
 
-it('lists the sixteen rules, each resolvable, and the check command runs them all without a failure', function () {
+it('lists the seventeen rules, each resolvable, and the check command runs them all without a failure', function () {
     $this->mock(MasterSupervisorRepository::class, fn ($m) => $m->shouldReceive('all')->andReturn([(object) ['status' => 'running']]));
     $this->mock(HostProbe::class, function ($m) {
         $m->shouldReceive('disk')->andReturn(['path' => '/', 'total_bytes' => 100, 'free_bytes' => 60, 'used_percent' => 40]);
@@ -192,7 +192,8 @@ it('lists the sixteen rules, each resolvable, and the check command runs them al
     Cache::put(SchedulerTick::HEARTBEAT_KEY, now()->toIso8601String(), 600);
 
     $keys = array_map(fn (AlertRule $r) => $r->key(), app(AlertEngine::class)->rules());
-    expect($keys)->toHaveCount(16)->and(array_unique($keys))->toHaveCount(16);
+    // Seventeen since docs/123: followups.overdue, addressed to the responsible person only.
+    expect($keys)->toHaveCount(17)->and(array_unique($keys))->toHaveCount(17);
 
     expect(Artisan::call('hq:alerts:check'))->toBe(0);
     $output = Artisan::output();

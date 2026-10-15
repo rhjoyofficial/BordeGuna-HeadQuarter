@@ -817,5 +817,21 @@
     "Withheld": "আটকে রাখা",
     "absorbed": "অন্যটিতে মিশে যাওয়া",
     "kept": "রাখা",
-    "not yet": "এখনও না"
+    "not yet": "এখনও না",
+    "Follow-ups and promises": "ফলো-আপ ও প্রতিশ্রুতি",
+    "What the business planned or promised to do for this customer, and the interests it is tracking. Read-only here; decisions are made on the Follow-ups screen. Nothing is inferred from message text.": "এই গ্রাহকের জন্য ব্যবসা যা করার পরিকল্পনা বা প্রতিশ্রুতি দিয়েছে, আর যে আগ্রহগুলো নজরে রাখা হচ্ছে। এখানে শুধু দেখা যায়; সিদ্ধান্ত হয় ফলো-আপ স্ক্রিনে। মেসেজের লেখা থেকে কিছু অনুমান করা হয় না।",
+    "as asserted by a person": "একজন মানুষের দাবি অনুযায়ী",
+    "Follow-ups need the follow-ups permission (hq.followups.view).": "ফলো-আপ দেখতে ফলো-আপের অনুমতি লাগে (hq.followups.view)।",
+    "Open: {open}. Open promises: {promises}. Due now: {due}. Active opportunities: {opportunities}.": "খোলা: {open}। খোলা প্রতিশ্রুতি: {promises}। এখন করার সময়: {due}। সক্রিয় সুযোগ: {opportunities}।",
+    "due": "সময় হয়েছে",
+    "refused: {class}": "প্রত্যাখ্যাত: {class}",
+    "supported by a credited order": "কৃতিত্ব দেওয়া একটি অর্ডার দিয়ে সমর্থিত",
+    "a person's word only": "শুধু একজন মানুষের কথা",
+    "No follow-ups or promises recorded for this customer.": "এই গ্রাহকের কোনো ফলো-আপ বা প্রতিশ্রুতি লেখা নেই।",
+    "No opportunities recorded for this customer.": "এই গ্রাহকের কোনো সুযোগ লেখা নেই।",
+    "Completion note": "সম্পন্ন করার নোট",
+    "Outcome ledger": "ফলাফলের খাতা",
+    "Closed as": "যে কারণে বন্ধ",
+    "Credited by a person to: {outcome}": "একজন মানুষ কৃতিত্ব দিয়েছেন: {outcome}",
+    "decided by its proposer": "প্রস্তাবকারী নিজেই সিদ্ধান্ত নিয়েছেন"
 }

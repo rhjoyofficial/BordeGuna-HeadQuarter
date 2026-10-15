@@ -82,8 +82,9 @@ final class Customer360Reader
             'conversations' => $inbox ? $this->conversations(clone $conversations) : null,
             'memory' => $inbox ? $this->memory($customer, $view) : null,
             'consent' => $this->consent($customer, $businessId),
-            // No table records a promise (docs/109 §8 question 1). Nothing is inferred from message text.
-            'promises' => ['recorded' => false],
+            // docs/120 item 14, docs/123: follow-ups, promises (origin `promise`) and opportunities, read-only,
+            // scoped by this customer's business AND each row's own. Nothing is inferred from message text.
+            'follow_ups' => app(CustomerFollowUpsReader::class)->read($customer, $viewer),
             'handovers' => $inbox ? $this->handovers(clone $conversations) : null,
             // Waits for the canonical outcome/attribution model (ruling §4, S3). Deliberately no query.
             'outcomes' => ['status' => 'awaiting_s3'],

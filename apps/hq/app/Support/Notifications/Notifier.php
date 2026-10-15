@@ -24,7 +24,7 @@ final class Notifier
     /** @var list<NotificationChannel> */
     private array $channels;
 
-    public function __construct(InAppChannel $inApp, TelegramChannel $telegram)
+    public function __construct(private readonly InAppChannel $inApp, TelegramChannel $telegram)
     {
         $this->channels = [$inApp, $telegram];
     }
@@ -140,6 +140,29 @@ final class Notifier
         );
     }
 
+    /**
+     * docs/123: an alert addressed to ONE person (an overdue follow-up's responsible person). It goes to that
+     * person in HQ only: the in-app record names them as its recipient, and their sidebar shows the count.
+     * ⛔ Never the shared Telegram chat (other people read it), never a customer, never a message out.
+     */
+    public function alertRaisedFor(Alert $alert, User $to): void
+    {
+        $this->deliverTo($to, 'HQ alert ('.$alert->severity."): {$alert->subject}", $alert->body,
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint]);
+    }
+
+    public function alertStillOpenFor(Alert $alert, User $to, bool $worse): void
+    {
+        $this->deliverTo($to, ($worse ? 'HQ alert now '.$alert->severity : 'HQ alert still open').": {$alert->subject}", $alert->body,
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint, 'worse' => $worse]);
+    }
+
+    public function alertResolvedFor(Alert $alert, User $to): void
+    {
+        $this->deliverTo($to, "HQ alert cleared: {$alert->subject}", 'The condition has not been seen on the last '.$alert->clear_checks.' checks.',
+            ['alert_id' => $alert->id, 'rule' => $alert->rule, 'fingerprint' => $alert->fingerprint]);
+    }
+
     public function alertResolved(Alert $alert): void
     {
         $minutes = (int) $alert->first_seen_at->diffInMinutes($alert->resolved_at ?? now());
@@ -177,6 +200,12 @@ final class Notifier
             ])),
             ['conversation_uuid' => $conversation->uuid, 'reason' => $reason?->value] + $context,
         );
+    }
+
+    /** @param array<string, mixed> $context */
+    private function deliverTo(User $to, string $subject, string $body, array $context): void
+    {
+        $this->inApp->send($subject, $body, $context + ['recipient_user_id' => $to->getKey()]);
     }
 
     /** @param array<string, mixed> $context */

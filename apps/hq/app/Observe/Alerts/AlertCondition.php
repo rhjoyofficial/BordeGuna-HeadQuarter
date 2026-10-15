@@ -16,13 +16,19 @@ final readonly class AlertCondition
 {
     public const SEVERITIES = ['info' => 0, 'warning' => 1, 'critical' => 2];
 
-    /** @param array<string, mixed> $context */
+    /**
+     * `recipientUserId`, when set, addresses the condition to ONE person (docs/123: an overdue follow-up's
+     * responsible person). The engine then tells that person in HQ and nobody else, on no shared channel.
+     *
+     * @param  array<string, mixed>  $context
+     */
     public function __construct(
         public string $subjectKey,
         public string $severity,
         public string $subject,
         public string $body,
         public array $context = [],
+        public ?int $recipientUserId = null,
     ) {
         if (! array_key_exists($severity, self::SEVERITIES)) {
             throw new InvalidArgumentException("An alert severity is info, warning or critical, not [{$severity}].");

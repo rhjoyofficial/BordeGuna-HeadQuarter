@@ -42,7 +42,7 @@ class FollowUp extends Model
 
     protected static function booted(): void
     {
-        static::deleting(fn () => throw new LogicException('follow-ups are never deleted: decline or cancel one, and the audit log keeps its history.'));
+        static::deleting(fn () => throw new LogicException('follow-ups are never deleted by application code: decline or cancel one, and the audit log keeps its history. Only retention removes refused or declined rows after 365 days (docs/123).'));
     }
 
     public function business(): BelongsTo
