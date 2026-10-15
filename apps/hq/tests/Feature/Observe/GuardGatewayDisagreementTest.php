@@ -11,6 +11,7 @@ use App\Gateway\Descriptor\ToolScope;
 use App\Gateway\Registry\ToolAvailability;
 use App\Models\Agent;
 use App\Models\AgentRun;
+use App\Models\Alert;
 use App\Models\AuditLog;
 use App\Models\ToolCall;
 use App\Models\User;
@@ -221,4 +222,51 @@ it('does not count a guard refusal the gateway refuses too', function () {
 
     expect(AuditLog::where('action', 'agent_run.effectful_call_refused')->sole()->after['gateway_would_authorize'])->toBeFalse()
         ->and(app(GuardGatewayDisagreements::class)->recent(24))->toBe([]);
+});
+
+it('keeps every count and audit row when the alert is deduplicated, and the alert carries no customer text or credential (docs/120 items 41-42)', function () {
+    FixtureProvider::reset();
+    DisagreementThreadWriteTool::$executions = 0;
+    $this->seed(DomainSeeder::class);
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $this->seed(AgentSeeder::class);
+    aiProviders();
+    enableAiRuntime();
+    aiModel('fixture', 'fixture-model', ModelTier::Medium);
+    app(ToolRegistry::class)->register(DisagreementThreadWriteTool::class);
+    app(ToolAvailability::class)->forget();
+    config(['hq.alerts.telegram_bot_token' => 'secret-bot-token-123', 'hq.alerts.telegram_chat_id' => '']);
+    $owner = User::factory()->create();
+    $owner->givePermissionTo(['hq.tools.diagnostics', 'hq.tools.facts.read']);
+    $engine = app(AlertEngine::class);
+
+    // Two refusals: audited and counted, no alert (threshold 3 in 24 hours).
+    foreach ([1, 2] as $i) {
+        FixtureProvider::reset();
+        ggdRun($owner, ['conversation_uuid' => '00000000-0000-0000-0000-00000000000'.$i, 'note' => "customer-text-{$i}"]);
+    }
+    $engine->check(null, ['agents.guard_gateway_disagreement']);
+    expect(Alert::where('rule', 'agents.guard_gateway_disagreement')->count())->toBe(0);
+
+    // The third opens one alert; the fourth and fifth are deduplicated into it, and still counted and audited.
+    foreach ([3, 4, 5] as $i) {
+        FixtureProvider::reset();
+        ggdRun($owner, ['conversation_uuid' => '00000000-0000-0000-0000-00000000000'.$i, 'note' => "customer-text-{$i}"]);
+        $engine->check(null, ['agents.guard_gateway_disagreement']);
+    }
+
+    $alert = Alert::where('rule', 'agents.guard_gateway_disagreement')->sole();
+    expect(app(GuardGatewayDisagreements::class)->recent(24))->toBe(['executive' => 5])
+        ->and(AuditLog::where('action', 'agent_run.effectful_call_refused')->count())->toBe(5)
+        ->and(AuditLog::where('action', 'alert.opened')->where('after->rule', 'agents.guard_gateway_disagreement')->count())->toBe(1)
+        ->and($alert->context)->toMatchArray(['agent_key' => 'executive', 'count' => 5, 'threshold' => 3, 'window_hours' => 24])
+        ->and(DisagreementThreadWriteTool::$executions)->toBe(0);
+
+    // Nothing from the customer or the call's arguments, and no credential, reaches the alert.
+    $text = $alert->subject.' '.$alert->body.' '.json_encode($alert->context);
+    expect($text)->not->toContain('customer-text')
+        ->not->toContain('00000000-0000-0000-0000')
+        ->not->toContain('How are we doing?')
+        ->not->toContain('secret-bot-token-123')
+        ->and(array_keys($alert->context))->toEqualCanonicalizing(['agent_key', 'count', 'window_hours', 'threshold']);
 });
