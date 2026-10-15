@@ -9,6 +9,7 @@ use App\Observe\Alerts\Rules\ApprovalsPastDeadline;
 use App\Observe\Alerts\Rules\CredentialExpiring;
 use App\Observe\Alerts\Rules\EventsDeadLettered;
 use App\Observe\Alerts\Rules\FactIntegrityDiscrepancy;
+use App\Observe\Alerts\Rules\FollowUpsOverdue;
 use App\Observe\Alerts\Rules\GuardGatewayDisagreement;
 use App\Observe\Alerts\Rules\HorizonDown;
 use App\Observe\Alerts\Rules\HostDisk;
@@ -361,8 +362,9 @@ return [
         'default_retry_backoff_seconds' => 60,
     ],
 
-    // docs/102: the HQ-native WorkflowEngine. ⛔ `definitions` is EMPTY in this release: a type that is
-    // not listed cannot be started, so nothing runs. Tests register their own.
+    // docs/102: the HQ-native WorkflowEngine. A type that is not listed cannot be started. ⛔ No listed
+    // definition may declare a tool step (docs/120 item 17, held by ListedWorkflowDefinitionsStructureTest
+    // over the definitions themselves). Tests register their own.
     'workflows' => [
         // docs/113 section 7 (S4 part 1): the first listed type. It sleeps until a follow-up is due and
         // then waits for a person; it has no tool step, so a run has no effect. Started only by a person
@@ -372,6 +374,13 @@ return [
         'lease_seconds' => 300,
         'default_max_attempts' => 3,
         'default_backoff_seconds' => 60,
+    ],
+
+    // docs/123 (docs/120 item 16): a scheduled follow-up still not done this long after its due time is
+    // overdue, and the `followups.overdue` alert tells the person responsible for it (who approved it).
+    // The alert informs a person; it never contacts a customer and never moves a follow-up.
+    'followups' => [
+        'overdue_after_hours' => 24,
     ],
 
     'events' => [
@@ -569,6 +578,8 @@ return [
             WebhookSignatureFailures::class,
             // docs/116 (ruling 110 §2g): a guard refusing what the gateway would authorize, as a pattern only.
             GuardGatewayDisagreement::class,
+            // docs/123 (docs/120 item 16): overdue follow-ups, told to the responsible person only, never to a customer.
+            FollowUpsOverdue::class,
         ],
 
         // A condition must be absent on this many consecutive checks before its alert resolves, so a

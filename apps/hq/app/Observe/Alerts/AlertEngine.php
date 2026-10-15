@@ -3,6 +3,7 @@
 namespace App\Observe\Alerts;
 
 use App\Models\Alert;
+use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Notifications\Notifier;
 use Carbon\CarbonImmutable;
@@ -107,7 +108,7 @@ final class AlertEngine
                     'severity' => $condition->severity,
                     'subject' => mb_substr($condition->subject, 0, 255),
                     'body' => $condition->body,
-                    'context' => $condition->context ?: null,
+                    'context' => $this->context($condition),
                     'paged_by' => $rule->pagedBy(),
                     'occurrences' => 1,
                     'clear_checks' => 0,
@@ -132,6 +133,9 @@ final class AlertEngine
             if ($open->pagedByHq()) {
                 $this->notifier->alertRaised($open);
                 $open->forceFill(['notified_at' => $now])->save();
+            } elseif (($to = $this->recipient($open)) !== null) {
+                $this->notifier->alertRaisedFor($open, $to);
+                $open->forceFill(['notified_at' => $now])->save();
             }
 
             return true;
@@ -153,7 +157,7 @@ final class AlertEngine
             'severity' => $condition->severity,
             'subject' => mb_substr($condition->subject, 0, 255),
             'body' => $condition->body,
-            'context' => $condition->context ?: null,
+            'context' => $this->context($condition),
             'occurrences' => $open->occurrences + 1,
             'clear_checks' => 0,
             'last_seen_at' => $now,
@@ -162,7 +166,26 @@ final class AlertEngine
         if ($open->pagedByHq() && ($worse || $stale)) {
             $this->notifier->alertStillOpen($open, $worse);
             $open->forceFill(['notified_at' => $now])->save();
+        } elseif (($worse || $stale) && ($to = $this->recipient($open)) !== null) {
+            $this->notifier->alertStillOpenFor($open, $to, $worse);
+            $open->forceFill(['notified_at' => $now])->save();
         }
+    }
+
+    /** The condition's context, carrying its one addressee when it has one. */
+    private function context(AlertCondition $condition): ?array
+    {
+        $context = $condition->context + ($condition->recipientUserId !== null ? ['recipient_user_id' => $condition->recipientUserId] : []);
+
+        return $context ?: null;
+    }
+
+    /** The one person an addressed alert is told to (docs/123), or null. Never a group, never a customer. */
+    private function recipient(Alert $alert): ?User
+    {
+        $id = $alert->context['recipient_user_id'] ?? null;
+
+        return $id === null ? null : User::query()->find((int) $id);
     }
 
     /** @return bool true when this check resolved the alert */
@@ -190,6 +213,8 @@ final class AlertEngine
 
         if ($alert->pagedByHq() && $alert->notified_at !== null) {
             $this->notifier->alertResolved($alert);
+        } elseif ($alert->notified_at !== null && ($to = $this->recipient($alert)) !== null) {
+            $this->notifier->alertResolvedFor($alert, $to);
         }
 
         return true;

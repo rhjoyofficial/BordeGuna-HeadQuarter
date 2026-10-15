@@ -3,6 +3,7 @@
 namespace App\Support\Navigation;
 
 use App\Conversation\ConversationState;
+use App\FollowUps\OverdueFollowUps;
 use App\Models\AgentRun;
 use App\Models\Alert;
 use App\Models\Approval;
@@ -10,6 +11,7 @@ use App\Models\Conversation;
 use App\Models\JobRun;
 use App\Models\User;
 use App\Support\Authorization\BusinessScope;
+use Carbon\CarbonImmutable;
 
 /**
  * The small counts the navigation shows next to Approvals, Agents and Scheduler.
@@ -54,6 +56,12 @@ final class NavBadges
         if ($user->can('hq.audit.view')) {
             // Only what HQ itself pages; a condition the host monitor pages is on the page, not on the badge.
             $badges['alerts'] = Alert::open()->whereNull('paged_by')->count();
+        }
+
+        // docs/123 (docs/120 item 16): the overdue follow-ups THIS person approved and may still see. Each
+        // person sees only their own count; it is how the overdue alert reaches its responsible person.
+        if ($user->can('hq.followups.view')) {
+            $badges['followups'] = app(OverdueFollowUps::class)->forPerson($user, CarbonImmutable::now())->count();
         }
 
         if ($user->can('hq.jobs.view')) {

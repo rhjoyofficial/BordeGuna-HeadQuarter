@@ -65,7 +65,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Scheduler', url: '/scheduler', icon: CalendarClock, permission: 'hq.jobs.view', badge: 'scheduler' },
             { title: 'Businesses', url: '/businesses', icon: Building2, permission: 'hq.businesses.view' },
             { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
-            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view' },
+            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
         ],
     },
     {
