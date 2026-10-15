@@ -661,3 +661,21 @@ it('keeps the convenience path off production: no --by, and --no-schedule, still
 
     expect(ShadowPeriod::sole()->opened_by_user_id)->toBeNull()->and(ShadowPeriod::sole()->probes_required)->toBeFalse();
 });
+
+it('sees a violation written in the current second, late in that second (docs/119)', function () {
+    // The hourly stop-on-violation check reads today()'s window, which ends at "now". Stored times carry whole
+    // seconds: a run written at 10:00:05.6 is stored as 10:00:05 (Laravel drops the fraction), and the window's
+    // end is the next whole second, so the check sees it now and not an hour later. If a stamp were ever rounded
+    // (a database default, or a model keeping microseconds) it would be stored as 10:00:06 and missed.
+    $this->travelTo(CarbonImmutable::parse('2026-10-15 10:00:05.600000', 'UTC'));
+    passingGate();
+    $period = openShadow();
+
+    AgentRun::create(['uuid' => (string) Str::uuid(), 'agent_key' => 'support', 'correlation_id' => (string) Str::uuid(),
+        'trigger' => 'console', 'question' => 'q', 'autonomy_level' => 'a0', 'status' => 'answered']);
+
+    $evidence = app(ShadowEvidence::class);
+    [$from, $to] = $evidence->today($period);
+
+    expect(array_column($evidence->violations($period, $from, $to), 'condition'))->toContain('only_this_agent');
+});
