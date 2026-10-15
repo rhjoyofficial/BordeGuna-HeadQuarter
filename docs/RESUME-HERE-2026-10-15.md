@@ -23,7 +23,7 @@ Supersedes `RESUME-HERE-2026-10-11.md`. Paused at Joy's request after all runnin
 
 ## 4. Joy's items
 - Do NOT open the Executive shadow week (ruling A1).
-- Run the read-only leak count on production (docs/121 §4; SELECT-only in a READ ONLY transaction, prints counts and row ids only):
+- DONE 15 Oct 10:31 UTC: leak count run (docs/121 §5: ONE Bionic order #16 on LaLaDia customer #1; webhooks live). Was: run the read-only leak count (docs/121 §4; SELECT-only in a READ ONLY transaction, prints counts and row ids only):
   `! scp H:/WORK/BorDeGuna/BordeGuna-HeadQuarter/deploy/tools/identity-scope-readonly.sql vps:/tmp/ && ssh vps 'cd /opt/bordeguna-hq && docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -v ON_ERROR_STOP=1 -f -" < /tmp/identity-scope-readonly.sql'`
   (Claude's own production reads are refused by the classifier; Joy can run this or allow it.)
 - Choose containment after the counts (docs/121 §3): Option 1 keep posture (enough only if no shop webhooks in the last 7 days) or Option 2 `docker compose stop scheduler` on HQ (webhooks keep being recorded as pending and replay after the fixed release; alerts, approvals sweep and retention pause). Recommended: Option 2 if webhooks are arriving.

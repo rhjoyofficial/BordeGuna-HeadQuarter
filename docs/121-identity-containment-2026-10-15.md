@@ -54,3 +54,13 @@ My reading, for Joy to decide: Option 2 is the minimum that actually stops the l
 - Section 6: the first 50 affected order and conversation ids for a person to review.
 
 A test (`IdentityScopeReadonlySqlTest`) pins the file as SELECT-only and runs it against the test schema so a typo cannot reach Joy.
+
+## 5. Production scope count (run by Joy, 15 Oct 2026 10:31 UTC, read-only, rolled back)
+
+Ran `deploy/tools/identity-scope-readonly.sql` on production `b96a396` (57 migrations, last `2026_10_04_100000`). Counts only; no values printed.
+
+- Liveness: `order.created` 19 processed (newest 13 Oct 09:55 UTC), `order.updated` 11 processed (newest 12 Oct 14:02 UTC); last 7 days 7 + 6, last 24 hours 0, nothing pending. No `customer.registered` and no `conversation.inbound_received` events ever. Jobs 2 and 6 paused. No approvals for the commerce tools. `ai.runtime`, `channels.meta.inbound`, `channels.meta.forwarded` all off. So the shop webhook path is LIVE (shops still deliver); every other path is closed.
+- Damage: ONE order fact in another business than its customer: `facts_orders` #16 (Bionic, business 3, store 2, placed 7 Sep 12:09 UTC) on customer #1 (LaLaDia, business 2). One customer touched. Store-scoped identities under another business's customer: 1 `shop_order`, 1 `shop_user`. Phone identities matched to another business's orders: 1. Identities whose evidence names more than one business: 3.
+- Clean: no conversations, participants, messages, consent events, consent state, memories or cross-business merges affected; no duplicate null-store identities; no identity re-pointed away from its order's customer.
+- What the W1 migration will do with this data: quarantine the store-scoped `shop_order` and `shop_user` rows (`store_business_mismatch`) with conflict rows; the phone identity has evidence in its owner's own business, so it stays live under LaLaDia. The W2 repair then splits order #16 onto a Bionic customer, with lineage.
+- Containment: NOT yet applied; Joy's choice between Option 1 (accept the small risk until the release) and Option 2 (stop the HQ scheduler) is open. Incident NOT claimed contained.
