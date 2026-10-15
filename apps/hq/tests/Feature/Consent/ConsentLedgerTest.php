@@ -263,3 +263,24 @@ it('keeps each identity its own row in the projection, answers latestAtScope at 
     expect($ledger->rebuild($customerId))->toBe(3)
         ->and($shape())->toEqual($before);
 });
+
+it('fails closed for an unresolved identity: it inherits no grant from another identity or another business, and a brand restriction binds it (docs/120 item 27)', function () {
+    $laladia = Business::where('slug', 'laladia')->sole();
+    $bionic = Business::where('slug', 'bionic')->sole();
+    $lld = Brand::where('code', 'LLD')->sole();
+    $customer = Customer::create(['business_id' => $laladia->id, 'primary_phone_canonical' => '01711000099', 'name' => 'Item 27']);
+    [$a] = consentIdentities($customer->id);
+    $ledger = app(ConsentLedger::class);
+
+    // Permissive grants that must not reach an unresolved identity: one on identity A, one in another business.
+    $ledger->record($customer->id, $laladia->id, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp', attributes: ['identity_id' => $a]);
+    $ledger->record($customer->id, $bionic->id, ConsentPurpose::Service, ConsentState::Granted, ConsentBasis::Explicit, 'whatsapp');
+
+    expect($ledger->permits($customer->id, $laladia->id, 'whatsapp', ConsentPurpose::Service, $lld->id, null)->permitted)->toBeFalse()
+        ->and($ledger->permits($customer->id, $laladia->id, 'whatsapp', ConsentPurpose::Service, $lld->id, null)->refusal)->toBe(ConsentRefusal::NotRecorded);
+
+    // A brand-level withdrawal applies to the unresolved identity, and to the resolved one, whatever A's grant says.
+    $ledger->record($customer->id, $laladia->id, null, ConsentState::Withdrawn, ConsentBasis::Operator, null, attributes: ['brand_id' => $lld->id]);
+    expect($ledger->permits($customer->id, $laladia->id, 'whatsapp', ConsentPurpose::Service, $lld->id, null)->permitted)->toBeFalse()
+        ->and($ledger->permits($customer->id, $laladia->id, 'whatsapp', ConsentPurpose::Service, $lld->id, $a)->permitted)->toBeFalse();
+});

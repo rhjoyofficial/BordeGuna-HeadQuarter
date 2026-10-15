@@ -324,3 +324,53 @@ it('runs the two-person lift from the consent screen: the lift of a standing do-
             ->where('grid.0.cells.messenger.permitted', true));
     expect(app(ConsentLedger::class)->permits($customer->id, $customer->business_id, 'messenger', ConsentPurpose::Service, $this->lld->id)->permitted)->toBeTrue();
 });
+
+it('spends an approval presented to an approver without the lift permission: a qualified approver cannot replay it, a fresh approval is required (docs/120 item 29)', function () {
+    $conversation = tpThread();
+    $customer = $conversation->customer;
+    tpOperator($this->requester, $customer, ConsentOperations::ACT_DO_NOT_CONTACT);
+    $approval = Approval::findOrFail(tpRequestLift($this->requester, $customer)->approvalId);
+
+    $decider = $this->hqUser('brand_manager');
+    $decider->givePermissionTo('hq.approvals.decide');
+    expect(app(ApprovalExecutor::class)->approveAndExecute($approval, $decider)->status)->toBe(OutcomeStatus::Denied)
+        ->and($approval->fresh()->status)->toBe(ApprovalStatus::Consumed);
+
+    // The spent approval is not pending for anyone else, however well qualified.
+    $replay = app(ApprovalExecutor::class)->approveAndExecute($approval->fresh(), $this->approver);
+    expect($replay->status)->not->toBe(OutcomeStatus::Succeeded)
+        ->and(ConsentEvent::where('customer_id', $customer->id)->where('state', 'lifted')->exists())->toBeFalse()
+        ->and(ToolCall::where('tool_key', LiftRestrictionTool::KEY)->where('status', 'succeeded')->exists())->toBeFalse();
+    tpExpectDnc(tpReply($this->requester, $conversation));
+
+    // A fresh request, decided by a second holder of the lift permission, is what lifts it.
+    $fresh = Approval::findOrFail(tpRequestLift($this->requester, $customer)->approvalId);
+    expect($fresh->id)->not->toBe($approval->id);
+    expect(app(ApprovalExecutor::class)->approveAndExecute($fresh, $this->approver)->status)->toBe(OutcomeStatus::Succeeded);
+    expect(ConsentEvent::where('customer_id', $customer->id)->where('state', 'lifted')->count())->toBe(1);
+});
+
+it('lifts a plain withdrawal as one authorized person only with evidence and a reason, audited (docs/120 item 28)', function () {
+    $conversation = tpThread();
+    $customer = $conversation->customer;
+    tpOperator($this->requester, $customer, ConsentOperations::ACT_WITHDRAW, ['purpose' => null]);
+
+    foreach ([['evidence_ref' => '', 'reason' => 'asked again'], ['evidence_ref' => 'call log #7', 'reason' => '  ']] as $input) {
+        expect(fn () => app(ConsentOperations::class)->record($this->requester, $customer, ConsentOperations::ACT_LIFT, $input))
+            ->toThrow(InvalidArgumentException::class, 'evidence reference and a reason');
+    }
+    expect(ConsentEvent::where('customer_id', $customer->id)->where('state', 'lifted')->exists())->toBeFalse();
+
+    // A support agent may not lift at all (restrict only); an owner may, alone, with evidence and a reason.
+    $support = $this->hqUser('support_agent');
+    expect($support->can('hq.consent.grant'))->toBeFalse();
+
+    $lift = tpOperator($this->requester, $customer, ConsentOperations::ACT_LIFT);
+    $audit = AuditLog::where('action', 'consent.operator_recorded')->latest('id')->first();
+    expect($lift->state)->toBe(ConsentState::Lifted)
+        ->and($lift->evidence_ref)->toBe('call 10 Oct')
+        ->and($lift->reason)->toBe('the customer said so')
+        ->and($audit->actor_id)->toBe($this->requester->id)
+        ->and($audit->after['evidence_ref'])->toBe('call 10 Oct')
+        ->and(Approval::where('tool_key', LiftRestrictionTool::KEY)->count())->toBe(0);
+});
