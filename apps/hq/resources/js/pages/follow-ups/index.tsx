@@ -39,6 +39,8 @@ type FollowUpRow = {
     decision_reason: string | null;
     close_note: string | null;
     workflow_instance_key: string | null;
+    self_decided: boolean;
+    ledger_credits: { attribution_uuid: string; outcome_type: string; role: string; results: { ref: string }[] }[];
     created_at: string | null;
 };
 type OpportunityRow = {
@@ -57,6 +59,8 @@ type OpportunityRow = {
     close_reason: string | null;
     close_note: string | null;
     open_follow_ups: number;
+    self_decided: boolean;
+    conversion_supported: boolean | null;
     created_at: string | null;
 };
 type Props = {
@@ -506,6 +510,11 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                                                 {f.opportunity && <div className="text-muted-foreground">{t('Serves: {subject}', { subject: f.opportunity.subject })}</div>}
                                                 {f.decision_reason && <div className="text-muted-foreground">{t('Decision: {reason}', { reason: f.decision_reason })}</div>}
                                                 {f.close_note && <div className="text-muted-foreground">{t('Note: {note}', { note: f.close_note })}</div>}
+                                                {f.ledger_credits.map((c) => (
+                                                    <div key={c.attribution_uuid} className="text-muted-foreground">
+                                                        {t('Credited by a person to: {outcome}', { outcome: `${c.outcome_type} ${c.results.map((r) => r.ref).join(', ')}` })}
+                                                    </div>
+                                                ))}
                                             </td>
                                             <td className="px-3 py-2 text-xs whitespace-nowrap">
                                                 <div>{kindLabel(f.kind)}</div>
@@ -536,6 +545,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                                                     {stateLabel(f.state)}
                                                 </StatusBadge>
                                                 {f.decided_by && <div className="text-muted-foreground mt-1 text-xs">{f.decided_by}</div>}
+                                                {f.self_decided && <div className="text-muted-foreground text-xs">{t('decided by its proposer')}</div>}
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs">{f.proposer_type === 'agent_run' ? t('Agent proposal') : f.proposer}</td>
                                             <td className="px-3 py-2 text-right">
@@ -614,6 +624,11 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                                                         {o.close_note ? ` (${o.close_note})` : ''}
                                                     </div>
                                                 )}
+                                                {o.conversion_supported !== null && (
+                                                    <div className="text-muted-foreground">
+                                                        {o.conversion_supported ? t('supported by a credited order') : t("a person's word only")}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 text-xs whitespace-nowrap">{opportunityKindLabel(o.kind)}</td>
                                             <td className="px-3 py-2 text-xs whitespace-nowrap">{o.expected_at ?? ''}</td>
@@ -622,6 +637,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                                                     {stateLabel(o.state)}
                                                 </StatusBadge>
                                                 {o.decided_by && <div className="text-muted-foreground mt-1 text-xs">{o.decided_by}</div>}
+                                                {o.self_decided && <div className="text-muted-foreground text-xs">{t('decided by its proposer')}</div>}
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs">{o.proposer_type === 'agent_run' ? t('Agent proposal') : o.proposer}</td>
                                             <td className="px-3 py-2 text-right">

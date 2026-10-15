@@ -150,8 +150,8 @@ it('shows every section, each under its own kind, without blending them', functi
         ->where('consent.ledger.0.basis', 'operator')
         ->where('consent.ledger.0.has_evidence', true)
         ->where('consent.legacy', ['legacy_marketing' => true])
-        // Promises are not recorded anywhere, and the S3 outcome section is a placeholder.
-        ->where('promises', ['recorded' => false])
+        // Promises are follow-ups of origin `promise` (docs/123; CustomerFollowUpsSectionTest covers the section), and the S3 outcome section is a placeholder.
+        ->where('follow_ups.follow_ups', [])
         ->where('outcomes', ['status' => 'awaiting_s3'])
         // Hand-overs: agent -> person (with reason) and person -> agent; person -> person is not one.
         ->has('handovers.rows', 2)

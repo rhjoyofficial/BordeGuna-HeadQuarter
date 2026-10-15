@@ -1,3 +1,4 @@
+import { FollowUpsBody, type CustomerFollowUps } from '@/components/customers/follow-ups-section';
 import { DataTable, Note, Panel, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -127,7 +128,7 @@ type Props = {
     conversations: { total: number; rows: Thread[] } | null;
     memory: { rows: MemoryRow[] } | null;
     consent: { current: ConsentCurrent[]; ledger: ConsentEvent[]; legacy: Record<string, unknown> | null };
-    promises: { recorded: boolean };
+    follow_ups: CustomerFollowUps | null;
     handovers: { rows: Handover[] } | null;
     outcomes: { status: string };
     quarantine: Quarantine;
@@ -648,11 +649,13 @@ export default function CustomerShow(props: Props) {
                     )}
                 </Section>
 
-                {/* Promises */}
-                <Section kind="promise" title="Promises" explain="What the business promised this customer.">
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-                        {t('HQ keeps no record of promises yet. Nothing is inferred from message text.')}
-                    </div>
+                {/* Follow-ups, promises and opportunities (docs/123): read-only */}
+                <Section
+                    kind="promise"
+                    title="Follow-ups and promises"
+                    explain="What the business planned or promised to do for this customer, and the interests it is tracking. Read-only here; decisions are made on the Follow-ups screen. Nothing is inferred from message text."
+                >
+                    <FollowUpsBody data={props.follow_ups} />
                 </Section>
 
                 {/* Outcomes: S3 placeholder */}

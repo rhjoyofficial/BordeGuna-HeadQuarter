@@ -41,6 +41,8 @@ const BANGLA_SCREENS = [
     'js/pages/playbooks/show.tsx',
     // docs/113 (S4 part 1): follow-ups and opportunities.
     'js/pages/follow-ups/index.tsx',
+    // docs/123: Customer 360's read-only follow-ups section.
+    'js/components/customers/follow-ups-section.tsx',
     // docs/117: the cross-business quarantine review screen.
     'js/pages/customers/quarantine.tsx',
 ];
