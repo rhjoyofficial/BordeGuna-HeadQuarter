@@ -379,6 +379,13 @@ final class OutcomeRecorder
             if ($ref->type->requiresRow()) {
                 throw new InvalidArgumentException("A [{$ref->type->value}] reference must point at its HQ row.");
             }
+            // ⛔ D4 as ruled (docs/120 item 1): the typed foreign key is REQUIRED for an internal result, never a
+            //    convenience. An ERP order may go by its number alone only while HQ holds no mirror of it; once a
+            //    read-back row exists, a reference that leaves it out is refused, so the natural key never stands in
+            //    for a foreign key the database could hold.
+            if ($ref->type === ResultType::ErpOrder && ($mirror = $this->erpMirror($ref->externalRef, $businessId)) !== null) {
+                throw new InvalidArgumentException("HQ holds a mirror of [{$ref->externalRef}] (facts_orders row {$mirror}); the reference must point at it: a typed foreign key is required for an internal result.");
+            }
 
             return;
         }
@@ -431,6 +438,15 @@ final class OutcomeRecorder
         if ($owner !== (int) $outcome->business_id) {
             throw new InvalidArgumentException("The [{$spec->actionType->value}] action {$spec->actionId} belongs to another business.");
         }
+    }
+
+    /** HQ's read-back row of an ERP order named by its natural key (`erp:{number}` or the bare number), in this business. */
+    private function erpMirror(string $externalRef, int $businessId): ?int
+    {
+        $number = str_starts_with($externalRef, 'erp:') ? substr($externalRef, 4) : $externalRef;
+        $id = DB::table('facts_orders')->where('business_id', $businessId)->where('erp_order_number', $number)->orderBy('id')->value('id');
+
+        return $id === null ? null : (int) $id;
     }
 
     /** The business that owns a referenced read-model row; false when the row does not exist. */
