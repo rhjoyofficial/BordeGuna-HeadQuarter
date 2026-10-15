@@ -8,7 +8,7 @@ import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo } from '@/lib/
 import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { type ReactNode, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 type Evidence = {
     kind: string;
@@ -465,7 +465,8 @@ export default function AgentRunShow({
                                                 <StatusBadge status={m.status} />
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap tabular-nums">
-                                                {(m.input_tokens ?? 0).toLocaleString('en-US')} in, {(m.output_tokens ?? 0).toLocaleString('en-US')} out
+                                                {(m.input_tokens ?? 0).toLocaleString('en-US')} in, {(m.output_tokens ?? 0).toLocaleString('en-US')}{' '}
+                                                out
                                             </td>
                                             <td className="px-3 py-2 text-right text-xs whitespace-nowrap tabular-nums">
                                                 {humanUsd(m.estimated_cost_usd)}
@@ -547,7 +548,9 @@ function SuggestionBox({ children }: { children: ReactNode }) {
                 <span className="text-muted-foreground rounded border px-1.5 py-0.5 text-xs">{t('Proposal only. Never sent.')}</span>
             </div>
             <p className="text-muted-foreground text-xs">
-                {t('Saved with your review as a correction for later evaluation. It does not send anything, reaches no customer and is not a message.')}
+                {t(
+                    'Saved with your review as a correction for later evaluation. It does not send anything, reaches no customer and is not a message.',
+                )}
             </p>
             {children}
         </div>
