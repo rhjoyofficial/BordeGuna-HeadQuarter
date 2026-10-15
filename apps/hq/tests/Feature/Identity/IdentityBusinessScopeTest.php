@@ -348,7 +348,7 @@ it('finds no lookup of customer_identities by channel or external id that does n
             $byValue = preg_match("/where\\(\\s*'(?:[a-z_]+\\.)?(external_id|channel)'/", $statement)
                 || preg_match("/where\\(\\s*\\[\\s*'(external_id|channel)'/", $statement)
                 || preg_match('/updateOrCreate|firstOrCreate|firstOrNew/', $statement) && $touchesIdentities;
-            if ($touchesIdentities && $byValue && ! preg_match("/business_id|->key\\(/", $statement)) {
+            if ($touchesIdentities && $byValue && ! preg_match('/business_id|->key\\(/', $statement)) {
                 $offenders[] = str_replace(app_path(), 'app', $file->getPathname()).': '.trim(Str::limit(preg_replace('/\s+/', ' ', $statement), 160));
             }
         }
