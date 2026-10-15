@@ -60,7 +60,7 @@ beforeEach(function () {
 function threadFrom(string $text, string $psid = 'psid-mem-1', ?Customer $customer = null): Conversation
 {
     if ($customer !== null) {
-        CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => $psid, 'confidence' => 1.0]);
+        CustomerIdentity::create(['customer_id' => $customer->id, 'business_id' => $customer->business_id, 'channel' => 'messenger_psid', 'external_id' => $psid, 'confidence' => 1.0]);
     }
     $adapter = new SimulatedChannelAdapter;
     $service = app(ConversationService::class);

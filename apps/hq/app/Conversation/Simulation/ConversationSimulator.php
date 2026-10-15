@@ -367,7 +367,7 @@ final class ConversationSimulator
             'attributes' => ['simulated' => true],
         ]);
         if (isset($given['identity'])) {
-            CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => $given['identity'], 'confidence' => 1.0]);
+            CustomerIdentity::create(['customer_id' => $customer->id, 'business_id' => $customer->business_id, 'channel' => 'messenger_psid', 'external_id' => $given['identity'], 'confidence' => 1.0]);
         }
 
         // What a person remembered about them earlier (docs/78 B.1): `memory` => [{key, value} | {episode}].

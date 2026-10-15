@@ -266,7 +266,8 @@ final readonly class ConsentOperations
         if ($identityId === null) {
             return;
         }
-        $identity = CustomerIdentity::query()->whereKey($identityId)->where('customer_id', $customer->id)->first(['id', 'channel']);
+        $identity = CustomerIdentity::query()->live()->whereKey($identityId)->where('customer_id', $customer->id)
+            ->where('business_id', $customer->business_id)->first(['id', 'channel']);
         if ($identity === null) {
             throw new InvalidArgumentException("Identity {$identityId} is not an identity of this customer.");
         }

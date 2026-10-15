@@ -199,8 +199,9 @@ it('keeps each brand its own row in the projection, and the rebuild agrees (docs
 /** Two identities of one person (docs/114 §2): two WhatsApp numbers. */
 function consentIdentities(int $customerId): array
 {
-    $a = CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000001']);
-    $b = CustomerIdentity::create(['customer_id' => $customerId, 'channel' => 'whatsapp', 'external_id' => '8801711000002']);
+    $businessId = (int) Customer::query()->whereKey($customerId)->value('business_id');
+    $a = CustomerIdentity::create(['customer_id' => $customerId, 'business_id' => $businessId, 'channel' => 'whatsapp', 'external_id' => '8801711000001']);
+    $b = CustomerIdentity::create(['customer_id' => $customerId, 'business_id' => $businessId, 'channel' => 'whatsapp', 'external_id' => '8801711000002']);
 
     return [$a->id, $b->id];
 }

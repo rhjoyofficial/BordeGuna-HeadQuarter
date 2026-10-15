@@ -74,6 +74,8 @@ final class CrossBusinessSuppression
 
         $phone = $customer->primary_phone_canonical;
         $email = $customer->email;
+        $withholdPhone = $phone !== null && DB::table('customers')->where('id', $customer->id)->whereRaw(self::phoneWithheldSql('customers'))->exists();
+        $withholdEmail = $email !== null && DB::table('customers')->where('id', $customer->id)->whereRaw(self::emailWithheldSql('customers'))->exists();
 
         return new SuppressionView(
             businessId: $businessId,
@@ -82,10 +84,31 @@ final class CrossBusinessSuppression
             pointerCrosses: $pointerCrosses,
             heldIdentityIds: $heldIdentityIds,
             unscopedMemoryCutoff: $kept->max('created_at'),
-            withholdPhone: $phone !== null && $kept->contains(fn ($m) => $m->absorbed_phone !== null && $m->absorbed_phone === $phone),
-            withholdEmail: $email !== null && $kept->contains(fn ($m) => $m->absorbed_email !== null && strtolower((string) $m->absorbed_email) === strtolower($email)),
+            withholdPhone: $withholdPhone,
+            withholdEmail: $withholdEmail,
             recomputeAggregates: $kept->isNotEmpty() || $foreignOrders,
         );
+    }
+
+    /**
+     * SQL condition on a `customers` row (aliased `$c`): its stored phone may have come from another business,
+     * so it is withheld, and never matched by a search (ruling docs/120 item 38). Either a cross-business merge
+     * absorbed a row with that phone (docs/117), or only another business's order copies under this customer
+     * carry it and none of its own business's does (the pre-fix resolver filled an empty phone from them, docs/122).
+     */
+    public static function phoneWithheldSql(string $c): string
+    {
+        return "({$c}.primary_phone_canonical IS NOT NULL AND ("
+            ."EXISTS (SELECT 1 FROM customer_merges wm JOIN customers wa ON wa.id = wm.absorbed_id WHERE wm.kept_id = {$c}.id AND wa.business_id <> {$c}.business_id AND wa.primary_phone_canonical = {$c}.primary_phone_canonical)"
+            ." OR (EXISTS (SELECT 1 FROM facts_orders wf WHERE wf.customer_id = {$c}.id AND wf.business_id <> {$c}.business_id AND wf.customer_phone_canonical = {$c}.primary_phone_canonical)"
+            ." AND NOT EXISTS (SELECT 1 FROM facts_orders wo WHERE wo.customer_id = {$c}.id AND wo.business_id = {$c}.business_id AND wo.customer_phone_canonical = {$c}.primary_phone_canonical))))";
+    }
+
+    /** SQL condition on a `customers` row (aliased `$c`): its stored e-mail may have come from another business. */
+    public static function emailWithheldSql(string $c): string
+    {
+        return "({$c}.email IS NOT NULL AND EXISTS (SELECT 1 FROM customer_merges wm JOIN customers wa ON wa.id = wm.absorbed_id"
+            ." WHERE wm.kept_id = {$c}.id AND wa.business_id <> {$c}.business_id AND lower(wa.email) = lower({$c}.email)))";
     }
 
     /**

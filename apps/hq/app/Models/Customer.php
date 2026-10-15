@@ -38,13 +38,20 @@ class Customer extends Model
         return $this->belongsTo(Customer::class, 'merged_into_id');
     }
 
-    /** Follow merges to the surviving record. */
+    /**
+     * Follow merges to the surviving record, never across a business (docs/122, docs/117): a merge pointer
+     * into another business (only pre-guard data can hold one) stops at the last row of this business.
+     */
     public function canonical(): Customer
     {
         $c = $this;
         $hops = 0;
         while ($c->merged_into_id && $hops++ < 10) {
-            $c = $c->mergedInto;
+            $next = $c->mergedInto;
+            if ($next === null || (int) $next->business_id !== (int) $c->business_id) {
+                break;
+            }
+            $c = $next;
         }
 
         return $c;

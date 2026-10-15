@@ -72,7 +72,7 @@ function plantHistoricalCrossBusinessMerge(Business $laladia, Business $bionic):
 
     $kept = Customer::create(['business_id' => $laladia->id, 'name' => 'Karim LaLaDia', 'primary_phone_canonical' => '01711222333',
         'email' => null, 'first_seen_at' => now()->subDays(30), 'last_seen_at' => now()->subDay()]);
-    CustomerIdentity::create(['customer_id' => $kept->id, 'channel' => 'phone', 'external_id' => '01711222333', 'confidence' => 1.0]);
+    CustomerIdentity::create(['customer_id' => $kept->id, 'business_id' => $kept->business_id, 'channel' => 'phone', 'external_id' => '01711222333', 'confidence' => 1.0]);
     FactsOrder::create(['business_id' => $laladia->id, 'store_id' => $lldStore->id, 'order_ref' => 'LLD-OWN-1', 'status' => 'delivered', 'gross' => 700,
         'customer_id' => $kept->id, 'placed_at' => now()->subDays(9)]);
     qMemory($kept, $laladia->id, 'Kept own memory LLD');
@@ -80,9 +80,9 @@ function plantHistoricalCrossBusinessMerge(Business $laladia, Business $bionic):
     $absorbed = Customer::create(['business_id' => $bionic->id, 'name' => 'Secret Bionic Person', 'primary_phone_canonical' => '01999888777',
         'email' => 'secret-bionic@example.test', 'first_seen_at' => now()->subDays(20), 'last_seen_at' => now()->subDays(2)]);
     $bIdentities = [
-        CustomerIdentity::create(['customer_id' => $absorbed->id, 'channel' => 'phone', 'external_id' => '01999888777', 'confidence' => 1.0])->id,
-        CustomerIdentity::create(['customer_id' => $absorbed->id, 'channel' => 'messenger', 'external_id' => 'psid-secret-bionic', 'confidence' => 1.0])->id,
-        CustomerIdentity::create(['customer_id' => $absorbed->id, 'channel' => 'shop_order', 'external_id' => 'BNC-SECRET-9', 'source_store_id' => $bncStore->id, 'confidence' => 1.0])->id,
+        CustomerIdentity::create(['customer_id' => $absorbed->id, 'business_id' => $absorbed->business_id, 'channel' => 'phone', 'external_id' => '01999888777', 'confidence' => 1.0])->id,
+        CustomerIdentity::create(['customer_id' => $absorbed->id, 'business_id' => $absorbed->business_id, 'channel' => 'messenger', 'external_id' => 'psid-secret-bionic', 'confidence' => 1.0])->id,
+        CustomerIdentity::create(['customer_id' => $absorbed->id, 'business_id' => $absorbed->business_id, 'channel' => 'shop_order', 'external_id' => 'BNC-SECRET-9', 'source_store_id' => $bncStore->id, 'confidence' => 1.0])->id,
     ];
     FactsOrder::create(['business_id' => $bionic->id, 'store_id' => $bncStore->id, 'order_ref' => 'BNC-SECRET-9', 'status' => 'delivered', 'gross' => 5000,
         'customer_id' => $absorbed->id, 'placed_at' => now()->subDays(4)]);
@@ -97,9 +97,12 @@ function plantHistoricalCrossBusinessMerge(Business $laladia, Business $bionic):
         'status' => 'open', 'state' => ConversationState::AiActive->value, 'opened_at' => now()->subDays(3), 'last_message_at' => now()->subDays(3)]);
     qConsent($absorbed, $bionic->id, 'secret bionic consent reason');
 
-    // What IdentityResolver::merge() did before the docs/109 §6 guard.
+    // What IdentityResolver::merge() did before the docs/109 §6 guard, as the docs/122 migration leaves it: every
+    // moved row hangs in the kept customer's business, and the Bionic store's order id, which cannot belong to a
+    // LaLaDia customer, is quarantined (never guessed; the database refuses it live).
+    DB::table('customer_identities')->where('id', $bIdentities[2])->update(['quarantined_at' => now(), 'quarantine_reason' => 'store_business_mismatch']);
     DB::transaction(function () use ($kept, $absorbed) {
-        DB::table('customer_identities')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
+        DB::table('customer_identities')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id, 'business_id' => $kept->business_id]);
         DB::table('facts_orders')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
         DB::table('memories')->where('customer_id', $absorbed->id)->update(['customer_id' => $kept->id]);
         DB::table('customers')->where('id', $absorbed->id)->update(['merged_into_id' => $kept->id]);

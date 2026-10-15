@@ -51,8 +51,8 @@ function c360Customer(Business $business, string $phone = '01711000001', string 
         'first_seen_at' => now()->subDays(40), 'last_seen_at' => now()->subDay(), 'orders_count' => 2, 'lifetime_value' => 1500,
         'consent' => ['legacy_marketing' => true], 'attributes' => ['aliases' => ["Rahim Uddin {$tag}"]],
     ]);
-    CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'phone', 'external_id' => $phone, 'confidence' => 1.0, 'last_seen_at' => now()]);
-    CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger', 'external_id' => "psid-{$tag}-".Str::random(6), 'confidence' => 1.0]);
+    CustomerIdentity::create(['customer_id' => $customer->id, 'business_id' => $customer->business_id, 'channel' => 'phone', 'external_id' => $phone, 'confidence' => 1.0, 'last_seen_at' => now()]);
+    CustomerIdentity::create(['customer_id' => $customer->id, 'business_id' => $customer->business_id, 'channel' => 'messenger', 'external_id' => "psid-{$tag}-".Str::random(6), 'confidence' => 1.0]);
 
     $store = Store::where('business_id', $business->id)->firstOrFail();
     FactsOrder::create([

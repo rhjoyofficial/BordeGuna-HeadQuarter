@@ -132,9 +132,9 @@ it('keeps a restricted person inside their businesses', function () {
 
 it('records an act for one identity of the person, refuses another person\'s identity or a channel the identity does not live on, and shows the per-identity grid (docs/114 §2)', function () {
     $owner = $this->hqUser('owner');
-    $wa = CustomerIdentity::create(['customer_id' => $this->customer->id, 'channel' => 'whatsapp', 'external_id' => '8801711000999']);
+    $wa = CustomerIdentity::create(['customer_id' => $this->customer->id, 'business_id' => $this->customer->business_id, 'channel' => 'whatsapp', 'external_id' => '8801711000999']);
     $stranger = Customer::create(['business_id' => $this->lld->business_id, 'name' => 'Someone else']);
-    $foreign = CustomerIdentity::create(['customer_id' => $stranger->id, 'channel' => 'whatsapp', 'external_id' => '8801711000111']);
+    $foreign = CustomerIdentity::create(['customer_id' => $stranger->id, 'business_id' => $stranger->business_id, 'channel' => 'whatsapp', 'external_id' => '8801711000111']);
     $url = '/customers/'.$this->customer->id.'/consent';
 
     $this->actingAsHq($owner)->post(...csPost($this->customer, ['act' => 'do_not_contact', 'identity_id' => $wa->id]))->assertSessionHasNoErrors();

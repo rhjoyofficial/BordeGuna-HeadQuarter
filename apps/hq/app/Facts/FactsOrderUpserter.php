@@ -2,8 +2,10 @@
 
 namespace App\Facts;
 
+use App\Identity\CrossBusinessIdentity;
 use App\Identity\IdentityResolver;
 use App\Identity\PhoneCanonical;
+use App\Models\Customer;
 use App\Models\FactsOrder;
 use App\Models\Store;
 use Carbon\CarbonImmutable;
@@ -51,7 +53,20 @@ final class FactsOrderUpserter
                 'placed_at' => $placedAt,
             ]);
 
+            // ⛔ docs/122 (A4): the order's customer is a customer of the order's own business, checked here and
+            // not only in the resolver.
+            if ((int) $customer->business_id !== (int) $store->business_id) {
+                throw CrossBusinessIdentity::customer((int) $customer->business_id, (int) $store->business_id);
+            }
+
             $existing = FactsOrder::where('store_id', $store->id)->where('order_ref', $ref)->first();
+            // A copy written before the fix may hang under another business's customer. Moving it is the
+            // evidence-backed repair's job (docs/120 A3), never a side effect of the next event: it stays put.
+            $customerId = $customer->id;
+            if ($existing !== null && $existing->customer_id !== null && (int) $existing->customer_id !== (int) $customer->id
+                && Customer::query()->whereKey($existing->customer_id)->where('business_id', '!=', $store->business_id)->exists()) {
+                $customerId = (int) $existing->customer_id;
+            }
 
             // An older snapshot must never beat a newer one. Only a full-state event carries a
             // timestamp; without one the caller is reconciliation, reading the shop's current truth.
@@ -72,7 +87,7 @@ final class FactsOrderUpserter
                 'discount_total' => $o['discount_total'] ?? $existing?->discount_total ?? 0,
                 'shipping_cost' => $o['shipping_cost'] ?? $existing?->shipping_cost ?? 0,
                 'gross' => $o['grand_total'] ?? $existing?->gross ?? 0,
-                'customer_id' => $customer->id,
+                'customer_id' => $customerId,
                 'customer_phone_canonical' => PhoneCanonical::normalize($phone) ?? $existing?->customer_phone_canonical,
                 'district' => self::pick($address, 'district', self::pick($address, 'city', $existing?->district)),
                 'thana' => self::pick($address, 'thana', self::pick($address, 'area', $existing?->thana)),
@@ -87,9 +102,10 @@ final class FactsOrderUpserter
                 'synced_at' => now(),
             ]);
 
+            // Figures from this business's copies only.
             $customer->forceFill([
-                'orders_count' => FactsOrder::where('customer_id', $customer->id)->count(),
-                'lifetime_value' => FactsOrder::where('customer_id', $customer->id)->where('status', '!=', 'cancelled')->sum('gross'),
+                'orders_count' => FactsOrder::where('customer_id', $customer->id)->where('business_id', $customer->business_id)->count(),
+                'lifetime_value' => FactsOrder::where('customer_id', $customer->id)->where('business_id', $customer->business_id)->where('status', '!=', 'cancelled')->sum('gross'),
             ])->save();
 
             return $fact;

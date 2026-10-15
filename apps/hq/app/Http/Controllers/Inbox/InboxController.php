@@ -22,6 +22,7 @@ use App\Models\AgentRun;
 use App\Models\AuditLog;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
+use App\Models\Customer;
 use App\Models\DecisionRecord;
 use App\Models\FactsOrder;
 use App\Models\Memory;
@@ -129,7 +130,7 @@ final class InboxController extends Controller
             'thread' => $this->card($conversation, null) + [
                 'ai_disabled' => $conversation->ai_disabled,
                 'platform_account' => $conversation->platformAccount?->name,
-                'customer_id' => $conversation->customer_id,
+                'customer_id' => $this->ownCustomer($conversation)?->id,
                 'allowed_next' => array_map(fn (ConversationState $s) => $s->value, $conversation->state->allowedNext()),
             ],
             'messages' => $messages,
@@ -428,7 +429,7 @@ final class InboxController extends Controller
     /** @return list<array<string, mixed>> */
     private function memoryFor(Conversation $conversation): array
     {
-        if ($conversation->customer_id === null) {
+        if ($this->ownCustomer($conversation) === null) {
             return [];
         }
 
@@ -555,13 +556,15 @@ final class InboxController extends Controller
      */
     private function ordersFor(Conversation $conversation): array
     {
-        $customer = $conversation->customer;
+        $customer = $this->ownCustomer($conversation);
         if ($customer === null) {
             return [];
         }
 
+        // ⛔ docs/122 (A4): this thread's business's order copies only, whatever the customer row holds.
         return FactsOrder::query()
             ->where('customer_id', $customer->id)
+            ->where('business_id', $conversation->business_id)
             ->with('store:id,name')
             ->orderByDesc('placed_at')
             ->limit(SupportContext::RECENT_ORDERS)
@@ -578,9 +581,20 @@ final class InboxController extends Controller
             ->all();
     }
 
+    /**
+     * The thread's customer when it is a customer of the thread's own business; otherwise nobody (docs/122 A4):
+     * a link written before the fix never shows another business's person, phone, orders or memory here.
+     */
+    private function ownCustomer(Conversation $conversation): ?Customer
+    {
+        $customer = $conversation->customer;
+
+        return $customer !== null && (int) $customer->business_id === (int) $conversation->business_id ? $customer : null;
+    }
+
     private function card(Conversation $c, ?ConversationMessage $last): array
     {
-        $customer = $c->customer;
+        $customer = $this->ownCustomer($c);
         $stranger = $customer === null || ($customer->primary_phone_canonical === null && (bool) data_get($customer->attributes, 'stranger', false));
 
         return [

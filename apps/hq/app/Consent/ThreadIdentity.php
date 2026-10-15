@@ -16,8 +16,8 @@ use App\Models\CustomerIdentity;
  * fallback is the latest inbound message's own sender id, looked up in the identity table, for a thread
  * linked before participants carried identities.
  *
- * Fail closed: the identity must belong to the thread's customer (or that customer's canonical record
- * after a merge). Anything else, and anything unresolvable, is null, which the ledger reads as "every
+ * Fail closed: the identity must be a live identity of the thread's own business (docs/122) and belong to
+ * the thread's customer (or that customer's canonical record after a merge, inside the business). Anything else, and anything unresolvable, is null, which the ledger reads as "every
  * identity's denial applies and no identity's grant does" (`ConsentLedger::permittedAt`).
  */
 final class ThreadIdentity
@@ -45,7 +45,7 @@ final class ThreadIdentity
             $metadata = is_string($metadata) ? json_decode($metadata, true) : $metadata;
             $external = is_array($metadata) ? ($metadata['sender_external_id'] ?? null) : null;
             if ($identityChannel !== null && is_string($external) && $external !== '') {
-                $candidate = CustomerIdentity::query()->where('channel', $identityChannel)->where('external_id', $external)->value('id');
+                $candidate = CustomerIdentity::query()->key((int) $conversation->business_id, $identityChannel, $external)->value('id');
             }
         }
 
@@ -59,7 +59,8 @@ final class ThreadIdentity
             $owners[] = (int) $customer->canonical()->id;
         }
 
-        return CustomerIdentity::query()->whereKey($candidate)->whereIn('customer_id', array_unique($owners))->exists()
+        return CustomerIdentity::query()->live()->whereKey($candidate)->where('business_id', (int) $conversation->business_id)
+            ->whereIn('customer_id', array_unique($owners))->exists()
             ? (int) $candidate
             : null;
     }

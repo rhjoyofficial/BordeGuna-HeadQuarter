@@ -53,7 +53,7 @@ export default function CustomersIndex({
 }: {
     customers: Paginated<Customer>;
     candidates: Candidate[];
-    filters: { q: string };
+    filters: { q: string; business?: number | null };
 }) {
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.customers.manage');

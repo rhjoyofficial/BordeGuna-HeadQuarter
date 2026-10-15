@@ -98,8 +98,11 @@ final class Customer360Reader
     /** What a channel, a shop or a person put on the record. */
     private function observed(Customer $customer, SuppressionView $view): array
     {
+        // Live identities of this customer's own business only (docs/122); a quarantined row is not shown.
         $identities = CustomerIdentity::query()
+            ->live()
             ->where('customer_id', $customer->id)
+            ->where('customer_identities.business_id', $customer->business_id)
             ->whereNotIn('customer_identities.id', $view->heldIdentityIds)
             ->leftJoin('stores', 'stores.id', '=', 'customer_identities.source_store_id')
             ->orderBy('customer_identities.id')
@@ -146,7 +149,9 @@ final class Customer360Reader
     private function inferred(Customer $customer, int $businessId, SuppressionView $view): array
     {
         $links = CustomerIdentity::query()
+            ->live()
             ->where('customer_id', $customer->id)
+            ->where('business_id', $businessId)
             ->whereNotIn('id', $view->heldIdentityIds)
             ->orderBy('id')
             ->get(['id', 'channel', 'confidence'])
