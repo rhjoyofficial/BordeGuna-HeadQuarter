@@ -1,0 +1,349 @@
+# HQ Wave 4 — Authoritative Architecture Ruling, Implementation Order and Release-Readiness Instruction
+
+Repository: BordeGuna HQ  
+Current reported main: `3e91c2f` (Wave 1–3 changes merged; code candidate reported as `6726f51`)  
+Production: `b96a396`, still inert  
+Source records: `docs/119`, `docs/111–118`
+
+This instruction is the authoritative ruling for Wave 4. Continue the full multi-milestone program end to end. Do not stop between ordinary implementation milestones to request confirmation. Stop only for a failed gate, a safety-critical uncertainty, an unavailable mandatory owner authorization, or a genuinely new architecture decision that is not covered here.
+
+**Nothing in this instruction authorizes a production release. Joy retains sole authority to release.**
+
+## A. Priority 0 — contain and fix the live identity leak
+
+### A1. Release-blocking decision
+
+The cross-business identity defect is a data-isolation incident and blocks release of Waves 1–3.
+
+Do not treat the AI runtime being disabled as sufficient containment. Order ingestion, reconciliation, customer registration and rebuild operations can still encounter the affected identity paths.
+
+Immediately establish and document whether affected production paths are still writing or reassigning identities.
+
+Until safe containment is verified:
+- Prevent an identity from being silently attached or reassigned to a customer in another business.
+- Pause only the affected identity-linking/reassignment operation or job if necessary; preserve incoming events so they can be replayed after the fix.
+- Do not discard orders, webhooks, messages or reconciliation evidence.
+- Do not run the mutating repair.
+- Run read-only detection and quantify the affected scope.
+- Keep customer-facing autonomous behavior disabled.
+- Do not open the pending Executive shadow period against data known or reasonably suspected to contain cross-business contamination. Reassess after containment and scoped-read verification.
+
+If a safe immediate containment cannot be established on the current production release, report the specific blocker and the minimum safe operational action required. Do not claim the incident is contained without evidence.
+
+### A2. Implement Option A: business-scoped identities
+
+Implement the recommended business-scoped identity design. Do not implement the group-level person graph in Option B.
+
+Required data model and constraints:
+
+1. Add non-null `business_id` to `customer_identities`.
+2. Add the required unique customer key `(id, business_id)` and composite foreign key `(customer_id, business_id)`.
+3. Replace the old uniqueness constraint with a database-enforced unique key on `(business_id, channel, external_id, source_store_id) NULLS NOT DISTINCT`, using PostgreSQL 17 semantics.
+4. Enforce that any non-null source store belongs to the same business.
+5. Preserve two distinct customer records when the same phone, email or other identity appears in LaLaDia and Bionic. No automatic cross-business merging.
+6. Derive migration ownership from reliable source/business evidence. Do not blindly trust `customer_id` where the report already identifies that ownership as potentially corrupted. Quarantine ambiguous rows rather than guessing.
+
+Update all relevant resolver and identity-link paths—including `IdentityResolver::byIdentity()`, `resolve()`, `resolveChannelIdentity()`, `link()`, `linkByIdentity()`, `ThreadIdentity` and conversation participant linking—to require explicit business scope.
+
+A lookup must never fall back to a group-wide identity match.
+
+An existing identity owned by one customer must not be silently moved to another customer by `updateOrCreate`. If an ownership conflict exists, refuse and produce an auditable resolution requirement. Only an explicitly authorized, evidence-backed repair may change ownership.
+
+Add structural tests pinning every identity lookup to a business, plus tests for:
+
+- the same phone in two businesses;
+- no cross-business reassignment;
+- store/business mismatch;
+- duplicate null-store identities under concurrent creation;
+- ambiguous identity matches;
+- idempotent resolution;
+- the absence of unscoped fallback paths.
+
+### A3. Cross-business data repair
+
+Implement a safe, auditable repair for affected orders, conversations, participants, messages and related identity links.
+
+The repair must:
+
+1. Run in dry-run mode by default.
+2. Show proposed customer splits, row counts, lineage and ambiguous cases before writing.
+3. Require a separately authorized production repair operation after review.
+4. Find or create the customer for the row's actual business, copy the correct business-scoped identity, and re-point only records belonging to that business.
+5. Preserve the original lineage and create explicit audit evidence.
+6. Be idempotent, restartable and protected against concurrent changes.
+7. Never delete the original merge row. Record reversals/corrections through a separate `customer_merge_reversals` lineage structure as proposed.
+8. Withhold business-less memories from Customer 360 until an authorized person assigns them to the proper business.
+9. Never convert questionable cross-business consent into a valid grant. Keep consent history append-only. Preserve or fail-closed outstanding restrictions and produce a human-review list for restrictions requiring re-recording in the correct scope.
+10. Verify the resulting ownership and business-scoped read paths before marking a repair batch complete.
+
+Extend detection to include messages and conversation participants as proposed. Suppress suspect cross-business relationships before repair, not only after a detector flag is written.
+
+Historical repairs must be evidence-based. If the repair cannot establish the correct business without guessing, quarantine the record and report the reason.
+
+### A4. Defense in depth
+
+Correct and test the identity filters in:
+- `FactsOrderUpserter` and relevant order read-back/reconciliation paths;
+- `CustomerRegisteredHandler`;
+- customer rebuild operations;
+- `ConversationService::ingest`;
+- `SupportContext`;
+- `InboxController::ordersFor`;
+- `IdentityResolver`, `ThreadIdentity` and participant links;
+- Customer 360 and customer search.
+
+Every query and write must enforce the applicable business scope independently. A corrected resolver alone is not enough.
+
+## B. Apply all 42 open-question rulings
+
+The following numbered answers are authoritative. Where a previous ruling already required typed foreign keys, append-only history, explicit business scope or Gateway governance, preserve those requirements.
+
+### S3 — previously review-pending items
+
+**1. D4 — natural key and typed reference.** APPROVE the natural key as mandatory. CHANGE the proposal that a typed foreign key is merely a convenience: typed foreign keys remain required for the supported internal result types, with the natural key serving its distinct idempotency/identity purpose. Do not weaken referential integrity.
+
+**2. D7 — proposal identity.** APPROVE the agent-run plus `proposal_ref` representation. Do not create a separate proposal entity unless a real domain requirement later demonstrates that it is necessary.
+
+**3. D10 — outcome types.** APPROVE. Outcome types name business events and results; do not make them generic tool or provider identifiers.
+
+**4. D11 — schema versioning.** APPROVE per-row `schema_version`. A semantic change in what an outcome type means requires a new type/version; do not silently reinterpret historical rows.
+
+**5. D12 — idempotency.** APPROVE deriving idempotency keys from the source identity wherever stable source identity exists. Do not substitute a random key that defeats replay protection.
+
+**6. D17 — current view.** APPROVE. The current view consists of asserted rows with no successor. Retractions and corrections remain explicit, append-only and auditable.
+
+**7. D18 — retention.** APPROVE retention keep-clauses for attributed rows. Operational pruning must never delete a record still required to explain an attribution, audit trail or unresolved business outcome.
+
+### S4 — follow-ups and opportunities
+
+**8. Q1 — `followup.await_person`.** APPROVE listing this workflow now. Its only function is to wait and resume through a person-controlled continuation; it must not gain an outbound tool step.
+
+**9. Q2 — consent missing.** APPROVE fail-closed behavior. Missing or unresolved consent means refusal. A person must record the required consent through the governed consent operation before the proposal can proceed.
+
+**10. Q3 — transactional kind.** APPROVE excluding a transactional communication kind from v1. Do not invent a classification with different consent semantics.
+
+**11. Q4 — roles.** CONFIRM: `brand_manager` and `support_agent` may view and propose within their scope. An authorized owner/operator makes the decision. Neither role obtains authority to approve its own proposals merely by creating them.
+
+**12. Q5 — follow-up kinds and close reasons.** APPROVE the documented kinds and close reasons. Keep the vocabulary explicit, validated and version-controlled; do not accept arbitrary model-generated values.
+
+**13. Q6 — retention.** APPROVE pruning refused/declined proposals after 365 days, retaining closed records under their applicable retention rules, and never pruning open records. Apply the distinct WorkflowEngine rule already approved: operational workflow records become eligible for pruning 180 days after they are terminal and reconciled. Keep-clauses for outcomes, audit and attribution take precedence over pruning.
+
+**14. Q7 — Customer 360.** APPROVE showing follow-ups on Customer 360 now, read-only and business-scoped. Do not introduce write controls into that view.
+
+**15. Q8 — foreign keys.** APPROVE `RESTRICT`, consistent with S3. Do not solve future erasure needs through cascading deletion.
+
+**16. Q9 — wait and overdue alerts.** APPROVE the documented 180-day wait and overdue-alert rule. The alert informs the responsible person; it must not trigger automatic outreach or an irreversible business action.
+
+**17. Q10 — inert pin.** APPROVE replacing the weak pin with the structural invariant that no listed workflow definition has a tool step. Test definitions themselves, not merely a list of expected names.
+
+### S5 — decision-corpus reader
+
+**18. Shadow-review suggestion.** APPROVE a small, separate “what I would have sent” box in shadow review. Clearly label it as a non-executing proposal. It must not send anything, create a new external effect or be presented as an actual customer message.
+
+**19. Reasons.** APPROVE keeping internal decision reasons off the ordinary owner-facing page. Preserve them in the authorized audit/evidence path; do not erase the history.
+
+**20. Decision vocabulary.** APPROVE using one normalized vocabulary going forward: `approved`, `edited`, `rejected`. Preserve legacy records and map them through a documented compatibility layer rather than rewriting history without evidence.
+
+**21. Business ID.** APPROVE additive `decision_records.business_id` and backfill from reliable business context. Leave ambiguous records unassigned and explicitly report them; never guess the business.
+
+### S6 — playbook store
+
+**22. Reviewer independence.** APPROVE requiring the reviewer to differ from the drafter once a second eligible reviewer is available. Do not allow self-review just to bypass an available independent reviewer. If only one eligible person exists, use the documented controlled bootstrap process; do not create an invisible exception.
+
+**23. New playbook readers.** APPROVE no new playbook readers without an explicit architectural ruling. Existing readers remain limited to those already reviewed.
+
+**24. Legacy claims/guidelines columns.** APPROVE leaving legacy columns in place and retiring them through a planned, documented process. Do not destructively remove or reinterpret their data in this wave.
+
+**25. Business-wide and brand playbooks.** APPROVE loading both where applicable, with explicit labels and provenance. Brand-specific guidance may refine applicable business guidance but cannot expand permissions or override policy. If guidance conflicts and precedence cannot resolve it deterministically, refuse to infer a business rule and surface the conflict.
+
+**26. Support playbook access.** APPROVE Support runs loading playbooks as read-only, human-approved context at the approved A1 scope. Loading a playbook never grants tool permission, expands autonomy or overrides consent/security policy.
+
+### S7 — consent
+
+**27. Unresolved identity.** APPROVE fail-closed behavior consistent with the applicable brand/customer restriction. An unresolved identity cannot inherit a permissive grant from another identity or business.
+
+**28. Plain withdrawal lift.** APPROVE a single appropriately authorized person for an ordinary withdrawal lift, with evidence, reason and audit. This does NOT override the prior DNC ruling: lifting a do-not-contact restriction requires the separate lift permission and a second independent approver.
+
+**29. Approver without lift permission.** APPROVE fail-closed behavior. If an approval is presented to an actor who lacks the required lift permission, that approval is spent and cannot be replayed by another actor as though it remained pending. A fresh valid approval is required.
+
+### S3 — remaining open items
+
+**30. First record/attribute audit.** APPROVE that the append-only ledger row is the primary domain record; no duplicate domain event is required solely to record its creation. The Gateway invocation must still produce its ordinary security/audit record.
+
+**31. `conversation.resolved`.** APPROVE keeping the business outcome type in S3 while the Conversation domain owns the resolution categories and vocabulary.
+
+**32. `outcomes.attribute` permission and approval.** APPROVE the documented R3 human-only capability without a second approval in the current single-operator posture. No agent may hold or invoke it. Record authenticated actor, reason and evidence. Revisit the approval model before attribution feeds autonomy, money-related decisions or a multi-operator workflow.
+
+**33. HQ-scope outcome shape.** APPROVE the proposed explicit HQ-scope representation in `docs/115 §3.3` in principle. Implement it only when a genuine use case appears. Reject implicit `business_id = NULL` as a substitute for explicit scope.
+
+**34. Decision records and business.** APPROVE inheriting business attribution through item 21's explicit business context. No cross-business read or aggregation may arise merely because `business_id` is absent.
+
+**35. Retraction capability.** DEFER the retract tool until outcome recording is actually activated. Before then, implement the ledger's append-only correction/retraction semantics and tests without exposing an unnecessary callable capability.
+
+### Quarantine and identity repair
+
+**36. Repair tool.** APPROVE for Wave 4, after the identity schema and ownership rules above are established. Implement it as a Tool Gateway capability, human-only, with the new `hq.customers.quarantine.repair` permission. It may execute only after an explicit `needs_repair` review. Use a separate `customer_merge_reversals` lineage record and leave original merge rows untouched. Withhold business-less memories pending human assignment. Use dry-run by default and require separate human authorization for production mutation.
+
+**37. Recount.** APPROVE recounting all affected customer/order/conversation aggregates by explicit business scope. Verify each count against source rows and document excluded/quarantined rows.
+
+**38. Search by withheld value.** CHANGE the proposed interim acceptance. Do NOT allow cross-business lookup/search by a withheld value while the identity fix is pending. Same-business search may proceed under explicit scope. A withheld or quarantined value must not reveal another business's existence, customer, order or conversation.
+
+**39. Messages and participants.** APPROVE extending the detector to messages and participants, in addition to orders, conversations and consent-related downstream records. Keep detection read-only by default and make any flag write append-only and explicitly invoked.
+
+### Cost and scheduler bypass
+
+**40. `scheduler.gateway` row.** APPROVE deleting the obsolete inert row only after Joy's release is verified and the deployed code is confirmed to have no remaining legitimate consumers. Do not remove it from production before that check. No scheduler mode may bypass the Gateway.
+
+**41. Runtime guard narrower than Gateway.** APPROVE this as the intended end state, with audits and counters. A stricter runtime guard may refuse an action Gateway permission would otherwise allow; that does not grant permission to proceed. It must be observable and testable.
+
+**42. Alert threshold.** APPROVE an initial alert threshold of three guard/Gateway disagreements within 24 hours, then revisit against real evidence. Do not expose customer content or credentials in the alert. Keep the counter and audit record even when alerting is deduplicated.
+
+## C. Complete Wave 4 in a controlled sequence
+
+### Work plan and concurrency
+
+Begin with a committed implementation plan mapping every Wave 4 change to a workstream, dependency, tests, migration, safety invariant and acceptance gate.
+
+Use no more than three concurrent agents/worktrees, with a separate test database per stream. Merge with `--no-ff`, one workstream at a time, in dependency order. Do not release partial results. Run the complete suite and CI after the combined tree has been assembled.
+
+Recommended stages:
+
+**Stage 0 — Immediate identity containment**
+- Verify whether production identity paths continue to write or reassign cross-business identities.
+- Apply the minimum safe containment or pause the affected linking path while preserving replayable inputs.
+- Run detector dry-run, establish scope and record the incident evidence.
+- Do not mutate production records.
+
+**Stage 1 — Identity schema and resolver**
+- Implement Option A, the DB constraints, resolver/link changes and structural tests.
+- Test migration from representative clean, duplicate and corrupted datasets.
+- Backfill only from reliable evidence; quarantine ambiguous rows.
+- Demonstrate no cross-business attachment or reassignment under concurrent conditions.
+
+**Stage 2 — Repair and detector**
+- Extend detection to messages, participants and all relevant downstream rows.
+- Implement the audited repair command and human-only Gateway tool.
+- Prove dry-run, idempotency, resumability, lineage, business-scoped recounting and fail-closed ambiguity handling.
+- No production repair until Joy has reviewed the dry-run and explicitly authorized the mutation.
+
+**Stage 3 — Whole-second timestamp audit**
+- Finish the audit of the nine `*_at` readers on the existing `platform/whole-second-bound-audit` branch.
+- Merge it only after the worktree's tests and the combined-tree gate are green.
+- Verify boundary handling for PostgreSQL `timestamptz(0)` rounding, including inclusive/exclusive windows and adjacent records.
+
+**Stage 4 — S4 outcome-dependent work**
+- Use the ruled S3 outcome contract. Do not invent a competing follow-up attribution model.
+- Add the Customer 360 follow-ups section as read-only and business-scoped.
+- Implement the overdue alert as notification to a responsible person, never as automatic customer contact.
+- Preserve consent refusal, human approval and WorkflowEngine constraints.
+- Keep all outbound paths absent/inert. Maintain the structural assertion that no follow-up workflow definition has a tool step.
+
+**Stage 5 — Approved small items**
+Complete the approved S3/S4/S5/S6/S7 items in dependency order. New playbook, decision-reader or outcome behavior must not acquire unauthorized readers or writers. Preserve compatibility with existing rows and permissions.
+
+**Stage 6 — Combined gates**
+- Run focused tests for every workstream.
+- Run the complete Pest suite, Pint, TypeScript, Vite and GitHub Actions CI on the exact combined commit.
+- Investigate every cross-stream failure. A green individual branch is not a substitute for green combined-tree CI.
+- Run structural tests and searches that prove there is no unreviewed direct effectful-tool invocation, unscoped identity lookup or unauthorized consent/playbook reader.
+
+If any gate fails, fix and rerun before proceeding.
+
+## D. Release readiness
+
+Create consolidated release notes for Waves 1–4 and a candidate manifest with exact commit, CI run, migrations, seed changes, permission changes, expected feature flags and post-release verification evidence.
+
+Do not claim readiness until all of the following are complete:
+
+### 1. Migration rehearsal
+
+On a production-shaped, isolated copy:
+
+- Apply all migrations from the proposed release.
+- Verify schema, constraints, seed behavior, row counts and application compatibility.
+- Roll back and verify that the pre-migration data is recoverable and no unapproved data loss occurs.
+- Re-apply from the intended release candidate.
+- Exercise the identity backfill and repair against representative cross-business corruptions, null-store identities, duplicate rows and ambiguous ownership.
+- Confirm every command that writes flags or repairs data defaults to dry-run or requires an explicit mutating invocation as documented.
+
+The rehearsal may use a disposable, restorable copy to prove rollback. Do not run destructive rollback tests on production. If a migration cannot safely be rolled back, explicitly document that limitation, prove backup/restore recovery and do not misrepresent it as reversible.
+
+### 2. Deployment rehearsal
+
+Perform a deployment rehearsal against an isolated staging/production-shaped environment using the intended release procedure. If no dedicated staging environment is available, explicitly report that limitation and use a disposable isolated environment built from the current deployment method. Do not claim a literal staging deployment occurred if it did not.
+
+Verify:
+- backup before checkout/migration;
+- release identity and commit verification;
+- migration and permission-seeder procedure;
+- health and readiness checks;
+- read-only post-deploy evidence collection;
+- rollback/restore instructions and prerequisites;
+- no automatic agent/provider/flag/grant activation.
+
+### 3. Read-only pre-release checks
+
+Provide commands and expected outputs for:
+- identity cross-business detector dry-run;
+- customer/order/conversation/message/participant cross-scope checks;
+- ambiguous identity counts;
+- cost-attribution dry-run and completeness report;
+- current release/health and database migration state;
+- permissions, agent posture, autonomy tier, grants, AI runtime, Meta inbound/forwarding and shadow state;
+- scheduler/Gateway configuration and confirmation that no effectful execution bypass exists.
+
+Read-only checks must be demonstrably read-only. Cost backfill and quarantine repair must not mutate data during these checks.
+
+### 4. Read-only post-release checks
+
+After Joy independently releases, verify the deployed commit and all migration/seed outcomes before any optional data-repair or backfill operation.
+
+Confirm:
+- identity lookups are business-scoped;
+- database uniqueness and composite foreign-key constraints exist and hold;
+- no known cross-business identity leak remains in the verified scope;
+- Customer 360, inbox and support projections do not reveal other businesses' records;
+- unresolved/withheld identities fail closed;
+- consent restrictions are not converted to grants;
+- cost reporting shows accounted and unaccounted costs truthfully;
+- all agents remain paused at A0, grants remain zero, AI runtime remains off and no unintended shadow period exists;
+- the obsolete `scheduler.gateway` row is removed only after its consumers and deployed code are verified.
+
+A detector with unresolved `needs_repair` records is not a clean-data certificate. Report remaining quarantine and the exact containment applied.
+
+### 5. Production repair and cost backfill
+
+After release verification, keep both mutations separately gated:
+- Quarantine repair: dry-run, human review, explicit Joy authorization, Tool Gateway authorization, then idempotent mutation.
+- Cost backfill: dry-run, evidence/counts/totals reviewed, explicit Joy authorization, then `--apply`.
+
+Neither operation is implicitly authorized by the release itself.
+
+### 6. Final readiness report
+
+Return one final report with:
+- exact main and release-candidate commits;
+- all merged workstreams and migration/permission changes;
+- full test-suite, Pint, TypeScript, Vite and CI results;
+- identity containment, migration and repair evidence;
+- remaining quarantined rows and ambiguous cases;
+- timestamp audit findings;
+- outcome/follow-up implementation and structural no-outbound proof;
+- cost-attribution coverage and backfill dry-run figures;
+- pre/post-release checklists and rollback/restore rehearsal evidence;
+- deviations from this instruction and any genuinely new architecture decision.
+
+Do not say “production-ready” merely because CI is green. Release readiness requires code, schema, data-isolation and operational recovery evidence.
+
+## E. Authority and execution boundary
+
+Continue engineering across the complete Wave 4 program without stopping for routine approvals. Escalate only:
+- failed test/CI/migration/repair gate;
+- unresolved cross-business data ownership;
+- a security/privacy/legal uncertainty not resolved by these rulings;
+- an unavailable prerequisite that makes safe execution impossible;
+- a new architecture question not covered by this instruction.
+
+Do not activate customer-facing autonomy, autonomous follow-ups, messaging, outcome-driven automation or playbook-driven authority as part of Wave 4.
+
+**Joy alone authorizes production release.** The final recommendation must say either `READY FOR JOY'S RELEASE DECISION` with evidence, or `NOT READY` with the exact blocking conditions. Never release or mutate production merely because the implementation run completed.
