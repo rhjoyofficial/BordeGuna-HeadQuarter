@@ -271,7 +271,7 @@ it('enforces identity scope at the gateway and in the outbound policy: a do-not-
     $customer = $threadA->customer;
     $identityA = CustomerIdentity::where('channel', 'messenger_psid')->where('external_id', 'psid-ida')->sole();
     // The same person's second Messenger identity, linked before they write from it: the thread resolves to them.
-    $identityB = CustomerIdentity::create(['customer_id' => $customer->id, 'channel' => 'messenger_psid', 'external_id' => 'psid-idb']);
+    $identityB = CustomerIdentity::create(['customer_id' => $customer->id, 'business_id' => $customer->business_id, 'channel' => 'messenger_psid', 'external_id' => 'psid-idb']);
     $threadB = ceThread('psid-idb');
     expect($threadB->customer_id)->toBe($customer->id)->and($threadB->id)->not->toBe($threadA->id);
     expectPassedConsent(ceReply($this->owner, $threadA));

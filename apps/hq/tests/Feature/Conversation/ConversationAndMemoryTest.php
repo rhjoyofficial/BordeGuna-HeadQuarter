@@ -51,7 +51,7 @@ it('is not keyed by phone number, so one person on three channels is three threa
 
     foreach ([['messenger_psid', 'psid-9'], ['whatsapp', '8801711000000'], ['phone', '01711000000']] as [$channel, $external]) {
         CustomerIdentity::create([
-            'customer_id' => $customer->id, 'channel' => $channel, 'external_id' => $external,
+            'customer_id' => $customer->id, 'business_id' => $businessId, 'channel' => $channel, 'external_id' => $external,
         ]);
     }
 

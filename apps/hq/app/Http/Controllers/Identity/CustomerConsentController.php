@@ -72,7 +72,8 @@ final class CustomerConsentController extends Controller
         $customer->load('business:id,name');
         $brands = $customer->business?->brands()->orderBy('name')->get(['id', 'code', 'name']) ?? collect();
         $brandRows = $brands->isEmpty() ? collect([null]) : $brands;
-        $identities = $customer->identities()->orderBy('id')->get(['id', 'channel', 'external_id']);
+        // Live identities of this customer's own business only (docs/122): a quarantined row is never offered.
+        $identities = $customer->identities()->live()->where('business_id', $customer->business_id)->orderBy('id')->get(['id', 'channel', 'external_id']);
         $identityLabels = $identities->mapWithKeys(fn (CustomerIdentity $i) => [$i->id => self::identityLabel($i)]);
 
         // Customer-wide: what a send to this person gets when no identity is resolved (fail closed on

@@ -55,10 +55,16 @@ final class CustomerController extends Controller
         $customers = $this->readable($request)->with('business:id,name')
             ->where(fn ($w) => $w->whereNull('merged_into_id')->orWhereExists(fn ($e) => $e->selectRaw('1')->from('customers as merged_target')
                 ->whereColumn('merged_target.id', 'customers.merged_into_id')->whereColumn('merged_target.business_id', '!=', 'customers.business_id')))
+            // An explicit business narrows the search to it (still inside what this person may read).
+            ->when($request->integer('business') > 0, fn ($q) => $q->where('business_id', $request->integer('business')))
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = trim($request->string('q'));
                 $phone = PhoneCanonical::normalize($term);
-                $q->where(fn ($w) => $w->where('name', 'ilike', "%{$term}%")->orWhere('email', 'ilike', "%{$term}%")->when($phone, fn ($x) => $x->orWhere('primary_phone_canonical', $phone)));
+                // ⛔ Ruling docs/120 item 38: a withheld value (a phone or e-mail that may have come from another
+                // business) is never matched, so a search by it reveals no customer, here or anywhere else.
+                $q->where(fn ($w) => $w->where('name', 'ilike', "%{$term}%")
+                    ->orWhere(fn ($e) => $e->where('email', 'ilike', "%{$term}%")->whereRaw('NOT '.CrossBusinessSuppression::emailWithheldSql('customers')))
+                    ->when($phone, fn ($x) => $x->orWhere(fn ($p) => $p->where('primary_phone_canonical', $phone)->whereRaw('NOT '.CrossBusinessSuppression::phoneWithheldSql('customers')))));
             })
             ->orderByDesc('last_seen_at')->paginate(25)->withQueryString();
         // docs/117: the same cross-business suppression as the 360 page, applied server-side to every row.
@@ -74,7 +80,7 @@ final class CustomerController extends Controller
                 ->whereExists(fn ($e) => $e->selectRaw('1')->from('customers as cand_a')->join('customers as cand_b', 'cand_b.business_id', '=', 'cand_a.business_id')
                     ->whereColumn('cand_a.id', 'customer_merge_candidates.customer_id')->whereColumn('cand_b.id', 'customer_merge_candidates.candidate_id'))
                 ->where('status', 'pending')->latest()->limit(50)->get(),
-            'filters' => ['q' => $request->string('q')->toString()],
+            'filters' => ['q' => $request->string('q')->toString(), 'business' => $request->integer('business') ?: null],
         ]);
     }
 

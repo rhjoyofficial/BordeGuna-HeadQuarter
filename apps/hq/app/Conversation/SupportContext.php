@@ -73,8 +73,10 @@ final class SupportContext
         )];
 
         $customer = $conversation->customer;
-        if ($customer instanceof Customer) {
-            $blocks[] = ContextBlock::business('customer:'.$customer->id, $this->customerBlock($customer));
+        // ⛔ docs/122 (A4): only a customer of this thread's own business is described, and only from this
+        // business's records; a link written before the fix shows the model nobody.
+        if ($customer instanceof Customer && (int) $customer->business_id === (int) $conversation->business_id) {
+            $blocks[] = ContextBlock::business('customer:'.$customer->id, $this->customerBlock($customer, (int) $conversation->business_id));
             $blocks = [...$blocks, ...$this->memoryBlocks($customer, (int) $conversation->business_id)];
         }
 
@@ -176,19 +178,19 @@ final class SupportContext
     }
 
     /** HQ's own facts about the customer: identity as far as HQ holds it, and the recent orders. */
-    private function customerBlock(Customer $customer): string
+    private function customerBlock(Customer $customer, int $businessId): string
     {
+        $own = FactsOrder::query()->where('customer_id', $customer->id)->where('business_id', $businessId);
         $stranger = (bool) data_get($customer->attributes, 'stranger', false) && $customer->primary_phone_canonical === null;
         $lines = [
             'Customer, as HQ knows them from its own records (HQ data, not the customer\'s words).',
             'name: '.($customer->name ?: 'unknown'),
             'known: '.($stranger ? 'a stranger so far; no phone or order links them yet' : 'a known customer'),
-            'orders on record: '.(int) $customer->orders_count,
+            'orders on record: '.(clone $own)->count(),
             'first seen: '.($customer->first_seen_at?->toDateString() ?? 'unknown').', last seen: '.($customer->last_seen_at?->toDateString() ?? 'unknown'),
         ];
 
-        $orders = FactsOrder::query()
-            ->where('customer_id', $customer->id)
+        $orders = (clone $own)
             ->orderByDesc('placed_at')
             ->limit(self::RECENT_ORDERS)
             ->get(['order_ref', 'store_id', 'status', 'payment_status', 'payment_method', 'gross', 'placed_at', 'delivered_at', 'cancelled_at']);

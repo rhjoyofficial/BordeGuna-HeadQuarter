@@ -10,12 +10,14 @@ use App\Context\Provenance;
 use App\Conversation\Channels\InboundMessage;
 use App\Conversation\Channels\OutboundEcho;
 use App\Gateway\Descriptor\Channel;
+use App\Identity\CrossBusinessIdentity;
 use App\Identity\IdentityResolver;
 use App\Models\Agent;
 use App\Models\Business;
 use App\Models\Conversation;
 use App\Models\ConversationMessage;
 use App\Models\ConversationParticipant;
+use App\Models\Customer;
 use App\Models\CustomerIdentity;
 use App\Models\PlatformAccount;
 use App\Support\Events\EventRecorder;
@@ -147,9 +149,10 @@ final readonly class ConversationService
                 $conversation->forceFill(['language' => $language])->save();
             }
 
+            // The identity of THIS business the person arrived through (docs/122): never another business's row.
             $identity = CustomerIdentity::query()
-                ->where('channel', (string) $inbound->channel->identityChannel())
-                ->where('external_id', $inbound->senderExternalId)
+                ->key((int) $business->id, (string) $inbound->channel->identityChannel(), $inbound->senderExternalId)
+                ->where('customer_id', $customer->id)
                 ->first();
             $alreadyIn = ConversationParticipant::query()
                 ->where('conversation_id', $conversation->id)
@@ -221,9 +224,12 @@ final readonly class ConversationService
         ?int $customerId = null,
         array $attributes = [],
     ): Conversation {
+        $this->assertCustomerOf($businessId, $customerId);
+
         return DB::transaction(function () use ($businessId, $channel, $externalThreadRef, $customerId, $attributes) {
             if ($externalThreadRef !== null) {
                 $existing = Conversation::query()
+                    ->where('business_id', $businessId)
                     ->where('channel', $channel->value)
                     ->where('external_thread_ref', $externalThreadRef)
                     ->where('status', '!=', 'closed')
@@ -328,9 +334,19 @@ final readonly class ConversationService
         ]);
     }
 
-    /** Attach a person to a thread, by the identity they actually arrived through. */
+    /**
+     * Attach a person to a thread, by the identity they actually arrived through. ⛔ Both the customer and the
+     * identity must be of the thread's own business (docs/122): a participant link never crosses a business.
+     */
     public function addParticipant(Conversation $conversation, string $type, array $attributes = []): ConversationParticipant
     {
+        $businessId = (int) $conversation->business_id;
+        $this->assertCustomerOf($businessId, $attributes['customer_id'] ?? null);
+        if (($attributes['identity_id'] ?? null) !== null
+            && ! CustomerIdentity::query()->live()->whereKey($attributes['identity_id'])->where('business_id', $businessId)->exists()) {
+            throw new CrossBusinessIdentity("Identity {$attributes['identity_id']} is not a live identity of business {$businessId}; it is never linked to this thread.");
+        }
+
         return ConversationParticipant::create([
             'conversation_id' => $conversation->id,
             'participant_type' => $type,
@@ -343,6 +359,18 @@ final readonly class ConversationService
         ]);
     }
 
+    /** A customer named for a thread of `$businessId` is a customer of that business, or nobody. */
+    private function assertCustomerOf(int $businessId, ?int $customerId): void
+    {
+        if ($customerId === null) {
+            return;
+        }
+        $customerBusiness = Customer::query()->whereKey($customerId)->value('business_id');
+        if ($customerBusiness !== null && (int) $customerBusiness !== $businessId) {
+            throw CrossBusinessIdentity::customer((int) $customerBusiness, $businessId);
+        }
+    }
+
     /**
      * Link the thread to a customer using the identity the message arrived on.
      *
@@ -351,9 +379,9 @@ final readonly class ConversationService
      */
     public function linkByIdentity(Conversation $conversation, string $identityChannel, string $externalId): ?int
     {
+        // Only an identity of the thread's own business can name its customer (docs/122).
         $identity = CustomerIdentity::query()
-            ->where('channel', $identityChannel)
-            ->where('external_id', $externalId)
+            ->key((int) $conversation->business_id, $identityChannel, $externalId)
             ->first();
 
         if ($identity === null) {

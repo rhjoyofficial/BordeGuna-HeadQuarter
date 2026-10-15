@@ -123,7 +123,7 @@ it('refuses a page HQ does not hold rather than guessing a business', function (
 it('recognises a person already linked by channel identity and does not make a second one', function () {
     $brand = Brand::where('code', 'LLD')->sole();
     $rina = Customer::create(['business_id' => $brand->business_id, 'name' => 'Rina', 'primary_phone_canonical' => '01711000009']);
-    $rina->identities()->create(['channel' => 'messenger_psid', 'external_id' => 'psid-rina', 'confidence' => 1.0]);
+    $rina->identities()->create(['business_id' => $rina->business_id, 'channel' => 'messenger_psid', 'external_id' => 'psid-rina', 'confidence' => 1.0]);
 
     [$message] = simIngest([['from' => 'psid-rina', 'text' => 'same as last time please']]);
 
@@ -263,12 +263,14 @@ it('fails a scenario whose state change left no audit row, or whose customer lan
     expect($result->passed)->toBeFalse()
         ->and(implode('; ', $result->mismatches))->toContain('invariant audited: 1 state change(s) but 0 audit row(s)');
 
-    // A customer written into another business: the scope invariant must notice.
+    // A customer written into another business: since docs/122 the resolver refuses it before anything is
+    // written (CrossBusinessIdentity), so the scenario fails on its observations instead of on the invariant.
     Customer::creating(fn (Customer $customer) => $customer->business_id = $other->business_id);
     $scenario = collect(ScenarioLibrary::all())->firstWhere('key', 'order_status.english');
     $result = app(ConversationSimulator::class)->replay([$scenario], 'LLD')[0];
     expect($result->passed)->toBeFalse()
-        ->and(implode('; ', $result->mismatches))->toContain('invariant business_scoped');
+        ->and(implode('; ', $result->mismatches))->toContain('stranger: expected true, got NULL')
+        ->and(implode('; ', $result->mismatches))->not->toContain('invariant business_scoped');
 });
 
 it('replays the library twice with identical observations and reports that nothing was left behind', function () {
