@@ -26,10 +26,14 @@ use Illuminate\Support\Collection;
  * measures, and the page gets the labels, the measures and a reference to the row (record id,
  * context type and id). The page the reference leads to is gated on its own permission.
  *
- * Business scope: `decision_records` has no business column, so each record's business is the one on
- * the context row it names (approval, agent run, conversation). A restricted viewer sees only records
- * that resolve to one of their businesses; a record whose context is gone or carries no business is
- * "unscoped" and counted for a group-wide viewer only.
+ * Business scope (ruling docs/120 items 21 and 34): a record's business is its own `business_id`, written
+ * by every writer and backfilled from reliable context; for a row the backfill could not assign it is
+ * the context row it names (approval, agent run, conversation) when that row carries one. A restricted
+ * viewer sees only records that resolve to one of their businesses; a record that resolves to none is
+ * "unscoped" and counted for a group-wide viewer only. An absent business never widens a read.
+ *
+ * Vocabulary (item 20): verdicts are read through `DecisionVocabulary::normalize()`, the documented
+ * compatibility map for the legacy inbox words; stored rows are never rewritten.
  */
 final class DecisionCorpusReader
 {
@@ -127,7 +131,7 @@ final class DecisionCorpusReader
             'patterns' => $this->patterns($edited),
             'gaps' => [
                 'edits_without_delta' => $edited->filter(fn (array $r) => $r['kind'] !== self::KIND_SHADOW_ANSWER && $r['delta'] === null)->count(),
-                'shadow_reviews_edited_without_text' => $edited->filter(fn (array $r) => $r['kind'] === self::KIND_SHADOW_ANSWER)->count(),
+                'shadow_reviews_edited_without_text' => $edited->filter(fn (array $r) => $r['kind'] === self::KIND_SHADOW_ANSWER && $r['delta'] === null)->count(),
                 'contexts_missing' => $rows->filter(fn (array $r) => ! $r['context_found'])->count(),
                 'edits_with_reason' => $edited->filter(fn (array $r) => $r['has_reason'])->count(),
             ],
@@ -155,7 +159,8 @@ final class DecisionCorpusReader
         $threads = $threadUuids === [] ? collect() : Conversation::query()->whereIn('uuid', $threadUuids)->get(['id', 'uuid', 'business_id', 'brand_id'])->keyBy('uuid');
 
         $agents = Agent::query()->get(['key', 'name', 'role_key'])->keyBy('key');
-        $businessIds = collect([$approvals, $runs, $threads])->flatMap(fn ($c) => $c->pluck('business_id'))->filter()->unique()->values()->all();
+        $businessIds = collect([$approvals, $runs, $threads])->flatMap(fn ($c) => $c->pluck('business_id'))
+            ->merge($records->pluck('business_id'))->filter()->unique()->values()->all();
         $businesses = $businessIds === [] ? collect() : Business::query()->whereIn('id', $businessIds)->get(['id', 'name', 'slug'])->keyBy('id');
         $brandIds = collect([$approvals, $runs, $threads])->flatMap(fn ($c) => $c->pluck('brand_id'))->filter()->unique()->values()->all();
         $brands = $brandIds === [] ? collect() : Brand::query()->whereIn('id', $brandIds)->get(['id', 'name'])->keyBy('id');
@@ -183,7 +188,8 @@ final class DecisionCorpusReader
             $verdict = $this->verdict($record, $kind, $delta);
             [$labels, $keys] = $this->labels($kind, $verdict, $delta);
             $agent = $record->agent_key === null ? null : $agents->get($record->agent_key);
-            $business = $context?->business_id === null ? null : $businesses->get($context->business_id);
+            $businessId = $record->business_id !== null ? (int) $record->business_id : ($context?->business_id === null ? null : (int) $context->business_id);
+            $business = $businessId === null ? null : $businesses->get($businessId);
             $brand = $context?->brand_id === null ? null : $brands->get($context->brand_id);
 
             return [
@@ -204,7 +210,7 @@ final class DecisionCorpusReader
                 'labels' => $labels,
                 'keys' => $keys,
                 'has_reason' => is_string($record->reason) && trim($record->reason) !== '',
-                'business_id' => $context?->business_id,
+                'business_id' => $businessId,
                 'business_name' => $business?->name,
                 'business_slug' => $business?->slug,
                 'brand_id' => $context?->brand_id,
@@ -213,15 +219,13 @@ final class DecisionCorpusReader
         });
     }
 
-    /** One axis over `approved|edited|rejected` and the inbox's `send|discard`, from the row itself. */
+    /** One axis over the stored words, through the documented compatibility map (DecisionVocabulary). */
     private function verdict(DecisionRecord $record, string $kind, ?array $delta): string
     {
-        return match ($record->decision) {
-            'approved' => self::VERDICT_KEPT,
-            'edited' => self::VERDICT_EDITED,
-            'rejected', 'discard' => self::VERDICT_REJECTED,
-            'send' => (bool) data_get($record->final, 'edited', $delta !== null) ? self::VERDICT_EDITED : self::VERDICT_KEPT,
-            default => $delta !== null ? self::VERDICT_EDITED : self::VERDICT_KEPT,
+        return match (DecisionVocabulary::normalize((string) $record->decision, is_array($record->final) ? $record->final : null, $delta)) {
+            DecisionVocabulary::REJECTED => self::VERDICT_REJECTED,
+            DecisionVocabulary::EDITED => self::VERDICT_EDITED,
+            default => self::VERDICT_KEPT,
         };
     }
 
@@ -231,13 +235,14 @@ final class DecisionCorpusReader
         if ($verdict !== self::VERDICT_EDITED) {
             return [[], []];
         }
-        if ($kind === self::KIND_SHADOW_ANSWER) {
+        if ($kind === self::KIND_SHADOW_ANSWER && $delta === null) {
             return [[EditClassifier::VERDICT_ONLY], []];
         }
         if ($delta === null) {
             return [[EditClassifier::UNCLASSIFIED], []];
         }
-        if ($kind === self::KIND_REPLY_TEXT) {
+        // A shadow review with a "what I would have sent" text (item 18) is classified like a reply edit.
+        if ($kind === self::KIND_REPLY_TEXT || $kind === self::KIND_SHADOW_ANSWER) {
             $from = $delta['from'] ?? null;
             $to = $delta['to'] ?? null;
             $labels = $this->classifier->classifyText(is_string($from) ? $from : null, is_string($to) ? $to : null);

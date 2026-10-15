@@ -8,6 +8,7 @@ use App\Models\PlaybookVersion;
 use App\Models\PlaybookVersionEvent;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\BusinessScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -131,12 +132,63 @@ final class Playbooks
     /**
      * in_review -> reviewed (approved for activation) or -> draft (sent back), with a note. The reviewer
      * is recorded on the row either way.
+     *
+     * ⛔ Reviewer independence (ruling docs/120 item 22). The drafter may not approve their own version while
+     *    another eligible reviewer exists: an enabled person, other than the drafter, holding `hq.playbooks.review`
+     *    with access to the version's business. Sending a version back is never refused on this ground.
+     *
+     * ⚠ The single-person bootstrap rule (documented in docs/125, not an invisible exception). When the drafter is
+     *    the ONLY eligible reviewer, self-review is allowed and recorded as such: a `playbook.self_review_bootstrap`
+     *    audit row naming the rule and the count of other eligible reviewers (zero), and the version page says
+     *    "reviewed by its drafter under the single-reviewer bootstrap rule". The moment a second eligible reviewer
+     *    exists, the same call is refused.
      */
     public function review(User $by, PlaybookVersion $version, bool $approved, string $note): PlaybookVersion
     {
-        return $this->transition($by, $version, self::REVIEW, [PlaybookVersion::IN_REVIEW],
-            $approved ? PlaybookVersion::REVIEWED : PlaybookVersion::DRAFT, $approved ? 'approved' : 'sent_back',
-            ['reviewed_by' => $by->getKey(), 'reviewed_at' => now(), 'review_note' => $note], $note);
+        // A person without the permission is refused for that, by the transition, before independence is asked.
+        $selfReview = $approved && (int) $version->drafted_by === (int) $by->getKey() && $this->personRefusals($by, self::REVIEW) === [];
+        if ($selfReview && ($others = $this->otherEligibleReviewers($version, $by)) > 0) {
+            throw new InvalidArgumentException("Not approved: {$by->email} drafted version {$version->version}, and {$others} other eligible reviewer(s) hold "
+                .self::REVIEW.' for this business. Reviewer independence: one of them reviews it (docs/120 item 22).');
+        }
+
+        return DB::transaction(function () use ($by, $version, $approved, $note, $selfReview) {
+            $reviewed = $this->transition($by, $version, self::REVIEW, [PlaybookVersion::IN_REVIEW],
+                $approved ? PlaybookVersion::REVIEWED : PlaybookVersion::DRAFT, $approved ? 'approved' : 'sent_back',
+                ['reviewed_by' => $by->getKey(), 'reviewed_at' => now(), 'review_note' => $note], $note);
+
+            if ($selfReview) {
+                $this->auditor->record('playbook.self_review_bootstrap', $reviewed, after: [
+                    'rule' => self::BOOTSTRAP_RULE,
+                    'drafter' => $by->email,
+                    'other_eligible_reviewers' => $this->otherEligibleReviewers($reviewed, $by),
+                    'version' => $reviewed->version,
+                    'content_digest' => $reviewed->content_digest,
+                ], reason: $note, actorUserId: $by->getKey());
+            }
+
+            return $reviewed;
+        });
+    }
+
+    /** The documented single-person bootstrap rule, recorded with every self-review it admits. */
+    public const BOOTSTRAP_RULE = 'single-reviewer bootstrap: the drafter is the only enabled holder of hq.playbooks.review for this business, so self-review is allowed and recorded (docs/120 item 22, docs/125)';
+
+    /** Enabled people other than `$except` who hold the review permission and may act on the version's business. */
+    public function otherEligibleReviewers(PlaybookVersion $version, User $except): int
+    {
+        $scope = app(BusinessScope::class);
+
+        return User::query()->permission(self::REVIEW)->where('is_active', true)->whereKeyNot($except->getKey())->get()
+            ->filter(fn (User $u) => $scope->allows($u, (int) $version->business_id))
+            ->count();
+    }
+
+    /** Whether the version was reviewed by the person who drafted it (only possible under the bootstrap rule). */
+    public static function reviewedByDrafter(PlaybookVersion $version): bool
+    {
+        return $version->reviewed_by !== null && (int) $version->reviewed_by === (int) $version->drafted_by
+            && in_array($version->status, [PlaybookVersion::REVIEWED, PlaybookVersion::ACTIVE, PlaybookVersion::RETIRED], true);
     }
 
     /**

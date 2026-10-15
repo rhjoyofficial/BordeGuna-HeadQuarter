@@ -34,7 +34,10 @@ enum ResultType: string
         };
     }
 
-    /** Whether a reference of this kind must point at an HQ row (an ERP order may not have one yet). */
+    /**
+     * Whether a reference of this kind must always point at an HQ row. An ERP order may not have one yet; once
+     * it has, the recorder requires the typed key too (D4 as ruled, docs/120 item 1).
+     */
     public function requiresRow(): bool
     {
         return ! in_array($this, [self::ErpOrder, self::External], true);

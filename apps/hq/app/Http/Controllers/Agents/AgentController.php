@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Agents;
 
+use App\Decisions\DecisionVocabulary;
 use App\Execution\ExecutionContextView;
 use App\Http\Controllers\Controller;
 use App\Models\Agent;
@@ -44,7 +45,10 @@ final class AgentController extends Controller
      * slightly better for a shadow review, and would have meant the alignment corpus held two words
      * for one idea and every later query had to know both.
      */
-    private const VERDICTS = ['approved', 'edited', 'rejected'];
+    private const VERDICTS = DecisionVocabulary::CURRENT;
+
+    /** The "what I would have sent" box (ruling docs/120 item 18): at most this many characters. */
+    public const SUGGESTION_MAX = 2000;
 
     public function __construct(
         private readonly Auditor $auditor,
@@ -143,6 +147,7 @@ final class AgentController extends Controller
                 'context_provenance' => (array) $run->context_provenance,
                 'error' => $run->error,
                 'review_note' => $run->review_note,
+                'review_suggestion' => $this->suggestion($run),
                 'prompt_version' => $run->prompt_version,
             ],
             // docs/81 point 3: the `eec.v1` context the run was resolved under, as recorded. Read-only,
@@ -176,7 +181,13 @@ final class AgentController extends Controller
         $data = $request->validate([
             'verdict' => 'required|string|in:'.implode(',', self::VERDICTS),
             'note' => 'nullable|string|max:2000',
+            // ⛔ Ruling docs/120 item 18: a separate, labelled, NON-EXECUTING proposal. It is stored in the decision
+            //    record as the reviewer's correction and nowhere else: no tool, no gateway call, no message, no
+            //    delivery, and it is never shown as a message a customer received. Meaningless on an approval.
+            'would_have_sent' => 'nullable|string|max:'.self::SUGGESTION_MAX.'|prohibited_if:verdict,approved',
         ]);
+        $suggestion = trim((string) ($data['would_have_sent'] ?? ''));
+        $suggestion = $suggestion === '' ? null : $suggestion;
 
         if ($run->reviewed_at !== null) {
             return back()->withErrors(['verdict' => 'This run has already been reviewed, and a review is not revised after the fact.']);
@@ -192,10 +203,14 @@ final class AgentController extends Controller
         DecisionRecord::create([
             'agent_key' => $run->agent_key,
             'user_id' => $request->user()?->getKey(),
+            // docs/120 item 21: the run's own business, or none for a group-wide run (never guessed).
+            'business_id' => $run->business_id,
             'context_type' => 'agent_run',
             'context_id' => (string) $run->uuid,
             'proposal' => ['answer' => $run->answer, 'proposals' => (array) $run->proposals],
-            'final' => ['verdict' => $data['verdict'], 'note' => $data['note'] ?? null],
+            'final' => ['verdict' => $data['verdict'], 'note' => $data['note'] ?? null]
+                + ($suggestion === null ? [] : ['would_have_sent' => $suggestion, 'would_have_sent_executed' => false]),
+            'delta' => $suggestion === null ? null : ['from' => (string) $run->answer, 'to' => $suggestion],
             'decision' => $data['verdict'],
             'reason' => $data['note'] ?? null,
             'outcome' => ['status' => $run->status, 'stop_reason' => $run->stop_reason, 'autonomy_level' => $run->autonomy_level?->value],
@@ -207,9 +222,23 @@ final class AgentController extends Controller
             'verdict' => $data['verdict'],
             'autonomy_level' => $run->autonomy_level?->value,
             'status' => $run->status,
+            // That a suggestion was written, never its text: the decision record holds it.
+            'would_have_sent' => $suggestion !== null,
         ], reason: $data['note'] ?? null, actorUserId: $request->user()?->getKey());
 
         return back();
+    }
+
+    /** What the reviewer wrote in the "what I would have sent" box, from the decision record; never sent anywhere. */
+    private function suggestion(AgentRun $run): ?string
+    {
+        if ($run->reviewed_at === null) {
+            return null;
+        }
+        $final = DecisionRecord::query()->where('context_type', 'agent_run')->where('context_id', (string) $run->uuid)->orderBy('id')->value('final');
+        $final = is_string($final) ? json_decode($final, true) : $final;
+
+        return is_array($final) && is_string($final['would_have_sent'] ?? null) ? $final['would_have_sent'] : null;
     }
 
     /**

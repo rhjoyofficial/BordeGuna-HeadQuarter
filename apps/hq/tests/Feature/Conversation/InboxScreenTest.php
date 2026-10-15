@@ -183,7 +183,8 @@ it('lets a person decide an agent proposal: discard records the decision and clo
         ->assertRedirect()
         ->assertSessionHas('status', 'reply-not-sent');
     expect($run->fresh()->reviewed_at)->toBeNull()
-        ->and(DecisionRecord::where('context_type', 'conversation')->where('decision', 'send')->sole()->final['edited'])->toBeTrue();
+        // docs/120 item 20: the verdict in the one vocabulary; the button pressed stays in `final.decision`.
+        ->and(DecisionRecord::where('context_type', 'conversation')->where('decision', 'edited')->sole()->final)->toMatchArray(['decision' => 'send', 'edited' => true]);
 
     $this->actingAsHq($this->owner)
         ->post("/inbox/{$thread->uuid}/proposals/{$run->id}/decide", ['decision' => 'discard', 'reason' => 'too vague'])
@@ -191,7 +192,8 @@ it('lets a person decide an agent proposal: discard records the decision and clo
         ->assertSessionHas('status', 'proposal-discarded');
     expect($run->fresh()->reviewed_at)->not->toBeNull()
         ->and($run->fresh()->review_verdict)->toBe('discarded')
-        ->and(DecisionRecord::where('context_type', 'conversation')->count())->toBe(2);
+        ->and(DecisionRecord::where('context_type', 'conversation')->count())->toBe(2)
+        ->and(DecisionRecord::where('context_type', 'conversation')->where('decision', 'rejected')->sole()->business_id)->toBe($thread->business_id);
 
     $this->actingAsHq($this->owner)->get("/inbox/{$thread->uuid}")->assertInertia(fn ($page) => $page->where('proposals', []));
     $this->actingAsHq($this->owner)->post("/inbox/{$thread->uuid}/proposals/{$run->id}/decide", ['decision' => 'discard'])->assertSessionHasErrors('decision');

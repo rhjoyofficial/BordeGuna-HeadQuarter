@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Decisions\DecisionCorpusReader;
 use App\Decisions\DecisionCorpusWindow;
+use App\Decisions\UnassignedDecisions;
 use Illuminate\Console\Command;
 
 /**
@@ -16,12 +17,28 @@ class DecisionsReport extends Command
     protected $signature = 'hq:decisions:report
         {--window=90d : 30d, 90d, 365d or all}
         {--business= : one business id}
-        {--json : print JSON}';
+        {--json : print JSON}
+        {--unassigned : list the records with no business and why (docs/120 item 21)}';
 
     protected $description = 'Print what people kept, edited and refused of the agents\' proposals, and which corrections recur. Reads only.';
 
-    public function handle(DecisionCorpusReader $reader): int
+    public function handle(DecisionCorpusReader $reader, UnassignedDecisions $unassigned): int
     {
+        if ($this->option('unassigned')) {
+            $rows = $unassigned->list();
+            if ($this->option('json')) {
+                $this->line(json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return self::SUCCESS;
+            }
+            $this->line(count($rows).' decision record(s) without a business. None is guessed; each stays unassigned until a person decides.');
+            if ($rows !== []) {
+                $this->table(['id', 'context', 'decision', 'at', 'why'], array_map(fn (array $r) => [$r['id'], $r['context_type'].' '.$r['context_id'], $r['decision'], $r['created_at'], $r['reason']], $rows));
+            }
+
+            return self::SUCCESS;
+        }
+
         $window = (string) $this->option('window');
         if (! array_key_exists($window, DecisionCorpusWindow::OPTIONS)) {
             $this->error('Unknown window; use one of '.implode(', ', array_keys(DecisionCorpusWindow::OPTIONS)).'.');

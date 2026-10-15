@@ -137,6 +137,11 @@ final class PlaybookController extends Controller
                 'submitted_at' => $version->submitted_at?->toIso8601String(),
                 'reviewed_by' => $people[$version->reviewed_by] ?? null,
                 'reviewed_at' => $version->reviewed_at?->toIso8601String(),
+                // docs/120 item 22: a self-review is visible, never an invisible exception.
+                'reviewed_by_drafter' => Playbooks::reviewedByDrafter($version),
+                // docs/120 item 25: a brand version refines the business-wide one of its kind, if one is active.
+                'refines_business_version' => $version->brand_id === null ? null
+                    : $this->playbooks->activeFor((int) $version->business_id, null, $version->kind)?->version,
                 'retired_by' => $people[$version->retired_by] ?? null,
                 'retired_at' => $version->retired_at?->toIso8601String(),
                 'withdrawn_by' => $people[$version->withdrawn_by] ?? null,

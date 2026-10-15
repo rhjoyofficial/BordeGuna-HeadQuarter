@@ -379,6 +379,13 @@ final class OutcomeRecorder
             if ($ref->type->requiresRow()) {
                 throw new InvalidArgumentException("A [{$ref->type->value}] reference must point at its HQ row.");
             }
+            // ⛔ D4 as ruled (docs/120 item 1): the typed foreign key is REQUIRED for an internal result, never a
+            //    convenience. An ERP order may go by its number alone only while HQ holds no mirror of it; once a
+            //    read-back row exists, a reference that leaves it out is refused, so the natural key never stands in
+            //    for a foreign key the database could hold.
+            if ($ref->type === ResultType::ErpOrder && ($mirror = $this->erpMirror($ref->externalRef, $businessId)) !== null) {
+                throw new InvalidArgumentException("HQ holds a mirror of [{$ref->externalRef}] (facts_orders row {$mirror}); the reference must point at it: a typed foreign key is required for an internal result.");
+            }
 
             return;
         }
@@ -439,6 +446,15 @@ final class OutcomeRecorder
         }
     }
 
+    /** HQ's read-back row of an ERP order named by its natural key (`erp:{number}` or the bare number), in this business. */
+    private function erpMirror(string $externalRef, int $businessId): ?int
+    {
+        $number = str_starts_with($externalRef, 'erp:') ? substr($externalRef, 4) : $externalRef;
+        $id = DB::table('facts_orders')->where('business_id', $businessId)->where('erp_order_number', $number)->orderBy('id')->value('id');
+
+        return $id === null ? null : (int) $id;
+    }
+
     /** The business that owns a referenced read-model row; false when the row does not exist. */
     private function resultBusiness(ResultType $type, int $id): int|false|null
     {
@@ -458,7 +474,9 @@ final class OutcomeRecorder
     private function actionBusiness(ActionType $type, int $id): int|false|null
     {
         $row = match ($type) {
-            ActionType::DecisionRecord => DB::table('decision_records')->where('id', $id)->selectRaw('null as business_id')->first(),
+            // Items 21 and 34 (docs/120): a decision record carries its business explicitly; one the backfill could
+            // not assign (null) stays refused below as an implicit HQ scope, never resolved by a join here.
+            ActionType::DecisionRecord => DB::table('decision_records')->where('id', $id)->select('business_id')->first(),
             ActionType::ContentPublication => $this->publicationBusiness($id),
             ActionType::ConversationMessage => DB::table('conversation_messages as m')->join('conversations as c', 'c.id', '=', 'm.conversation_id')
                 ->where('m.id', $id)->select('c.business_id')->first(),
