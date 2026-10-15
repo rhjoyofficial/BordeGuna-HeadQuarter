@@ -76,14 +76,14 @@ final class FactsOrderUpserter
                 'customer_phone_canonical' => PhoneCanonical::normalize($phone) ?? $existing?->customer_phone_canonical,
                 'district' => self::pick($address, 'district', self::pick($address, 'city', $existing?->district)),
                 'thana' => self::pick($address, 'thana', self::pick($address, 'area', $existing?->thana)),
-                'placed_at' => $placedAt ? CarbonImmutable::parse($placedAt) : $existing?->placed_at,
-                'confirmed_at' => isset($o['confirmed_at']) ? CarbonImmutable::parse($o['confirmed_at']) : $existing?->confirmed_at,
-                'delivered_at' => isset($o['delivered_at']) ? CarbonImmutable::parse($o['delivered_at']) : $existing?->delivered_at,
-                'cancelled_at' => isset($o['cancelled_at']) ? CarbonImmutable::parse($o['cancelled_at']) : $existing?->cancelled_at,
+                'placed_at' => $placedAt ? self::instant($placedAt) : $existing?->placed_at,
+                'confirmed_at' => isset($o['confirmed_at']) ? self::instant($o['confirmed_at']) : $existing?->confirmed_at,
+                'delivered_at' => isset($o['delivered_at']) ? self::instant($o['delivered_at']) : $existing?->delivered_at,
+                'cancelled_at' => isset($o['cancelled_at']) ? self::instant($o['cancelled_at']) : $existing?->cancelled_at,
                 'campaign_ref' => self::pick($o, 'fbc', self::pick($o, 'campaign_ref', $existing?->campaign_ref)),
                 'lines' => isset($o['items']) ? array_map(self::line(...), $o['items']) : $existing?->lines,
                 'last_event_id' => $eventId ?? $existing?->last_event_id,
-                'last_event_at' => $occurredAt ?? $existing?->last_event_at,
+                'last_event_at' => $occurredAt?->utc() ?? $existing?->last_event_at,
                 'synced_at' => now(),
             ]);
 
@@ -94,6 +94,20 @@ final class FactsOrderUpserter
 
             return $fact;
         });
+    }
+
+    /**
+     * A shop timestamp as the UTC instant it names (W5-TZ, docs/124 §5, the docs/45 E.3 pattern).
+     *
+     * ⚠ Eloquent writes a date as `Y-m-d H:i:s` in the Carbon's OWN zone and drops the offset, and the
+     *    connection's session zone is UTC. So `2026-09-20T23:30:00+06:00` parsed and stored as it is would be
+     *    read back as 23:30 UTC, six hours late. Converting to UTC first stores 17:30 UTC, the same instant.
+     *    The shops' OrderResource sends `...Z` (Laravel's JSON form) and is unaffected; status listeners and the
+     *    ERP read-back can send `+06:00`. A string with no zone at all is read in the app zone (UTC), as before.
+     */
+    private static function instant(mixed $value): CarbonImmutable
+    {
+        return CarbonImmutable::parse((string) $value)->utc();
     }
 
     /**
@@ -152,7 +166,7 @@ final class FactsOrderUpserter
         // The shop's listeners send old_status/new_status/changed_at; the docs/35 envelope uses from/to/at. Accept both.
         $to = $data['to'] ?? $data['new_status'] ?? null;
         $data['to'] = $to;
-        $at = isset($data['at']) ? CarbonImmutable::parse($data['at']) : (isset($data['changed_at']) ? CarbonImmutable::parse($data['changed_at']) : now());
+        $at = isset($data['at']) ? self::instant($data['at']) : (isset($data['changed_at']) ? self::instant($data['changed_at']) : CarbonImmutable::now('UTC'));
         match ($type) {
             'order.status_changed' => $fact->forceFill(array_filter([
                 'status' => (self::STATUS_RANK[$data['to'] ?? ''] ?? 0) >= (self::STATUS_RANK[$fact->status] ?? 0) ? ($data['to'] ?? $fact->status) : $fact->status,
@@ -163,7 +177,7 @@ final class FactsOrderUpserter
             'order.payment_updated' => $fact->forceFill(array_filter(['payment_status' => $to, 'payment_method' => $data['payment_method'] ?? $fact->payment_method, 'status' => isset($data['order_status']) && (self::STATUS_RANK[$data['order_status']] ?? 0) >= (self::STATUS_RANK[$fact->status] ?? 0) ? $data['order_status'] : null], fn ($v) => $v !== null)),
             'payment.completed' => $fact->forceFill(['payment_status' => 'paid', 'payment_method' => $data['method'] ?? $fact->payment_method]),
             'shipment.status_updated' => $to === 'delivered' ? $fact->forceFill(['status' => 'delivered', 'delivered_at' => $at]) : $fact,
-            'shipment.delivered' => $fact->forceFill(['status' => 'delivered', 'delivered_at' => isset($data['delivered_at']) ? CarbonImmutable::parse($data['delivered_at']) : $at]),
+            'shipment.delivered' => $fact->forceFill(['status' => 'delivered', 'delivered_at' => isset($data['delivered_at']) ? self::instant($data['delivered_at']) : $at]),
             default => $fact,
         };
         $fact->last_event_id = $eventId ?? $fact->last_event_id;
