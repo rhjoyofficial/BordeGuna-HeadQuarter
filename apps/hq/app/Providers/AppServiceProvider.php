@@ -20,12 +20,12 @@ use App\Evaluation\DeterministicGrader;
 use App\Evaluation\EvaluationRunner;
 use App\Evaluation\RubricGrader;
 use App\FollowUps\Outcomes\FollowUpOutcomeLink;
-use App\FollowUps\Outcomes\NoFollowUpOutcomeLink;
 use App\Gateway\Credentials\CredentialHealth;
 use App\Gateway\Credentials\CredentialVault;
 use App\Listeners\RecordAuthenticationEvents;
 use App\Media\LocalStorageDriver;
 use App\Media\MediaAssetService;
+use App\Outcomes\FollowUps\LedgerFollowUpOutcomeLink;
 use App\Platform\CapabilityResolver;
 use App\Platform\Contracts\StorageDriver;
 use App\Platform\PlatformRegistry;
@@ -54,11 +54,13 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
-        // docs/102: the workflow seam. The catalogue is empty in production config, so nothing can start.
+        // docs/102: the workflow seam. Only listed definitions can start, and no listed definition has a
+        // tool step (docs/120 item 17, ListedWorkflowDefinitionsStructureTest).
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
         $this->app->bind(WorkflowEngine::class, HqWorkflowEngine::class);
-        // docs/113 section 10: S4's only seam to the S3 outcome model; nothing until docs/107 is ruled on.
-        $this->app->bind(FollowUpOutcomeLink::class, NoFollowUpOutcomeLink::class);
+        // docs/113 section 10, docs/123: S4's only seam to the S3 outcome model, now bound to the ledger
+        // (read-only; a follow-up is credited only through the human-only outcomes.attribute tool).
+        $this->app->bind(FollowUpOutcomeLink::class, LedgerFollowUpOutcomeLink::class);
         // The vault holds the credentials open for the CURRENT call. Every consumer must share
         // one instance or the scope the gateway opens is invisible to the connector that needs it.
         $this->app->singleton(CredentialVault::class);

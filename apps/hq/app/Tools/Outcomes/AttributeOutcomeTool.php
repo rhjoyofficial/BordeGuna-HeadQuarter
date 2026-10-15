@@ -247,7 +247,7 @@ final class AttributeOutcomeTool implements PreviewableTool, Tool
         return match ($type) {
             ActionType::ToolCall => 'tool_call:'.$row->tool_key.':'.($row->idempotency_key ?? $id),
             ActionType::AgentRun, ActionType::Approval, ActionType::ContentPublication,
-            ActionType::WorkflowInstance, ActionType::ConversationMessage => $type->value.':'.($row->uuid ?? $id),
+            ActionType::WorkflowInstance, ActionType::ConversationMessage, ActionType::FollowUp => $type->value.':'.($row->uuid ?? $id),
             ActionType::AiRun, ActionType::DecisionRecord => $type->value.':'.$id,
         };
     }

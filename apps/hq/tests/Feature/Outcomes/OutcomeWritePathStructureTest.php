@@ -124,7 +124,8 @@ it('reads the ledger only through an explicit BusinessScope restriction, and dec
         'Models/OutcomeAttribution.php',             // same
         'Models/OutcomeResultRef.php',               // whereHas('outcome') -> the outcome's restriction
         'Observe/Retention/RetentionPolicy.php',     // EXISTS sub-selects in keep-clauses: decide what to KEEP, expose no row to anybody
-        'Outcomes/OutcomeRecorder.php',              // the write path's own idempotency look-ups by key, inside a validated spec; exposes nothing
+        'Outcomes/FollowUps/LedgerFollowUpOutcomeLink.php', // docs/123: visibleTo(viewer) + business_id = the follow-up's own, on both tables (pinned below)
+        'Outcomes/OutcomeRecorder.php',             // the write path's own idempotency look-ups by key, inside a validated spec; exposes nothing
         'Outcomes/Recorders/ErpOrderPlacedRecorder.php', // type-hints the model it returns; reads none
         'Tools/Outcomes/AttributeOutcomeTool.php',   // restrictBusinesses() + business_id = the gateway-resolved business (pinned below)
     ];
@@ -151,6 +152,14 @@ it('reads the ledger only through an explicit BusinessScope restriction, and dec
     // The tool's read is restricted twice: by the caller's permitted businesses and by the business the gateway resolved.
     $tool = owpCode(app_path('Tools/Outcomes/AttributeOutcomeTool.php'));
     expect(preg_match('/\$context->restrictBusinesses\(Outcome::query\(\)\)\s*->where\(\'business_id\', \$context->businessId\)/s', $tool))->toBe(1);
+
+    // docs/123: the follow-up link reads through the viewer's scope AND the row's own business, on both the
+    // attribution and its outcome, in one query builder that every read of the link goes through.
+    $link = owpCode(app_path('Outcomes/FollowUps/LedgerFollowUpOutcomeLink.php'));
+    expect(preg_match('/OutcomeAttribution::query\(\)->visibleTo\(\$viewer\)->current\(\)\s*->where\(\'outcome_attributions\.business_id\', \$businessId\)/s', $link))->toBe(1)
+        ->and(preg_match('/whereHas\(\'outcome\', fn \(\$q\) => \$q->visibleTo\(\$viewer\)->current\(\)->where\(\'outcomes\.business_id\', \$businessId\)\)/', $link))->toBe(1)
+        ->and(substr_count($link, 'OutcomeAttribution::query()'))->toBe(1)
+        ->and(preg_match('/->(create|insert|update|delete|save)\s*\(|OutcomeRecorder/', $link))->toBe(0, 'the follow-up link only reads');
 });
 
 it('holds the tool\'s own restriction even if the gateway\'s scope check were ever bypassed', function () {

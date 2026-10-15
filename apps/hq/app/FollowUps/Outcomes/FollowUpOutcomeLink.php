@@ -7,22 +7,41 @@ use App\Models\Opportunity;
 use App\Models\User;
 
 /**
- * The ONLY seam between S4 and the S3 outcome model (docs/113 section 10). Named now so the call
- * sites are visible; filled only after the docs/107 contract is ruled on. Part 1 binds
- * `NoFollowUpOutcomeLink`, which records nothing and reports nothing, and imports no S3 class.
+ * The ONLY seam between S4 and the S3 outcome model (docs/113 section 10, docs/123). S4 imports no S3
+ * class; the binding (`App\Outcomes\FollowUps\LedgerFollowUpOutcomeLink`) lives on the S3 side.
  *
- * Open (for the S3 review): which action type credits a follow-up; the `rule_window` for "an order
- * after a follow-up" and who owns it; whether a `converted` close must be supported by an outcome row.
+ * Settled by the S3 ruling (docs/110 §3, docs/115, docs/120 items 1-7):
+ *  - a follow-up is credited as its own action type, `follow_up` (docs/107 D7, one typed column);
+ *  - there is no `rule_window` in v1 (Q3), so "an order after a follow-up" is never inferred: a credit is
+ *    a person's `operator_asserted` claim made through the human-only `outcomes.attribute` tool;
+ *  - an opportunity closed `converted` stays the person's word (F4); the ledger only says whether a
+ *    current order outcome credits one of its follow-ups.
+ *
+ * Every read is business-scoped twice: the viewer's `BusinessScope` and the row's own business.
  */
 interface FollowUpOutcomeLink
 {
-    /** Would record the follow-up (its run, or the person's completion) as an action a later outcome can credit. */
+    /**
+     * Called when a person completes a follow-up. In v1 it records nothing: no admitted method can link
+     * a person's contact to a later result without a person saying so (docs/123 section 1).
+     */
     public function afterCompleted(FollowUp $followUp, User $by): void;
 
     /**
-     * Would read the outcomes whose result references name this customer's later orders.
+     * The current credited outcomes of these follow-ups of ONE business, keyed by follow-up id.
+     *
+     * @param  list<int>  $followUpIds
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public function creditsFor(int $businessId, array $followUpIds, User $viewer): array;
+
+    /**
+     * The current outcomes credited to any follow-up serving this opportunity.
      *
      * @return list<array<string, mixed>>
      */
-    public function outcomesFor(Opportunity $opportunity): array;
+    public function outcomesFor(Opportunity $opportunity, User $viewer): array;
+
+    /** Whether a current order outcome (placed, confirmed or delivered) credits one of the opportunity's follow-ups. */
+    public function supportsConversion(Opportunity $opportunity, User $viewer): bool;
 }

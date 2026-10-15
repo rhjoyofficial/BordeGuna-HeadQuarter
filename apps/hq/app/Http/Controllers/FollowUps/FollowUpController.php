@@ -12,6 +12,7 @@ use App\FollowUps\OpportunityCloseReason;
 use App\FollowUps\OpportunityKind;
 use App\FollowUps\OpportunityProposal;
 use App\FollowUps\OpportunityState;
+use App\FollowUps\Outcomes\FollowUpOutcomeLink;
 use App\FollowUps\Proposer;
 use App\Gateway\Descriptor\Channel;
 use App\Http\Controllers\Controller;
@@ -19,8 +20,10 @@ use App\Models\Brand;
 use App\Models\Customer;
 use App\Models\FollowUp;
 use App\Models\Opportunity;
+use App\Models\User;
 use App\Support\Authorization\BusinessScope;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -44,7 +47,25 @@ final class FollowUpController extends Controller
     public function __construct(
         private readonly FollowUpProposalService $service,
         private readonly BusinessScope $scope,
+        private readonly FollowUpOutcomeLink $ledgerLink,
     ) {}
+
+    /**
+     * The ledger's credits for the listed done follow-ups, asked one business at a time (each read is
+     * bound to that business and to the viewer's scope inside the link).
+     *
+     * @param  Collection<int, FollowUp>  $followUps
+     * @return array<int, list<array<string, mixed>>>
+     */
+    private function credits(Collection $followUps, User $user): array
+    {
+        $credits = [];
+        foreach ($followUps->where('state', FollowUpState::Done)->groupBy('business_id') as $businessId => $rows) {
+            $credits += $this->ledgerLink->creditsFor((int) $businessId, $rows->pluck('id')->all(), $user);
+        }
+
+        return $credits;
+    }
 
     public function index(Request $request): Response
     {
@@ -61,7 +82,9 @@ final class FollowUpController extends Controller
             ->when(! in_array($state, ['open', 'due', 'all'], true), fn ($q) => $q->where('state', $state))
             ->orderByRaw("CASE WHEN state = 'proposed' THEN 0 WHEN state = 'scheduled' THEN 1 ELSE 2 END")
             ->orderBy('due_at')->orderByDesc('id')
-            ->limit(200)->get()
+            ->limit(200)->get();
+        $credits = $this->credits($followUps, $user);
+        $followUps = $followUps
             ->map(fn (FollowUp $f) => [
                 'uuid' => $f->uuid,
                 'state' => $f->state->value,
@@ -82,6 +105,10 @@ final class FollowUpController extends Controller
                 'decision_reason' => $f->decision_reason,
                 'close_note' => $f->close_note,
                 'workflow_instance_key' => $f->workflow_instance_key,
+                // docs/120 item 11: a decider deciding on their own proposal is allowed by role, and shown.
+                'self_decided' => $f->proposer_type === Proposer::PERSON && $f->decided_by_user_id !== null && $f->decided_by_user_id === $f->proposed_by_user_id,
+                // docs/123: what the outcome ledger credits to this follow-up (current view, never an amount).
+                'ledger_credits' => $credits[$f->id] ?? [],
                 'created_at' => $f->created_at?->toIso8601String(),
             ]);
 
@@ -109,6 +136,9 @@ final class FollowUpController extends Controller
                 'close_reason' => $o->close_reason?->value,
                 'close_note' => $o->close_note,
                 'open_follow_ups' => (int) $o->open_follow_ups_count,
+                'self_decided' => $o->proposer_type === Proposer::PERSON && $o->decided_by_user_id !== null && $o->decided_by_user_id === $o->proposed_by_user_id,
+                // docs/113 F4, docs/123: `converted` stays the person's word; the ledger only says whether it is supported.
+                'conversion_supported' => $o->close_reason === OpportunityCloseReason::Converted ? $this->ledgerLink->supportsConversion($o, $user) : null,
                 'created_at' => $o->created_at?->toIso8601String(),
             ]);
 

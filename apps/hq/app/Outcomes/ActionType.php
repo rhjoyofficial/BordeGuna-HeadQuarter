@@ -21,6 +21,13 @@ enum ActionType: string
     case WorkflowInstance = 'workflow_instance';
     case ConversationMessage = 'conversation_message';
 
+    /**
+     * A follow-up a person completed (docs/123, docs/107 D7 "one more action type, one column"). Only a
+     * `done` follow-up may be credited, and only by a person's assertion in v1 (ruling Q3, C7): no rule
+     * or model links a contact to a later result automatically.
+     */
+    case FollowUp = 'follow_up';
+
     /** The column on `outcome_attributions` that names an action of this kind. */
     public function column(): string
     {
@@ -39,6 +46,7 @@ enum ActionType: string
             self::ContentPublication => 'content_publications',
             self::WorkflowInstance => 'workflow_instances',
             self::ConversationMessage => 'conversation_messages',
+            self::FollowUp => 'follow_ups',
         };
     }
 
