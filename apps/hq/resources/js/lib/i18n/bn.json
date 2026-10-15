@@ -817,5 +817,13 @@
     "Withheld": "আটকে রাখা",
     "absorbed": "অন্যটিতে মিশে যাওয়া",
     "kept": "রাখা",
-    "not yet": "এখনও না"
+    "not yet": "এখনও না",
+    "What I would have sent": "আমি যা পাঠাতাম",
+    "Proposal only. Never sent.": "শুধু প্রস্তাব। কখনো পাঠানো হয় না।",
+    "Optional: the answer as you would have written it.": "ঐচ্ছিক: আপনি যেভাবে উত্তরটি লিখতেন।",
+    "Saved with your review as a correction for later evaluation. It does not send anything, reaches no customer and is not a message.": "পরে মূল্যায়নের জন্য সংশোধন হিসেবে আপনার রিভিউয়ের সঙ্গে রাখা হয়। এটি কিছুই পাঠায় না, কোনো গ্রাহকের কাছে যায় না এবং এটি কোনো বার্তা নয়।",
+    "Review rule": "রিভিউয়ের নিয়ম",
+    "Reviewed by its drafter under the single-reviewer bootstrap rule: no other enabled reviewer existed for this business.": "একক রিভিউয়ার শুরুর নিয়মে খসড়াকারী নিজেই রিভিউ করেছেন: এই ব্যবসার জন্য আর কোনো সক্রিয় রিভিউয়ার ছিলেন না।",
+    "Precedence": "অগ্রাধিকার",
+    "Refines business-wide version {n} for this brand. It may narrow it, never widen a permission or override a policy.": "এই ব্র্যান্ডের জন্য ব্যবসা-ব্যাপী সংস্করণ {n}-কে আরও নির্দিষ্ট করে। এটি সেটিকে সংকুচিত করতে পারে, কিন্তু কখনো কোনো অনুমতি বাড়ায় না বা কোনো নীতি বাতিল করে না।"
 }

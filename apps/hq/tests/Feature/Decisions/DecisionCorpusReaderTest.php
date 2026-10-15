@@ -37,19 +37,22 @@ beforeEach(function () {
     $this->bionic = Business::where('slug', 'bionic')->sole();
 });
 
-/** An inbox decision on a support reply proposal (InboxController::decide shape). */
+/**
+ * An inbox decision on a support reply proposal, in the LEGACY shape (`send`/`discard` stored as the decision, before
+ * docs/120 item 20). The model now refuses those words on create, so a historical row is written past its events.
+ */
 function corpusReply(Business $business, string $from, ?string $to, string $decision = 'send', array $extra = []): DecisionRecord
 {
     $thread = Conversation::create(['uuid' => (string) Str::uuid(), 'business_id' => $business->id, 'channel' => 'messenger', 'status' => 'open', 'opened_at' => now()]);
     $edited = $to !== null && $to !== $from;
 
-    return DecisionRecord::create($extra + [
+    return DecisionRecord::withoutEvents(fn () => DecisionRecord::create($extra + [
         'agent_key' => 'support', 'user_id' => test()->owner->id, 'context_type' => 'conversation', 'context_id' => $thread->uuid,
         'proposal' => ['run_id' => 1, 'text' => $from, 'why' => 'secret-why-text'],
         'final' => ['decision' => $decision, 'text' => $to, 'edited' => $edited],
         'delta' => $edited ? ['from' => $from, 'to' => $to] : null,
         'decision' => $decision, 'reason' => 'secret-reason-text', 'outcome' => ['status' => $decision === 'send' ? 'ok' : 'discarded'],
-    ]);
+    ]));
 }
 
 /** An approval decision (ApprovalService::recordDecision shape). */

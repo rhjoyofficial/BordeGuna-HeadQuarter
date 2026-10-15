@@ -128,3 +128,9 @@ it('seeds no playbook content anywhere', function () {
     expect($seeders)->toBe(['RolesAndPermissionsSeeder.php'])
         ->and(preg_match('/insert|DB::table\(\'playbook/i', $migration))->toBe(0);
 });
+
+it('names the playbook tables in code nowhere else either: no raw-query reader past the model (docs/120 item 23)', function () {
+    // Ruling docs/120 item 23: no new playbook reader without an explicit ruling. The class pins above would not
+    // see a `DB::table('playbook_versions')` read, so the table names are pinned to the same places as the models.
+    expect(pbReferencesOutside('/\bplaybook_versions?\b|\bplaybook_version_events\b/', PLAYBOOK_WRITER_ALLOWED_DIRS))->toBe([]);
+});

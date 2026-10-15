@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 type Evidence = {
     kind: string;
@@ -71,6 +72,7 @@ type Run = {
     reviewed_at: string | null;
     review_verdict: string | null;
     review_note: string | null;
+    review_suggestion: string | null;
     created_at: string | null;
 };
 
@@ -120,7 +122,9 @@ export default function AgentRunShow({
 }) {
     const [verdict, setVerdict] = useState('approved');
     const [note, setNote] = useState('');
+    const [suggestion, setSuggestion] = useState('');
     const [busy, setBusy] = useState(false);
+    const t = useT();
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Agents', href: '/agents' },
@@ -264,12 +268,22 @@ export default function AgentRunShow({
                             Reviewed {timeAgo(run.reviewed_at)} as <StatusBadge status={run.review_verdict} dot={false} />
                             {run.review_note && <span className="text-muted-foreground"> {run.review_note}</span>}
                         </p>
-                    ) : can.review ? (
+                    ) : null}
+                    {run.reviewed_at && run.review_suggestion ? (
+                        <SuggestionBox>
+                            <p className="text-sm whitespace-pre-wrap">{run.review_suggestion}</p>
+                        </SuggestionBox>
+                    ) : null}
+                    {run.reviewed_at ? null : can.review ? (
                         <form
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 setBusy(true);
-                                router.post(`/agents/runs/${run.id}/review`, { verdict, note }, { onFinish: () => setBusy(false) });
+                                router.post(
+                                    `/agents/runs/${run.id}/review`,
+                                    { verdict, note, would_have_sent: verdict === 'approved' || suggestion.trim() === '' ? null : suggestion },
+                                    { onFinish: () => setBusy(false) },
+                                );
                             }}
                             className="flex flex-col gap-3"
                         >
@@ -305,6 +319,19 @@ export default function AgentRunShow({
                                 }
                                 className="border-input bg-background w-full rounded-md border p-2 text-sm"
                             />
+                            {verdict !== 'approved' && (
+                                <SuggestionBox>
+                                    <textarea
+                                        value={suggestion}
+                                        onChange={(e) => setSuggestion(e.target.value)}
+                                        rows={4}
+                                        maxLength={2000}
+                                        aria-label={t('What I would have sent')}
+                                        placeholder={t('Optional: the answer as you would have written it.')}
+                                        className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                                    />
+                                </SuggestionBox>
+                            )}
                             <div>
                                 <Button type="submit" size="sm" disabled={busy}>
                                     Record this verdict
@@ -503,5 +530,26 @@ export default function AgentRunShow({
                 </TechnicalDetail>
             </div>
         </AppLayout>
+    );
+}
+
+/**
+ * Ruling docs/120 item 18: the reviewer's own wording, kept apart from the run and from any message. It is a
+ * proposal for the record only: nothing here is sent, queued or shown to a customer.
+ */
+function SuggestionBox({ children }: { children: ReactNode }) {
+    const t = useT();
+
+    return (
+        <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{t('What I would have sent')}</span>
+                <span className="text-muted-foreground rounded border px-1.5 py-0.5 text-xs">{t('Proposal only. Never sent.')}</span>
+            </div>
+            <p className="text-muted-foreground text-xs">
+                {t('Saved with your review as a correction for later evaluation. It does not send anything, reaches no customer and is not a message.')}
+            </p>
+            {children}
+        </div>
     );
 }

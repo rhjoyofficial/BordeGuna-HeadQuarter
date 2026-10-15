@@ -375,6 +375,8 @@ final class ApprovalService
         return DecisionRecord::create([
             'agent_key' => $approval->agent_key,
             'user_id' => $by?->getKey(),
+            // docs/120 item 21: the business the approval itself carries, or none (never guessed).
+            'business_id' => $approval->business_id,
             'context_type' => 'approval',
             'context_id' => (string) $approval->id,
             'proposal' => $proposal,

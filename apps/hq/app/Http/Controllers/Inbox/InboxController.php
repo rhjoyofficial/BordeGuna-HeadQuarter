@@ -11,6 +11,7 @@ use App\Conversation\HandoverReason;
 use App\Conversation\InvalidTransition;
 use App\Conversation\ShadowComparisons;
 use App\Conversation\SupportContext;
+use App\Decisions\DecisionVocabulary;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolOutcome;
 use App\Gateway\ToolRequest;
@@ -381,12 +382,15 @@ final class InboxController extends Controller
         DecisionRecord::create([
             'agent_key' => $run->agent_key,
             'user_id' => $request->user()?->getKey(),
+            // docs/120 item 21: the thread's business (a conversation always carries one).
+            'business_id' => $conversation->business_id,
             'context_type' => 'conversation',
             'context_id' => $conversation->uuid,
             'proposal' => ['run_id' => $run->id, 'text' => $proposed, 'why' => $proposal['why'] ?? null],
             'final' => ['decision' => $data['decision'], 'text' => $final, 'edited' => $final !== null && $final !== $proposed],
             'delta' => $final !== null && $final !== $proposed ? ['from' => $proposed, 'to' => $final] : null,
-            'decision' => $data['decision'],
+            // docs/120 item 20: the verdict in the one vocabulary; the button pressed stays in `final.decision`.
+            'decision' => DecisionVocabulary::fromInboxAction($data['decision'], $final !== null && $final !== $proposed),
             'reason' => $data['reason'] ?? null,
             'outcome' => $outcome === null ? ['status' => 'discarded'] : ['status' => $outcome->status->value, 'error' => $outcome->error ?? $outcome->policyReason],
             'correlation_id' => $run->correlation_id,

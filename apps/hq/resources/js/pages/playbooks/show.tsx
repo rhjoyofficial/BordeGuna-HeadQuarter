@@ -32,6 +32,8 @@ type Version = VersionSummary & {
     submitted_at: string | null;
     reviewed_by: string | null;
     reviewed_at: string | null;
+    reviewed_by_drafter: boolean;
+    refines_business_version: number | null;
     retired_by: string | null;
     retired_at: string | null;
     withdrawn_by: string | null;
@@ -111,6 +113,19 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
         { label: t('Drafted'), value: `${formatDateTime(version.drafted_at)} ${version.drafted_by ?? ''}` },
         ...(version.submitted_at ? [{ label: t('Submitted'), value: `${formatDateTime(version.submitted_at)} ${version.submitted_by ?? ''}` }] : []),
         ...(version.reviewed_at ? [{ label: t('Reviewed'), value: `${formatDateTime(version.reviewed_at)} ${version.reviewed_by ?? ''}${version.review_note ? `: ${version.review_note}` : ''}` }] : []),
+        ...(version.reviewed_by_drafter
+            ? [{ label: t('Review rule'), value: t('Reviewed by its drafter under the single-reviewer bootstrap rule: no other enabled reviewer existed for this business.') }]
+            : []),
+        ...(version.refines_business_version !== null
+            ? [
+                  {
+                      label: t('Precedence'),
+                      value: t('Refines business-wide version {n} for this brand. It may narrow it, never widen a permission or override a policy.', {
+                          n: version.refines_business_version,
+                      }),
+                  },
+              ]
+            : []),
         ...(version.activated_at
             ? [{ label: t('Activated'), value: `${formatDateTime(version.activated_at)} ${version.activated_by ?? ''}${version.activation_reason ? `: ${version.activation_reason}` : ''}` }]
             : []),

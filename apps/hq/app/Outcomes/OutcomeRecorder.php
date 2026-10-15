@@ -468,7 +468,9 @@ final class OutcomeRecorder
     private function actionBusiness(ActionType $type, int $id): int|false|null
     {
         $row = match ($type) {
-            ActionType::DecisionRecord => DB::table('decision_records')->where('id', $id)->selectRaw('null as business_id')->first(),
+            // Items 21 and 34 (docs/120): a decision record carries its business explicitly; one the backfill could
+            // not assign (null) stays refused below as an implicit HQ scope, never resolved by a join here.
+            ActionType::DecisionRecord => DB::table('decision_records')->where('id', $id)->select('business_id')->first(),
             ActionType::ContentPublication => $this->publicationBusiness($id),
             ActionType::ConversationMessage => DB::table('conversation_messages as m')->join('conversations as c', 'c.id', '=', 'm.conversation_id')
                 ->where('m.id', $id)->select('c.business_id')->first(),
