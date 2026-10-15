@@ -14,7 +14,7 @@ Supersedes `RESUME-HERE-2026-10-11.md`. Paused at Joy's request after all runnin
 - Joy alone releases; the final report must say `READY FOR JOY'S RELEASE DECISION` or `NOT READY`.
 
 ## 3. Exact next steps, in order
-1. CI (GitHub Actions) on the exact main commit; fix anything it finds.
+1. DONE: CI green on `357fabc` (§8).
 2. **W2, Stage 2 (ruling A3, items 36, 37, 39)**: detector over messages and participants; suppression before flags; repair command + human-only Gateway tool with permission `hq.customers.quarantine.repair`, dry-run default, only after a needs_repair review, `customer_merge_reversals` lineage, idempotent, restartable, concurrency-safe, consent append-only with a human re-record list, business-less memories withheld, business-scoped recount. It must also resolve the `customer_identity_conflicts` rows and quarantined identities W1's migration creates. Branch `p3/identity-repair` from main, one worktree (e.g. hq-wt/h), test DB of that worktree.
 3. Fold in the small follow-ups below (section 5) that ChatGPT rules.
 4. W6 combined gates + structural searches (no unscoped identity lookup, no direct effectful-tool call, no unauthorized consent/playbook reader).
@@ -47,4 +47,5 @@ Supersedes `RESUME-HERE-2026-10-11.md`. Paused at Joy's request after all runnin
 As RESUME-HERE-2026-10-11 §7: at most three agents at once; agents commit a plan first and WIP checkpoints; merges --no-ff one at a time; full suite on the combined tree; commit trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; no em dashes.
 
 ## 8. CI on the combined commit
-- Run 38681310680 on `357fabc`: PENDING at pause time (queued 04:24 UTC).
+- Run 38681310680 on `357fabc`: SUCCESS, all three jobs (Pest + Pint + TypeScript + Vite on PostgreSQL 17 / Redis 7; deployment/backup safety invariant; production image builds). Step 3.1 is done.
+- CI notices only: actions/checkout@v4 and setup-node@v4 run on Node 20 (deprecated, forced to Node 24); ubuntu-latest moves to Ubuntu 26 from 19 Oct. Worth a small CI bump later.
