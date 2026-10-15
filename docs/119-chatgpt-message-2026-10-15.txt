@@ -1,0 +1,83 @@
+Waves 2+3 report per your 10 Oct ruling (full record docs/119 on main; stream records docs/111-117; project report docs/118).
+
+1. STATUS. Production stays b96a396, fully inert (ai.runtime off, all agents paused at A0, 0 grants, no open shadow period). P3-G2 attempt 5 passed 10 Oct. Waves 1, 2 and 3 are merged on main: code 6726f51, main now 3e91c2f (docs and a merge helper only). Combined tree: 2,042 Pest passed, 0 failed, 30,817 assertions; Pint, tsc, Vite clean. GitHub Actions run 38079877403 on 6726f51: SUCCESS, all three jobs. Nothing released; release stays Joy's act.
+
+2. FIRST, A RULING NEEDED: A LIVE IDENTITY LEAK.
+Defect: IdentityResolver::byIdentity() looks up an identity by channel + external_id + store, never by business. Phone, email, whatsapp, messenger_psid and instagram_igsid identities have store = NULL, so they are looked up group-wide. resolve() and resolveChannelIdentity() use it first; the business-scoped fallback runs only when nothing is found. Result: a Bionic order or message from a phone already known in LaLaDia attaches to the LaLaDia customer. No merge, no merge row, no audit.
+Schema: customer_identities has no business_id. Its unique index (channel, external_id, source_store_id) does not constrain null-store rows at all, because PostgreSQL treats NULLs as distinct. So "one row per phone" is app convention only, race-prone, and byIdentity's first() has no ORDER BY. Production is pg17, so NULLS NOT DISTINCT is available.
+Second path, identity steal: link() is updateOrCreate on (channel, external_id, store) and sets customer_id to whoever is resolving. A Bionic order whose store-scoped shop_user id belongs to Bionic customer B moves the phone row from LaLaDia customer L to B; the next LaLaDia order then attaches to B. The phone can flip with each order, with no lineage.
+What flows wrong (every caller): FactsOrderUpserter (shop webhook, reconcile tool, ERP read-back) sets facts_orders.customer_id to the other business's customer and fills its email, phone, alias, last seen. CustomerRegisteredHandler links a Bionic shop_user to a LaLaDia customer. hq:customers:rebuild re-runs the same resolver and recounts across businesses. ConversationService::ingest opens a Bionic thread whose customer is the LaLaDia customer and records the inbound service consent as (LaLaDia customer, Bionic business). SupportContext puts that customer's orders and order count, with no business filter, into a Bionic Support model context (not live: runtime off). InboxController::ordersFor shows LaLaDia orders on a Bionic thread to the operator. Three more unscoped lookups (ConversationService participant link, linkByIdentity, ThreadIdentity; the last fails closed on ownership). S7 identity-scoped consent assumes an identity belongs to one business; a stolen identity makes that history misleading (resolution fails closed).
+Already contained: Customer 360 and the customer list only (docs/117 suppression). The detector finds downstream rows (orders, conversations, consent) whose business differs from the customer's, but cannot flag a null-store identity itself. No test runs the resolver across two businesses (the two-business test builds customers by hand). Production exposure unknown; production has the same resolver.
+Options:
+A (RECOMMENDED) Business-scoped identity. customer_identities.business_id NOT NULL, backfilled from the owner; customers unique (id, business_id); composite FK (customer_id, business_id); unique (business_id, channel, external_id, source_store_id) NULLS NOT DISTINCT replacing the old index; store must belong to the business. Resolver, link, inbound, ThreadIdentity and linkByIdentity filter by business; SupportContext and the inbox order panel also filter (defence in depth); rebuild per business. Tests: same phone in two businesses = two customers, no cross-business re-point, no duplicate under concurrency, a structural pin that every identity lookup names a business. Existing rows: the backfill is exact; mis-attached orders, conversations, participants and messages are repaired by a "split" step in the quarantine repair (find or create the customer in the row's own business, copy the identity, re-point that business's rows, lineage, audit). Consent events stay as written (append-only); standing restrictions are listed for a person to re-record. Pros: matches your rulings (no cross-brand identity merge, explicit business scope), DB-enforced, closes the null-uniqueness hole and the steal. Cons: one person buying from two brands is two customers (the ruled model); a migration plus a repair.
+B Group-level person above per-business customers (persons own identities, customers unique per person + business). Pros: one identity graph, a future group-wide do-not-contact. Cons: stores exactly the cross-business link the rulings forbid, re-keys every reader and S7 identity scope, bigger migration and privacy surface. Can be added above A later.
+C Resolver filter only, no migration. Hours of work, but a second row per business works only because of the NULL quirk; no DB guarantee. Acceptable only as step 1 of A.
+We recommend A, test-first (C as its first commit), and ask you to rule it release-blocking for waves 1-3, since that release makes identity-scoped consent and Customer 360 visible.
+
+3. WHAT WAVES 2+3 BUILT.
+S5 decision-corpus reader (docs/111): owner page + hq:decisions:report; read-only, computed on read, no model call, no customer text, business scope via the context row, existing hq.agents.view.
+S6 playbook store (docs/112, ADR-052): versioned per-brand guidance, draft/review/activate by named people with reason, DB refuses edits to anything ever active, digest on every run, loaded read-only as Business provenance; nothing active = context byte-identical; structural test: no gateway, autonomy, consent or policy code reads a playbook.
+S4 inert (docs/113): opportunities and follow-ups as proposals; consent via S7 at proposal and at approval; approval starts one followup.await_person run (sleep, then wait for a person, no tool step); nothing reaches a customer, pinned structurally.
+S7 follow-up (docs/114): consent per identity beside business, brand, channel, purpose; unresolved identity fails closed; DNC lift = gateway tool consent.lift_restriction, human-only, always parks, requester never decides, approver must hold hq.consent.lift_restriction.
+S3 follow-up (docs/115): D1-D19 mapped: 10 approved, 2 changed (D8, D13), 7 review-pending; null-business attribution refused (Q6); rule_window and model_inferred refused at write (Q3); isDeterministicProof() (C7); outcomes.attribute R3, human-only, held by no agent (Q11).
+Cost + bypass (docs/116): pre-throw calls attributed via a correlation id minted before the run; scheduler direct path and scheduler.gateway removed; guard/gateway disagreement counter + 16th alert rule.
+S2 quarantine (docs/117): read-only detector + hq:identity:cross-business (dry run default, --flag writes append-only flags); suppression in Customer 360 and the list, not waiting for flags; audited review screen; nothing undone or deleted.
+CI caught a rounding bug local runs missed (run 38078297032, 1 failed): decision_records.created_at is timestamptz(0), Postgres rounds to the nearest second, so a row written at :05.6 is stored at :06, outside a window ending at :05.6. Fix 6726f51: window start floored, end rounded up; a test stamps a row as the column rounds it (red before, green after). Next CI green.
+
+4. OPEN QUESTIONS, EACH WITH OUR RECOMMENDED ANSWER (approve in bulk or change by number).
+S3 review-pending:
+1. D4 natural key mandatory, typed FK a convenience: approve.
+2. D7 proposal = agent run + proposal_ref, no proposal entity: approve.
+3. D10 types name business events: approve.
+4. D11 schema_version per row, changed meaning = new type/version: approve.
+5. D12 idempotency key from the source identity: approve.
+6. D17 current view = asserted rows with no successor: approve.
+7. D18 retention keep-clauses for attributed rows: approve.
+S4:
+8. Q1 list followup.await_person now: approve.
+9. Q2 no consent = refused; operator records consent first: approve.
+10. Q3 no transactional kind in v1: approve.
+11. Q4 brand_manager/support_agent view + propose, decide owner/operator: confirm.
+12. Q5 kinds and close reasons as listed: approve.
+13. Q6 refused/declined pruned at 365 days, closed kept, open never: approve.
+14. Q7 show follow-ups on Customer 360 now, read-only: approve.
+15. Q8 RESTRICT, same as S3 Q9: approve.
+16. Q9 180-day wait, plus an overdue alert rule: approve.
+17. Q10 inert pin becomes "no listed definition has a tool step": approve.
+S5:
+18. Optional "what I would have sent" box on shadow review: approve as a small separate change.
+19. Reasons stay off the page: approve.
+20. One vocabulary approved/edited/rejected going forward: approve.
+21. Additive decision_records.business_id, backfilled: approve.
+S6:
+22. Reviewer must differ from drafter once a second person holds review: approve.
+23. No new playbook readers without a ruling: approve.
+24. Leave legacy claims/guidelines columns, retire by hand: approve.
+25. Business-wide and brand playbooks both load, labelled: approve.
+26. Support runs may load playbooks (A1, human-approved): approve.
+S7:
+27. Unresolved identity reads like the brand rule: approve.
+28. Plain withdrawal lift stays single-person: approve.
+29. Approver without lift permission spends the approval (fail closed): approve.
+S3 other:
+30. First record/attribute not audited (the ledger row is the record): approve.
+31. conversation.resolved type stays in S3, categories owned by Conversation: approve.
+32. outcomes.attribute R3 without approval while one operator; revisit before outcomes feed autonomy or money: approve.
+33. Accept the HQ-scope shape (docs/115 3.3) in advance, build when needed: approve.
+34. Decision records get business via item 21: approve.
+35. Retract tool only when outcome recording activates: defer.
+Quarantine:
+36. Build the repair next wave: gateway tool, human-only, new permission hq.customers.quarantine.repair, only after a needs_repair review, lineage in a separate customer_merge_reversals row (original merge row untouched), business-less memories withheld until a person assigns them, includes the split from section 2.
+37. Recount business-scoped: yes.
+38. Search by a withheld value: accept until the identity fix.
+39. Add messages and participants to detection: yes.
+Cost/bypass:
+40. Delete the inert scheduler.gateway row only after the release is verified (Joy's call): recommend delete then.
+41. Guard narrower than gateway, audited and counted, is the end state: approve.
+42. Alert threshold 3 in 24 h, revisit with data: approve.
+
+5. PROPOSED WAVE 4 AND A REQUEST.
+(a) identity leak fix per your ruling, with the split repair; (b) quarantine repair, recount scope, messages/participants in detection; (c) the whole-second rounding audit of nine *_at readers (none known wrong); (d) S4 outcome-dependent part, still inert, plus the Customer 360 follow-ups section and overdue alert; (e) the small approved items above; (f) release readiness: consolidated release notes for waves 1-4, every migration applied, rolled back and re-applied on a production-shaped copy, a staging deploy rehearsal, pre-release and post-release read-only checklists (detector and cost backfill as dry runs). Same discipline: at most three agents, worktrees, plan commit first, merges --no-ff one at a time, full suite + CI on the combined tree.
+Request: Joy wants long multi-milestone execution runs. Please give ONE instruction covering the whole of wave 4 plus release readiness, so we run it end to end and stop only on a failed gate or a new architecture question. The release itself stays Joy's.
+
+6. JOY'S ITEMS (none block engineering): shadow week --apply, briefing job approval, new shop admin tokens, Hostinger shop-to-HQ block, Meta verification, WhatsApp SIM, second approver, ERP write token, KVM 4, the release.
