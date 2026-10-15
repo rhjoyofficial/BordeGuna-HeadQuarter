@@ -184,5 +184,6 @@ it('validates and turns the service\'s refusals into form errors', function () {
 
 it('links the page from the sidebar under its view permission', function () {
     expect(file_get_contents(resource_path('js/components/app-sidebar.tsx')))
-        ->toContain("{ title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view' }");
+        // docs/123: with the overdue badge, the responsible person's own count.
+        ->toContain("{ title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' }");
 });

@@ -1,6 +1,5 @@
 <?php
 
-use App\FollowUps\Workflow\FollowUpWorkflow;
 use App\Gateway\Approval\ApprovalExecutor;
 use App\Gateway\Approval\ApprovalService;
 use App\Gateway\Approval\ApprovalStatus;
@@ -88,21 +87,12 @@ beforeEach(function () {
 
 // ── start, persist, inspect ──────────────────────────────────────────────────────────────────────
 
-it('lists only definitions with no tool step, so production can start nothing that has an effect; an unlisted type still cannot start', function () {
-    // docs/102 shipped this list empty. docs/113 (S4 part 1) lists the first type, `followup.await_person`,
-    // which sleeps and then waits for a person: a listed type may be started by a person's approval, but
-    // nothing listed here may carry a tool step until an activation ruling says so (docs/113 Q1, Q10).
-    // Adding a type to this list, or a tool step to a listed type, is a reviewed change of this pin.
-    $config = require config_path('hq.php');
-
-    expect($config['workflows']['definitions'])->toBe([FollowUpWorkflow::class]);
-    foreach ($config['workflows']['definitions'] as $class) {
-        $steps = (new $class)->steps();
-        expect($steps)->not->toBeEmpty()
-            ->and(array_filter($steps, fn (Step $s) => $s->kind === Step::TOOL))->toBe([], "{$class} declares a tool step");
-    }
-
-    expect(fn () => app(WorkflowEngine::class)->start(OrderFollowUpWorkflow::TYPE, 'x', ['order_id' => '1']))
+it('cannot start a type that is not listed, whatever is listed', function () {
+    // docs/102 shipped the list empty; docs/113 listed `followup.await_person`. The weak pin that compared the
+    // list to class names is replaced (docs/120 item 17) by ListedWorkflowDefinitionsStructureTest, which
+    // proves over the definitions themselves that no listed definition has a tool step.
+    expect(app(WorkflowDefinitions::class)->has(OrderFollowUpWorkflow::TYPE))->toBeFalse()
+        ->and(fn () => app(WorkflowEngine::class)->start(OrderFollowUpWorkflow::TYPE, 'x', ['order_id' => '1']))
         ->toThrow(InvalidArgumentException::class, 'Unknown workflow type');
 });
 
