@@ -93,7 +93,7 @@ it('pins the governed policy and keeps every permanent class out of reach', func
         ->and(config('hq.retention.event_payload_keep_days'))->toBe(365)
         // Ruling Q3c (docs/101 section 12): 180 days for finished, reconciled workflow runs.
         ->and(config('hq.retention.workflow_keep_days'))->toBe(180)
-        ->and(config('hq.retention.version'))->toBe('retention.v2')
+        ->and(config('hq.retention.version'))->toBe('retention.v3')
         ->and(array_intersect(RetentionPolicy::DETAIL_TABLES, RetentionPolicy::neverTargeted()))->toBe([])
         ->and(array_intersect(RetentionPolicy::WORKFLOW_TABLES, RetentionPolicy::neverTargeted()))->toBe([])
         ->and(RetentionPolicy::PERMANENT)->toContain('audit_logs')->toContain('decision_records');
@@ -205,7 +205,7 @@ it('rolls up and removes only unattended detail older than its window, with the 
     $run = app(RetentionRunner::class)->run();
 
     expect($run->status)->toBe(RetentionRun::SUCCEEDED)
-        ->and($run->policy_version)->toBe('retention.v2')
+        ->and($run->policy_version)->toBe('retention.v3')
         ->and($run->policy['detail_keep_days']['tool_calls'])->toBe(180)
         ->and(DB::table('tool_calls')->whereIn('id', $prunable)->count())->toBe(0)
         ->and(DB::table('tool_calls')->whereIn('id', $kept)->count())->toBe(5)
@@ -327,7 +327,7 @@ it('reduces old processed event payloads to a digest, leaves the rest whole, and
     $digest = json_decode(DB::table('events')->where('id', $old)->value('payload'), true);
     expect(array_keys($digest))->toBe([RetentionPolicy::DIGEST_KEY])
         ->and($digest['_retention'])->toMatchArray([
-            'policy' => 'retention.v2',
+            'policy' => 'retention.v3',
             'run' => $run->uuid,
             'keys' => ['_correlation_id', '_store', 'customer_phone', 'order_number'],
             'store' => 'laladia',

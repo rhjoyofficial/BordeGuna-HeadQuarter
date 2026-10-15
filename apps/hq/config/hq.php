@@ -531,8 +531,9 @@ return [
     // anything else does nothing: `RetentionPolicy` knows these keys and no others. audit_logs, decision_records, the
     // evaluation, shadow, agent-run, approval and consent tables are kept forever by not being here.
     'retention' => [
-        // v2 (6 Oct 2026): adds the workflow state below.
-        'version' => 'retention.v2',
+        // v2 (6 Oct 2026): adds the workflow state below. v3 (15 Oct 2026, docs/123): adds refused and
+        // declined follow-ups and declined opportunities (ruling docs/120 item 13).
+        'version' => 'retention.v3',
         'detail_keep_days' => [
             'tool_calls' => 180,
             'ai_runs' => 180,
@@ -545,6 +546,11 @@ return [
         // approval, no approval of its steps pending), and finished more than this many days ago.
         // Its tool calls, approvals and audit rows are separate records and stay.
         'workflow_keep_days' => 180,
+        // docs/120 item 13 (S4 Q6): a refused or declined follow-up, and a declined opportunity, is removed
+        // this many days after the decision. Done, cancelled and closed rows are relationship history and
+        // are kept; open rows never go. Keep-clauses win: a follow-up an outcome attribution credits, and an
+        // opportunity a follow-up still serves, stay. Their audit rows are permanent either way.
+        'followup_refused_keep_days' => 365,
         // The bounds of one pass: rows per transaction, rows per table, days per table, and wall time.
         // A pass that reaches a bound stops cleanly between transactions and the next pass continues.
         'batch_size' => 500,
