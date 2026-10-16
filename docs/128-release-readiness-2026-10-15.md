@@ -146,11 +146,11 @@ bash deploy/rehearsal/rehearse.sh        --dump /root/backups/bordeguna-hq/daily
 
 Release readiness requires code, schema, data-isolation and operational recovery evidence (ruling D.6). Blocking conditions, each with what clears it:
 
-1. W2 identity repair is not merged and partly unexecuted (`p3/identity-repair`). Clears with: W2 finished, gated, merged; its migration's `down()` verdict added to docs/127; the repair dry run exercised against the corruption shapes.
+1. CLEARED 16 Oct (sections 15 and 16): W2 merged on `a7bb85e`; its repair dry run exercised against the corruption shapes; its migration's rollback verdict recorded in section 16. Was: W2 identity repair is not merged and partly unexecuted (`p3/identity-repair`). Clears with: W2 finished, gated, merged; its migration's `down()` verdict added to docs/127; the repair dry run exercised against the corruption shapes.
 2. No release candidate exists. Clears with: W2 and W7 merged `--no-ff`; the combined full Pest suite, Pint, `tsc`, Vite and GitHub Actions green on that exact merge commit, investigated across streams.
 3. The Docker deployment and migration rehearsal (D.1 on a production dump, D.2) has not been executed. Clears with: `rehearse.sh` on the VPS against the candidate and a verified production dump, Joy's go, `RESULT: rehearsal PASSED`, evidence pasted into section 10.
 4. The restore path has been proven at SQL level only. Clears with: the restore proof inside the Docker rehearsal (real `restore.sh`, production dump).
-5. The local SQL rehearsal must be re-run on the candidate once W2's migration is in (the rollback chain changes). Clears with: `local-sql-rehearsal.sh` on the candidate, both scenarios PASS.
+5. CLEARED 16 Oct (section 16): the local SQL rehearsal re-run on the candidate `a7bb85e` with W2's migration `2026_10_15_600000` and the repair dry run, both scenarios PASS. Was: clears with: `local-sql-rehearsal.sh` on the candidate, both scenarios PASS.
 6. Containment choice open (docs/121 section 5, Option 1 or 2). Clears with: Joy's decision recorded.
 7. Post-release verification (D.4) cannot precede a release. After Joy independently releases: the post-release checklist, pasted here, before any repair or backfill; the remaining quarantine reported as found.
 
@@ -162,3 +162,78 @@ Until 1 to 6 and 8 are cleared, this release is not ready, and it must not be de
 - Combined gate on the full tree: 2,143 Pest passed, 0 failed; Pint, tsc, Vite clean; structural searches 4/4 PASS (W2's two gateway call sites and two consent readers reviewed and allowed with reasons). Blocker 1 (W2 not merged) cleared; blocker 8 (flake) cleared.
 - NEW BLOCKER: GitHub Actions run 38912755286 on a7bb85e was not started: "recent account payments have failed or your spending limit needs to be increased". CI on the exact candidate (ruling D, C stage 6) cannot be produced until billing allows it. The last green CI is 38681310680 on 357fabc.
 - Still blocking: the local SQL rehearsal re-run on the candidate (now including 2026_10_15_600000), the VPS Docker rehearsal with real restore.sh (production dump + Joy's go), Joy's containment choice, post-release checks. Verdict: NOT READY.
+
+## 16. Local rehearsal on the candidate a7bb85e (16 Oct)
+
+What it is: the same local, SQL-level rehearsal as section 9 (Laragon PostgreSQL 17, no Docker, no production dump, nothing on the VPS), now on the release candidate `a7bb85e`, which carries W2's migration `2026_10_15_600000_create_identity_repair_tables` (eleven release migrations). Production commit `b96a396`, candidate `a7bb85e`, both exported with `git archive`; `composer.lock` identical in both (checked by the script).
+
+Script changes (small, in this commit):
+
+- `deploy/rehearsal/sql/row-hashes.sql` (new, `BEGIN READ ONLY ... ROLLBACK`): per table, the row count and the md5 of every row's text in a deterministic order. It prints no row content.
+- `local-sql-rehearsal.sh`: runs `php artisan hq:identity:repair --recount` (dry run, never `--apply`, `--key` or `--by`) after the detector, cost and decisions dry runs, and again in a session PostgreSQL holds read-only; FAILS if the candidate has no repair command (was a WARN "no repair command"); proves at row level that the four dry runs wrote nothing (row hashes before and after); proves at row level that the restored dump equals BEFORE; the permission check now expects fourteen permissions (W2's `hq.customers.quarantine.repair`).
+- `deploy/rehearsal/README.md`: the new SQL file and the extended dry runs. The guard suite still passes: `bash deploy/rehearsal/tests/rehearsal-guard-test.sh`, 48 passed, 0 failed.
+
+Commands (from the worktree on `platform/rehearsal-candidate`, scratch directories that did not exist):
+
+```
+bash deploy/rehearsal/local-sql-rehearsal.sh --vendor-from apps/hq --work <scratch>/lr16b-corrupted --scenario corrupted --candidate a7bb85e --pg-bin /c/laragon/bin/postgresql/postgresql/bin
+bash deploy/rehearsal/local-sql-rehearsal.sh --vendor-from apps/hq --work <scratch>/lr16b-clean --scenario clean --candidate a7bb85e --pg-bin /c/laragon/bin/postgresql/postgresql/bin
+```
+
+Corrupted scenario (docs/121 section 5 shape plus duplicates, ambiguous ownership, foreign evidence): 31 PASS, 1 WARN, 0 FAIL, `RESULT: local rehearsal PASSED`.
+
+- Production schema: 57 migrations; realistic rows 65 customers, 193 identities, 90 orders, 6 conversations, 12 decision records; seeded corruption 8 identities, 2 orders.
+- BEFORE: 90 tables, 57 migrations, 398 snapshot lines, row hashes of all 90 tables; pre-migration `pg_dump -Fc` 419,064 bytes.
+- Candidate `migrate --force`: 11 new migrations in one batch (batch 2). Constraints 21 of 21 PASS.
+- Permission seeder `--class`: the fourteen wave 1 to 4 permissions exist, `hq.customers.quarantine.repair` included (49 in total); second run clean.
+- `php artisan hq:identity:cross-business --dry-run`: 18 finding(s) (W2 widened the detector, item 39): identities #195 and #196 (quarantined, and store of another business), #198, #199, #200, #201 (quarantined); conflicts #1 to #6 (`identity_conflict_quarantined`); order #91 (`order_other_business`); conversation #7 (`conversation_other_business`); participant #7 (`participant_identity_other_business`, `participant_other_business`). Every finding: "no merge lineage". Ends "Dry run: nothing written."
+- `php artisan hq:identity:repair --recount` (dry run), the known case, as printed except the hashes shortened:
+  - Batch for business [bionic] (#3), key `cb1672f5...`: 1 split(s); split `9b03cc46...`, from customer #66 (laladia) to a NEW customer of [bionic].
+  - Lineage: no merge lineage (an unscoped lookup attached the rows).
+  - Rows: 1 order (#91), 1 conversation (#7), 1 participant, 0 messages, 0 memories with a business.
+  - Identities: 2 back live under the target (#195, #196), 0 superseded, 1 copied (phone), 2 conflicts resolved.
+  - New customer: "phone from the order, nothing else (no name or e-mail of the other business is copied)".
+  - Withheld for a person: 0 business-less memories, 0 consent rows to re-record.
+  - Review: NOT YET (needs_repair 0, confirmed_wrong 0, disputed 0, not reviewed 5; flags none yet). Not reviewed: conversation_participants:7, conversations:7, customer_identities:195, customer_identities:196, facts_orders:91.
+  - 1 ambiguous case: conversation_participants#7 under customer #66 ("the participant carries an identity of another business than its thread; which customer it names is a person's call").
+  - 4 identities stay quarantined: #198 (phone, duplicate_same_customer), #199 and #200 (email, duplicate_ambiguous_owner), #201 (messenger_psid, contradicted_by_evidence), each "its business cannot be established from the rows without guessing". 4 conflicts stay open (#3 to #6).
+  - Recount by business: business 2 (laladia) 42 customers, 61 orders all under own customer, 126 live and 6 held identities; business 3 (bionic) 25 customers, 31 orders, 30 under own customer (the 31st is #91, still crossing), 69 live identities.
+  - Customer #66: orders stored 0, from rows 1; value stored 0.00, from rows 1.00; 2 foreign rows still under; "MISMATCH: a stored figure differs from the rows". Cause: `sql/seed-corruption.sql` inserts order #91 without updating the customer's stored aggregates (`seed-realistic.sql` does update them). The recount found exactly that. Production's stored figures are unknown until the D.2 rehearsal on a dump.
+  - "Dry run: nothing written."
+  - Personal values: none in either output (the new customer's phone is printed as "from the order"; no phone digits, name or e-mail appears; checked by search). The seeded rows are synthetic in any case.
+  - The batch key differs from an earlier run on a separately seeded copy (`2dbcdb94...`) while the split key is identical: the key includes each split's fingerprint, which covers row state, by design ("the dry run a person read is the only one that applies").
+- Nothing written by the dry runs: every table count unchanged, and at row level all 102 tables hold identical rows (count and md5 of every row) before and after the detector, cost, decisions and repair dry runs. All four also completed in a session with `default_transaction_read_only=on`.
+- Cost dry run: 1 run read, none written, 1 incomplete. Decisions report: 4 records without a business, with reasons.
+- W1 quarantine as section 9; the phone with evidence in its own business stayed live. Post-release scope read: identity_owner_business_mismatch 0, identity_live_store_other_business 0, participants_on_quarantined_identity 1, cross_business_orders 1, cross_business_conversations 1. Checklist posture identical before and after.
+- ROLLBACK, one step at a time:
+  - `2026_10_15_600000_create_identity_repair_tables`: down() RAN (rolled back). Its refusal guards (a merge reversal recorded, or a quarantine flag of a new kind) were not triggered: the rehearsal only runs dry runs, so no reversal and no flag exists. It refuses only after `--flag` or `--apply` have written evidence.
+  - `2026_10_15_510000_add_business_id_to_decision_records`: ROLLED BACK.
+  - `2026_10_15_400000_s4_outcome_followups`: ROLLED BACK.
+  - `2026_10_15_100000_scope_customer_identities_to_business`: REFUSED, exit 1, still recorded: "Refusing to roll back: 6 identity conflict(s) are recorded, and dropping them loses audit evidence. Restore the pre-migration backup instead". The schema stayed whole.
+  - After the partial rollback every pre-existing table has its BEFORE count except the seeder's additive permission rows (permissions 35 to 49, role_has_permissions 91 to 127).
+- RESTORE PROOF: the pre-migration dump restored into a second throwaway database equals the BEFORE snapshot exactly (398 lines: counts, migrations, constraints, indexes, triggers, columns) AND row for row (all 90 tables, count and md5 of every row).
+- RE-APPLY: the 3 rolled-back migrations ran clean; constraints 21 of 21 PASS; schema and counts equal the first application; posture unchanged (Meta flags false, three agents paused at a0, 0 active grants, 0 open shadow periods, 0 scheduled jobs).
+- The one WARN is the W1 refusal: the release is a one-way door; recovery is the dump restore.
+
+Clean scenario (realistic rows, no corruption): 31 PASS, 0 WARN, 0 FAIL, `RESULT: local rehearsal PASSED`.
+
+- Detector: "No relationship crosses a business boundary. Nothing to flag." Repair dry run: 0 splits, 0 ambiguous, 0 identities held, 0 conflicts open, "Dry run: nothing written." Row-level no-write proof over 102 tables PASS; read-only session PASS.
+- ALL ELEVEN migrations rolled back in order: 600000 (W2), 510000, 400000, 100000 (W1), 11_100000, 800000 follow-ups, 800000 consent identity, 700000 consent brand, 300000 playbooks, 100000 outcomes, 100000 cost; stopped at `2026_10_04_100000`, which production already had. The fully rolled-back database equals BEFORE (permission rows aside).
+- Restore proof (snapshot and row level) PASS; re-apply of all 11 clean; constraints 21 of 21; posture unchanged.
+
+Teardown: the script dropped `hq_rehearsal_local_corrupted`, `hq_rehearsal_local_clean` and both `_restorecheck` twins (teardown "remaining: 0" each); afterwards `SELECT count(*) FROM pg_database WHERE datname LIKE 'hq_rehearsal%'` returned 0.
+
+What this does not prove: production's real rows and stored aggregates, the real `backup.sh` and `restore.sh`, the image and entrypoint, compose isolation (D.2, section 10); the `--flag` and `--apply` paths and therefore W2's own `down()` refusal on real evidence (both write, and are gated on Joy).
+
+Blockers after this section (section 14 numbering):
+
+- 1 CLEARED (W2 merged, repair dry run exercised, rollback verdict recorded).
+- 2 OPEN in part: the candidate `a7bb85e` exists and its local gate is green (section 15), but CI on that exact commit has not run (GitHub billing, section 15).
+- 3 OPEN: the Docker rehearsal `rehearse.sh` on the VPS with a production dump and Joy's go.
+- 4 OPEN: restore proven at SQL level only (now row level too); the real `restore.sh` on a production dump is still section 10.
+- 5 CLEARED (this section).
+- 6 OPEN: Joy's containment choice (docs/121 section 5, Option 1 or 2).
+- 7 OPEN by nature: post-release verification after Joy releases.
+- 8 CLEARED (section 3, flake).
+
+Verdict unchanged: NOT READY.
