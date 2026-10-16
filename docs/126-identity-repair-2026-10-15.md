@@ -1,4 +1,4 @@
-# 126. Identity repair and detector extension, W2 (15 October 2026)
+# 126. Identity repair and detector extension, W2 (15 to 16 October 2026)
 
 Branch `p3/identity-repair` from main `7fb5e71`, worktree `hq-wt/h`, test database `hq_test_h`. Authority: `docs/120-chatgpt-ruling-2026-10-15.txt` section A3 (all ten points and its last two paragraphs), section C Stage 2, items 36, 37 and 39. Background: docs/117 (detector, flags, review, repair design §6), docs/121 §5 (the production case), docs/122 (W1 schema, quarantine, conflicts, open questions Q1 to Q3), docs/123. Nothing here is released or merged; Joy alone releases, and no production repair runs without his explicit authorization after he has read the dry run.
 
@@ -69,7 +69,12 @@ Mutation checks (code broken, test seen failing, code restored, `git diff` clean
 
 ## Gate
 
-GATE_PLACEHOLDER
+Run on this branch, 16 Oct 2026:
+
+- Full suite `DB_DATABASE=hq_test_h php artisan test --compact --parallel --processes=3`: 2,140 passed, 0 failed, 32,800 assertions (16 of them new, in `IdentityRepairTest`; two existing route pins extended for the two new POST routes: `PostureScreenTest`, `Customer360Test`).
+- Pint `--test` passed; `npx tsc --noEmit` clean; `npm run build` (Vite) built.
+- `BanglaDictionaryTest` green with the new screen strings; no em dash in any file written here.
+- Migration applied by every test run (RefreshDatabase on PostgreSQL 17); the production fixture also rolls the W1 migration back and forward around it.
 
 ## The production dry run, for Joy, AFTER the release
 
