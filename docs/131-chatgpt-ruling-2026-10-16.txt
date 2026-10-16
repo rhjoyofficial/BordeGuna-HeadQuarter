@@ -1,0 +1,271 @@
+# HQ Wave 4 Final Ruling, Release Readiness and Phase 3 Customer AI Readiness
+
+**Authoritative scope:** Waves 1–4, current main `a7bb85e`, production `b96a396`.  
+**Production status:** Inert. Nothing released. Joy retains sole production-release authority.
+
+Run this as one end-to-end engineering program. Continue through ordinary implementation milestones without asking for repeated confirmation. Stop only at a failed safety/test/recovery gate, a genuinely new architecture decision, or a production action requiring Joy’s explicit authorization.
+
+Do not interpret approval of the engineering plan as approval to release, run production repairs, backfill historical data or activate customer-facing AI.
+
+## 1. Release-blocking identity incident
+
+The cross-business identity defect is a release blocker. Do not release Waves 1–4 until the identity fix, repair readiness, combined candidate CI and recovery rehearsal are verified.
+
+The defect includes both cross-business lookup and identity reassignment. Correcting the UI or resolver alone is insufficient: the database, ingestion, conversation, consent, support and inbox paths must all enforce business ownership.
+
+### 1.1 Containment recommendation
+
+My recommendation is containment Option 2: temporarily stop the HQ scheduler/event-drain execution while preserving all incoming source events as durable, replayable pending events. Alerts and scheduled sweeps will also pause and must be accounted for operationally.
+
+**This production action requires Joy’s explicit decision.** Claude must not stop the production scheduler on its own.
+
+Until Joy decides:
+- Continue safe code, test, documentation and isolated-rehearsal work.
+- Do not claim the incident is contained.
+- Do not release.
+- Do not run production repair or mutating backfills.
+- Do not open the Executive shadow period.
+- Do not replay pending events into the old resolver.
+
+Verify that stopping event processing cannot discard payloads or lose source acknowledgements. If durable replay cannot be proven, stop and report the exact blocker.
+
+### 1.2 Identity design
+
+Keep Wave 4’s Option A design:
+
+- `customer_identities.business_id` is required.
+- Customer, store and identity relationships are constrained by composite foreign keys and business ownership.
+- Null-store identities use database-enforced uniqueness with the approved PostgreSQL 17 semantics.
+- Quarantined rows remain preserved evidence and are excluded from active identity resolution.
+- Resolver/link operations require explicit business scope and never fall back to group-wide matching.
+- `link()` never silently re-points a customer identity.
+- Cross-business conflicts fail closed and produce evidence.
+
+If an identity is quarantined and it is the only matching key, do not create a provisional customer. Keep the source event durably available for review and replay after authorized resolution.
+
+The current `conversations` unique key remains a known limitation. Make it business-scoped with an additive migration in the next wave. Until then, a collision must fail closed and must never attach one business’s conversation to another. Add explicit collision and isolation tests before enabling additional Meta traffic.
+
+## 2. Approvals for all ten Wave 4 questions
+
+Apply these rulings as authoritative.
+
+**1 — Quarantined identity with no alternative key: CONFIRM.** Fail closed, no provisional customer, preserve the original event for replay.
+
+**2 — Global conversation uniqueness: APPROVE additive business scoping in the next wave.** Until then, collision means refusal/retry or quarantine, never cross-business attachment.
+
+**3 — Human identity-conflict resolution: APPROVE.** Build the reviewed conflict screen and human-only audited resolution action in the next wave. No agent may resolve conflicts.
+
+**4 — Follow-up self-decision: APPROVE WITH CONDITION.** A sole eligible owner/operator may decide their own proposal if the result is recorded as `self_decided`. Once another eligible independent decider is available, the proposer must not decide the proposal. Keep all role and business boundaries.
+
+**5 — Follow-up completion and outcomes: CONFIRM.** Completion does not itself write an outcome or attribution. Outcomes are recorded through the separate governed, human-only `outcomes.attribute` capability.
+
+**6 — Overdue grace: CONFIRM.** Keep a configurable 24-hour grace period before issuing the overdue alert. Alert the responsible person inside HQ only. No automatic outreach.
+
+**7 — Corrected outcomes and credits: CONFIRM FOR NOW.** The earlier row’s credits disappear from the current view when superseded. Do not delete historical rows or silently transfer credit. Re-credit requires a person and a new auditable attribution.
+
+**8 — Time-zone backfill: APPROVE WITH A SEPARATE MUTATION GATE.** Dry-run first. Show the affected rows, timestamps, expected correction, business/day grouping and before/after counts. Apply only after Joy has reviewed the evidence and explicitly authorized the mutation. Never use inference to repair an ambiguous timestamp.
+
+**9 — Repair deviations: APPROVE WITH SAFEGUARDS.**
+- Every row in the proposed repair batch must be reviewed.
+- The batch must contain at least one `needs_repair` row and no disputed rows.
+- Preserve standing restrictions through new, correctly scoped, audited restriction records on the target customer. Do not mutate append-only historical consent records or convert a restriction into a grant.
+- Preserve a review list for restrictions that require the responsible person to re-record them in the correct scope.
+- Keep all business-less memories withheld until a person assigns a business supported by evidence.
+- Memory assignment may remain a permissioned, audited human controller action rather than a second Gateway tool, provided it is not agent-callable, cannot bypass business scope, and cannot release a memory with ambiguous ownership.
+- Preserve the existing fingerprint, advisory-lock, idempotency, lineage and post-repair verification requirements.
+
+**10 — Non-reversible migration: ACCEPT WITH A HARD RELEASE PRECONDITION.** Once conflict evidence makes the W1 migration’s `down()` refuse, the recovery path is restore from the verified pre-deploy backup using the real `restore.sh`. The VPS Docker rehearsal must prove that script works in an isolated throwaway project. Do not claim rollback is safe merely because `down()` exists.
+
+## 3. Finish Wave 4 — no new feature expansion
+
+Wave 4 code is reported complete on `a7bb85e`, but it is not release-ready. Complete verification and release preparation in the following order.
+
+### Stage A — Freeze the candidate and recover CI availability
+
+1. Confirm the exact release candidate commit and that the candidate contains the intended Wave 4 code, migration set, seed changes and documentation.
+2. Resolve the GitHub Actions billing/spending-limit block. Do not substitute branch-local green results or an earlier green CI run for CI on the exact candidate.
+3. Run the full Pest suite, Pint, TypeScript, Vite and all four structural-search/negative-control checks on the combined candidate.
+4. Run GitHub Actions CI on the exact frozen commit. If CI cannot run, stop at `NOT READY`.
+5. Record exact commit, workflow run ID, result and test totals.
+
+A failed gate requires a fix followed by the complete relevant test suite and CI. Never freeze a release candidate from an unverified moving branch.
+
+### Stage B — VPS Docker rehearsal
+
+After Joy authorizes the operational rehearsal and provides/approves a fresh production dump, execute the documented rehearsal in an isolated throwaway VPS Docker project.
+
+Use production-shaped schema and representative records, including the known identity contamination.
+
+Verify:
+- the production-name guard refuses accidental operations against production;
+- the real `restore.sh` successfully restores the dump into the isolated environment;
+- candidate migrations apply and satisfy their database constraints;
+- the permissions seeder runs twice without destructive duplication;
+- repair, detector, cost-attribution and time-zone backfill dry-runs write nothing;
+- migration rollback/recovery behaves exactly as documented;
+- the W1 migration refuses its own down-path once conflict rows exist;
+- backup restoration returns the pre-deploy snapshot accurately;
+- the candidate can be reapplied cleanly after restore;
+- the event preservation/replay strategy prevents incoming source events from being lost across a restore.
+
+If the rehearsal cannot prove recovery, stop. Do not release.
+
+Document any operations that are not reversible by migration and the exact restore-based recovery procedure.
+
+### Stage C — Release notes and go/no-go package
+
+Consolidate the Wave 1–4 release notes and include:
+- exact candidate commit and successful CI run;
+- all migrations, seed changes and 14 permission additions;
+- the two human-only tools and their required permissions;
+- known non-reversible migration behavior;
+- pre-release and post-release checklists;
+- the production containment status;
+- rollback/restore limitations;
+- cost and time-zone backfill commands;
+- identity detector and repair commands;
+- commands that are read-only versus mutating;
+- residual quarantined records and ambiguous cases.
+
+Give Joy the evidence and a clear recommendation.
+
+**Do not release until Joy explicitly authorizes release.**
+
+### Stage D — Joy’s release and controlled post-release operations
+
+After all release gates pass and Joy explicitly releases:
+
+1. Take the required fresh pre-deploy backup.
+2. Deploy only the frozen candidate.
+3. Verify the release identity, migrations, permissions seeder, application health and control posture.
+4. Do not automatically resume event processing or replay a backlog merely because deployment succeeded.
+5. Run the read-only identity scope checks and detector dry-run.
+6. If Joy explicitly authorizes flag writes, run `hq:identity:cross-business --flag`, inspect the resulting rows and review all conflicts.
+7. Generate the repair dry-run. Verify every repair row has been reviewed and none is disputed. Joy must explicitly authorize the mutating repair.
+8. Execute the repair through the approved human-only route and verify ownership, detector results, Customer 360, inbox, Support context, business-scoped recounts and lineage.
+9. Run cost-attribution and time-zone backfill dry-runs separately. Review their evidence and authorize each mutation separately.
+10. Resume the scheduler and replay pending source events only after identity isolation and repair verification pass. Process events idempotently under the new resolver; failed or ambiguous records must remain pending/quarantined for review.
+
+If any check fails, keep customer-facing AI and event replay paused where required. Do not treat release as permission to repair every record or run all backfills automatically.
+
+### Stage E — Executive shadow week
+
+Reassess the earlier Executive Shadow Week only after:
+- the identity repair/verification has completed for the affected scope;
+- post-release read-only checks pass;
+- the production posture remains inert except for the explicitly approved shadow period;
+- the event backlog is under controlled processing;
+- Joy explicitly opens the approved shadow scope.
+
+Shadow operation does not authorize customer-facing outbound or broader autonomy. It generates evidence for a later, separate activation decision.
+
+## 4. Next wave — Phase 3 Customer AI readiness for Meta
+
+Begin Phase 3 readiness engineering only after the Wave 4 release and data-isolation gates pass. Work may proceed on inert code/contracts while waiting for external prerequisites, but do not use live customer channels before all required gates for that channel pass.
+
+### P3-W0 — Meta readiness inventory
+
+Once Meta Business Verification is confirmed, record evidence of:
+- verified business and app ownership;
+- app mode and app-review status for each permission required;
+- owned Facebook Pages, Instagram professional accounts and relevant account IDs;
+- WhatsApp Business Account, phone-number/SIM readiness and required number verification;
+- system-user credentials and credential kinds;
+- webhook subscription and callback readiness;
+- approved privacy, consent, data-retention and deletion flows;
+- token ownership, rotation/expiry monitoring and revocation response;
+- country, billing and commercial prerequisites for each intended channel.
+
+Do not treat Business Verification as equivalent to App Review, production permission approval or WhatsApp number readiness. A missing prerequisite leaves only that channel’s production activation blocked; it does not authorize a workaround or broader permission.
+
+Do not invent approval dates or assume permissions are granted. Capture current provider evidence at the time the external prerequisite becomes available.
+
+### P3-W1 — Finish the customer-channel control plane
+
+Use the existing capability/connector architecture. Do not build a competing messaging platform or bypass HQ’s Tool Gateway.
+
+Before Meta inbound is enabled:
+- make conversation identity unique and business-scoped, fixing the known global `external_thread_ref` uniqueness limitation;
+- add the approved human-only identity-conflict resolution flow;
+- confirm inbound deduplication, event ordering, signature verification, replay protection and durable failure handling;
+- ensure channel identity resolution always includes business scope;
+- prove that consent is read for the correct identity, business, brand, channel and purpose;
+- prove that unresolved or quarantined identities cannot be silently linked or served;
+- verify handover state and preserve the existing conservative second-inbound-to-human behavior;
+- test operator inbox, Customer 360 and Support context for cross-business isolation.
+
+Do not create a group-level customer identity graph.
+
+### P3-W2 — Channel-specific adapters and credential readiness
+
+Integrate supported Meta channel APIs through thin adapters behind ConnectorRegistry and Tool Gateway.
+
+For Messenger and Instagram, verify each required asset, API permission, token and webhook against the actual approved Meta app/account. For WhatsApp, separately verify the business account, number/SIM, permissions, templates or other channel requirements applicable to the intended message type.
+
+Use test assets/accounts and non-customer messages for integration tests. Test inbound normalization, deduplication, queue retry, outbound provider response, uncertain-send state and reconciliation. No live customer outbound is part of adapter readiness.
+
+Keep tokens in the existing credential vault and ensure provider errors, logs and operator alerts never expose secrets or customer message contents unnecessarily.
+
+### P3-W3 — Inert end-to-end Customer AI tests
+
+Build and execute tests using approved test channels/accounts:
+- customer message arrives and is assigned to the correct business and identity;
+- consent and identity checks refuse when required evidence is missing;
+- AI produces a structured reply proposal without sending it;
+- Bengali-script language policy remains enforced for mixed Bangla/English input;
+- reply and escalation proposals retain evidence and traceability;
+- human handover receives the context it is authorized to see;
+- replayed inbound events do not duplicate work or change customer ownership;
+- Gateway permission, content-policy refusal and consent refusal remain separate outcomes;
+- failed/uncertain sends are not falsely recorded as delivered.
+
+All production write tools must remain inert until their own explicit activation gates. A green integration test does not enable a production channel.
+
+### P3-W4 — Shadow and human-controlled rollout gates
+
+Use a serial activation path, not one broad “Meta ready” switch:
+
+1. integration/readiness test on test assets;
+2. inbound shadow on an explicitly approved test or narrowly authorized scope;
+3. owner review of identity, grounding, refusals, handovers, costs and failures;
+4. human-sent Support proposals, where a person sends after review;
+5. channel-specific and capability-specific autonomy review;
+6. any later live execution receives a separate explicit authorization.
+
+Do not reactivate n8n forwarding, Meta inbound, customer outbound or Agent A2+ because Business Verification arrives. Each channel and capability has its own credentials, permissions, tests and activation decision.
+
+### P3 completion criteria
+
+Return a channel-by-channel report that identifies:
+- the external prerequisites actually granted;
+- permissions/app-review evidence;
+- assets and credential readiness;
+- working integration and reconciliation tests;
+- outstanding identity/consent/privacy issues;
+- the exact activation gate still required;
+- what remains inert.
+
+Phase 3 may be called **readiness complete** only when its stated technical and external prerequisites are evidenced. It must not be called **live** until Joy authorizes the relevant activation.
+
+## 5. Execution, reporting and authority
+
+Continue through the complete Wave 4 release-readiness program and then the Phase 3 readiness preparation. Use a maximum of three concurrent agents, one worktree and test database per stream, plan commit first, and `--no-ff` merges one at a time. Run full combined-tree tests and CI after merges.
+
+Keep all new integrations behind approved capability contracts, ConnectorRegistry and Tool Gateway. Build-versus-integrate rules and all previous consent, identity, audit and autonomy boundaries remain in force.
+
+Stop only for:
+- a failed test, CI, migration, restore or isolation gate;
+- unresolved business ownership or ambiguous identity data;
+- a privacy/legal/security uncertainty not covered by existing rulings;
+- a missing owner authorization for a production mutation or external prerequisite;
+- a genuinely new architecture question.
+
+The final report must state either:
+
+`READY FOR JOY'S RELEASE DECISION`
+
+or
+
+`NOT READY`
+
+Include the exact evidence and remaining blockers. Never release, run production repair/backfill, resume a risky backlog, open a shadow period or activate a live Meta channel without the corresponding explicit authorization from Joy.
