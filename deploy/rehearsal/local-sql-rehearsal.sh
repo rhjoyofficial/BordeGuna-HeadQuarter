@@ -162,6 +162,10 @@ git -C "$REPO" show "${CAND_FULL}:deploy/tools/identity-scope-readonly.sql" > "$
 psql -d "$DB" -At -v ON_ERROR_STOP=1 -f "${WORK}/identity-scope-readonly.sql" > "${EVIDENCE}/04-before-scope.txt" 2>&1 \
     && pass "identity-scope-readonly.sql ran on the production-schema copy ($(grep -c . "${EVIDENCE}/04-before-scope.txt") lines)" \
     || warn "identity-scope-readonly.sql did not run clean before the migration (04-before-scope.txt)"
+# The D.3 checklist's posture read, in a session PostgreSQL itself holds read-only (as the checklist runs it).
+RO() { PGOPTIONS='-c default_transaction_read_only=on' psql -d "$DB" -At "$@" | tr -d '\r'; }
+RO -v ON_ERROR_STOP=1 -f "${SELF_DIR}/../tools/release-posture-readonly.sql" > "${EVIDENCE}/04-before-checklist-posture.txt" 2>&1 || true
+grep -q 'read_only=on' "${EVIDENCE}/04-before-checklist-posture.txt" && pass "pre-release checklist posture read ran in a read-only session ($(grep -cE '^[a-z_]+ ' "${EVIDENCE}/04-before-checklist-posture.txt") lines)" || fail "release-posture-readonly.sql did not run read-only before the release"
 snapshot "$DB" > "${EVIDENCE}/04-before-snapshot.txt"
 grep '^migration ' "${EVIDENCE}/04-before-snapshot.txt" | cut -d' ' -f2 > "${EVIDENCE}/04-before-migrations.txt"
 posture > "${EVIDENCE}/04-before-posture.txt"
@@ -199,6 +203,17 @@ else
     fail "a dry run changed a table count (13-dry-run-diff.txt)"
 fi
 psql -d "$DB" -At -v ON_ERROR_STOP=1 -f "${SELF_DIR}/sql/show-quarantine.sql" > "${EVIDENCE}/14-quarantine.txt" 2>&1 || fail "show-quarantine.sql failed"
+# The D.4 checklist's reads, read-only sessions, on the migrated production-shaped copy.
+RO -v ON_ERROR_STOP=1 -f "${SELF_DIR}/../tools/post-release-scope-readonly.sql" > "${EVIDENCE}/14-post-release-scope.txt" 2>&1 && pass "post-release scope read (read-only session): $(grep -E '^(identity_owner_business_mismatch|identity_live_store_other_business|cross_business_orders|cross_business_conversations|participants_on_quarantined_identity) ' "${EVIDENCE}/14-post-release-scope.txt" | tr '
+' ';')" || fail "post-release-scope-readonly.sql failed (14-post-release-scope.txt)"
+RO -v ON_ERROR_STOP=1 -f "${SELF_DIR}/../tools/release-posture-readonly.sql" > "${EVIDENCE}/14-after-checklist-posture.txt" 2>&1 && pass "post-release checklist posture read (read-only session) ran" || fail "release-posture-readonly.sql failed after the release"
+if diff -q <(grep -vE '^(migrations|evaluation_cost_attribution|release_db|BEGIN|SET|ROLLBACK)' "${EVIDENCE}/04-before-checklist-posture.txt") <(grep -vE '^(migrations|evaluation_cost_attribution|release_db|BEGIN|SET|ROLLBACK)' "${EVIDENCE}/14-after-checklist-posture.txt") >/dev/null; then
+    pass "checklist posture identical before and after the release (flags, agents, grants, shadow, jobs, tools, approvals, consent, cost rows)"
+else
+    diff "${EVIDENCE}/04-before-checklist-posture.txt" "${EVIDENCE}/14-after-checklist-posture.txt" > "${EVIDENCE}/14-checklist-posture-diff.txt" || true
+    fail "checklist posture changed across the release (14-checklist-posture-diff.txt)"
+fi
+(cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:evaluation:attribute-cost --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:decisions:report --unassigned --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && pass "detector, cost and decisions dry runs also complete in a session PostgreSQL holds read-only (the checklist's form)"     || fail "a dry run failed in a read-only session: it tried to write (14-detector-readonly-session.txt)"
 q "SELECT 'decision_records business assigned=' || count(*) FILTER (WHERE business_id IS NOT NULL) || ' unassigned=' || count(*) FILTER (WHERE business_id IS NULL) FROM decision_records" >> "${EVIDENCE}/14-quarantine.txt"
 q "SELECT 'consent_state rows=' || count(*) || ' with_brand=' || count(brand_id) || ' with_identity=' || count(identity_id) FROM consent_state" >> "${EVIDENCE}/14-quarantine.txt"
 if [ "$SCENARIO" = "corrupted" ]; then
