@@ -28,7 +28,8 @@
 #   (host lock, backup boundary, verified dump, build stamped with the commit, up, entrypoint `migrate --force`,
 #   horizon restart, /up, /api/health naming the commit, release records) -> schema and counts AFTER ->
 #   constraints (verify-constraints.sql) -> permission seeder --class and the thirteen permissions -> detector dry
-#   run, cost dry run, repair dry run if the command exists; proof they wrote nothing -> [quarantine listing]
+#   run, cost dry run, repair dry run and tz backfill dry run if the commands exist; proof they wrote nothing (the tz
+#   dry run by row hashes) -> [quarantine listing]
 #   -> ROLLBACK one migration at a time until a down() refuses or the pre-release schema is reached; counts compared
 #   -> RESTORE PROOF: the pre-deploy dump deploy.sh took, restored into a second scratch database and compared with
 #   the BEFORE snapshot -> RE-APPLY and verify again -> posture unchanged -> EVENT BRIDGE (docs/132): scheduler
@@ -353,6 +354,26 @@ if [ -n "$REPAIR_CMD" ]; then
     fi
 else
     warn "no repair command found on the candidate (W2 not merged); the repair dry run is skipped"
+fi
+# docs/133 (ruling docs/131 item 8, Stage B): the time-zone backfill dry run, only when the candidate carries the
+# command. Never --apply, --key or --by. Row hashes (sql/row-hashes.sql, no row content) before and after prove it
+# wrote nothing.
+if artisan list --raw 2>/dev/null | awk '{print $1}' | grep -qx 'hq:facts:tz-backfill'; then
+    psql_db "$DB" -f - < "${SELF_DIR}/sql/row-hashes.sql" | tr -d '\r' | grep '^rows ' > "${EVIDENCE}/15t-before-tz-rows.txt" || true
+    if artisan hq:facts:tz-backfill > "${EVIDENCE}/15t-tz-backfill-dry-run.txt" 2>&1 && grep -q 'Dry run: nothing written' "${EVIDENCE}/15t-tz-backfill-dry-run.txt"; then
+        pass "tz backfill dry run: $(grep -E '^facts_orders rows ' "${EVIDENCE}/15t-tz-backfill-dry-run.txt" | head -1)"
+    else
+        fail "hq:facts:tz-backfill (dry run) failed (15t-tz-backfill-dry-run.txt)"
+    fi
+    psql_db "$DB" -f - < "${SELF_DIR}/sql/row-hashes.sql" | tr -d '\r' | grep '^rows ' > "${EVIDENCE}/15t-after-tz-rows.txt" || true
+    if [ -s "${EVIDENCE}/15t-before-tz-rows.txt" ] && diff -q "${EVIDENCE}/15t-before-tz-rows.txt" "${EVIDENCE}/15t-after-tz-rows.txt" >/dev/null; then
+        pass "the tz backfill dry run wrote nothing, row level: all $(grep -c . "${EVIDENCE}/15t-after-tz-rows.txt") tables hold identical rows before and after"
+    else
+        diff "${EVIDENCE}/15t-before-tz-rows.txt" "${EVIDENCE}/15t-after-tz-rows.txt" > "${EVIDENCE}/15t-tz-rows-diff.txt" || true
+        fail "the tz backfill dry run changed rows, or the row hashes could not be read (15t-tz-rows-diff.txt)"
+    fi
+else
+    warn "no hq:facts:tz-backfill on the candidate (docs/133 not merged); the tz dry run is skipped"
 fi
 snapshot "$DB" > "${EVIDENCE}/16-after-dry-runs.txt"
 if diff -q <(grep '^count ' "${EVIDENCE}/11-before-dry-runs.txt") <(grep '^count ' "${EVIDENCE}/16-after-dry-runs.txt") >/dev/null; then
