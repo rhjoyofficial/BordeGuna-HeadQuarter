@@ -10,7 +10,7 @@ cd /opt/bordeguna-hq
 C="docker compose -f deploy/docker-compose.yml --env-file deploy/.env"
 ```
 
-Why these cannot write: identical to the pre-release checklist section 0. Every `psql` and every `artisan` runs with `-e PGOPTIONS=-cdefault_transaction_read_only=on`, so PostgreSQL refuses any write of that session (SQLSTATE 25006); every SQL file is `BEGIN READ ONLY ... ROLLBACK`; the structural searches read source files only. Nothing here passes `--flag`, `--apply`, `migrate`, `db:seed`, `tools:toggle` or `shadow:open`.
+Why these cannot write: identical to the pre-release checklist section 0. Every `psql` and every `artisan` runs with `-e PGOPTIONS=-cdefault_transaction_read_only=on`, so PostgreSQL refuses any write of that session (SQLSTATE 25006); every SQL file is `BEGIN READ ONLY ... ROLLBACK`; the structural searches read source files only. No step here passes `--flag`, `--apply`, `migrate`, `db:seed`, `tools:toggle` or `shadow:open`; the one `--apply` line in section 8 is labelled as Joy's separate, authorized mutation and is not a step of this checklist.
 
 ## 1. The deployed commit and the release record
 
