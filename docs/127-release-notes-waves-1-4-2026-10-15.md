@@ -1,8 +1,17 @@
-# 127. Consolidated release notes, waves 1 to 4: main against production `b96a396` (15 October 2026)
+# 127. Consolidated release notes, waves 1 to 4: main against production `b96a396` (15 October 2026, updated 16 October night)
 
-Authority: `docs/120-chatgpt-ruling-2026-10-15.txt` section D ("Create consolidated release notes for Waves 1 to 4 and a candidate manifest"). This file describes what main carries that production does not. It is a description, not an authorization: Joy alone releases, and the ruling's own words apply: the cross-business identity leak blocks release of waves 1 to 3 until the repair (W2) is built, rehearsed and verified; the readiness verdict lives in `docs/128`.
+Authority: `docs/120-chatgpt-ruling-2026-10-15.txt` section D ("Create consolidated release notes for Waves 1 to 4 and a candidate manifest") and `docs/131-chatgpt-ruling-2026-10-16.txt` section 3 Stage C (the go/no-go package list). This file describes what main carries that production does not. It is a description, not an authorization: Joy alone releases. The readiness verdict lives in `docs/128` (NOT READY, section 17); the plain-English package for Joy is `docs/134`.
 
-Read against: production `b96a396` (released 9 October, inert, healthy), main `7fb5e71` on 15 October (differs from the CI-green `357fabc` by three docs commits only: `git diff --stat 357fabc..7fb5e71` touches `docs/` alone). Every statement below was read from the diff `b96a396..7fb5e71`; nothing was read from production.
+Read against: production `b96a396` (released 9 October, inert, healthy). Originally written against main `7fb5e71` (15 October). Updated on 16 October night against main `5bb9337` (the merge of `platform/rollback-keep-scheduler-stopped` on top of `3755d27`): every statement was re-read from the diff `b96a396..5bb9337` and from the code on main; nothing was read from production. `5bb9337` changes no file under `apps/` relative to `3755d27` (only `deploy/` scripts, their safety test, checklists and docs), so the application gate on `3755d27` applies to its application code.
+
+## 0. What changed in these notes on 16 October
+
+- Two more migrations: `2026_10_15_600000_create_identity_repair_tables` (W2, docs/126) and `2026_10_16_100000_create_facts_tz_corrections_table` (docs/133). Twelve in all (section 3).
+- Fourteen permissions, not thirteen: `hq.customers.quarantine.repair` arrived with W2 (section 4).
+- Three permanently human-only tools, not two: `customers.quarantine.repair` arrived with W2 (section 5).
+- New commands: `hq:identity:repair`, `hq:facts:tz-backfill`, `hq:events:export-since`, `hq:events:import`, each labelled READ-ONLY or MUTATING (section 5).
+- New environment key `HQ_EVENTS_DRAIN_PAUSED` and the `--keep-scheduler-stopped` flag of `deploy.sh` and `rollback.sh` (section 7).
+- Known limitations extended with the docs/132 and docs/133 findings (section 10); candidate manifest reset to PENDING FREEZE (section 11).
 
 ## 1. What the release is, in one paragraph
 
@@ -10,6 +19,12 @@ Think of HQ as a building where, until now, every business shared one key board.
 
 ## 2. Merged workstreams (merge commits, newest first)
 
+- `5bb9337` rollback flag (docs/132 section 9): opt-in `--keep-scheduler-stopped` on `deploy.sh` and `rollback.sh`; defaults unchanged. No application code.
+- `3755d27` time-zone backfill and follow-up self-decision (docs/133, ruling docs/131 items 4 and 8).
+- `69a1bb1` event preservation (docs/132, ruling docs/131 section 1.1, Stages B and D): export/import bridge, drain pause flag, rehearsal section 10.
+- `d2bea57` local SQL rehearsal on the earlier candidate `a7bb85e` (docs/128 section 16).
+- `a109007` W7 release readiness (docs/127, docs/128, docs/129, rehearsal scripts, checklists, structural searches).
+- `e13ab87` W2 identity repair (docs/126): planner, applier, verifier, recount, human-only `customers.quarantine.repair` tool, wider detector.
 - `357fabc` W5 small items + W5-TZ (docs/125): ruling items 1 to 7, 18 to 35, 40 to 42; shop timestamps to UTC.
 - `873e372` W4 S4 outcome follow-ups (docs/123): follow-ups on the S3 ledger, Customer 360 section, overdue alert, retention v3, no-tool-step pin.
 - `e5e9da0` W0 + W1 identity business scope (docs/121, docs/122): containment evidence, business-scoped identities, resolver, defence in depth, item 38.
@@ -29,7 +44,7 @@ Think of HQ as a building where, until now, every business shared one key board.
 
 ## 3. Migrations since `b96a396`, in execution order
 
-Ten files, all new (none modified), listed by `git diff --name-only b96a396..HEAD -- apps/hq/database/migrations`. Laravel runs them in filename order, in ONE batch, from the `app` container's entrypoint (`migrate --force`) during `deploy.sh`. "Additive" means: existing rows are not changed and nothing the old code reads is removed. Each `down()` was read.
+Twelve files, all new (none modified), listed by `git diff --name-status b96a396..5bb9337 -- apps/hq/database/migrations` (every line `A`). After the release production holds 57 + 12 = 69 migrations, the last `2026_10_16_100000_create_facts_tz_corrections_table`. Laravel runs them in filename order, in ONE batch, from the `app` container's entrypoint (`migrate --force`) during `deploy.sh`. "Additive" means: existing rows are not changed and nothing the old code reads is removed. Each `down()` was read.
 
 1. `2026_10_10_100000_add_cost_attribution_to_evaluation` (docs/106)
    - Additive: `evaluation_results.correlation_id` (nullable, index); `evaluation_runs.cost_estimated_usd`, `cost_provider_usd`, `cost_attribution` (nullable).
@@ -73,20 +88,29 @@ Ten files, all new (none modified), listed by `git diff --name-only b96a396..HEA
     - Additive: `decision_records.business_id` (nullable FK RESTRICT) with index `(business_id, created_at)`.
     - Backfill, in the migration, by `App\Decisions\DecisionBusinessBackfill`: only from a reliable context row (an approval by id, an agent run or a conversation by uuid) that exists and carries a business; everything else stays NULL and is listed by `hq:decisions:report --unassigned`. Never guessed.
     - `down()`: REAL, unconditional. Drops the index and the column; a re-run derives the same values.
+11. `2026_10_15_600000_create_identity_repair_tables` (docs/126, W2)
+    - Additive: tables `customer_identity_repairs` (one row per repair batch; status CHECK `applying`, `partial`, `applied`, `verified`, `verification_failed`; `verified_at` set exactly when verified) and `customer_merge_reversals` (append-only lineage, triggers refuse UPDATE and DELETE; the original `customer_merges` row is never touched; CHECK that the two businesses differ). The `cross_business_quarantines_kind_check` CHECK is DROPPED and re-added wider (adds `participant`, `message`, `identity_conflict`).
+    - Backfill: none. Both tables ship empty. Only the human-only tool `customers.quarantine.repair` writes them.
+    - `down()`: CONDITIONAL. Refuses when any `customer_merge_reversals` row exists ("dropping them loses lineage") or when any quarantine flag carries one of the three new kinds. Otherwise real: restores the narrower kind CHECK, drops the triggers, the function and both tables. Right after the release it rolls back (no reversal, no flag; proven in docs/128 section 16). It becomes a one-way door as soon as Joy authorizes `hq:identity:cross-business --flag` (which can write a new-kind flag) or a repair apply.
+12. `2026_10_16_100000_create_facts_tz_corrections_table` (docs/133, ruling docs/131 item 8)
+    - Additive: table `facts_tz_corrections` (old and new value per corrected timestamp, source event, raw string, batch key, person, reason); CHECK on the column name (`placed_at`, `confirmed_at`, `delivered_at`, `cancelled_at`); CHECK `old_value <> new_value`; unique per batch, row and column; triggers refuse UPDATE and DELETE.
+    - Backfill: none. The migration corrects no timestamp. Only `hq:facts:tz-backfill --apply` writes it.
+    - `down()`: CONDITIONAL. Refuses once any correction row exists ("dropping them loses the evidence"). Otherwise real. Right after the release it rolls back; after an authorized tz apply it is a one-way door.
 
-Rollback order (`migrate:rollback --step=1`, newest first): 10 real, 9 real on production (conditional), 8 REFUSES on production, 7 to 1 real but unreachable by `migrate:rollback` once 8 has refused. The whole-batch `migrate:rollback` (no `--step`) stops at the first refusal, which is 8. A code rollback (`deploy/rollback.sh <sha>`) never runs a migration, so `b96a396` code would run against this newer schema: the old resolver's `updateOrCreate` would then hit the new unique index and the composite FKs, which refuse a cross-business write loudly instead of silently moving a row. That is safer than before, but it is not "the old behaviour": a code rollback after this release must be followed by the restore path if the old schema is wanted.
+Rollback order (`migrate:rollback --step=1`, newest first): 12 real right after the release (conditional), 11 real right after the release (conditional), 10 real, 9 real on production (conditional), 8 REFUSES on production, 7 to 1 real but unreachable by `migrate:rollback` once 8 has refused. Once Joy has authorized a flag write, a repair or a tz apply, 11 or 12 refuse first. The whole-batch `migrate:rollback` (no `--step`) stops at the first refusal, which is 8. A code rollback (`deploy/rollback.sh <sha>`) never runs a migration, so `b96a396` code would run against this newer schema: the old resolver's `updateOrCreate` would then hit the new unique index and the composite FKs, which refuse a cross-business write loudly instead of silently moving a row. That is safer than before, but it is not "the old behaviour": a code rollback after this release must be followed by the restore path if the old schema is wanted.
 
 ## 4. Seeder changes
 
 Only `RolesAndPermissionsSeeder` changed. It is additive (`findOrCreate`, `givePermissionTo`, never `syncPermissions`), so re-running it on production cannot strip a customised role. `deploy.sh` does NOT run seeders; the seeder is a separate line after the deploy (section 9). Until it runs, a person opening a new screen gets Spatie's "permission does not exist" error (an HTTP 500), because the routes name permissions that have no row yet.
 
-New permissions (thirteen), in the order the seeder lists them:
+New permissions (fourteen), in the order the seeder lists them (read from `RolesAndPermissionsSeeder` on main):
 - `hq.consent.view`, `hq.consent.restrict`, `hq.consent.grant` (docs/108, S7)
 - `hq.playbooks.view`, `hq.playbooks.draft`, `hq.playbooks.review`, `hq.playbooks.activate` (docs/112, S6)
 - `hq.followups.view`, `hq.followups.propose`, `hq.followups.decide` (docs/113, S4)
 - `hq.consent.lift_restriction` (docs/114, two-person lift)
 - `hq.outcomes.attribute` (docs/115, the operator-asserted attribution, human-only)
 - `hq.customers.quarantine.review` (docs/117, reviewing quarantine flags)
+- `hq.customers.quarantine.repair` (docs/126, W2: applying a reviewed repair batch through the human-only tool, and assigning a business to a memory the repair withheld)
 
 Role changes:
 - `owner` and `operator` (`*`): every new permission.
@@ -94,16 +118,30 @@ Role changes:
 - `support_agent`: + `hq.consent.view`, `hq.consent.restrict`, `hq.followups.view`, `hq.followups.propose` (may record "stop"; never starts contact, never decides).
 - `finance_viewer`: unchanged.
 
-Not on main yet: `hq.customers.quarantine.repair` (W2, ruling item 36). It arrives with the repair branch and is NOT part of this manifest until W2 merges.
+- `hq.customers.quarantine.repair`: no role is given it by name; owner and operator hold it through `*`.
+
+The rehearsal on `a7bb85e` proved all fourteen present after the seeder (49 permissions in total on the rehearsal copy) and a second run clean (docs/128 section 16).
 
 ## 5. Tools, pins and commands
 
-New gateway tools, both R3 writes of HQ's own ledgers, both PERMANENTLY human-only, held by no agent, registered in `config/hq.php` `tools` (docs/105 section 1.2 rows 9 and 10):
-- `consent.lift_restriction` (`LiftRestrictionTool`, policy `LiftRestrictionPolicy`): parks every call for a second person; the requester never decides it.
-- `outcomes.attribute` (`AttributeOutcomeTool`): the only writer of an `operator_asserted` attribution; INERT (nothing reads the rows it writes).
-- The `tools` table gains no row by itself: `hq:tools:sync` (manual) creates the switch rows. A tool with no row is available by default to the gateway's policy, which for these two still refuses every agent and parks or requires a person. Run the sync after the deploy so the rows exist on the registry screen.
+New gateway tools, all three R3 writes of HQ's own rows, all three PERMANENTLY human-only (`permanentlyHumanOnly: true` in each descriptor), held by no agent, registered in `config/hq.php` `tools` (docs/105 section 1.2 rows 9 to 11). Docs/131 Stage C names "the two human-only tools"; W2 added a third, so there are three:
+- `consent.lift_restriction` (`LiftRestrictionTool`, permission `hq.consent.lift_restriction`, policy `LiftRestrictionPolicy`): parks every call for a second person who also holds the permission; the requester never decides it.
+- `outcomes.attribute` (`AttributeOutcomeTool`, permission `hq.outcomes.attribute`): the only writer of an `operator_asserted` attribution; INERT (nothing reads the rows it writes).
+- `customers.quarantine.repair` (`QuarantineRepairTool`, permission `hq.customers.quarantine.repair`): the only caller of the repair applier; executes only a batch the dry run proposed whose every row a person reviewed (at least one `needs_repair`, none `disputed`). Reached from `/customers/quarantine` or from `hq:identity:repair --apply`, both through the Tool Gateway.
+- Also human-only but not a tool: assigning a business to a memory the repair withheld (`HeldMemoryAssigner`, route `POST customers/quarantine/memories/{memory}/assign`, permission `hq.customers.quarantine.repair`, audited, not agent-callable; ruling docs/131 item 9 allows this).
+- The `tools` table gains no row by itself: `hq:tools:sync` (manual) creates the switch rows. A tool with no row is available by default to the gateway's policy, which for these three still refuses every agent and parks or requires a person. Run the sync after the deploy so the rows exist on the registry screen.
 
-New artisan commands: `hq:identity:cross-business` (dry run by default, `--flag` writes append-only flags), `hq:evaluation:attribute-cost` (dry run by default, `--apply` writes), `hq:decisions:report` (reads only; `--unassigned` lists decision records with no business and why). No new scheduled command (`routes/console.php` unchanged).
+New artisan commands, each labelled. READ-ONLY means it writes no business row (the checklists also run it in a session PostgreSQL holds read-only). MUTATING means the named option writes; each mutation needs Joy's explicit authorization after he has read the dry run (ruling docs/131 Stage D).
+- `hq:identity:cross-business`: READ-ONLY by default (`--dry-run`, lists findings). MUTATING with `--flag` (append-only quarantine flags). Stage D step 6.
+- `hq:identity:repair`: READ-ONLY by default (the plan; `--recount` adds the business-scoped recount; `--json`). MUTATING with `--apply --key=<batch key> --by=<email> --reason="<why>"` (one reviewed batch, through the human-only tool). Stage D steps 7 and 8.
+- `hq:facts:tz-backfill`: READ-ONLY by default (evidence, ambiguous rows, before and after by Dhaka day; `--json`). MUTATING with `--apply --key=<batch key> --by=<email> --reason="<why>"` (writes `facts_orders`, `facts_tz_corrections`, `audit_logs`). Stage D step 9.
+- `hq:evaluation:attribute-cost` (the cost backfill): READ-ONLY by default (`--run=<id>` to narrow). MUTATING with `--apply` (writes complete runs only). Stage D step 9.
+- `hq:events:export-since`: READ-ONLY for the database (SELECTs). It writes one new file (mode 600, never overwrites; it holds payloads, so it is personal data). Needs exactly one of `--since-id=` or `--since=`; `--out=` names the file. Used only before a restore (docs/132 section 5 C).
+- `hq:events:import <file>`: READ-ONLY by default (`--dry-run`). MUTATING with `--apply --by=<email> --reason="<why>"` (inserts absent rows into `events` as pending, never processes them, one `events.imported` audit row). Used only after a restore.
+- `hq:decisions:report`: READ-ONLY always (`--unassigned` lists decision records with no business and why; `--window`, `--business`, `--json`).
+- Unchanged but used in the sequences: `hq:events:replay` (READ-ONLY without `--apply`; MUTATING with it) and `hq:tools:sync` (MUTATING: switch rows; `--list` only lists).
+
+No new scheduled command (`routes/console.php` unchanged).
 
 Structural pins added (each a Pest file that reads the source and fails on a new offender): `GatewayCoverageStructureTest` (only the gateway invokes a tool; eleven effectful tools exactly; no reader of `scheduler.gateway`), `IdentityBusinessScopeTest` structural pin (every `customer_identities` lookup names a business; proven on a planted offender), `PlaybookStructureTest` (one loader reader; deciding code ignorant of playbooks; no seeded content; no raw reader), `OutcomeWritePathStructureTest` (one writer; readers business-restricted), `FollowUpStructureTest` and `ListedWorkflowDefinitionsStructureTest` (no listed workflow has a tool step, tested on the definitions), `IdentityScopeReadonlySqlTest` (the W0 file is SELECT-only), the five whole-second pins (docs/124). The Stage 6 runner `deploy/tools/structural-searches.sh` runs them together (docs/128).
 
@@ -117,8 +155,23 @@ No migration, seeder or deploy step creates, changes or deletes a `feature_flags
 
 Agent posture, before = after: every agent `status = paused`, `max_autonomy_level = a0`; `autonomy_grants` zero active; `shadow_periods` none open (and ruling A1 says none may open before containment and scoped-read verification).
 
-## 7. Configuration keys (all in `config/hq.php`; no new environment key in `apps/hq/.env.example` or `deploy/.env.example`)
+## 7. Configuration keys and deploy flags
 
+New environment key (docs/132), the only one in this release:
+
+- `HQ_EVENTS_DRAIN_PAUSED` (`config('hq.events.drain_paused')`, default false). While true, `hq:events:process` claims nothing: webhooks are still recorded as `pending` rows and wait. Listed commented out in `deploy/.env.example`; NOT enabled anywhere. Set it in `deploy/.env` BEFORE the release under Option 2 (docs/132 section 5 B1). Removing it takes effect only when the scheduler container is recreated (the entrypoint caches config). It pauses only the event drain: the scheduler tick, alerts, retention and shadow ticks keep running if the scheduler runs.
+
+New deploy script flags (docs/132 section 9), opt-in, defaults unchanged:
+
+- `./deploy/deploy.sh [--no-pull] --keep-scheduler-stopped`: stops the scheduler, then `up -d --remove-orphans --scale scheduler=0`; the release still migrates; ends saying the scheduler is LEFT STOPPED and the release may be recorded UNVERIFIED. `--verify-only` ignores it.
+- `./deploy/rollback.sh --keep-scheduler-stopped <sha>`: stops the scheduler and starts only `app horizon web`, with migrations still off.
+- The variable `HQ_KEEP_SCHEDULER_STOPPED=1` does the same in both scripts; any value other than empty, `0` or `1` is refused before anything moves. Use the flag, not the variable: production's `b96a396` scripts refuse the unknown flag (nothing moves) but silently ignore the variable.
+- Without the flag both scripts start a stopped scheduler, as before, after six WARNING lines and 10 seconds to abort.
+
+Configuration keys in `config/hq.php`:
+
+- `hq.events.drain_paused` (above).
+- `hq.tools`: + `QuarantineRepairTool` (W2).
 - `hq.playbooks.max_chars_per_version` 16000 (`HQ_PLAYBOOK_MAX_CHARS`), `hq.playbooks.max_chars_per_run` 40000 (`HQ_PLAYBOOK_RUN_MAX_CHARS`).
 - `hq.tools`: + `LiftRestrictionTool`, `AttributeOutcomeTool`.
 - `hq.scheduler_gateway_flag`: REMOVED (docs/116). `hq.scheduler.*` unchanged.
@@ -139,35 +192,53 @@ Agent posture, before = after: every agent `status = paused`, `max_autonomy_leve
 - Behaviour: an order or message whose only identity value is quarantined fails closed (the event retries, then goes dead and stays replayable) instead of attaching to a guessed customer (docs/122 open question 1). A within-business ownership conflict refuses the move, writes a `link_refused` conflict row and audits it once; the order still resolves to the customer its stronger key named.
 - Shop timestamps: every `+06:00` or `Z` timestamp is stored as UTC; the contribution report reads Dhaka day bounds correctly (W5-TZ).
 
-## 9. Post-deploy lines that are part of this release (Joy, on the VPS, after `deploy.sh` verified the release)
+## 9. Release sequence and post-deploy lines (Joy, on the VPS)
 
-- `$C exec -T app php artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force` (the thirteen permissions; additive).
-- `$C exec -T app php artisan hq:tools:sync` (switch rows for the two new tools).
+The release under containment Option 2 is docs/132 section 5 B; the plain-English version with every line is docs/134 section 5. In short: `HQ_EVENTS_DRAIN_PAUSED=true` in `deploy/.env`; move the checkout by hand with `git fetch -q origin main && git rev-parse --short origin/main` (must print the candidate) and `git merge --ff-only origin/main`; then `./deploy/deploy.sh --verify-only --no-pull` and `./deploy/deploy.sh --no-pull --keep-scheduler-stopped`. The first run must be the candidate's script, because production's `b96a396` `deploy.sh` refuses the flag.
+
+After `deploy.sh` has run:
+
+- `$C exec -T app php artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force` (the fourteen permissions; additive; a WRITE, Joy's step).
+- `$C exec -T app php artisan hq:tools:sync` (switch rows for the three new tools; a WRITE of switch rows only).
 - Then the read-only post-release checklist (`deploy/checklists/post-release-readonly.md`).
-- NOT part of the release (separately gated, ruling D.5): `hq:identity:cross-business --flag`, the W2 repair, `hq:evaluation:attribute-cost --apply`, the `scheduler.gateway` row delete.
+- NOT part of the release (separately gated, ruling docs/131 Stage D): `hq:identity:cross-business --flag`, the W2 repair apply, `hq:evaluation:attribute-cost --apply`, `hq:facts:tz-backfill --apply`, resuming the drain (removing `HQ_EVENTS_DRAIN_PAUSED`), the `scheduler.gateway` row delete.
 
 ## 10. Known limitations and open items carried by this candidate
 
-- The identity leak's EFFECTS are not repaired by this release: order #16 stays under customer #1, the two quarantined identities stay quarantined with open conflict rows, until W2's audited repair runs under Joy's authorization. The detector is read-only by default; a detector with unresolved findings is not a clean-data certificate.
-- Migration 8's `down()` refuses on production data; recovery is the pre-deploy dump + `deploy/restore.sh`.
-- W5-TZ: existing production `facts_orders` rows written from `+06:00` strings (status events, ERP read-back) are six hours late and are NOT corrected; a repair needs its own ruled, dry-run-first backfill.
+- The identity leak's EFFECTS are not repaired by the release itself: order #16 stays under customer #1, the two quarantined identities stay quarantined with open conflict rows, until the W2 repair runs under Joy's authorization (Stage D steps 6 to 8). The detector is read-only by default; a detector with unresolved findings is not a clean-data certificate.
+- Non-reversible migrations and the restore-based recovery: migration 8 (W1) refuses its `down()` on production data the moment it runs (two conflict rows). Migrations 11 and 12 refuse theirs once a new-kind flag, a repair reversal or a tz correction exists. The way back is therefore not `migrate:rollback`: it is `./deploy/rollback.sh --keep-scheduler-stopped b96a396` (code only), then `deploy/restore.sh` from the verified pre-deploy dump `deploy.sh` took before the checkout moved, with the event bridge (`hq:events:export-since` before, `hq:events:import` after; docs/132 section 5 C). Proven at SQL level and row level locally (docs/128 sections 9 and 16); the real `restore.sh` and section 10 of `rehearse.sh` are NOT yet proven (the VPS Docker rehearsal is pending).
+- Residual quarantined records and ambiguous cases expected on production after the release and before the repair: 2 identities quarantined `store_business_mismatch`, 2 open conflict rows, 1 cross-business order (#16). The repair dry run is expected to propose one split with 0 ambiguous cases (docs/126). The local rehearsal's seeded shapes also showed what stays held when the business cannot be established (docs/128 section 16: 4 identities stay quarantined, 1 ambiguous participant). Production's real figures are unknown until the post-release checklist.
+- W5-TZ: existing production `facts_orders` rows written from `+06:00` strings are six hours late. `hq:facts:tz-backfill` now finds and, on Joy's separate authorization, corrects only the ones the stored shop payload proves (docs/133). Rows without evidence stay as they are and are listed as ambiguous.
+- Two TZ findings NOT fixed (docs/133 "Findings, not changed here"): `ShopWebhookController` stores `events.occurred_at` without `->utc()`, so a shop sending `+06:00` in the envelope makes `events.occurred_at` and `facts_orders.last_event_at` six hours late, and there is no evidence to repair existing rows; `IdentityResolver` passes the raw `placed_at` string into `customers.first_seen_at` and `last_seen_at`, so a `+06:00` string lands six hours late there (expected to affect ERP read-backs only, since the shops send `Z`). Both need their own decision.
+- The shops' retry behaviour is an assumption, not confirmed (docs/132 finding c): HQ's records say LaLaDia's `SendWebhookJob` retries a non-2xx a few times and treats 202 as final; neither deployed shop commit has been read. While HQ's `app` is down (a restore), the shops' retry window is the only protection for deliveries.
+- Rows stuck at `processing` after a hard stop: a drain killed mid-batch (for example by `docker compose stop scheduler`) leaves its claimed rows at `processing`. Nothing reclaims them automatically; each is reviewed by a person (docs/132 finding b and section 5 A2).
+- `--scale scheduler=0` is untested on real Docker: the safety suite proves it with a stubbed `docker` only. The first real use is followed by `$C ps scheduler`, which must show no running scheduler (docs/132 section 9).
+- While the scheduler is stopped, the release shows UNVERIFIED: `/api/health` reports the scheduler failing after 180 seconds, so `release.json` records `"verification":{"status":"failed"` with the scheduler as the only failing component. Expected; it is verified by `./deploy/deploy.sh --no-pull` after Stage D step 10 (docs/132 section 5 B3 and B5).
+- While Option 2 is in force, alerts, the approvals sweep, retention, shadow ticks and delivery reconciliation are paused too (docs/121 section 3, docs/132 section 5 A3). That is a monitoring loss Joy accepts by choosing Option 2.
 - The `scheduler.gateway` row delete is deferred (item 40).
 - `hq:evaluation:attribute-cost` historical runs that threw before docs/116 stay `complete = false` and are never written.
 - `conversations` unique `(channel, external_thread_ref)` is still global (docs/122 open question 2).
-- The follow-ups screens show `primary_phone_canonical` without withholding (docs/122 open question 3).
+- RESOLVED by W2: the follow-ups screens now withhold a phone the way Customer 360 does (docs/122 open question 3, docs/126).
+- No screen settles an open identity conflict yet (docs/126 open question 1; ruling docs/131 item 3 approves a human-only resolution flow for the next wave).
 - No dedicated staging exists; the rehearsal is a disposable isolated environment, not a staging deployment.
-- Production's own copy of `deploy.sh` is `b96a396`'s (host lock and `RUN_MIGRATIONS` refusal present, docs/81 C.9); `deploy/` itself gains only two read-only tool files in this release.
+- Production's own copy of `deploy.sh` is `b96a396`'s (host lock and `RUN_MIGRATIONS` refusal present, docs/81 C.9). It does not know `--keep-scheduler-stopped`, which is why the release moves the checkout by hand first (section 9). This release changes `deploy.sh`, `rollback.sh` and `backup-first-lib.sh` (the opt-in flag only, defaults unchanged) and adds read-only tool files and the rehearsal scripts.
+- `deploy.sh --verify-only` does not match `DROP CONSTRAINT` or `DROP INDEX` (section 3, migration 8); migrations 9 and 11 also drop and re-add a CHECK.
 
 ## 11. Candidate manifest (filled at freeze; placeholders until then)
 
 - Production before: `b96a396`.
-- main at the time of these notes: `7fb5e71`.
-- Release candidate commit: `<candidate>` (PENDING: W2 `p3/identity-repair` must merge first, then the combined gate; the candidate is the merge commit CI was green on).
-- GitHub Actions run on the exact candidate: `<run id>` (PENDING). Last green run on main: 38681310680 on `357fabc` (all three jobs).
-- Local combined gate at `357fabc`: 2,125 Pest passed, 0 failed, 31,947 assertions; Pint, `tsc --noEmit`, Vite clean.
-- Migrations: the ten files of section 3 (PENDING: plus W2's).
-- Seed changes: section 4 (PENDING: plus `hq.customers.quarantine.repair`).
+- main at the time of this update: `5bb9337` (16 October night).
+- Release candidate commit: PENDING FREEZE. The earlier candidate `a7bb85e` is withdrawn: it lacks event preservation (docs/132), the tz backfill and item 4 (docs/133) and the rollback flag (docs/132 section 9), so sequence B and the restore bridge cannot run on it. The new candidate is a commit at or after `5bb9337`, frozen only when CI can run on it.
+- GitHub Actions run on the exact candidate: PENDING. GitHub Actions is blocked by billing since run 38912755286 (on `a7bb85e`, never started: "recent account payments have failed or your spending limit needs to be increased"). Last green run on main: 38681310680 on `357fabc` (all three jobs). Neither substitutes for CI on the exact candidate (ruling docs/131 Stage A.2).
+- Local combined gate: 2,166 Pest passed, 0 failed, on `3755d27` (the merge of docs/133; `5bb9337` adds no application code). Earlier: 2,143 on `a7bb85e`, 2,157 on the event-preservation branch, 2,152 on the tz branch, 2,125 on `357fabc`. Structural searches S1 to S4 PASS (docs/132 section 8, docs/133). Deploy safety suite with the rollback flag: sections 28 to 29e, 56 assertions (commit `e45d075`). Rehearsal guard suite: 48 passed.
+- Migrations: the twelve files of section 3.
+- Seed changes: section 4 (`RolesAndPermissionsSeeder` only, fourteen permissions).
 - Permission changes: section 4.
+- Human-only tools: section 5 (three).
+- New commands, READ-ONLY versus MUTATING: section 5.
+- New environment key and deploy flags: section 7.
 - Expected feature flags: section 6 (before = after).
 - Post-release verification evidence: `deploy/checklists/post-release-readonly.md`, output pasted into docs/128 by Joy after the release (PENDING).
-- Rehearsal evidence: the LOCAL SQL-level migration rehearsal was executed on 16 October (docs/128 section 9: corrupted and clean scenarios PASS; W1's `down()` refused on the production shape; the pre-migration dump restored exactly). The Docker deployment rehearsal on the VPS with a production dump is PENDING (docs/128 section 10 names the command).
+- Rehearsal evidence: the LOCAL SQL-level migration rehearsal was executed on 16 October (docs/128 section 9: corrupted and clean scenarios PASS; W1's `down()` refused on the production shape; the pre-migration dump restored exactly), and again on `a7bb85e` with eleven migrations and the repair dry run (docs/128 section 16: 31 PASS each scenario, dry runs proven write-free at row level, restore equal row for row). There is no record of it having run on a commit carrying migration 12 and the tz dry run; the scripts run the tz dry run only when the command exists. The Docker deployment rehearsal on the VPS with a production dump, the real `restore.sh` and `rehearse.sh` section 10 (the event bridge) is PENDING (docs/128 section 10 names the command; it needs Joy's go and a fresh dump).
+- Containment status: NOT applied. Joy's decision is pending; ChatGPT recommends Option 2 (docs/131 section 1.1). The incident is not claimed contained.
+- Pre-release and post-release checklists: `deploy/checklists/pre-release-readonly.md`, `deploy/checklists/post-release-readonly.md` (expected counts updated on 16 October night to twelve migrations, 69 in total, and fourteen permissions).

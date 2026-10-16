@@ -65,7 +65,7 @@ Expected:
 - `scheduled_jobs state=paused` includes jobs 2 and 6 (docs/121 section 5);
 - `consent_events` and `consent_state` 0 rows (production holds no consent rows), `consent_projection_drift 0`;
 - `evaluation_cost_attribution column_absent (pre-release schema)`;
-- permissions: the count before the release (the release's seeder adds thirteen; keep the number for the post-release comparison).
+- permissions: the count before the release (the release's seeder adds fourteen; keep the number for the post-release comparison).
 
 Keep `/root/hq-posture-before-release.txt`: the post-release checklist compares against it. `tee` writes that one file on the host, outside the repository and outside the database.
 

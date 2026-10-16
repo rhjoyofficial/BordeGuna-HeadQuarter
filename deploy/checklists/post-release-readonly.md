@@ -33,7 +33,7 @@ $C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on app php artisan migra
 $C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -f -' < deploy/rehearsal/sql/verify-constraints.sql
 ```
 
-Expected: the ten wave 1 to 4 migrations `Ran` in one batch (`2026_10_10_100000_add_cost_attribution_to_evaluation` to `2026_10_15_510000_add_business_id_to_decision_records`, docs/127 section 3) and no `Pending`; `verify-constraints.sql` prints 21 `PASS` lines and no `FAIL` (the business-scoped unique key NULLS NOT DISTINCT over live rows, both composite foreign keys, the `(id, business_id)` keys they rest on, `business_id NOT NULL`, the old group-wide key gone, no duplicate live key, every identity carrying its owner's business, no live identity naming another business's store, every quarantined identity with a conflict row, the attribution composite FK and typed-action CHECK, the consent scope index, the append-only triggers, no cascading FK on a ledger, the ten migrations recorded).
+Expected: the twelve wave 1 to 4 migrations `Ran` in one batch (`2026_10_10_100000_add_cost_attribution_to_evaluation` to `2026_10_16_100000_create_facts_tz_corrections_table`, docs/127 section 3) and no `Pending`; `verify-constraints.sql` prints 21 `PASS` lines and no `FAIL` (the business-scoped unique key NULLS NOT DISTINCT over live rows, both composite foreign keys, the `(id, business_id)` keys they rest on, `business_id NOT NULL`, the old group-wide key gone, no duplicate live key, every identity carrying its owner's business, no live identity naming another business's store, every quarantined identity with a conflict row, the attribution composite FK and typed-action CHECK, the consent scope index, the append-only triggers, no cascading FK on a ledger, the ten migrations up to `2026_10_15_510000` recorded; the SQL file checks those ten, `migrate:status` above shows all twelve).
 
 Then the permission seeder, which `deploy.sh` does NOT run and which is the one WRITE of the release procedure (it is additive and idempotent; it is listed here so the read below has something to verify, and it is Joy's step, not a check):
 
@@ -44,10 +44,10 @@ $C exec -T app php artisan db:seed --class='Database\Seeders\RolesAndPermissions
 Read back:
 
 ```
-$C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on db sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -At -c \"SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review')\""
+$C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on db sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -At -c \"SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review','hq.customers.quarantine.repair')\""
 ```
 
-Expected: `13`. The total permission count is the pre-release count plus 13.
+Expected: `14`. The total permission count is the pre-release count plus 14.
 
 ## 3. Identity lookups are business-scoped; no known leak remains in the verified scope; unresolved identities fail closed
 
@@ -89,7 +89,7 @@ Expected:
 
 - `POSTURE UNCHANGED`: flags (`ai.runtime`, `channels.meta.inbound`, `channels.meta.forwarded` off), every agent `paused` at `a0`, `autonomy_grants_active 0`, `shadow_periods_open 0`, scheduled jobs and their states, tool switches, pending approvals, consent events and consent state by state, `consent_projection_drift 0`, evaluation and AI run counts: all as before. The local rehearsal proved the same diff empty across migrate, seeder, dry runs, rollback and re-apply (docs/128 section 9).
 - consent: the counts by state are unchanged, so no restriction became a grant (the release writes no consent row; migrations 4 and 5 only widen the projection's scope key, docs/127).
-- `migrations 67 last=2026_10_15_510000_add_business_id_to_decision_records`; `evaluation_cost_attribution attributed=0 unattributed=<every run>`.
+- `migrations 69 last=2026_10_16_100000_create_facts_tz_corrections_table`; `evaluation_cost_attribution attributed=0 unattributed=<every run>`.
 - `hq:evaluation:attribute-cost` (dry run by default): a ` DRY RUN ` banner, one row per finished evaluation run with recorded and computed cost and `results linked/no-call/unaccounted`, ending `<n> run(s) read; none written (dry run); <m> incomplete (never written).` Unaccounted results are shown as unaccounted, never as zero cost. These are the backfill dry-run figures for D.6.
 - `hq:decisions:report --unassigned`: `<n> decision record(s) without a business. None is guessed`, each with its reason.
 - `hq:ai:cost`: the month's AI spend, unchanged by the release.
@@ -131,7 +131,7 @@ It refuses a key that no longer matches the live data, never changes an ambiguou
 Migration `2026_10_15_100000_scope_customer_identities_to_business` REFUSES its `down()` once any `customer_identity_conflicts` row exists, and on production two will exist (section 3). `migrate:rollback` is therefore not the way back. The way back is code first, then data, both WRITES and both outside this read-only checklist, on Joy's decision:
 
 0. Before anything: the event export (docs/132 section 5 C1 step 1), while the candidate still runs.
-1. `./deploy/rollback.sh --keep-scheduler-stopped b96a396`: code only, no migration runs, `RUN_MIGRATIONS=0` on `app` (deploy/README.md section "Rollback"). Code first, because the candidate's `app` container migrates on start (`RUN_MIGRATIONS=1`): restoring the database under it and then starting it would re-apply the ten migrations. `--keep-scheduler-stopped` because `b96a396` has no `HQ_EVENTS_DRAIN_PAUSED`: a started scheduler would drain every pending event through the OLD resolver (docs/131 section 1.1, docs/132 section 5 C2). The script ends with "The scheduler is LEFT STOPPED" and the command that starts it: do not run it.
+1. `./deploy/rollback.sh --keep-scheduler-stopped b96a396`: code only, no migration runs, `RUN_MIGRATIONS=0` on `app` (deploy/README.md section "Rollback"). Code first, because the candidate's `app` container migrates on start (`RUN_MIGRATIONS=1`): restoring the database under it and then starting it would re-apply the twelve migrations. `--keep-scheduler-stopped` because `b96a396` has no `HQ_EVENTS_DRAIN_PAUSED`: a started scheduler would drain every pending event through the OLD resolver (docs/131 section 1.1, docs/132 section 5 C2). The script ends with "The scheduler is LEFT STOPPED" and the command that starts it: do not run it.
 2. The database from the pre-deploy dump `deploy.sh` took and verified before the checkout moved (its name is in the `deploy.sh` output, section 1): deploy/README.md section "Rollback", block "Database, only if a migration must be undone": stop `app horizon` (the scheduler is already stopped), rehearse the restore into `hq_restore_check`, restore into the production database, then `$C start app horizon`. Never start the scheduler here: it waits for a fixed release (docs/132 section 5 C2 step 5).
 
 The local rehearsal proved the pre-migration dump restores to exactly the pre-migration snapshot (docs/128 section 9). The Docker rehearsal on the VPS (`deploy/rehearsal/rehearse.sh`) proves the same with a production dump and the real `deploy/restore.sh`; until it has run, this path is rehearsed at SQL level only.

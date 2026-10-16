@@ -237,3 +237,28 @@ Blockers after this section (section 14 numbering):
 - 8 CLEARED (section 3, flake).
 
 Verdict unchanged: NOT READY.
+
+## 17. Status 16 Oct night
+
+Main is `5bb9337` (the rollback-flag merge on top of `3755d27`). Nothing was released, nothing touched production, no repair or backfill ran. The plain-English package for Joy is `docs/134`; the release notes are updated in `docs/127`.
+
+Cleared since section 16:
+
+- Event preservation (docs/132, merged `69a1bb1`): a webhook is committed before the 202; nothing but the drain moves a pending row; replay is idempotent; `hq:events:export-since` and `hq:events:import` bridge a restore; `HQ_EVENTS_DRAIN_PAUSED` (off by default) keeps the drain from resuming on release. 14 tests in `EventPreservationTest`; `rehearse.sh` section 10 written (not yet run).
+- Time-zone backfill dry run (docs/133, merged `3755d27`, ruling item 8): `hq:facts:tz-backfill`, evidence only, dry run by default, ambiguous rows listed and never changed, apply gated on `--key --by --reason`; migration `2026_10_16_100000_create_facts_tz_corrections_table`; wired into both rehearsal scripts and the post-release checklist (apply line labelled JOY-AUTHORIZED).
+- Item 4, follow-up self-decision (docs/133, merged `3755d27`): refused once a second eligible decider exists; the sole decider's approval is recorded `self_decided` with a bootstrap audit row.
+- Rollback flag (docs/132 section 9, merged `5bb9337`): opt-in `--keep-scheduler-stopped` on `deploy.sh` and `rollback.sh`, defaults unchanged, 56 safety-suite assertions with a stubbed Docker.
+- Local gate: 2,166 Pest passed, 0 failed, on `3755d27`; `5bb9337` adds no application code. Structural searches S1 to S4 PASS.
+- Checklists: expected counts updated to twelve migrations (69 in total, last `2026_10_16_100000_create_facts_tz_corrections_table`) and fourteen permissions.
+
+Open blockers:
+
+1. CI billing. GitHub Actions has not run since run 38912755286 ("recent account payments have failed or your spending limit needs to be increased"). Clears with: Joy fixes billing; CI green on the exact frozen candidate, run id recorded.
+2. Candidate freeze. `a7bb85e` is withdrawn (it lacks docs/132, docs/133 and the rollback flag). Clears with: a commit at or after `5bb9337` frozen, the full gate (Pest, Pint, `tsc`, Vite, the four structural searches with negative controls) and CI green on it.
+3. VPS Docker rehearsal with the real `restore.sh`, including `rehearse.sh` section 10 (the event bridge across a restore). Clears with: Joy's go, a fresh production dump, `RESULT: rehearsal PASSED` on the frozen candidate, evidence pasted into section 10. The local SQL rehearsal has not been re-run on a commit carrying migration 12 and the tz dry run; the VPS rehearsal covers both.
+4. Containment decision. Clears with: Joy's choice recorded (Option 2 recommended by docs/131 section 1.1; the exact command is in docs/134 section 5 item 2). The incident is not claimed contained.
+5. Post-release checks. Open by nature: after Joy releases, the post-release checklist output pasted here before any flag write, repair or backfill.
+
+Known limitations carried (docs/127 section 10): the two unfixed TZ findings (`events.occurred_at`, `customers.first_seen_at` and `last_seen_at`), shop retry behaviour unconfirmed, rows stranded at `processing` after a hard stop, `--scale scheduler=0` untested on real Docker, the release recorded UNVERIFIED while the scheduler is stopped.
+
+Verdict: **NOT READY**.
