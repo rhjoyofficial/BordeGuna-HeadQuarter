@@ -124,6 +124,8 @@ const SS_TOOL_CALL_SITES = [
     'app/Http/Controllers/Identity/CustomerConsentController.php' => ['$this->gateway->execute'],
     'app/Workflow/WorkflowRunner.php' => ['$this->gateway->execute'],
     'app/Console/Commands/FactsReconcile.php' => ['$gateway->execute'],
+    'app/Console/Commands/IdentityRepair.php' => ['$gateway->execute'],                       // human-only repair tool, docs/126 (twin: GatewayCoverageStructureTest)
+    'app/Http/Controllers/Identity/CustomerQuarantineController.php' => ['$this->gateway->execute'], // repair from the quarantine screen, docs/126
     'app/Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
     'app/Content/Publishing/PublicationService.php' => ['$this->reconcile'],
     'app/Ask/AskHq.php' => ['$this->contexts->preview'],
@@ -195,6 +197,8 @@ const SS_CONSENT_ALLOWED = [
     'app/Agents/Shadow/ShadowEvidence.php',                   // counts agent-authored consent events (must stay zero)
     'app/Tools/Consent/LiftRestrictionTool.php',              // the two-person lift, through the gateway (docs/114)
     'app/Gateway/ToolGateway.php',                            // the ConsentGate check every effectful send passes (docs/108)
+    'app/Identity/Repair/RepairPlanner.php',                  // lists standing restrictions for the human re-record list, reads only (docs/126, A3 point 9)
+    'app/Identity/Repair/RepairApplier.php',                  // re-records do-not-contact/withdrawn on the target via ConsentLedger, never a grant (docs/126, A3 point 9)
 ];
 
 function ssConsentReaders(array $sources): array
