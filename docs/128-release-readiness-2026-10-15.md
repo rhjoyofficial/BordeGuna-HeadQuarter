@@ -255,10 +255,67 @@ Open blockers:
 
 1. CI billing. GitHub Actions has not run since run 38912755286 ("recent account payments have failed or your spending limit needs to be increased"). Clears with: Joy fixes billing; CI green on the exact frozen candidate, run id recorded.
 2. Candidate freeze. `a7bb85e` is withdrawn (it lacks docs/132, docs/133 and the rollback flag). Clears with: a commit at or after `5bb9337` frozen, the full gate (Pest, Pint, `tsc`, Vite, the four structural searches with negative controls) and CI green on it.
-3. VPS Docker rehearsal with the real `restore.sh`, including `rehearse.sh` section 10 (the event bridge across a restore). Clears with: Joy's go, a fresh production dump, `RESULT: rehearsal PASSED` on the frozen candidate, evidence pasted into section 10. The local SQL rehearsal has not been re-run on a commit carrying migration 12 and the tz dry run; the VPS rehearsal covers both.
+3. VPS Docker rehearsal with the real `restore.sh`, including `rehearse.sh` section 10 (the event bridge across a restore). Clears with: Joy's go, a fresh production dump, `RESULT: rehearsal PASSED` on the frozen candidate, evidence pasted into section 10. The local SQL rehearsal has since run on `ac03cff`, which carries migration 12 and the tz dry run (section 18); the VPS rehearsal still has to cover both on a production dump.
 4. Containment decision. Clears with: Joy's choice recorded (Option 2 recommended by docs/131 section 1.1; the exact command is in docs/134 section 5 item 2). The incident is not claimed contained.
 5. Post-release checks. Open by nature: after Joy releases, the post-release checklist output pasted here before any flag write, repair or backfill.
 
 Known limitations carried (docs/127 section 10): the two unfixed TZ findings (`events.occurred_at`, `customers.first_seen_at` and `last_seen_at`), shop retry behaviour unconfirmed, rows stranded at `processing` after a hard stop, `--scale scheduler=0` untested on real Docker, the release recorded UNVERIFIED while the scheduler is stopped.
 
 Verdict: **NOT READY**.
+
+## 18. Local rehearsal on ac03cff (16 Oct night)
+
+What it is: the same local, SQL-level rehearsal as sections 9 and 16 (Laragon PostgreSQL 17, no Docker, no production dump, nothing on the VPS), now on the candidate `ac03cff` (main HEAD), which carries all twelve release migrations, migration 12 `2026_10_16_100000_create_facts_tz_corrections_table` included, and `hq:facts:tz-backfill`. Production commit `b96a396` (57 migrations), candidate `ac03cff` (69), both exported with `git archive`; `composer.lock` identical in both (checked by the script).
+
+Script change (branch `platform/rehearsal-latest`): `deploy/rehearsal/sql/verify-constraints.sql` grew from 21 to 29 checks, still read only (catalogue SELECTs in a `BEGIN READ ONLY ... ROLLBACK`; `to_regclass` keeps a missing table a FAIL line, not an error):
+
+- migration 11: `customer_identity_repairs` unique `key`, status CHECK, `customer_identity_repairs_verified_check`;
+- migration 11: `customer_merge_reversals_split_unique (repair_id, split_key)` and `customer_merge_reversals_businesses_differ`;
+- migration 11: `customer_merge_reversals_no_update` (BEFORE UPDATE FOR EACH ROW) and `customer_merge_reversals_no_delete` (BEFORE DELETE FOR EACH ROW), enabled, both on `hq_customer_merge_reversal_immutable()`;
+- migration 11: `cross_business_quarantines_kind_check` admits `participant`, `message` and `identity_conflict` (item 39) and still the old kinds;
+- migration 12: `facts_tz_corrections_once (batch_key, facts_order_id, column_name)`, `facts_tz_corrections_changes (old_value <> new_value)`, the `column_name` CHECK;
+- migration 12: `facts_tz_corrections_no_update` and `facts_tz_corrections_no_delete`, BEFORE ROW, enabled, on `hq_facts_tz_correction_immutable()`;
+- all three new ledgers exist and every foreign key on them is ON DELETE RESTRICT;
+- migrations 11 and 12 are recorded in `migrations`.
+
+Expected count updated to 29 in `rehearse.sh`'s verdict text, `deploy/checklists/post-release-readonly.md` and `deploy/rehearsal/README.md`. `local-sql-rehearsal.sh` already reports the count it reads.
+
+Commands (worktree on `platform/rehearsal-latest`, scratch directories that did not exist):
+
+```
+bash deploy/rehearsal/local-sql-rehearsal.sh --vendor-from apps/hq --work <scratch>/reh-ac03cff/corrupted --scenario corrupted --candidate ac03cff --pg-bin /c/laragon/bin/postgresql/postgresql/bin
+bash deploy/rehearsal/local-sql-rehearsal.sh --vendor-from apps/hq --work <scratch>/reh-ac03cff/clean --scenario clean --candidate ac03cff --pg-bin /c/laragon/bin/postgresql/postgresql/bin
+```
+
+Corrupted scenario (docs/121 section 5 shape plus duplicates, ambiguous ownership, foreign evidence): 32 PASS, 1 WARN, 0 FAIL, `RESULT: local rehearsal PASSED`.
+
+- Production schema 57 migrations; realistic rows 65 customers, 193 identities, 90 orders, 6 conversations, 12 decision records; seeded corruption 8 identities, 2 orders. BEFORE: 90 tables; pre-migration `pg_dump -Fc` 419,069 bytes.
+- Candidate `migrate --force`: 12 new migrations in one batch (batch 2). Constraints 29 of 29 PASS.
+- Permission seeder `--class`: the fourteen permissions exist (49 in total); second run clean.
+- Dry runs: detector 18 findings (as section 16); cost attribution and decisions report ran; repair `--recount` 1 split, 1 ambiguous, 4 identities held, 4 conflicts open, and the same stored-figure MISMATCH on customer #66 that section 16 explains (the corruption seed does not update aggregates).
+- TZ backfill dry run (`hq:facts:tz-backfill`, never `--apply`, `--key` or `--by`): facts_orders rows 92, timestamps examined 92, already correct by evidence 0, correctable 0, ambiguous 92 (all `no_source_evidence`: the seeds write no source events, so nothing can be proven and nothing is proposed); "no delivered sale changes day"; "DRY RUN nothing is written."
+- Nothing written by the five dry runs: row hashes of all 103 tables identical before and after (count and md5 of every row), every count unchanged. All five also completed in a session with `default_transaction_read_only=on`.
+- W1 quarantine as section 9; the phone with evidence in its own business stayed live; post-release scope read and checklist posture as section 16, posture identical before and after.
+- ROLLBACK, one step at a time:
+  - `2026_10_16_100000_create_facts_tz_corrections_table`: ROLLED BACK. Its guard (a correction recorded) was not triggered: the dry run writes no `facts_tz_corrections` row. It refuses only after an `--apply` has written a correction.
+  - `2026_10_15_600000_create_identity_repair_tables`: ROLLED BACK. No merge reversal and no new-kind quarantine flag existed (the rehearsal writes neither), so its refusal guards were not triggered.
+  - `2026_10_15_510000_add_business_id_to_decision_records`: ROLLED BACK.
+  - `2026_10_15_400000_s4_outcome_followups`: ROLLED BACK.
+  - `2026_10_15_100000_scope_customer_identities_to_business`: REFUSED, exit 1, still recorded: "Refusing to roll back: 6 identity conflict(s) are recorded, and dropping them loses audit evidence. Restore the pre-migration backup instead". This is the one WARN (one-way door).
+  - After the partial rollback every pre-existing table has its BEFORE count except the seeder's additive permission rows (permissions 35 to 49, role_has_permissions 91 to 127).
+- RESTORE PROOF: the pre-migration dump restored into a second throwaway database equals BEFORE exactly (398 snapshot lines) and row for row (all 90 tables).
+- RE-APPLY: the 4 rolled-back migrations ran clean; constraints 29 of 29 PASS; schema and counts equal the first application; posture unchanged (Meta flags false, three agents paused at a0, 0 active grants, 0 open shadow periods, 0 scheduled jobs).
+
+Clean scenario (realistic rows, no corruption): 32 PASS, 0 WARN, 0 FAIL, `RESULT: local rehearsal PASSED`.
+
+- Constraints 29 of 29 PASS. Detector "No relationship crosses a business boundary. Nothing to flag."; repair dry run 0 splits, 0 ambiguous; tz dry run 90 rows, 90 timestamps, 0 correctable, 90 ambiguous (`no_source_evidence`), nothing written. Row-level no-write proof over 103 tables PASS; read-only session PASS.
+- ALL TWELVE migrations rolled back in order: 16_100000 (tz), 600000 (W2), 510000, 400000, 100000 (W1), 11_100000, 800000 follow-ups, 800000 consent identity, 700000 consent brand, 300000 playbooks, 100000 outcomes, 100000 cost; stopped at `2026_10_04_100000`, which production already had. The fully rolled-back database equals BEFORE exactly (permission rows aside).
+- Restore proof (snapshot and row level) PASS; re-apply of all 12 clean; constraints 29 of 29; posture unchanged.
+
+Teardown: the script dropped `hq_rehearsal_local_corrupted`, `hq_rehearsal_local_clean` and both `_restorecheck` twins ("remaining: 0" each); afterwards `SELECT count(*) FROM pg_database WHERE datname LIKE 'hq_rehearsal%'` returned 0.
+
+Gate: `bash -n` on every rehearsal script; rehearsal guard suite 48 passed, 0 failed; `deploy/tools/structural-searches.sh` S1 to S4 PASS. No application code changed.
+
+What this does not prove: the tz backfill on rows that carry source evidence (the seeds have none; production's figures come from the VPS rehearsal on a dump and the post-release checklist), the `--apply` paths and therefore the evidence-triggered refusals of migrations 11 and 12, production's real rows, the real `backup.sh` and `restore.sh`, the image, entrypoint and compose isolation (section 10).
+
+Blockers: section 17's list is unchanged except that the local rehearsal now covers migration 12 and the tz dry run. Verdict unchanged: NOT READY.

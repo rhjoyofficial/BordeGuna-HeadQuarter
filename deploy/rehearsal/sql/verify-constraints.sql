@@ -3,7 +3,9 @@
 -- READ ONLY (catalogue SELECTs in a READ ONLY transaction, rolled back). One line per check, `PASS <name>` or
 -- `FAIL <name>`; the caller greps for FAIL. Run with  psql -At -v ON_ERROR_STOP=1 -f verify-constraints.sql
 -- Each check names the ruling it serves (docs/120 A2 for the identity keys, docs/107 D16 for the attribution
--- key, docs/114 for consent scope, docs/117 and docs/112 for the append-only triggers).
+-- key, docs/114 for consent scope, docs/117 and docs/112 for the append-only triggers, docs/126 for migration 11's repair
+-- and reversal ledgers and widened quarantine kinds, docs/133 for migration 12's tz correction log). 29 checks: a clean
+-- run prints 29 PASS lines and no FAIL.
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '60s';
 
@@ -91,5 +93,55 @@ SELECT CASE WHEN (SELECT count(*) FROM migrations WHERE migration IN (
     '2026_10_11_100000_create_cross_business_quarantine_tables', '2026_10_15_100000_scope_customer_identities_to_business',
     '2026_10_15_400000_s4_outcome_followups', '2026_10_15_510000_add_business_id_to_decision_records')) = 10
     THEN 'PASS' ELSE 'FAIL' END || ' the ten wave 1-4 migrations are recorded in migrations';
+
+-- Migration 11, 2026_10_15_600000_create_identity_repair_tables (docs/126, ruling docs/120 A3, items 36, 37, 39).
+-- to_regclass() keeps a missing table a FAIL line instead of an error that stops the file.
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.customer_identity_repairs') AND contype = 'u'
+        AND pg_get_constraintdef(oid) = 'UNIQUE (key)')
+    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.customer_identity_repairs') AND conname = 'customer_identity_repairs_verified_check'
+        AND pg_get_constraintdef(oid) LIKE '%verified_at IS NOT NULL%')
+    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.customer_identity_repairs') AND contype = 'c'
+        AND pg_get_constraintdef(oid) LIKE '%applying%' AND pg_get_constraintdef(oid) LIKE '%verification_failed%')
+    THEN 'PASS' ELSE 'FAIL' END || ' customer_identity_repairs: unique key, status CHECK, verified_check (docs/126)';
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.customer_merge_reversals') AND conname = 'customer_merge_reversals_split_unique'
+        AND pg_get_constraintdef(oid) = 'UNIQUE (repair_id, split_key)')
+    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.customer_merge_reversals') AND conname = 'customer_merge_reversals_businesses_differ'
+        AND pg_get_constraintdef(oid) LIKE '%from_business_id <> to_business_id%')
+    THEN 'PASS' ELSE 'FAIL' END || ' customer_merge_reversals: split_unique and businesses_differ';
+-- tgtype bits: 1 ROW, 2 BEFORE, 8 DELETE, 16 UPDATE. 19 = BEFORE UPDATE FOR EACH ROW, 11 = BEFORE DELETE FOR EACH ROW.
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('public.customer_merge_reversals') AND tgname = 'customer_merge_reversals_no_update'
+        AND tgtype = 19 AND tgenabled = 'O' AND tgfoid = to_regproc('public.hq_customer_merge_reversal_immutable'))
+    AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('public.customer_merge_reversals') AND tgname = 'customer_merge_reversals_no_delete'
+        AND tgtype = 11 AND tgenabled = 'O' AND tgfoid = to_regproc('public.hq_customer_merge_reversal_immutable'))
+    THEN 'PASS' ELSE 'FAIL' END || ' customer_merge_reversals append-only: BEFORE UPDATE and BEFORE DELETE triggers enabled';
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'cross_business_quarantines'::regclass AND conname = 'cross_business_quarantines_kind_check'
+        AND pg_get_constraintdef(oid) LIKE '%''participant''%' AND pg_get_constraintdef(oid) LIKE '%''message''%'
+        AND pg_get_constraintdef(oid) LIKE '%''identity_conflict''%' AND pg_get_constraintdef(oid) LIKE '%''consent_state''%')
+    THEN 'PASS' ELSE 'FAIL' END || ' cross_business_quarantines_kind_check admits participant, message, identity_conflict (item 39)';
+
+-- Migration 12, 2026_10_16_100000_create_facts_tz_corrections_table (docs/133, ruling docs/131 section 2 item 8).
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.facts_tz_corrections') AND conname = 'facts_tz_corrections_once'
+        AND pg_get_constraintdef(oid) = 'UNIQUE (batch_key, facts_order_id, column_name)')
+    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.facts_tz_corrections') AND conname = 'facts_tz_corrections_changes'
+        AND pg_get_constraintdef(oid) LIKE '%old_value <> new_value%')
+    AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.facts_tz_corrections') AND contype = 'c'
+        AND pg_get_constraintdef(oid) LIKE '%placed_at%' AND pg_get_constraintdef(oid) LIKE '%cancelled_at%')
+    THEN 'PASS' ELSE 'FAIL' END || ' facts_tz_corrections: once unique, changes CHECK, column_name CHECK (docs/133)';
+SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('public.facts_tz_corrections') AND tgname = 'facts_tz_corrections_no_update'
+        AND tgtype = 19 AND tgenabled = 'O' AND tgfoid = to_regproc('public.hq_facts_tz_correction_immutable'))
+    AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('public.facts_tz_corrections') AND tgname = 'facts_tz_corrections_no_delete'
+        AND tgtype = 11 AND tgenabled = 'O' AND tgfoid = to_regproc('public.hq_facts_tz_correction_immutable'))
+    THEN 'PASS' ELSE 'FAIL' END || ' facts_tz_corrections append-only: BEFORE UPDATE and BEFORE DELETE triggers enabled';
+
+-- The three new ledgers hold every foreign key as RESTRICT (no cascade, no null-on-delete), and all exist.
+SELECT CASE WHEN to_regclass('public.customer_identity_repairs') IS NOT NULL AND to_regclass('public.customer_merge_reversals') IS NOT NULL
+        AND to_regclass('public.facts_tz_corrections') IS NOT NULL
+        AND (SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND confdeltype <> 'r'
+            AND conrelid::regclass::text IN ('customer_identity_repairs', 'customer_merge_reversals', 'facts_tz_corrections')) = 0
+    THEN 'PASS' ELSE 'FAIL' END || ' repair, reversal and tz correction ledgers: every FK ON DELETE RESTRICT';
+
+SELECT CASE WHEN (SELECT count(*) FROM migrations WHERE migration IN (
+    '2026_10_15_600000_create_identity_repair_tables', '2026_10_16_100000_create_facts_tz_corrections_table')) = 2
+    THEN 'PASS' ELSE 'FAIL' END || ' migrations 11 and 12 (2026_10_15_600000, 2026_10_16_100000) are recorded in migrations';
 
 ROLLBACK;
