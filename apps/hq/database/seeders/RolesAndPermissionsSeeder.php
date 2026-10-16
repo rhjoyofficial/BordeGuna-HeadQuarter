@@ -82,6 +82,10 @@ class RolesAndPermissionsSeeder extends Seeder
         // Records an audited decision only; it lifts no suppression and repairs nothing. Owner and operator
         // hold it through '*'; no other role is given it.
         'hq.customers.quarantine.review',
+        // docs/126 (ruling docs/120 item 36): applying a reviewed cross-business repair batch through the human-only
+        // gateway tool `customers.quarantine.repair`, and assigning a business to a memory the repair withheld.
+        // Owner and operator hold it through '*'; no other role is given it.
+        'hq.customers.quarantine.repair',
     ];
 
     public const ROLES = [

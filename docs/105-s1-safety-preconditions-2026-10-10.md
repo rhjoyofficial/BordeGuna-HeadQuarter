@@ -49,6 +49,7 @@ The registered tools it selects, from `config('hq.tools')`:
 | 8 | `commerce.cancel_sales_order` | R4 write | cancels an ERP order (inert: empty store list) |
 | 9 | `consent.lift_restriction` | R3 write | lifts a do-not-contact in HQ's own ledger under two-person control (docs/114 §3, added after this document; every call parks for a second approver, permanently human-only) |
 | 10 | `outcomes.attribute` | R3 write | one `outcome_attributions` row through `OutcomeRecorder` (added 11 Oct by docs/115 §4, ruling Q11; permanently human-only, held by no agent, nothing reads the row) |
+| 11 | `customers.quarantine.repair` | R3 write | applies one reviewed cross-business repair batch through `RepairApplier` (HQ rows only: customers, identities, order copies, threads, memories, conflicts, `customer_merge_reversals`; added 16 Oct by docs/126, ruling docs/120 A3 and item 36; permanently human-only, permission `hq.customers.quarantine.repair`, every row reviewed first) |
 
 Where each of the eight stops short of the gateway today (found by reading every caller of `Tool::execute`,
 `Tool::reconcile` and the services behind the tools):

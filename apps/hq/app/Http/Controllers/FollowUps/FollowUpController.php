@@ -16,6 +16,7 @@ use App\FollowUps\Outcomes\FollowUpOutcomeLink;
 use App\FollowUps\Proposer;
 use App\Gateway\Descriptor\Channel;
 use App\Http\Controllers\Controller;
+use App\Identity\Quarantine\CrossBusinessSuppression;
 use App\Models\Brand;
 use App\Models\Customer;
 use App\Models\FollowUp;
@@ -84,6 +85,9 @@ final class FollowUpController extends Controller
             ->orderBy('due_at')->orderByDesc('id')
             ->limit(200)->get();
         $credits = $this->credits($followUps, $user);
+        // docs/122 Q3, docs/126: a phone the Customer 360 page withholds (it may have come from another business) is
+        // withheld here too; the rule is the one SQL condition every customer screen applies.
+        $withheldPhones = CrossBusinessSuppression::withheldPhoneCustomerIds($followUps->pluck('customer_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all());
         $followUps = $followUps
             ->map(fn (FollowUp $f) => [
                 'uuid' => $f->uuid,
@@ -94,7 +98,8 @@ final class FollowUpController extends Controller
                 'due_at' => $f->due_at->toIso8601String(),
                 'due' => $f->isDue(),
                 'intent' => $f->intent,
-                'customer' => ['id' => $f->customer_id, 'name' => $f->customer?->name, 'phone' => $f->customer?->primary_phone_canonical],
+                'customer' => ['id' => $f->customer_id, 'name' => $f->customer?->name,
+                    'phone' => in_array((int) $f->customer_id, $withheldPhones, true) ? null : $f->customer?->primary_phone_canonical],
                 'business' => $f->business?->name,
                 'brand' => $f->brand?->name,
                 'opportunity' => $f->opportunity ? ['uuid' => $f->opportunity->uuid, 'subject' => $f->opportunity->subject] : null,
@@ -119,14 +124,17 @@ final class FollowUpController extends Controller
             ->when(! in_array($opportunityState, ['active', 'all'], true), fn ($q) => $q->where('state', $opportunityState))
             ->orderByRaw("CASE WHEN state = 'proposed' THEN 0 WHEN state = 'open' THEN 1 ELSE 2 END")
             ->orderBy('expected_at')->orderByDesc('id')
-            ->limit(200)->get()
+            ->limit(200)->get();
+        $withheldOpportunityPhones = CrossBusinessSuppression::withheldPhoneCustomerIds($opportunities->pluck('customer_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all());
+        $opportunities = $opportunities
             ->map(fn (Opportunity $o) => [
                 'uuid' => $o->uuid,
                 'state' => $o->state->value,
                 'kind' => $o->kind->value,
                 'subject' => $o->subject,
                 'expected_at' => $o->expected_at?->toDateString(),
-                'customer' => ['id' => $o->customer_id, 'name' => $o->customer?->name, 'phone' => $o->customer?->primary_phone_canonical],
+                'customer' => ['id' => $o->customer_id, 'name' => $o->customer?->name,
+                    'phone' => in_array((int) $o->customer_id, $withheldOpportunityPhones, true) ? null : $o->customer?->primary_phone_canonical],
                 'business' => $o->business?->name,
                 'brand' => $o->brand?->name,
                 'proposer' => $o->proposer_type === Proposer::PERSON ? $o->proposedBy?->email : 'agent run'.($o->proposal_ref ? " ({$o->proposal_ref})" : ''),

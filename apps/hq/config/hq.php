@@ -55,6 +55,7 @@ use App\Tools\Facts\SnapshotFreshnessTool;
 use App\Tools\Hq\ListApprovalsTool;
 use App\Tools\Hq\ListJobsTool;
 use App\Tools\Hq\RecentEventsTool;
+use App\Tools\Identity\QuarantineRepairTool;
 use App\Tools\Outcomes\AttributeOutcomeTool;
 
 /*
@@ -162,6 +163,12 @@ return [
         // agent; the actor is the gateway-authenticated person, never an argument. ⛔ INERT: nothing reads the
         // rows it writes (D13), and no screen, controller or command writes them (OutcomeWritePathStructureTest).
         AttributeOutcomeTool::class,
+        // docs/126 (ruling docs/120 A3, item 36): the evidence-backed repair of rows that hang under a customer of
+        // another business. R3 write of HQ's own rows only (customers, identities, order copies, threads, memories,
+        // conflicts, the `customer_merge_reversals` lineage); reaches no shop, ERP, provider or customer. Permission
+        // `hq.customers.quarantine.repair`, PERMANENTLY human-only; executes only a batch the dry run proposed whose
+        // every row a person reviewed (`needs_repair`, none disputed). The ONLY caller of `RepairApplier::applyRepair()`.
+        QuarantineRepairTool::class,
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)

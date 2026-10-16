@@ -158,6 +158,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // The review records a decision only: it lifts no suppression, undoes no merge, re-points nothing.
     Route::get('customers/quarantine', [CustomerQuarantineController::class, 'index'])->middleware('permission:hq.customers.quarantine.review')->name('customers.quarantine');
     Route::post('customers/quarantine/{quarantine}/review', [CustomerQuarantineController::class, 'review'])->middleware('permission:hq.customers.quarantine.review')->name('customers.quarantine.review');
+    // docs/126 (ruling docs/120 A3, item 36): apply ONE reviewed repair batch (a gateway request for the human-only
+    // tool customers.quarantine.repair as the signed-in person), and assign a business to a memory it withheld.
+    Route::post('customers/quarantine/repair', [CustomerQuarantineController::class, 'repair'])->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.repair');
+    Route::post('customers/quarantine/memories/{memory}/assign', [CustomerQuarantineController::class, 'assignMemory'])->whereNumber('memory')->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.memories.assign');
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');

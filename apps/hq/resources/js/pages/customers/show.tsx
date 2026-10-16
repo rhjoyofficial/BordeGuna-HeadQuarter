@@ -218,6 +218,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
             identities: t('Identities moved by that merge'),
             memories: t('Memories that may have come from the other customer'),
             merge_link: t('The link to the other customer'),
+            threads: t('Thread rows of another business'),
         })[w] ?? w;
     const decisionLabel = (d: string | null) =>
         d === null

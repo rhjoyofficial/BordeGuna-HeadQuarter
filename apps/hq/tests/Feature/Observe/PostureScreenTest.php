@@ -167,6 +167,11 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/117: an audited, append-only review decision on a cross-business quarantine flag, behind
         // hq.customers.quarantine.review. It undoes no merge, re-points nothing and reaches no provider.
         'POST customers/quarantine/{quarantine}/review',
+        // docs/126 (ruling docs/120 A3, item 36): applying ONE reviewed repair batch, a gateway request for the human-only
+        // tool customers.quarantine.repair (HQ rows only), and assigning a business to a memory the repair withheld. Both
+        // behind hq.customers.quarantine.repair; neither reaches a provider.
+        'POST customers/quarantine/repair',
+        'POST customers/quarantine/memories/{memory}/assign',
         'POST flags', 'POST flags/{flag}/toggle',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.

@@ -11,12 +11,16 @@ use Illuminate\Support\Facades\DB;
  * pre-guard cross-business merges, the rows such a merge re-pointed, and any other row that hangs under
  * a customer of another business (an unscoped identity lookup can put it there without a merge).
  *
+ * docs/126 (ruling docs/120 item 39 and A3): also conversation participants and messages whose thread is of
+ * another business than their customer, every identity the docs/122 migration quarantined (with its reason),
+ * and every open `customer_identity_conflicts` row (a refused re-point or a held row nobody has resolved).
+ *
  * ⛔ READ-ONLY. Every statement is a SELECT. It writes no flag, no audit row, no event; running it twice
  * returns the same findings in the same order.
  */
 final class CrossBusinessDetector
 {
-    private const KIND_ORDER = ['merge', 'merge_pointer', 'identity', 'order', 'conversation', 'memory', 'consent_event', 'consent_state'];
+    private const KIND_ORDER = ['merge', 'merge_pointer', 'identity', 'identity_conflict', 'order', 'conversation', 'participant', 'message', 'memory', 'consent_event', 'consent_state'];
 
     /** @return list<Finding> */
     public function detect(): array
@@ -28,8 +32,12 @@ final class CrossBusinessDetector
             ...$this->pointerFindings(),
             ...$this->movedIdentityFindings($merges),
             ...$this->storeIdentityFindings(),
+            ...$this->quarantinedIdentityFindings($merges),
+            ...$this->conflictFindings(),
             ...$this->scopedRowFindings('facts_orders', 'order', 'order_other_business', $merges),
             ...$this->scopedRowFindings('conversations', 'conversation', 'conversation_other_business', $merges),
+            ...$this->participantFindings($merges),
+            ...$this->messageFindings($merges),
             ...$this->memoryFindings($merges),
             ...$this->scopedRowFindings('consent_events', 'consent_event', 'consent_other_business', $merges),
             ...$this->scopedRowFindings('consent_state', 'consent_state', 'consent_other_business', $merges),
@@ -60,10 +68,14 @@ final class CrossBusinessDetector
     /** @return list<Finding> */
     private function mergeFindings(Collection $merges): array
     {
+        // A merge the repair reversed (docs/126) is lineage, not a live relationship: still listed, marked, never re-proposed.
+        $reversed = DB::table('customer_merge_reversals')->whereIn('merge_id', $merges->pluck('id')->all() ?: [0])->pluck('id', 'merge_id');
+
         return $merges->map(fn ($m) => new Finding(
             'merge', 'customer_merges', (int) $m->id, (int) $m->kept_id, (int) $m->kept_business_id, (int) $m->absorbed_business_id, (int) $m->id,
             'cross_business_merge',
-            ['absorbed_id' => (int) $m->absorbed_id, 'merged_at' => $this->iso($m->created_at), 'undone' => $m->undone_at !== null],
+            ['absorbed_id' => (int) $m->absorbed_id, 'merged_at' => $this->iso($m->created_at), 'undone' => $m->undone_at !== null,
+                'reversed_by' => $reversed->has($m->id) ? (int) $reversed->get($m->id) : null],
         ))->values()->all();
     }
 
@@ -118,6 +130,106 @@ final class CrossBusinessDetector
             ->get(['i.id', 'i.channel', 'i.customer_id', 'c.business_id', 's.business_id as row_business_id'])
             ->map(fn ($r) => new Finding('identity', 'customer_identities', (int) $r->id, (int) $r->customer_id, (int) $r->business_id, (int) $r->row_business_id,
                 null, 'identity_store_other_business', ['channel' => $r->channel]))
+            ->values()->all();
+    }
+
+    /**
+     * Every identity the docs/122 migration (or a later hold) quarantined, with the reason it was held. A
+     * store-scoped row names its store's business as the row's business; a store-less one names none (it was
+     * held precisely because its business could not be established without guessing).
+     *
+     * @return list<Finding>
+     */
+    private function quarantinedIdentityFindings(Collection $merges): array
+    {
+        return DB::table('customer_identities as i')
+            ->join('customers as c', 'c.id', '=', 'i.customer_id')
+            ->leftJoin('stores as s', 's.id', '=', 'i.source_store_id')
+            ->whereNotNull('i.quarantined_at')
+            ->orderBy('i.id')
+            ->get(['i.id', 'i.channel', 'i.customer_id', 'i.quarantine_reason', 'i.quarantined_at', 'i.source_store_id', 'c.business_id', 's.business_id as store_business_id'])
+            ->map(function ($r) use ($merges) {
+                $rowBusiness = $r->store_business_id !== null && (int) $r->store_business_id !== (int) $r->business_id ? (int) $r->store_business_id : null;
+                $merge = $merges->first(fn ($m) => (int) $m->kept_id === (int) $r->customer_id && in_array((int) $r->id, self::movedIds($m->moved_identity_ids), true));
+
+                return new Finding('identity', 'customer_identities', (int) $r->id, (int) $r->customer_id, (int) $r->business_id, $rowBusiness,
+                    $merge === null ? null : (int) $merge->id, 'identity_quarantined',
+                    ['channel' => $r->channel, 'quarantine_reason' => $r->quarantine_reason, 'quarantined_at' => $this->iso($r->quarantined_at),
+                        'source_store_id' => $r->source_store_id === null ? null : (int) $r->source_store_id]);
+            })
+            ->values()->all();
+    }
+
+    /**
+     * Every open resolution requirement (docs/122): a re-point a lookup refused, or a quarantined row. The
+     * customer is the holder of the identity; the row's business is the conflict's when it differs.
+     *
+     * @return list<Finding>
+     */
+    private function conflictFindings(): array
+    {
+        return DB::table('customer_identity_conflicts as k')
+            ->join('customer_identities as i', 'i.id', '=', 'k.identity_id')
+            ->join('customers as c', 'c.id', '=', DB::raw('coalesce(k.holder_customer_id, i.customer_id)'))
+            ->whereNull('k.resolved_at')
+            ->orderBy('k.id')
+            ->get(['k.id', 'k.kind', 'k.reason', 'k.business_id as conflict_business_id', 'k.identity_id', 'k.claimant_customer_id', 'k.occurrences', 'k.source',
+                'c.id as customer_id', 'c.business_id', 'i.channel'])
+            ->map(fn ($r) => new Finding('identity_conflict', 'customer_identity_conflicts', (int) $r->id, (int) $r->customer_id, (int) $r->business_id,
+                (int) $r->conflict_business_id !== (int) $r->business_id ? (int) $r->conflict_business_id : null, null, 'identity_conflict_'.$r->kind,
+                ['conflict_reason' => $r->reason, 'identity_id' => (int) $r->identity_id, 'channel' => $r->channel,
+                    'claimant_customer_id' => $r->claimant_customer_id === null ? null : (int) $r->claimant_customer_id, 'occurrences' => (int) $r->occurrences, 'source' => $r->source]))
+            ->values()->all();
+    }
+
+    /**
+     * A participant row under a customer of another business than its thread (item 39), or carrying an identity
+     * of another business than its thread.
+     *
+     * @return list<Finding>
+     */
+    private function participantFindings(Collection $merges): array
+    {
+        $byCustomer = DB::table('conversation_participants as p')
+            ->join('conversations as v', 'v.id', '=', 'p.conversation_id')
+            ->join('customers as c', 'c.id', '=', 'p.customer_id')
+            ->whereColumn('v.business_id', '!=', 'c.business_id')
+            ->orderBy('p.id')
+            ->get(['p.id', 'p.customer_id', 'p.conversation_id', 'c.business_id', 'v.business_id as row_business_id'])
+            ->map(fn ($r) => new Finding('participant', 'conversation_participants', (int) $r->id, (int) $r->customer_id, (int) $r->business_id, (int) $r->row_business_id,
+                $this->attribute($merges, (int) $r->customer_id, (int) $r->row_business_id), 'participant_other_business', ['conversation_id' => (int) $r->conversation_id]))
+            ->values()->all();
+
+        $byIdentity = DB::table('conversation_participants as p')
+            ->join('conversations as v', 'v.id', '=', 'p.conversation_id')
+            ->join('customer_identities as i', 'i.id', '=', 'p.identity_id')
+            ->join('customers as c', 'c.id', '=', DB::raw('coalesce(p.customer_id, i.customer_id)'))
+            ->whereColumn('v.business_id', '!=', 'i.business_id')
+            ->orderBy('p.id')
+            ->get(['p.id', 'p.conversation_id', 'i.id as identity_id', 'i.business_id as identity_business_id', 'c.id as customer_id', 'c.business_id', 'v.business_id as row_business_id'])
+            ->map(fn ($r) => new Finding('participant', 'conversation_participants', (int) $r->id, (int) $r->customer_id, (int) $r->business_id, (int) $r->row_business_id,
+                null, 'participant_identity_other_business',
+                ['conversation_id' => (int) $r->conversation_id, 'identity_id' => (int) $r->identity_id, 'identity_business_id' => (int) $r->identity_business_id]))
+            ->values()->all();
+
+        return [...$byCustomer, ...$byIdentity];
+    }
+
+    /**
+     * A message row under a customer of another business than its thread (item 39). Bodies are never read.
+     *
+     * @return list<Finding>
+     */
+    private function messageFindings(Collection $merges): array
+    {
+        return DB::table('conversation_messages as m')
+            ->join('conversations as v', 'v.id', '=', 'm.conversation_id')
+            ->join('customers as c', 'c.id', '=', 'm.customer_id')
+            ->whereColumn('v.business_id', '!=', 'c.business_id')
+            ->orderBy('m.id')
+            ->get(['m.id', 'm.customer_id', 'm.conversation_id', 'm.direction', 'c.business_id', 'v.business_id as row_business_id'])
+            ->map(fn ($r) => new Finding('message', 'conversation_messages', (int) $r->id, (int) $r->customer_id, (int) $r->business_id, (int) $r->row_business_id,
+                $this->attribute($merges, (int) $r->customer_id, (int) $r->row_business_id), 'message_other_business', ['conversation_id' => (int) $r->conversation_id, 'direction' => $r->direction]))
             ->values()->all();
     }
 

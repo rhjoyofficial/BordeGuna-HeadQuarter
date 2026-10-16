@@ -39,11 +39,13 @@ final class CrossBusinessSuppression
     {
         $businessId = (int) $customer->business_id;
 
-        // Merges where this customer is the kept side and the absorbed row is of another business.
+        // Merges where this customer is the kept side and the absorbed row is of another business. A merge the
+        // repair reversed (docs/126, a `customer_merge_reversals` row names it) is lineage, no longer a hold.
         $kept = DB::table('customer_merges as m')
             ->join('customers as a', 'a.id', '=', 'm.absorbed_id')
             ->where('m.kept_id', $customer->id)
             ->where('a.business_id', '!=', $businessId)
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->orderBy('m.id')
             ->get(['m.id', 'm.created_at', 'm.moved_identity_ids', 'a.primary_phone_canonical as absorbed_phone', 'a.email as absorbed_email']);
 
@@ -52,6 +54,7 @@ final class CrossBusinessSuppression
             ->join('customers as k', 'k.id', '=', 'm.kept_id')
             ->where('m.absorbed_id', $customer->id)
             ->where('k.business_id', '!=', $businessId)
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->orderBy('m.id')
             ->get(['m.id', 'm.created_at']);
 
@@ -72,6 +75,16 @@ final class CrossBusinessSuppression
 
         $foreignOrders = DB::table('facts_orders')->where('customer_id', $customer->id)->where('business_id', '!=', $businessId)->exists();
 
+        // docs/126 (item 39): a participant or message row of another business's thread under this customer.
+        $foreignThreadRows = DB::table('conversation_participants as p')->join('conversations as v', 'v.id', '=', 'p.conversation_id')
+            ->where('p.customer_id', $customer->id)->where('v.business_id', '!=', $businessId)->exists()
+            || DB::table('conversation_messages as m')->join('conversations as v', 'v.id', '=', 'm.conversation_id')
+                ->where('m.customer_id', $customer->id)->where('v.business_id', '!=', $businessId)->exists();
+
+        // docs/126 (ruling A3 point 8): business-less memories a repair left under this customer are withheld until
+        // a person assigns them to a business (the row then carries one and leaves this list).
+        $heldMemoryIds = self::heldMemoryIds((int) $customer->id);
+
         $phone = $customer->primary_phone_canonical;
         $email = $customer->email;
         $withholdPhone = $phone !== null && DB::table('customers')->where('id', $customer->id)->whereRaw(self::phoneWithheldSql('customers'))->exists();
@@ -87,7 +100,53 @@ final class CrossBusinessSuppression
             withholdPhone: $withholdPhone,
             withholdEmail: $withholdEmail,
             recomputeAggregates: $kept->isNotEmpty() || $foreignOrders,
+            heldThreadRows: $foreignThreadRows,
+            heldMemoryIds: $heldMemoryIds,
         );
+    }
+
+    /** Subquery of the merge ids a repair reversed (docs/126): lineage, never a hold or a re-proposal. */
+    public static function reversedMergeIds(): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('customer_merge_reversals')->whereNotNull('merge_id')->select('merge_id');
+    }
+
+    /**
+     * Business-less memories a repair (docs/126) withheld under this customer and nobody has assigned yet: the ids a
+     * reversal lists as held, still with no business. SELECT only.
+     *
+     * @return list<int>
+     */
+    public static function heldMemoryIds(int $customerId): array
+    {
+        $listed = DB::table('customer_merge_reversals')->where('from_customer_id', $customerId)
+            ->pluck('withheld')
+            ->flatMap(fn ($raw) => (array) (json_decode((string) $raw, true)['memories_unscoped'] ?? []))
+            ->map(fn ($id) => (int) $id)->unique()->values()->all();
+        if ($listed === []) {
+            return [];
+        }
+
+        return DB::table('memories')->whereIn('id', $listed)->where('customer_id', $customerId)->whereNull('business_id')
+            ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Among `$customerIds`, those whose stored phone must be withheld (the docs/117 and docs/122 rule the 360 page,
+     * the list and the search apply). SELECT only. Used by every other screen that shows a customer's phone
+     * (docs/122 Q3: the follow-ups screens), so no screen shows a phone the 360 page withholds.
+     *
+     * @param  list<int>  $customerIds
+     * @return list<int>
+     */
+    public static function withheldPhoneCustomerIds(array $customerIds): array
+    {
+        if ($customerIds === []) {
+            return [];
+        }
+
+        return DB::table('customers')->whereIn('id', $customerIds)->whereRaw(self::phoneWithheldSql('customers'))
+            ->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     /**
@@ -123,6 +182,9 @@ final class CrossBusinessSuppression
 
         if ($view->unscopedMemoryCutoff !== null) {
             $query->where(fn ($q) => $q->whereNotNull('business_id')->orWhereNotNull('brand_id')->orWhere('created_at', '>', $view->unscopedMemoryCutoff));
+        }
+        if ($view->heldMemoryIds !== []) {
+            $query->whereNotIn('id', $view->heldMemoryIds);
         }
 
         return $query;
@@ -190,6 +252,7 @@ final class CrossBusinessSuppression
             ->join('customers as a', 'a.id', '=', 'm.absorbed_id')
             ->whereColumn('k.business_id', '!=', 'a.business_id')
             ->where(fn ($q) => $q->whereIn('m.kept_id', $customerIds)->orWhereIn('m.absorbed_id', $customerIds))
+            ->whereNotIn('m.id', self::reversedMergeIds())
             ->get(['m.kept_id', 'm.absorbed_id'])
             ->flatMap(fn ($m) => [(int) $m->kept_id, (int) $m->absorbed_id]);
 
@@ -199,7 +262,15 @@ final class CrossBusinessSuppression
         $viaPointer = DB::table('customers as c')->join('customers as t', 't.id', '=', 'c.merged_into_id')
             ->whereIn('c.id', $customerIds)->whereColumn('c.business_id', '!=', 't.business_id')->pluck('c.id');
 
-        return collect([...$viaMerge, ...$viaRows, ...$viaPointer])->map(fn ($id) => (int) $id)
+        // docs/126: thread rows of another business, and business-less memories a repair left for a person.
+        $viaThreads = DB::table('conversation_participants as p')->join('conversations as v', 'v.id', '=', 'p.conversation_id')->join('customers as c', 'c.id', '=', 'p.customer_id')
+            ->whereIn('p.customer_id', $customerIds)->whereColumn('v.business_id', '!=', 'c.business_id')->pluck('p.customer_id')
+            ->merge(DB::table('conversation_messages as m')->join('conversations as v', 'v.id', '=', 'm.conversation_id')->join('customers as c', 'c.id', '=', 'm.customer_id')
+                ->whereIn('m.customer_id', $customerIds)->whereColumn('v.business_id', '!=', 'c.business_id')->pluck('m.customer_id'));
+        $viaRepair = DB::table('customer_merge_reversals')->whereIn('from_customer_id', $customerIds)->pluck('from_customer_id')
+            ->filter(fn ($id) => self::heldMemoryIds((int) $id) !== []);
+
+        return collect([...$viaMerge, ...$viaRows, ...$viaPointer, ...$viaThreads, ...$viaRepair])->map(fn ($id) => (int) $id)
             ->intersect($customerIds)->unique()->sort()->values()->all();
     }
 }

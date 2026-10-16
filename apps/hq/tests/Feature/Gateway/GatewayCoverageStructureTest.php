@@ -17,8 +17,9 @@ use App\Tools\ToolRegistry;
  |   2. Nothing outside app/Tools constructs or resolves a concrete tool; tools are reached through the registry.
  |   3. The services behind the effectful tools are called from their tool and nowhere else, so the effect cannot be
  |      reached around the tool (which is how `hq:facts:reconcile` used to reach `commerce.reconcile_facts`'s).
- |   4. The registered effectful tools are exactly the nine reviewed in docs/105 §1.2 plus the two added deliberately
- |      afterwards: `consent.lift_restriction` (docs/114, row 9) and `outcomes.attribute` (docs/115, row 10).
+ |   4. The registered effectful tools are exactly the nine reviewed in docs/105 §1.2 plus the three added deliberately
+ |      afterwards: `consent.lift_restriction` (docs/114, row 9), `outcomes.attribute` (docs/115, row 10) and
+ |      `customers.quarantine.repair` (docs/126, row 11).
  |      Registering another effectful tool fails here until docs/105's coverage table (and this list) is updated in
  |      the same reviewed change.
  */
@@ -69,6 +70,10 @@ it('lets only the gateway invoke a tool: the scheduler is a gateway caller with 
         'Http/Controllers/Identity/CustomerConsentController.php' => ['$this->gateway->execute'],
         'Workflow/WorkflowRunner.php' => ['$this->gateway->execute'],
         'Console/Commands/FactsReconcile.php' => ['$gateway->execute'],
+        // docs/126 (ruling docs/120 item 36): the reviewed cross-business repair, asked of the gateway as the person
+        // from the quarantine screen and from `hq:identity:repair --apply --by=`; neither reaches the applier itself.
+        'Http/Controllers/Identity/CustomerQuarantineController.php' => ['$this->gateway->execute'],
+        'Console/Commands/IdentityRepair.php' => ['$gateway->execute'],
         // Not tools: the workflow engine's reconcile, the publication service's own method, two previews of
         // what a person is about to do (an execution context, a parsed schedule).
         'Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
@@ -144,6 +149,9 @@ it('reaches the services behind the effectful tools only from their tools, never
         '/FactsErpSnapshot::(create|updateOrCreate|firstOrCreate|insert|upsert|updateOrInsert)\s*\(/' => ['Tools/Erp/PollErpTool.php'],
         // docs/114 §3: the only writer of a lifted do-not-contact is reached from its tool, after a second person approved.
         '/->liftDoNotContact\s*\(/' => ['Tools/Consent/LiftRestrictionTool.php'],
+        // docs/126 (ruling docs/120 item 36): the only writer of a cross-business repair is reached from its tool.
+        '/->applyRepair\s*\(/' => ['Tools/Identity/QuarantineRepairTool.php'],
+        '/\bRepairApplier\b/' => ['Tools/Identity/QuarantineRepairTool.php', 'Identity/Repair/RepairApplier.php'],
     ];
 
     $files = gcAppFiles();
@@ -158,10 +166,11 @@ it('reaches the services behind the effectful tools only from their tools, never
         ->and(preg_match('/FactsErpSnapshot::updateOrCreate\s*\(/', $files['Tools/Erp/PollErpTool.php']))->toBe(1)
         ->and(preg_match('/->createSalesOrderDraft\s*\(/', $files['Tools/Commerce/TakeOrderTool.php']))->toBe(1)
         ->and(preg_match('/->cancelSalesOrder\s*\(/', $files['Tools/Commerce/CancelSalesOrderTool.php']))->toBe(1)
-        ->and(preg_match('/->liftDoNotContact\s*\(/', $files['Tools/Consent/LiftRestrictionTool.php']))->toBe(1);
+        ->and(preg_match('/->liftDoNotContact\s*\(/', $files['Tools/Consent/LiftRestrictionTool.php']))->toBe(1)
+        ->and(preg_match('/->applyRepair\s*\(/', $files['Tools/Identity/QuarantineRepairTool.php']))->toBe(1);
 });
 
-it('pins the registered effectful tools to the nine reviewed in docs/105 plus consent.lift_restriction (docs/114) and outcomes.attribute (docs/115), and classifies every tool class in app/Tools', function () {
+it('pins the registered effectful tools to the nine reviewed in docs/105 plus consent.lift_restriction (docs/114), outcomes.attribute (docs/115) and customers.quarantine.repair (docs/126), and classifies every tool class in app/Tools', function () {
     $registry = app(ToolRegistry::class);
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => $registry->get($key)->descriptor()->hasEffect()));
     sort($effectful);
@@ -173,6 +182,9 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
         'commerce.take_order',
         // docs/114 §3 (S7 follow-up): the two-person lift of a do-not-contact, docs/105 §1.2 row 9.
         'consent.lift_restriction',
+        // docs/126 (ruling docs/120 A3, item 36): the reviewed cross-business repair. R3 write of HQ rows only,
+        // permanently human-only, permission hq.customers.quarantine.repair. docs/105 §1.2 row 11.
+        'customers.quarantine.repair',
         'demo.request_approval',
         'erp.poll_low_stock',
         'erp.poll_overview',
