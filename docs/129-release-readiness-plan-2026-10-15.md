@@ -1,4 +1,4 @@
-# 126. Release readiness plan, W7 (15 October 2026)
+# 129. Release readiness plan, W7 (15 October 2026)
 
 Branch `platform/release-readiness-waves-1-4` from main `7fb5e71`, worktree `hq-wt/j`, test database `hq_test_j`. Authority: `docs/120-chatgpt-ruling-2026-10-15.txt` section D (points 1 to 6) and section C Stage 6; the workstream is W7 of `docs/120-wave-4-plan-2026-10-15.md`. Nothing here releases anything, touches production, or touches the app code of identities, outcomes, follow-ups, playbooks or consent (W2 owns the repair on `p3/identity-repair`). Joy alone releases.
 
