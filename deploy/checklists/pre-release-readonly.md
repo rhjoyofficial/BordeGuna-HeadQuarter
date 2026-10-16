@@ -94,7 +94,7 @@ Why read-only: the search script is piped into `php` on standard input; it reads
 
 ## 6. Containment state (docs/121 section 5)
 
-Not a command: confirm which containment option Joy chose (Option 1 accept the small risk until the release, or Option 2 stop the HQ scheduler) and that nothing has changed since. If Option 2: `$C ps scheduler` shows it stopped.
+Not a command: confirm which containment option Joy chose (Option 1 accept the small risk until the release, or Option 2 stop the HQ scheduler) and that nothing has changed since. If Option 2: `$C ps scheduler` shows it stopped, and the release follows docs/132 section 5 B: `HQ_EVENTS_DRAIN_PAUSED=true` in `deploy/.env`, and `./deploy/deploy.sh --no-pull --keep-scheduler-stopped` run by the candidate's script (production's `b96a396` `deploy.sh` refuses the flag and moves nothing; it silently ignores `HQ_KEEP_SCHEDULER_STOPPED`, so never rely on the variable with it). A default `deploy.sh` or `rollback.sh` starts the scheduler again.
 
 ## 7. What these checks are not
 

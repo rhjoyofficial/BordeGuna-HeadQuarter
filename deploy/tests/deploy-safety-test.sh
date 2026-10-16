@@ -120,7 +120,7 @@ FLOCK
     unset STUB_LAST_OK 2>/dev/null || true
     unset STUB_BUILD_EXIT STUB_UP_D_EXIT STUB_UP_EXIT STUB_HEALTH_STATUS STUB_HEALTH_RELEASE STUB_FAST_SLEEP 2>/dev/null || true
     unset STUB_IGNORE_OVERRIDE STUB_CONFIG_EXIT STUB_BACKUP_INODE STUB_RELEASE_STATE_INODE STUB_RELEASE_STATE_MOUNTED 2>/dev/null || true
-    unset STUB_BACKUP_HOLD 2>/dev/null || true
+    unset STUB_BACKUP_HOLD STUB_SCHEDULER_RUNNING HQ_KEEP_SCHEDULER_STOPPED 2>/dev/null || true
     unset VERIFY_MIN_FREE_MB VERIFY_MAX_DUMP_AGE_HOURS VERIFY_REMOTE_TIMEOUT 2>/dev/null || true
     unset RELEASE_STATE_DIR HEALTH_TRIES HEALTH_WAIT FETCH_MIN_INTERVAL RS_FETCHED_NOW 2>/dev/null || true
 }
@@ -1093,6 +1093,155 @@ isnt "deploy.sh refuses a deploy/.env that sets RUN_MIGRATIONS to 1" "$RC" "0"
 grep -q "deploy/.env sets RUN_MIGRATIONS" "${WORLD}/out" && ok "...with the reason" || bad "should say why: $(tail -1 "${WORLD}/out")"
 is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
 is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+cleanup
+
+# ═══ The scheduler across a release or a rollback (docs/132 section 9) ═══════════════════════════
+#
+# The scheduler is the only container that drains `events`. Containment Option 2 stops it; a default
+# deploy (`up -d --remove-orphans`) or rollback (`up -d --no-deps app horizon scheduler web`) starts it
+# again, and its drain then runs every pending event through whatever code it now carries. Both scripts
+# take `--keep-scheduler-stopped` (or HQ_KEEP_SCHEDULER_STOPPED=1). The default must not change; a
+# scheduler found stopped without the flag gets a loud warning. The stub remembers what is running.
+scheduler_state() { cat "${STUB_STATE}/scheduler" 2>/dev/null || echo "never-touched"; }
+up_lines()        { grep -E 'compose .* up -d' "$STUB_TRACE" | grep -v 'no-deps backup'; }
+line_of()         { grep -n "$1" "${WORLD}/out" | head -1 | cut -d: -f1; }
+WARN_RE='WARNING: the scheduler is NOT running .* WILL START IT'
+
+echo
+echo "the scheduler across a release or a rollback"
+echo
+
+# ── 28. A default deploy is unchanged ──────────────────────────────────────────────────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+is   "a default deploy succeeds"                                "$RC" "0"
+is   "a default deploy runs the same bare 'up -d --remove-orphans'" "$(up_lines | grep -cE ' up -d --remove-orphans$')" "1"
+is   "...with no --scale and no 'stop scheduler'"               "$(grep -cE -- '--scale| stop scheduler' "$STUB_TRACE")" "0"
+is   "...so the scheduler runs after it"                        "$(scheduler_state)" "1"
+grep -Eq "$WARN_RE" "${WORLD}/out" && bad "a running scheduler should raise no warning" || ok "...and a running scheduler raises no warning"
+cleanup
+
+# ── 28b. A default deploy over a STOPPED scheduler warns, and still starts it (default unchanged) ─
+new_world
+export STUB_FAST_SLEEP=1 STUB_SCHEDULER_RUNNING=0
+RC=$(run_deploy)
+is   "a default deploy over a stopped scheduler still succeeds" "$RC" "0"
+grep -Eq "$WARN_RE" "${WORLD}/out" && ok "...and warns loudly that it will start the scheduler" || bad "a stopped scheduler should raise the warning: $(grep -i scheduler "${WORLD}/out" | head -3)"
+grep -q "re-run with --keep-scheduler-stopped" "${WORLD}/out" && ok "...recommending --keep-scheduler-stopped" || bad "the warning should recommend the flag"
+[ "$(line_of 'WILL START IT')" -lt "$(line_of 'pre-deploy dump')" ] 2>/dev/null \
+    && ok "...before the dump, while nothing has moved" || bad "the warning should come before the dump"
+is   "...and, the default being unchanged, the scheduler runs after it" "$(scheduler_state)" "1"
+cleanup
+
+# ── 28c. deploy.sh --keep-scheduler-stopped ─────────────────────────────────────────────────────
+new_world
+export STUB_FAST_SLEEP=1 STUB_SCHEDULER_RUNNING=0
+RC=$(cd "$STUB_REPO" && ./deploy/deploy.sh --keep-scheduler-stopped >"${WORLD}/out" 2>&1; echo $?)
+is   "a deploy with --keep-scheduler-stopped succeeds"          "$RC" "0"
+is   "...the checkout moves as usual"                           "$(head_now)" "$NEW_HEAD"
+is   "...its 'up' scales the scheduler to 0"                    "$(up_lines | grep -cE ' up -d --remove-orphans --scale scheduler=0$')" "1"
+is   "...and no other 'up' names the scheduler"                 "$(up_lines | grep -v -- '--scale scheduler=0' | grep -c ' scheduler')" "0"
+grep -q 'compose .* stop scheduler' "$STUB_TRACE" && ok "...it stops the scheduler explicitly first" || bad "deploy.sh should stop the scheduler"
+is   "...so the scheduler is not running after it"              "$(scheduler_state)" "0"
+is   "...and the release still migrates, as a deploy does"      "$(migrations_at_last_up)" "1"
+grep -Eq "$WARN_RE" "${WORLD}/out" && bad "the flag should replace the warning" || ok "...without the warning"
+grep -q "LEFT STOPPED" "${WORLD}/out" && grep -q "up -d --no-deps scheduler" "${WORLD}/out" \
+    && ok "...and it says the scheduler is left stopped, with the command that starts it" || bad "deploy.sh should say the scheduler is left stopped: $(tail -2 "${WORLD}/out")"
+cleanup
+
+# ── 28d. HQ_KEEP_SCHEDULER_STOPPED=1 does the same, and stops a RUNNING scheduler ───────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(HQ_KEEP_SCHEDULER_STOPPED=1 run_deploy)
+is   "a deploy with HQ_KEEP_SCHEDULER_STOPPED=1 succeeds"       "$RC" "0"
+is   "...scales the scheduler to 0"                             "$(up_lines | grep -c -- '--scale scheduler=0')" "1"
+is   "...and a scheduler that was running is stopped"           "$(scheduler_state)" "0"
+cleanup
+
+# ── 28e. Any other value is refused before anything moves ───────────────────────────────────────
+new_world
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(HQ_KEEP_SCHEDULER_STOPPED=yes run_deploy)
+isnt "deploy.sh refuses HQ_KEEP_SCHEDULER_STOPPED=yes"          "$RC" "0"
+grep -q "HQ_KEEP_SCHEDULER_STOPPED must be 1 or 0" "${WORLD}/out" && ok "...with the reason" || bad "should say why: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+cleanup
+
+# ── 29. A default rollback is unchanged ────────────────────────────────────────────────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+: > "$STUB_TRACE"
+RC=$(run_rollback "$OLD_HEAD")
+is   "a default rollback succeeds"                              "$RC" "0"
+is   "a default rollback runs the same 'up' with the scheduler in the list" "$(up_lines | grep -cE ' up -d --no-deps app horizon scheduler web$')" "1"
+is   "...and stops nothing"                                     "$(grep -c ' stop scheduler' "$STUB_TRACE")" "0"
+is   "...so the scheduler runs after it"                        "$(scheduler_state)" "1"
+grep -Eq "$WARN_RE" "${WORLD}/out" && bad "a running scheduler should raise no warning" || ok "...and a running scheduler raises no warning"
+cleanup
+
+# ── 29b. A default rollback over a STOPPED scheduler warns, and still starts it ─────────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+echo 0 > "${STUB_STATE}/scheduler"   # containment Option 2 after the release
+: > "$STUB_TRACE"
+RC=$(run_rollback "$OLD_HEAD")
+is   "a default rollback over a stopped scheduler still succeeds" "$RC" "0"
+grep -Eq "$WARN_RE" "${WORLD}/out" && ok "...and warns loudly that it will start the scheduler" || bad "a stopped scheduler should raise the warning: $(grep -i scheduler "${WORLD}/out" | head -3)"
+grep -q "re-run with --keep-scheduler-stopped" "${WORLD}/out" && ok "...recommending --keep-scheduler-stopped" || bad "the warning should recommend the flag"
+[ "$(line_of 'WILL START IT')" -lt "$(line_of 'pre-rollback dump')" ] 2>/dev/null \
+    && ok "...before the dump, while nothing has moved" || bad "the warning should come before the dump"
+is   "...the 'up' is unchanged"                                 "$(up_lines | grep -cE ' up -d --no-deps app horizon scheduler web$')" "1"
+is   "...so the scheduler runs after it"                        "$(scheduler_state)" "1"
+cleanup
+
+# ── 29c. rollback.sh --keep-scheduler-stopped ───────────────────────────────────────────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+echo 0 > "${STUB_STATE}/scheduler"
+: > "$STUB_TRACE"
+RC=$(cd "$STUB_REPO" && ./deploy/rollback.sh --keep-scheduler-stopped "$OLD_HEAD" >"${WORLD}/out" 2>&1; echo $?)
+is   "a rollback with --keep-scheduler-stopped succeeds"        "$RC" "0"
+is   "...the checkout is the target"                            "$(head_now)" "$OLD_HEAD"
+is   "...its 'up' starts app, horizon and web only"             "$(up_lines | grep -cE ' up -d --no-deps app horizon web$')" "1"
+is   "...and no 'up' names the scheduler"                       "$(up_lines | grep -c ' scheduler')" "0"
+grep -q 'compose .* stop scheduler' "$STUB_TRACE" && ok "...it stops the scheduler explicitly" || bad "rollback.sh should stop the scheduler"
+is   "...so the scheduler is not running after it"              "$(scheduler_state)" "0"
+is   "...and app still starts with migrations OFF"              "$(migrations_at_last_up)" "0"
+grep -Eq "$WARN_RE" "${WORLD}/out" && bad "the flag should replace the warning" || ok "...without the warning"
+grep -q "LEFT STOPPED" "${WORLD}/out" && grep -q "up -d --no-deps scheduler" "${WORLD}/out" \
+    && ok "...and it says the scheduler is left stopped, with the command that starts it" || bad "rollback.sh should say the scheduler is left stopped: $(tail -2 "${WORLD}/out")"
+is   "...and records itself as a rollback"                      "$(field "$(STATE)/release.json" kind)" "rollback"
+cleanup
+
+# ── 29d. HQ_KEEP_SCHEDULER_STOPPED=1 does the same, and stops a RUNNING scheduler ───────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+: > "$STUB_TRACE"
+RC=$(HQ_KEEP_SCHEDULER_STOPPED=1 run_rollback "$OLD_HEAD")
+is   "a rollback with HQ_KEEP_SCHEDULER_STOPPED=1 succeeds"     "$RC" "0"
+is   "...no 'up' names the scheduler"                           "$(up_lines | grep -c ' scheduler')" "0"
+is   "...and a scheduler that was running is stopped"           "$(scheduler_state)" "0"
+cleanup
+
+# ── 29e. A bad value or an unknown option is refused before anything moves ──────────────────────
+new_world
+export STUB_FAST_SLEEP=1
+RC=$(run_deploy)
+BEFORE=$(snapshot); : > "$STUB_TRACE"
+RC=$(HQ_KEEP_SCHEDULER_STOPPED=true run_rollback "$OLD_HEAD")
+isnt "rollback.sh refuses HQ_KEEP_SCHEDULER_STOPPED=true"       "$RC" "0"
+grep -q "HQ_KEEP_SCHEDULER_STOPPED must be 1 or 0" "${WORLD}/out" && ok "...with the reason" || bad "should say why: $(tail -1 "${WORLD}/out")"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
+is   "...not a dump, not a probe, not a container"              "$(any_mutations)" "0"
+RC=$(cd "$STUB_REPO" && ./deploy/rollback.sh --keep-scheduler "$OLD_HEAD" >"${WORLD}/out" 2>&1; echo $?)
+isnt "rollback.sh refuses an unknown option"                    "$RC" "0"
+is   "...and moves nothing"                                     "$(snapshot)" "$BEFORE"
 cleanup
 
 echo

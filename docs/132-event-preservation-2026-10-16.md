@@ -80,13 +80,15 @@ Stopping the scheduler cannot discard a payload or lose an acknowledgement HQ ha
 2. Read only, right after: `SELECT status, count(*) FROM events GROUP BY status` and `SELECT event_id, type, created_at FROM events WHERE status = 'processing'`. Any `processing` row was cut mid-drain: list it for review, leave it as it is.
 3. Webhooks keep landing as `pending` (finding a). Paused with the scheduler: the scheduler tick, alerts, approvals sweep, retention, shadow ticks, delivery reconciliation. `/api/health` reports the scheduler as failing after 180 seconds; that is expected and is not an incident of its own.
 4. Note the time and `SELECT max(id) FROM events` (no personal value).
+5. While Option 2 is in force, every `deploy.sh` and `rollback.sh` run carries `--keep-scheduler-stopped` (section 9). Without it, both scripts start the scheduler again; a script that includes section 9 warns loudly first and gives 10 seconds to abort, an older one (production's `b96a396` copy) says nothing. Use the command-line flag, not `HQ_KEEP_SCHEDULER_STOPPED=1`: an older script refuses the unknown flag and moves nothing, but silently ignores the variable.
 
-### B. The release (docs/131 Stage D), which needs a candidate that includes this branch
+### B. The release (docs/131 Stage D), which needs a candidate that includes this branch and section 9
 
-1. Before `deploy.sh`: add `HQ_EVENTS_DRAIN_PAUSED=true` to `deploy/.env` (still mode 600). Without it, `deploy.sh`'s `up -d --remove-orphans` starts the stopped scheduler and the drain runs every pending event through the new resolver within a minute, which Stage D step 4 forbids. With it, the scheduler runs (the health tick is fresh, so the release can verify), and the drain claims nothing.
-2. `deploy.sh` as documented: verified pre-deploy dump first. Note the dump's start time from the log (`verified dump:` line).
-3. Stage D steps 3 to 9 with the drain paused. Events keep accumulating as pending.
-4. Stage D step 10, only on Joy's authorisation after repair verification: remove the line from `deploy/.env`, then `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --no-deps --force-recreate scheduler` (the entrypoint caches config, so the container must be recreated to read the change). The drain then processes the backlog in id order under the new resolver; a failure retries with backoff and ends `dead` for review; the `processing` rows from A2 are decided one by one (`hq:events:replay --event=<uuid>` is idempotent, but leaves the status label; see 2(b)).
+1. Before `deploy.sh`: add `HQ_EVENTS_DRAIN_PAUSED=true` to `deploy/.env` (still mode 600). Without it, a default `deploy.sh` (`up -d --remove-orphans`) starts the stopped scheduler and the drain runs every pending event through the new resolver within a minute, which Stage D step 4 forbids. This line is the protection that works whichever `deploy.sh` runs.
+2. Belt and braces, `--keep-scheduler-stopped` (section 9): the scheduler stays stopped whatever `deploy/.env` says. ⚠ The FIRST run of a release is production's OLD `deploy.sh` (bash keeps reading the file it started with; deploy/README.md), which refuses the flag ("unknown argument ... Nothing has moved"). To have the candidate's script run, the checkout is moved first, by hand: `git fetch -q origin main && git rev-parse --short origin/main` (must print the candidate), `git merge --ff-only origin/main`, then `./deploy/deploy.sh --verify-only --no-pull` and `./deploy/deploy.sh --no-pull --keep-scheduler-stopped`. The verified dump is still taken before anything is built or started. If that run is refused, the checkout is ahead of the running containers; the preflight reports that as a WARN and the next run records its predecessor from the running image label, so nothing needs undoing by hand. Note the dump's start time from the log (`verified dump:` line).
+3. With the flag, `/api/health` reports the scheduler as failing (no tick for over 180 seconds, since Option 2 has been in force), so the release is recorded UNVERIFIED with the scheduler as its failing component. That is expected: confirm that the scheduler is the ONLY failing component and that `release.json` and the health answer name the candidate (post-release checklist section 1). Without the flag (pause line only) the scheduler runs, its tick is fresh and the release can verify; either way the drain claims nothing.
+4. Stage D steps 3 to 9 with the drain paused. Events keep accumulating as pending. Any `deploy.sh` in this window carries `--keep-scheduler-stopped`, or relies on the pause line still being in `deploy/.env`.
+5. Stage D step 10, only on Joy's authorisation after repair verification: remove the line from `deploy/.env`, then `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --no-deps --force-recreate scheduler` (the entrypoint caches config, so the container must be recreated to read the change; this also starts a scheduler left stopped or removed by `--keep-scheduler-stopped`). A release recorded UNVERIFIED in step 3 is then released again, `./deploy/deploy.sh --no-pull`, to have it verified (deploy/README.md). The drain then processes the backlog in id order under the new resolver; a failure retries with backoff and ends `dead` for review; the `processing` rows from A2 are decided one by one (`hq:events:replay --event=<uuid>` is idempotent, but leaves the status label; see 2(b)).
 
 ### C. A restore after the release (back to the pre-deploy dump)
 
@@ -96,14 +98,20 @@ Case C1, the release's code stays (for example to undo a bad repair; this is the
 2. `docker compose ... stop app horizon scheduler`, then `restore.sh` into production with `TARGET_DB` and `CONFIRM_PRODUCTION_RESTORE=yes`. Keep this window short: the shops are being answered 502 (finding c).
 3. `docker compose ... up -d --no-deps app` (its entrypoint migrates the restored pre-release schema forward again), with `HQ_EVENTS_DRAIN_PAUSED=true` still set.
 4. Post-step: `php artisan hq:events:import <file>` (dry run; must report no conflicting and no malformed row), then `--apply --by=<email> --reason="<why>"`.
-5. `docker compose ... up -d --no-deps horizon scheduler`. The drain stays paused until B4.
+5. `docker compose ... up -d --no-deps horizon scheduler`. The drain stays paused until B5.
 
-Case C2, the code is rolled back too (`rollback.sh` to the pre-release commit): see section 6. Export as in C1 step 1 before anything else; it costs nothing and keeps the option open.
+Case C2, the code is rolled back too (`rollback.sh` to the pre-release commit `b96a396`, which has no pause flag, so its drain would process every pending event through the OLD resolver, which docs/131 section 1.1 forbids):
+
+1. Export as in C1 step 1, with the candidate still running. Keep the file and its sha256.
+2. Code first: `./deploy/rollback.sh --keep-scheduler-stopped b96a396` (the candidate's `rollback.sh`, which has the flag). It stops the scheduler, starts only `app horizon web` with `RUN_MIGRATIONS=0`, and ends with "The scheduler is LEFT STOPPED" and the command that starts it. Do not run that command.
+3. Only if a migration must be undone: `docker compose ... stop app horizon` (the scheduler is already stopped), `restore.sh` as in C1 step 2, then `docker compose ... start app horizon`. `start`, not `up`: after a rollback, `up` recreates `app` with `RUN_MIGRATIONS=1` (deploy/README.md, "Rollback"), while `start` reuses the containers the rollback made. Never name the scheduler.
+4. Webhooks keep landing as pending (finding a); nothing drains them, because the scheduler stays stopped. `b96a396` has no `hq:events:import`, so the export file waits.
+5. The way forward is a fixed release that includes this branch: sequence B (pause line plus `--keep-scheduler-stopped`), then the import from step 1 (dry run, then `--apply`), then B5 on Joy's authorisation.
 
 ## 6. What is still open
 
 - BLOCKER for using any of this in the release: the frozen candidate `a7bb85e` does not contain this branch. Without it there is no export, no import and no pause flag on production, `deploy.sh` resumes the drain on release, and `rehearse.sh` section 10 fails. The candidate has to be re-cut to include `platform/event-preservation` (or this branch merged and a new candidate frozen), with Stage A CI on the new commit.
-- Code rollback (C2): `rollback.sh` starts the scheduler (`up -d --no-deps app horizon scheduler web`), and a release without this branch has no pause flag, so its drain would process every pending row (the Option 2 backlog in the dump, and anything imported) through the OLD resolver, which docs/131 section 1.1 forbids. No event is lost on this path; the problem is processing under the wrong code. Not solved here, because `rollback.sh` is a safety-tested production script and the fix (an option to leave the scheduler stopped) needs a decision. Until then: prefer C1; if C2 is unavoidable, run the import with the candidate image before `rollback.sh`, and accept that the old drain will run, or decide the `rollback.sh` option first.
+- Code rollback (C2): CLOSED by section 9, for a rollback run by a `rollback.sh` that includes it (the candidate's, once the candidate is re-cut to include `platform/rollback-keep-scheduler-stopped`). `--keep-scheduler-stopped` leaves the scheduler stopped, so the old resolver drains nothing. A default rollback still starts the scheduler (unchanged), with a loud warning when it was stopped. Still true: an old `rollback.sh` or `deploy.sh` (production's `b96a396` copy) has no flag and starts the scheduler.
 - The shops' retry behaviour (finding c) is an assumption until `SendWebhookJob` is read on the deployed shop commits.
 - Stranded `processing` rows after a hard stop (finding b) have no automatic path back; deciding how `hq:events:replay` should label them is a small separate change.
 - The pause flag pauses only the event drain. The scheduler tick, alerts, retention and shadow ticks keep running while it is set; whether that is acceptable during containment is part of Joy's Option 2 decision.
@@ -120,3 +128,32 @@ Full Pest parallel on `hq_test_e`, Pint, `bash -n` on the changed scripts, `depl
 - `deploy/rehearsal/tests/rehearsal-guard-test.sh`: 48 passed, 0 failed.
 - `deploy/tools/structural-searches.sh`: S1 to S4 PASS.
 - `rehearse.sh` section 10 itself needs Docker and runs only on the VPS copy with Joy's go: NOT run.
+
+## 9. Plan: keep the scheduler stopped across a rollback or a release (open item 2, written before the code)
+
+Branch `platform/rollback-keep-scheduler-stopped` from `main` `69a1bb1`. Nothing here touches production.
+
+1. `deploy/rollback.sh`: an opt-in `--keep-scheduler-stopped` (or `HQ_KEEP_SCHEDULER_STOPPED=1`). With it, the rollback stops the scheduler and starts only `app horizon web`, then prints that the scheduler is left stopped and the exact command that starts it. Without it, the `up` line is unchanged. When the scheduler is not running as the rollback starts, a loud warning recommends the flag; the default is still unchanged. Any other value of the variable is refused before anything moves.
+2. `deploy/deploy.sh`: the same opt-in, independent of `HQ_EVENTS_DRAIN_PAUSED` in `deploy/.env`. With it, the release's `up -d --remove-orphans` gets `--scale scheduler=0`, so compose starts everything else and leaves no scheduler running. The same warning when the scheduler is stopped and the flag is not given. Default unchanged.
+3. `deploy/tests/deploy-safety-test.sh` (the CI job "Deployment/backup safety invariant", stubbed `docker`): default `up` lines unchanged (scheduler in the list), the flag and the variable exclude it, the warning is printed when the stub reports the scheduler stopped, a bad variable value is refused with nothing moved.
+4. This document (sections 5 and 6) and `deploy/checklists/*.md`: the operator sequences with the flag.
+5. Gate: `bash -n` on every script, the safety suite, the rehearsal guard suite, `deploy/tools/structural-searches.sh`.
+
+### What was built
+
+- `deploy/backup-first-lib.sh` (shared by both scripts): `bf_scheduler_is_running` (`ps -q --status running scheduler`), `bf_keep_scheduler_from_env` (unset, empty or `0` is off, `1` is on, anything else refuses the run before the host lock, the dump or any container), `bf_scheduler_start_cmd` (`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --no-deps scheduler`, which touches no other container) and `bf_warn_scheduler_will_start` (six WARNING lines, then 10 seconds to abort; a `sleep` only, nothing is done meanwhile).
+- `deploy/rollback.sh [--keep-scheduler-stopped] <sha>`: the flag may come before or after the commit; any other option is refused before anything moves. With the flag (or the variable): a line before the dump saying what will happen, then at the `up` stage `stop scheduler` and `up -d --no-deps app horizon web` (migrations still OFF through the override, read back as before), and a last line: the scheduler is LEFT STOPPED, health reports it failing after 180 seconds, and the start command. Without it: the same `up -d --no-deps app horizon scheduler web` as before; if the scheduler is not running when the rollback starts, the warning comes before the dump.
+- `deploy/deploy.sh [--no-pull] --keep-scheduler-stopped`: with it, `stop scheduler` then `up -d --remove-orphans --scale scheduler=0` (everything else exactly as before: the release still migrates), and the same last line, adding that the release may be recorded UNVERIFIED with the scheduler as the failing component. Without it: the same bare `up -d --remove-orphans`; the warning when the stack is up and the scheduler is not running. `--verify-only` ignores the flag (it changes nothing anyway).
+- Neither script changes its default `up`, its order (lock, refusals, dump, checkout, build, up, verify, record) or what it records.
+
+### Tests
+
+`deploy/tests/deploy-safety-test.sh`, new sections 28 to 29e, with the stubbed `docker` (`deploy/tests/docker-stub.sh` now remembers whether a scheduler runs: a bare `up -d` starts it, `--scale scheduler=0` and `stop scheduler` stop it, a `--no-deps` list starts it only when it names it; `STUB_SCHEDULER_RUNNING=0` plays Option 2):
+
+- 28, 29: a default deploy and a default rollback run the same `up` line as before (scheduler in the list), stop nothing, warn about nothing, and the scheduler runs after them.
+- 28b, 29b: over a stopped scheduler, without the flag, both still succeed and start it (default unchanged), and print the warning, recommending the flag, before the dump.
+- 28c, 29c: with `--keep-scheduler-stopped`, no `up` starts the scheduler (deploy: `--scale scheduler=0`; rollback: `app horizon web` only), it is stopped explicitly, it is not running after, the deploy still migrates and the rollback still does not, no warning, and the closing line names the start command.
+- 28d, 29d: `HQ_KEEP_SCHEDULER_STOPPED=1` does the same and stops a scheduler that was running.
+- 28e, 29e: `HQ_KEEP_SCHEDULER_STOPPED=yes` or `true`, and an unknown rollback option, are refused with the reason and move nothing (snapshot identical; no dump, probe or container call).
+
+What the stub cannot prove: that a real Docker Compose honours `--scale scheduler=0` on `up` by stopping and removing the scheduler container. That is compose's documented behaviour; the first real use (sequence B) is followed by `$C ps scheduler`, which must show no running scheduler.

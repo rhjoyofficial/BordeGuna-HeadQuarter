@@ -2,6 +2,9 @@
 # Roll HQ back to an earlier release.
 #
 #   cd /opt/bordeguna-hq && ./deploy/rollback.sh <sha>
+#   cd /opt/bordeguna-hq && ./deploy/rollback.sh --keep-scheduler-stopped <sha>
+#                                     # the same, but the scheduler is stopped and NOT started again
+#                                     # (also HQ_KEEP_SCHEDULER_STOPPED=1; docs/132 section 9)
 #
 # THE INVARIANT (docs/81 C.3), and it is the whole point of this script:
 #
@@ -31,6 +34,13 @@
 # be an override and not a variable in docker-compose.yml: `git checkout <target>` replaces that file
 # with the TARGET's copy, and every release older than this one hardcodes "1".
 #
+# THE SCHEDULER (docs/132 section 9). By default the `up` below starts `app horizon scheduler web`, so a
+# scheduler stopped for containment (Option 2) comes back, and its drain processes every pending event
+# through the code rolled back TO, which knows no HQ_EVENTS_DRAIN_PAUSED if it predates docs/132. With
+# `--keep-scheduler-stopped` the scheduler is stopped and only `app horizon web` are started; the script
+# ends by saying so and printing the one command that starts it. A scheduler that is already stopped when
+# this script starts, without the flag, gets a loud warning (and 10 seconds to abort); nothing else changes.
+#
 # ⚠ After a rollback, a bare `docker compose up -d` typed by hand sees a changed `app` definition and
 # recreates it with RUN_MIGRATIONS=1. A restart or a reboot does not. The way forward is
 # `git checkout main && ./deploy/deploy.sh --no-pull`, which is a deploy and migrates by design.
@@ -44,8 +54,16 @@ die() { log "$*"; exit 1; }
 # The whole body is one function, called on the last line, so bash has parsed every line of this
 # file before `git checkout` replaces it on disk with the target's copy.
 main() {
-    local TARGET_ARG=${1:-}
-    [ -n "$TARGET_ARG" ] && [ "$#" -eq 1 ] || die "usage: rollback.sh <sha>   (nothing has moved)"
+    local TARGET_ARG="" KEEP_SCHEDULER_STOPPED=0 arg
+    local USAGE="usage: rollback.sh [--keep-scheduler-stopped] <sha>   (nothing has moved)"
+    for arg in "$@"; do
+        case "$arg" in
+            --keep-scheduler-stopped) KEEP_SCHEDULER_STOPPED=1 ;;
+            -*) die "unknown option '${arg}'. ${USAGE}" ;;
+            *)  [ -z "$TARGET_ARG" ] || die "$USAGE"; TARGET_ARG="$arg" ;;
+        esac
+    done
+    [ -n "$TARGET_ARG" ] || die "$USAGE"
 
     [ -f deploy/.env ] || die "deploy/.env missing. Refusing to roll back; nothing has moved."
     [ "$(stat -c %a deploy/.env)" = "600" ] || die "deploy/.env must be mode 600. Refusing to roll back; nothing has moved."
@@ -57,6 +75,10 @@ main() {
     . deploy/backup-first-lib.sh
     # shellcheck source=deploy/host-lock-lib.sh
     . deploy/host-lock-lib.sh
+
+    local KEEP_FROM_ENV
+    KEEP_FROM_ENV=$(bf_keep_scheduler_from_env)         || die "HQ_KEEP_SCHEDULER_STOPPED must be 1 or 0 (or unset). Refusing to roll back; nothing has moved."
+    [ "$KEEP_FROM_ENV" = "1" ] && KEEP_SCHEDULER_STOPPED=1
 
     # ── 0. One deploy or rollback at a time (docs/81 C.9). Held until this script ends: the lock is
     # on a descriptor, so the checkout replacing this file on disk does not touch it.
@@ -102,6 +124,13 @@ main() {
     [ -z "$dirty" ] || die "tracked files are modified on this checkout: $(echo "$dirty" | awk '{print $2}' | tr '\n' ' '). Refusing to roll back; nothing has moved. Look: git status; git diff"
 
     bf_stack_is_up || die "the database container is not running, so no dump can be taken. Refusing to roll back; nothing has moved. Starting a stack is ./deploy/deploy.sh --no-pull"
+
+    # The scheduler (docs/132 section 9): said before anything moves, so there is time to abort.
+    if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+        log "--keep-scheduler-stopped: the scheduler will be stopped and NOT started; only app, horizon and web start."
+    elif ! bf_scheduler_is_running; then
+        bf_warn_scheduler_will_start
+    fi
 
     # ── 2. Migrations OFF, observed before anything moves ──────────────────────────────────────
     #
@@ -155,7 +184,13 @@ YAML
     $COMPOSE build --build-arg GIT_COMMIT="${SHORT}" app
 
     STAGE=up
-    $COMPOSE_NO_MIGRATE up -d --no-deps app horizon scheduler web
+    if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+        # Stopped first, so no scheduler of either release drains while app changes under it.
+        $COMPOSE stop scheduler
+        $COMPOSE_NO_MIGRATE up -d --no-deps app horizon web
+    else
+        $COMPOSE_NO_MIGRATE up -d --no-deps app horizon scheduler web
+    fi
     sleep 5
 
     # What actually started, read back rather than assumed.
@@ -210,6 +245,9 @@ YAML
     if [ -x deploy/release-state-refresh.sh ]; then ./deploy/release-state-refresh.sh || true; fi
     log "rolled back to ${SHORT}: code only. No migration was run and the database was not restored; the schema is as the newer release left it. Dump taken first: ${DUMP}."
     log "To return to main later: git checkout main && ./deploy/deploy.sh --no-pull"
+    if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+        log "The scheduler is LEFT STOPPED (--keep-scheduler-stopped): no event is drained, and /api/health reports the scheduler failing after 180 seconds. Start it, only when the drain may run under ${SHORT}: $(bf_scheduler_start_cmd)"
+    fi
 }
 
 record_failed_rollback() {

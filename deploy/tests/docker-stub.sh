@@ -114,11 +114,24 @@ case "${ALL}" in
             *"--no-deps"*) case " ${ALL} " in *" app "*) starts_app=1 ;; *) starts_app=0 ;; esac ;;
             *) starts_app=1 ;;
         esac
+        # Does it start the scheduler (docs/132 section 9)? A bare `up -d` does, unless it scales it to 0;
+        # a `--no-deps` list does only when the list names it. Remembered, so `ps` answers what is running.
+        case "${ALL}" in
+            *"--no-deps"*) case " ${ALL} " in *" scheduler "*) echo 1 > "${STUB_STATE}/scheduler" ;; esac ;;
+            *"--scale scheduler=0"*) echo 0 > "${STUB_STATE}/scheduler" ;;
+            *) echo 1 > "${STUB_STATE}/scheduler" ;;
+        esac
         if [ "$starts_app" = "1" ]; then
             resolved_run_migrations "$@" > "${STUB_STATE}/app-run-migrations"
             cat "${STUB_STATE}/app-run-migrations" >> "${STUB_STATE}/app-run-migrations-history"
         fi
         [ -s "${STUB_STATE}/built" ] && cp "${STUB_STATE}/built" "${STUB_STATE}/released"
+        exit 0 ;;
+    *" stop scheduler"*)
+        echo 0 > "${STUB_STATE}/scheduler"; exit 0 ;;
+    *" ps -q --status running scheduler"*)
+        # STUB_SCHEDULER_RUNNING=0 plays a scheduler stopped for containment (Option 2) before the run.
+        [ "$(cat "${STUB_STATE}/scheduler" 2>/dev/null || echo "${STUB_SCHEDULER_RUNNING:-1}")" = "1" ] && echo "cid-scheduler"
         exit 0 ;;
     *" ps -q app"*)
         [ "${STUB_APP_RUNNING:-1}" = "1" ] && echo "cid-app"; exit 0 ;;

@@ -279,7 +279,15 @@ Anthropic keeps serving until a person moves it. Every line below runs on the VP
 
 ```bash
 ssh vps && cd /opt/bordeguna-hq && ./deploy/rollback.sh <sha>
+ssh vps && cd /opt/bordeguna-hq && ./deploy/rollback.sh --keep-scheduler-stopped <sha>   # scheduler left stopped
 ```
+
+**The scheduler (docs/132 section 9).** By default step 3 below starts `app horizon scheduler web`, so a
+scheduler stopped for containment (Option 2) comes back and drains every pending event through the code
+rolled back to. `--keep-scheduler-stopped` (or `HQ_KEEP_SCHEDULER_STOPPED=1`) stops it and starts only
+`app horizon web`; the last line says so and prints the one command that starts it. `deploy.sh` takes the
+same flag (its `up` gets `--scale scheduler=0`). Without the flag, a scheduler found stopped gets a loud
+warning and 10 seconds to abort, before the dump; nothing else changes.
 
 **The invariant (docs/81 C.3): a rollback changes code and nothing else. It never runs a migration,
 up or down, and it writes nothing to the database itself. It happens only behind a verified dump,

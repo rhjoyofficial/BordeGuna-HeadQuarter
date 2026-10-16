@@ -1,6 +1,6 @@
 # Post-release read-only checklist (ruling docs/120 D.4)
 
-For Joy, on the VPS, AFTER he has released waves 1 to 4 with `./deploy/deploy.sh --verify-only && ./deploy/deploy.sh`, and BEFORE any optional repair or backfill. Every command below only reads. The readiness record is `docs/128-release-readiness-2026-10-15.md`; the pre-release values to compare with are in `/root/hq-posture-before-release.txt` (pre-release checklist section 3).
+For Joy, on the VPS, AFTER he has released waves 1 to 4 with `./deploy/deploy.sh --verify-only && ./deploy/deploy.sh` (under containment Option 2: docs/132 section 5 B, with `HQ_EVENTS_DRAIN_PAUSED=true` and `--keep-scheduler-stopped`), and BEFORE any optional repair or backfill. Every command below only reads. The readiness record is `docs/128-release-readiness-2026-10-15.md`; the pre-release values to compare with are in `/root/hq-posture-before-release.txt` (pre-release checklist section 3).
 
 ## 0. Conventions
 
@@ -23,6 +23,8 @@ $C exec -T app php -r 'echo @file_get_contents("http://web/api/health", false, s
 ```
 
 Expected: the candidate commit from git and from the image label; `release.json` names it with `"verification":{"status":"passed"`; `RELEASES.md` ends with the release and names `b96a396` as its predecessor; `/api/health` overall `ok` with `"release":"<candidate>"`. A pre-deploy dump line (`verified dump: ...`) was printed by `deploy.sh` before `releasing`: note its file name, it is the rollback (section 9).
+
+If the release ran with `--keep-scheduler-stopped` (docs/132 section 5 B2), expect instead `"verification":{"status":"failed"` with the scheduler as the ONLY failing component of `/api/health` (no tick, the scheduler is left stopped on purpose), the candidate still named by `release.json` and the health answer, and `$C ps scheduler` showing no running scheduler. Any other failing component is a real failure. The release is verified later, after Stage D step 10 starts the scheduler (docs/132 B5).
 
 ## 2. Migration and seed outcomes
 
@@ -128,7 +130,8 @@ It refuses a key that no longer matches the live data, never changes an ambiguou
 
 Migration `2026_10_15_100000_scope_customer_identities_to_business` REFUSES its `down()` once any `customer_identity_conflicts` row exists, and on production two will exist (section 3). `migrate:rollback` is therefore not the way back. The way back is code first, then data, both WRITES and both outside this read-only checklist, on Joy's decision:
 
-1. `./deploy/rollback.sh b96a396`: code only, no migration runs, `RUN_MIGRATIONS=0` on `app` (deploy/README.md section "Rollback"). Code first, because the candidate's `app` container migrates on start (`RUN_MIGRATIONS=1`): restoring the database under it and then starting it would re-apply the ten migrations.
-2. The database from the pre-deploy dump `deploy.sh` took and verified before the checkout moved (its name is in the `deploy.sh` output, section 1): deploy/README.md section "Rollback", block "Database, only if a migration must be undone": stop `app horizon scheduler`, rehearse the restore into `hq_restore_check`, restore into the production database, start them.
+0. Before anything: the event export (docs/132 section 5 C1 step 1), while the candidate still runs.
+1. `./deploy/rollback.sh --keep-scheduler-stopped b96a396`: code only, no migration runs, `RUN_MIGRATIONS=0` on `app` (deploy/README.md section "Rollback"). Code first, because the candidate's `app` container migrates on start (`RUN_MIGRATIONS=1`): restoring the database under it and then starting it would re-apply the ten migrations. `--keep-scheduler-stopped` because `b96a396` has no `HQ_EVENTS_DRAIN_PAUSED`: a started scheduler would drain every pending event through the OLD resolver (docs/131 section 1.1, docs/132 section 5 C2). The script ends with "The scheduler is LEFT STOPPED" and the command that starts it: do not run it.
+2. The database from the pre-deploy dump `deploy.sh` took and verified before the checkout moved (its name is in the `deploy.sh` output, section 1): deploy/README.md section "Rollback", block "Database, only if a migration must be undone": stop `app horizon` (the scheduler is already stopped), rehearse the restore into `hq_restore_check`, restore into the production database, then `$C start app horizon`. Never start the scheduler here: it waits for a fixed release (docs/132 section 5 C2 step 5).
 
 The local rehearsal proved the pre-migration dump restores to exactly the pre-migration snapshot (docs/128 section 9). The Docker rehearsal on the VPS (`deploy/rehearsal/rehearse.sh`) proves the same with a production dump and the real `deploy/restore.sh`; until it has run, this path is rehearsed at SQL level only.
