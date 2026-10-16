@@ -169,6 +169,10 @@ $COMPOSE build --pull backup
 # ── 5. Release. `app` runs migrations in its entrypoint (RUN_MIGRATIONS=1). ─────────────────────
 RELEASE_STAGE=up
 log "starting stack"
+# ⚠ docs/132: this STARTS a scheduler that was stopped (containment Option 2), and its drain then runs every
+# pending event through the code just released, within a minute. When that must not happen (docs/131 Stage D
+# step 4), set HQ_EVENTS_DRAIN_PAUSED=true in deploy/.env BEFORE running this script: the scheduler runs (the
+# health tick stays fresh) and hq:events:process claims nothing. Only releases that include docs/132 read it.
 $COMPOSE up -d --remove-orphans
 sleep 5
 $COMPOSE exec -T horizon php artisan horizon:terminate || true

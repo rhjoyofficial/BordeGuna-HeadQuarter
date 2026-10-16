@@ -38,3 +38,14 @@ It never runs `deploy/rollback.sh` (a code rollback checks out the target's comp
 ## The one-way door
 
 Migration `2026_10_15_100000_scope_customer_identities_to_business` (W1) refuses its `down()` once any `customer_identity_conflicts` row exists. On production data (docs/121 section 5) such rows will exist after the migration, so the rehearsal records the refusal and proves recovery through `deploy/restore.sh` from the verified dump `deploy.sh` takes before it releases. Rollback of this release is dump and restore, not `migrate:rollback`.
+
+## Event bridge across a restore (docs/132; ruling docs/131 Stage B last bullet)
+
+`deploy/restore.sh` brings `events` back to the moment of the dump. Every webhook HQ accepted after that moment was answered 202, so its shop will not send it again: without a bridge the restore loses it. `restore.sh` itself is unchanged. The bridge is a documented step on either side of it, with the candidate's own commands:
+
+- PRE-STEP, before `restore.sh`, with the code that is running (it must include docs/132): `docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T app php artisan hq:events:export-since --since="<start of the dump, UTC, minus 10 minutes>" --out=/var/www/html/storage/app/event-bridge/restore-<stamp>.jsonl`. Read only. The overlap with the dump is harmless: the import skips a row that is already present with the same payload. The file holds payloads (personal data): it stays in the `storage` volume or under `/root`, mode 600, like a dump.
+- Then `docker compose stop app horizon scheduler` and `restore.sh` exactly as before.
+- POST-STEP, after `restore.sh`, before the scheduler is started: `php artisan hq:events:import <file>` (dry run, writes nothing, must report no conflicting and no malformed row), then `php artisan hq:events:import <file> --apply --by=<email> --reason="<why>"`. The rows come back `pending`, never attempted, never processed, with one `events.imported` audit record. Run it in the `app` container when the stack runs the bridge's code; when it does not (a code rollback), see docs/132 for the sequence.
+- Only then may the drain run, and only when Joy has authorised replay (docs/131 Stage D step 10). With `HQ_EVENTS_DRAIN_PAUSED=true` in deploy/.env the scheduler can run while the drain claims nothing.
+
+`rehearse.sh` section 10 does all of this on the throwaway copy: scheduler stopped, a dump, three deliveries after it, export, `restore.sh`, proof the restore removed them, import dry run (writes nothing), import apply, proof each delivery is back with the same event_id, dedupe key and payload hash, pending and unprocessed, audited, and that a second import inserts nothing. A candidate without the two commands FAILS that section.

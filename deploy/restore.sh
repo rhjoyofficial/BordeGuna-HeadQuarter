@@ -8,6 +8,10 @@
 #
 # Restoring INTO PRODUCTION requires TARGET_DB=<production db> and CONFIRM_PRODUCTION_RESTORE=yes,
 # and is only done after `docker compose stop app horizon scheduler`.
+#
+# ⚠ docs/132: restoring PRODUCTION drops every `events` row that arrived after the dump; those webhooks were
+# answered 202 and will not be resent. Pre-step: hq:events:export-since. Post-step, before the scheduler starts:
+# hq:events:import (dry run, then --apply). This script does neither; deploy/rehearsal/README.md has the steps.
 set -euo pipefail
 export PGPASSWORD="${DB_PASSWORD:?DB_PASSWORD is not set}"
 HOST=${DB_HOST:-db}; PORT=${DB_PORT:-5432}; USER=${DB_USERNAME}

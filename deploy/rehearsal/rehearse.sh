@@ -31,7 +31,9 @@
 #   run, cost dry run, repair dry run if the command exists; proof they wrote nothing -> [quarantine listing]
 #   -> ROLLBACK one migration at a time until a down() refuses or the pre-release schema is reached; counts compared
 #   -> RESTORE PROOF: the pre-deploy dump deploy.sh took, restored into a second scratch database and compared with
-#   the BEFORE snapshot -> RE-APPLY and verify again -> posture unchanged -> teardown (project volumes only).
+#   the BEFORE snapshot -> RE-APPLY and verify again -> posture unchanged -> EVENT BRIDGE (docs/132): scheduler
+#   stopped, a dump, three deliveries after it, hq:events:export-since, restore.sh, hq:events:import; none lost, none
+#   processed -> teardown (project volumes only).
 #
 # WHAT IT REFUSES (before any docker call): the production or staging project name; a database name that is `hq`,
 # `postgres`, the production DB_DATABASE, or not prefixed hq_rehearsal; a root inside the production checkout or the
@@ -133,7 +135,8 @@ rehearsal plan (nothing has run):
   keep afterwards ${KEEP}
   steps           guards, clone, compose isolation, env, db+redis+backup up, restore, BEFORE snapshot + scope + posture,
                   [seed], verify-only, deploy.sh --no-pull (migrates), AFTER snapshot, constraints, seeder, dry runs,
-                  [quarantine listing], rollback until refusal, restore proof, re-apply, verify, posture, teardown
+                  [quarantine listing], rollback until refusal, restore proof, re-apply, verify, posture,
+                  event bridge across a restore (scheduler stopped, export, restore, import, none lost, none processed), teardown
   never           the production project, production's lock, production's backup directory, deploy/rollback.sh, ssh
 PLAN
 }
@@ -449,4 +452,81 @@ else
     diff "${EVIDENCE}/02-before-posture.txt" "${EVIDENCE}/25-after-posture.txt" > "${EVIDENCE}/25-posture-diff.txt" || true
     fail "the release changed the posture (25-posture-diff.txt)"
 fi
+# ── 10. Event bridge across a restore (docs/131 Stage B last bullet; docs/132) ──────────────────────
+# Containment Option 2 stops the scheduler while the shops keep delivering. A restore to a dump taken
+# before those deliveries would drop them: each was answered 202, so no shop sends it again. Here: stop
+# the drain, take a dump, let three deliveries "arrive", export them with the candidate's
+# hq:events:export-since, restore the dump with deploy/restore.sh, import with hq:events:import, and prove
+# none was lost and none was processed.
+log "event bridge: scheduler stopped (Option 2), deliveries after a dump, restore, export/import"
+if ! artisan list --raw 2>/dev/null | awk '{print $1}' | grep -qx 'hq:events:export-since' \
+    || ! artisan list --raw 2>/dev/null | awk '{print $1}' | grep -qx 'hq:events:import'; then
+    fail "event bridge: the candidate has no hq:events:export-since / hq:events:import (docs/132); events received after the pre-deploy dump would be lost by a restore. Re-cut the candidate with the bridge."
+else
+    $C stop scheduler horizon >/dev/null 2>&1 || true
+    ev_hash() { psql_db "$DB" -c "SELECT md5(coalesce(string_agg(e::text, '|' ORDER BY e.id), '')) FROM events e"; }
+    BRIDGE_DUMP_HOST="${BACKUPS}/incoming/bridge-base.dump"
+    $C exec -T db pg_dump -U "$DB_USER" -d "$DB" -Fc > "$BRIDGE_DUMP_HOST"
+    BASE_MAX=$(psql_db "$DB" -c "SELECT coalesce(max(id), 0) FROM events")
+    BASE_COUNT=$(psql_db "$DB" -c "SELECT count(*) FROM events")
+    # The copy's webhook secrets cannot be decrypted under its new APP_KEY (a signed POST answers 503), so
+    # the three deliveries are written with EventRecorder's column shape. Synthetic, nothing personal.
+    psql_db "$DB" -c "INSERT INTO events (event_id, type, direction, source, aggregate_type, aggregate_id, business_id, payload, dedupe_key, schema_version, occurred_at, created_at, attempts, max_attempts, status)
+        SELECT gen_random_uuid(), 'order.created', 'inbound', 'shop:rehearsal-bridge', 'order', 'RBRIDGE-' || g, NULL,
+               jsonb_build_object('order_number', 'RBRIDGE-' || g, 'grand_total', 100.0 * g, '_store', 'rehearsal-bridge', '_schema_version', 1),
+               'rehearsal-bridge:' || g, 1, now(), now(), 0, 5, 'pending'
+        FROM generate_series(1, 3) AS g" >/dev/null
+    psql_db "$DB" -c "SELECT event_id || ' ' || dedupe_key || ' ' || md5(payload::text) FROM events WHERE dedupe_key LIKE 'rehearsal-bridge:%' ORDER BY id" > "${EVIDENCE}/26-bridge-arrived.txt"
+    H0=$(ev_hash)
+    BRIDGE_FILE=/var/www/html/storage/app/event-bridge/rehearsal-bridge.jsonl
+    artisan hq:events:export-since --since-id="$BASE_MAX" --out="$BRIDGE_FILE" > "${EVIDENCE}/26-bridge-export.txt" 2>&1 || fail "event bridge: export failed (26-bridge-export.txt)"
+    [ "$(ev_hash)" = "$H0" ] && pass "event bridge: the export is read only (events row hash unchanged)" || fail "event bridge: the export changed the events table"
+    if grep -q 'exported 3 inbound event(s)' "${EVIDENCE}/26-bridge-export.txt"; then
+        pass "event bridge: the three deliveries after the dump were exported ($(grep -o 'sha256 [0-9a-f]*' "${EVIDENCE}/26-bridge-export.txt"))"
+    else
+        fail "event bridge: the export did not hold exactly the three deliveries (26-bridge-export.txt)"
+    fi
+
+    log "event bridge: restoring the dump taken before the deliveries (app stopped, as restore.sh requires)"
+    $C stop app >/dev/null 2>&1 || true
+    $C exec -T -e CONFIRM_PRODUCTION_RESTORE=yes backup /restore.sh /backups/incoming/bridge-base.dump "$DB" > "${EVIDENCE}/27-bridge-restore.txt" 2>&1 \
+        || { cat "${EVIDENCE}/27-bridge-restore.txt"; fail "event bridge: the restore failed"; }
+    $C start app >/dev/null 2>&1 || true
+    for i in $(seq 1 60); do artisan --version >/dev/null 2>&1 && break; sleep 2; done
+    LOST=$(psql_db "$DB" -c "SELECT count(*) FROM events WHERE dedupe_key LIKE 'rehearsal-bridge:%'")
+    if [ "$LOST" = "0" ] && [ "$(psql_db "$DB" -c "SELECT count(*) FROM events")" = "$BASE_COUNT" ]; then
+        pass "event bridge: the restore removed the three deliveries (the loss the bridge exists for); events back at ${BASE_COUNT} rows"
+    else
+        fail "event bridge: after the restore the events table is not the dump's (${LOST} bridge rows left)"
+    fi
+
+    H1=$(ev_hash)
+    artisan hq:events:import "$BRIDGE_FILE" > "${EVIDENCE}/28-bridge-import-dry-run.txt" 2>&1 || fail "event bridge: the import dry run refused (28-bridge-import-dry-run.txt)"
+    if [ "$(ev_hash)" = "$H1" ] && grep -q 'absent, to insert as pending: 3' "${EVIDENCE}/28-bridge-import-dry-run.txt"; then
+        pass "event bridge: the import dry run found the three absent and wrote nothing"
+    else
+        fail "event bridge: the import dry run wrote or misjudged (28-bridge-import-dry-run.txt)"
+    fi
+    OPERATOR=$(psql_db "$DB" -c "SELECT email FROM users ORDER BY id LIMIT 1")
+    artisan hq:events:import "$BRIDGE_FILE" --apply --by="$OPERATOR" --reason="rehearsal: event bridge across a restore" > "${EVIDENCE}/29-bridge-import.txt" 2>&1 \
+        || fail "event bridge: the import apply failed (29-bridge-import.txt)"
+    psql_db "$DB" -c "SELECT event_id || ' ' || dedupe_key || ' ' || md5(payload::text) FROM events WHERE dedupe_key LIKE 'rehearsal-bridge:%' ORDER BY id" > "${EVIDENCE}/29-bridge-back.txt"
+    if diff -q "${EVIDENCE}/26-bridge-arrived.txt" "${EVIDENCE}/29-bridge-back.txt" >/dev/null; then
+        pass "event bridge: every delivery is back with its event_id, dedupe key and payload (md5) unchanged: no event lost"
+    else
+        fail "event bridge: the imported rows differ from the ones that arrived (26-bridge-arrived.txt vs 29-bridge-back.txt)"
+    fi
+    UNPROCESSED=$(psql_db "$DB" -c "SELECT count(*) FROM events WHERE dedupe_key LIKE 'rehearsal-bridge:%' AND status = 'pending' AND attempts = 0 AND processed_at IS NULL")
+    [ "$UNPROCESSED" = "3" ] && pass "event bridge: all three are pending, never attempted, never processed (scheduler stopped)" || fail "event bridge: ${UNPROCESSED} of 3 imported rows are pending and unprocessed"
+    AUDITED=$(psql_db "$DB" -c "SELECT count(*) FROM audit_logs WHERE action = 'events.imported'")
+    [ "${AUDITED:-0}" -ge 1 ] && pass "event bridge: the import is audited (events.imported)" || fail "event bridge: no events.imported audit record"
+    H2=$(ev_hash)
+    artisan hq:events:import "$BRIDGE_FILE" --apply --by="$OPERATOR" --reason="rehearsal: second import" > "${EVIDENCE}/30-bridge-import-again.txt" 2>&1 || true
+    if [ "$(ev_hash)" = "$H2" ] && grep -q 'inserted 0 event(s)' "${EVIDENCE}/30-bridge-import-again.txt"; then
+        pass "event bridge: a second import inserts nothing (idempotent)"
+    else
+        fail "event bridge: a second import changed the events table (30-bridge-import-again.txt)"
+    fi
+fi
+
 log "done; the EXIT trap tears down (or keeps, with --keep) and prints the verdicts"
