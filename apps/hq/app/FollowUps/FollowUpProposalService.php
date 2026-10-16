@@ -200,9 +200,26 @@ final class FollowUpProposalService
             throw new IllegalTransition("Follow-up {$followUp->uuid} is [{$followUp->state->value}], not [proposed].");
         }
 
+        // docs/131 item 4: once another eligible decider exists, the proposer does not approve their own proposal.
+        $selfDecision = $this->isOwnProposal($by, $followUp);
+        if ($selfDecision && ($others = $this->otherEligibleDeciders($followUp, $by)) > 0) {
+            throw new InvalidArgumentException("Not approved: {$by->email} proposed this follow-up, and {$others} other eligible decider(s) hold "
+                .self::PERMISSION_DECIDE.' for this business. Decider independence: one of them decides it (docs/131 item 4).');
+        }
+
         $decision = $this->consent($followUp->customer, Channel::from($followUp->channel), $followUp->kind, $followUp->brand_id);
 
-        return DB::transaction(function () use ($followUp, $by, $reason, $decision) {
+        return DB::transaction(function () use ($followUp, $by, $reason, $decision, $selfDecision) {
+            if ($selfDecision) {
+                // The sole eligible decider decides their own proposal: allowed, recorded `self_decided` (below) and
+                // audited with the rule that admits it, never silently (docs/131 item 4, the docs/125 item 22 pattern).
+                $this->auditor->record('follow_up.self_decision_bootstrap', $followUp, after: [
+                    'rule' => self::SELF_DECISION_BOOTSTRAP_RULE,
+                    'proposer' => $by->email,
+                    'other_eligible_deciders' => $this->otherEligibleDeciders($followUp, $by),
+                ], reason: $reason, actorUserId: $by->getKey());
+            }
+
             if (! $decision->permitted) {
                 $followUp->transition(FollowUpState::Refused, $this->decision($by, $reason) + $this->consentColumns($decision));
                 $this->auditPerson($by, 'follow_up.refused', $followUp, FollowUpState::Proposed->value,
@@ -351,6 +368,25 @@ final class FollowUpProposalService
         if (! $this->scope->allows($by, $row->business_id)) {
             throw new AuthorizationException('This record belongs to a business outside your scope.');
         }
+    }
+
+    /** The documented single-decider bootstrap rule, recorded with every self-decision it admits. */
+    public const SELF_DECISION_BOOTSTRAP_RULE = 'single-decider bootstrap: the proposer is the only enabled holder of hq.followups.decide with access to this business, so deciding their own proposal is allowed and recorded as self_decided (docs/131 item 4, docs/133)';
+
+    private function isOwnProposal(User $by, FollowUp|Opportunity $row): bool
+    {
+        return $row->proposer_type === Proposer::PERSON && $row->proposed_by_user_id !== null && (int) $row->proposed_by_user_id === (int) $by->getKey();
+    }
+
+    /**
+     * Enabled people other than `$except` who hold the decide permission and may act on the row's business: the
+     * independent deciders whose existence ends the bootstrap (the `Playbooks::otherEligibleReviewers` rule).
+     */
+    public function otherEligibleDeciders(FollowUp|Opportunity $row, User $except): int
+    {
+        return User::query()->permission(self::PERMISSION_DECIDE)->where('is_active', true)->whereKeyNot($except->getKey())->get()
+            ->filter(fn (User $u) => $this->scope->allows($u, (int) $row->business_id))
+            ->count();
     }
 
     /**

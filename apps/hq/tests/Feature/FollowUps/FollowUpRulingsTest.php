@@ -160,9 +160,9 @@ it('never lets proposing confer deciding: brand_manager and support_agent cannot
 
 it('records a decider deciding on their own proposal visibly, and not otherwise (item 11)', function () {
     rulGrant($this->customer);
-    $operator = $this->hqUser('operator');
-
+    // docs/131 item 4: the owner decides their own proposal only as the sole eligible decider (the bootstrap rule).
     $own = $this->service->approveFollowUp($this->service->proposeFollowUp(Proposer::person($this->owner), rulProposal($this->customer)), $this->owner);
+    $operator = $this->hqUser('operator');
     $theirs = $this->service->approveFollowUp($this->service->proposeFollowUp(Proposer::person($this->owner), rulProposal($this->customer)), $operator);
 
     $approved = fn (FollowUp $f) => AuditLog::where('action', 'follow_up.approved')->where('target_id', $f->id)->sole();
