@@ -1,0 +1,10 @@
+# 133. Time-zone backfill and follow-up self-decision, 16 October 2026
+
+Under the binding ruling `docs/131-chatgpt-ruling-2026-10-16.txt` section 2 items 4 and 8, Stage B (backfill dry runs write nothing) and Stage C (backfill commands, read-only against mutating). Branch `platform/tz-backfill-and-self-decision` from main `3e3d81a`, worktree `hq-wt/f`, test database `hq_test_f`. No production access; nothing is applied anywhere.
+
+## Plan (committed first)
+
+1. **Item 8, `hq:facts:tz-backfill`.** A dry run by default. Finds affected `facts_orders` timestamps (placed, confirmed, delivered, cancelled) only from the stored source evidence: the `events` rows of the same store and order, whose payload keeps the shop's raw string with its offset. Each timestamp is compared to the instant its source string names and to the wrong value the old code would have stored (the wall clock read as UTC). Only a timestamp whose stored value is explained by exactly one wrong reading, and by no correct one, is correctable. Missing evidence, a string with no offset, an ERP read-back (digest only) or conflicting evidence: ambiguous, listed, never changed. Output by business and Dhaka day, before and after delivered sales per day, totals, the ambiguous list, `--json`. `--apply` needs `--key`, `--by` and `--reason`, runs under an advisory lock in one transaction, writes each change with old and new values to a new append-only table and the audit log, then re-verifies.
+2. **Item 4 condition.** A follow-up proposer may approve their own proposal only while no other eligible decider exists (enabled, holds `hq.followups.decide`, may act on the business): the item 22 playbook rule. The sole-decider case is allowed, recorded `self_decided` and audited with the bootstrap rule.
+3. **Rehearsal and checklist.** The dry run as a no-write step in the local SQL rehearsal and `rehearse.sh` (row hashes before and after), only when the command exists; the post-release read-only checklist carries the dry run, and the mutating line is labelled Joy-authorized.
+4. **This record**, filled in at the end.
