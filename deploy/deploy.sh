@@ -5,6 +5,9 @@
 #   cd /opt/bordeguna-hq && ./deploy/deploy.sh --no-pull  # release the checked-out commit
 #   cd /opt/bordeguna-hq && ./deploy/deploy.sh --verify-only [--no-pull]
 #                                     # preflight only: changes NOTHING, releases nothing (verify-only.sh)
+#   cd /opt/bordeguna-hq && ./deploy/deploy.sh [--no-pull] --keep-scheduler-stopped
+#                                     # release, but leave the scheduler stopped (also
+#                                     # HQ_KEEP_SCHEDULER_STOPPED=1; docs/132 section 9)
 #
 # ORDER, and it is the whole point of this script:
 #
@@ -34,12 +37,13 @@ die() { log "$*"; exit 1; }
 
 # ── Arguments. An argument this script does not know is REFUSED: until docs/81 C.3 anything other
 # than `--no-pull` (a typing mistake such as `--nopull` included) meant "fast-forward to origin/main".
-NO_PULL=0; VERIFY_ONLY=0
+NO_PULL=0; VERIFY_ONLY=0; KEEP_SCHEDULER_STOPPED=0
 for arg in "$@"; do
     case "$arg" in
         --no-pull)     NO_PULL=1 ;;
         --verify-only) VERIFY_ONLY=1 ;;
-        *) die "unknown argument '${arg}'. Usage: deploy.sh [--no-pull] [--verify-only]. Nothing has moved." ;;
+        --keep-scheduler-stopped) KEEP_SCHEDULER_STOPPED=1 ;;
+        *) die "unknown argument '${arg}'. Usage: deploy.sh [--no-pull] [--verify-only] [--keep-scheduler-stopped]. Nothing has moved." ;;
     esac
 done
 
@@ -59,6 +63,8 @@ fi
 # shellcheck source=deploy/host-lock-lib.sh
 . deploy/host-lock-lib.sh
 [ "$(stat -c %a deploy/.env)" = "600" ] || die "deploy/.env must be mode 600"
+KEEP_FROM_ENV=$(bf_keep_scheduler_from_env)     || die "HQ_KEEP_SCHEDULER_STOPPED must be 1 or 0 (or unset). Refusing to deploy; nothing has moved."
+[ "$KEEP_FROM_ENV" = "1" ] && KEEP_SCHEDULER_STOPPED=1
 
 # ── One deploy or rollback at a time (docs/81 C.9) ──────────────────────────────────────────────
 #
@@ -136,6 +142,13 @@ if bf_stack_is_up; then
     STACK_IS_UP=1
 fi
 
+# The scheduler (docs/132 section 9): said before anything moves, so there is time to abort.
+if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+    log "--keep-scheduler-stopped: the scheduler will be stopped and NOT started; every other service starts as usual."
+elif [ "$STACK_IS_UP" = "1" ] && ! bf_scheduler_is_running; then
+    bf_warn_scheduler_will_start
+fi
+
 # ── 1. The backup boundary, before the dump that depends on it ─────────────────────────────────
 # ── 2. The dump, and its verification, BEFORE the checkout moves ───────────────────────────────
 #
@@ -173,7 +186,14 @@ log "starting stack"
 # pending event through the code just released, within a minute. When that must not happen (docs/131 Stage D
 # step 4), set HQ_EVENTS_DRAIN_PAUSED=true in deploy/.env BEFORE running this script: the scheduler runs (the
 # health tick stays fresh) and hq:events:process claims nothing. Only releases that include docs/132 read it.
-$COMPOSE up -d --remove-orphans
+# `--keep-scheduler-stopped` (docs/132 section 9) does not depend on that flag: the scheduler is stopped and
+# `--scale scheduler=0` makes this `up` start everything else and no scheduler.
+if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+    $COMPOSE stop scheduler
+    $COMPOSE up -d --remove-orphans --scale scheduler=0
+else
+    $COMPOSE up -d --remove-orphans
+fi
 sleep 5
 $COMPOSE exec -T horizon php artisan horizon:terminate || true
 # nginx resolves the `app` upstream once at start-up; after `app` is recreated it keeps the old IP and
@@ -247,3 +267,6 @@ if [ -x deploy/release-state-refresh.sh ]; then
     RS_FETCHED_NOW="$FETCHED_NOW" ./deploy/release-state-refresh.sh || log "WARNING: release-state refresh failed (not fatal)"
 fi
 log "released ${NEW}"
+if [ "$KEEP_SCHEDULER_STOPPED" = "1" ]; then
+    log "The scheduler is LEFT STOPPED (--keep-scheduler-stopped): no event is drained, and /api/health reports the scheduler failing after 180 seconds, so this release may be recorded UNVERIFIED with the scheduler as its failing component. Start it, only when the drain may run (docs/131 Stage D step 10): $(bf_scheduler_start_cmd)"
+fi

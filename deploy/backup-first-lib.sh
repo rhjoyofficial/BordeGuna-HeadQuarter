@@ -34,6 +34,44 @@ bf_stack_is_up() {
     $COMPOSE ps --status running db >/dev/null 2>&1 && [ -n "$($COMPOSE ps -q db 2>/dev/null)" ]
 }
 
+# ── Keeping the scheduler stopped (docs/132 section 9) ─────────────────────────────────────────
+#
+# The scheduler is the only container that drains `events` (docs/132 2(b)). Containment Option 2 is
+# `docker compose stop scheduler`; a deploy's `up -d --remove-orphans` and a rollback's `up` would start
+# it again, and its drain would run every pending event through whatever code it now carries. Both
+# scripts take `--keep-scheduler-stopped`, or HQ_KEEP_SCHEDULER_STOPPED=1, to leave it stopped.
+
+# 0 when a scheduler container is running.
+bf_scheduler_is_running() {
+    [ -n "$($COMPOSE ps -q --status running scheduler 2>/dev/null)" ]
+}
+
+# HQ_KEEP_SCHEDULER_STOPPED read strictly: unset, empty or 0 is off, 1 is on, anything else is refused
+# (a typo such as "yes " or "true" must not silently mean "off"). Prints 0 or 1; returns 1 on a bad value.
+bf_keep_scheduler_from_env() {
+    case "${HQ_KEEP_SCHEDULER_STOPPED:-0}" in
+        0) echo 0 ;;
+        1) echo 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+# The one command that starts the scheduler alone, touching no other container.
+bf_scheduler_start_cmd() {
+    echo "docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --no-deps scheduler"
+}
+
+# Said loudly when the scheduler is stopped and this run is about to start it.
+bf_warn_scheduler_will_start() {
+    log "WARNING: ================================================================================"
+    log "WARNING: the scheduler is NOT running (containment Option 2?), and this ${BF_NOUN} WILL START IT."
+    log "WARNING: Its drain then processes every pending event through the code it starts with (docs/132)."
+    log "WARNING: To leave it stopped, stop now (Ctrl-C) and re-run with --keep-scheduler-stopped"
+    log "WARNING: (or HQ_KEEP_SCHEDULER_STOPPED=1). Continuing in 10 seconds with the default."
+    log "WARNING: ================================================================================"
+    sleep 10
+}
+
 # ── The backup boundary, before the dump that depends on it ────────────────────────────────────
 #
 # ⚠ A bind mount holds the directory INODE. When the host directory is deleted, the still-running
