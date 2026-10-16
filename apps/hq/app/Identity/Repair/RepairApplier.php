@@ -105,6 +105,13 @@ final class RepairApplier
             }
             // Item 36: only after an explicit needs_repair review. A first run writes nothing, not even the batch row,
             // until every split of the batch is authorized (each split is checked again under lock below).
+            if ($permittedBusinessIds !== null) {
+                foreach ($planned['splits'] as $s) {
+                    if (! in_array((int) $s['from_business_id'], $permittedBusinessIds, true) || ! in_array((int) $s['to_business_id'], $permittedBusinessIds, true)) {
+                        throw new InvalidArgumentException('This batch joins a business you may not read; a person who may read both applies it. Nothing was changed.');
+                    }
+                }
+            }
             $unreviewed = array_values(array_filter($planned['splits'], fn (array $s) => ! $s['review']['authorized']));
             if ($unreviewed !== []) {
                 throw new InvalidArgumentException(count($unreviewed).' split(s) of this batch are not reviewed: every row needs a review on the cross-business review screen, '

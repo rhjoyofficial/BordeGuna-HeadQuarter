@@ -171,7 +171,9 @@ final class RepairPlanner
         $openConflicts = array_values(array_filter($openConflicts, fn (array $c) => ! isset($resolvedBySplits[$c['conflict_id']])));
         foreach ($batches as $to => &$batch) {
             usort($batch['splits'], fn ($a, $b) => $a['from_customer_id'] <=> $b['from_customer_id']);
-            $batch['key'] = hash('sha256', $to.'|'.implode(',', array_column($batch['splits'], 'key')));
+            // The key names the rows AND their state (each split's fingerprint): the dry run a person read is the only
+            // thing the key applies. Any change to a row since then yields another key, refused until looked at again.
+            $batch['key'] = hash('sha256', $to.'|'.implode(',', array_map(fn (array $s) => $s['key'].':'.$s['fingerprint'], $batch['splits'])));
         }
         unset($batch);
 

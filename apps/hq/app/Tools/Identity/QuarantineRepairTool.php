@@ -60,7 +60,7 @@ final class QuarantineRepairTool implements PreviewableTool, Tool
             'type' => 'object',
             'properties' => [
                 'business_slug' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 64],
-                'repair_key' => ['type' => 'string', 'minLength' => 64, 'maxLength' => 64, 'pattern' => '^[0-9a-f]{64}$'],
+                'repair_key' => ['type' => 'string', 'minLength' => 64, 'maxLength' => 64],
                 'reason' => ['type' => 'string', 'minLength' => 10, 'maxLength' => 2000],
             ],
             'required' => ['business_slug', 'repair_key', 'reason'],
@@ -138,6 +138,9 @@ final class QuarantineRepairTool implements PreviewableTool, Tool
         }
         if ($context->businessId === null) {
             return ToolResult::failed('Name the business the batch belongs to.');
+        }
+        if (preg_match('/^[0-9a-f]{64}$/', (string) ($payload['repair_key'] ?? '')) !== 1) {
+            return ToolResult::failed('The repair key is the 64-character key the dry run printed; nothing was changed.');
         }
 
         try {
