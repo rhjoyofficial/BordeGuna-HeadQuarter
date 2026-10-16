@@ -370,9 +370,12 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     //     categories the descriptor names as permanent; no approval, configuration or grant may let an agent run it.
     //   - docs/115 §4 (ruling Q11): an operator assertion of an outcome attribution is by definition a human's
     //     claim (an agent's claim would be `model_inferred`, refused in v1); no agent may ever run it.
+    //   - docs/126 (ruling docs/120 A3, item 36): changing who an identity, an order or a thread belongs to is the
+    //     act the incident forbids any lookup from doing silently; only a person's evidence-backed, reviewed
+    //     authorization may do it, so the repair is permanently human-only.
     // Sorted, so the order tools are registered in cannot move this pin.
     sort($never);
-    expect($never)->toBe(['consent.lift_restriction', 'outcomes.attribute']);
+    expect($never)->toBe(['consent.lift_restriction', 'customers.quarantine.repair', 'outcomes.attribute']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 

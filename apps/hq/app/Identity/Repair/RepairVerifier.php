@@ -131,7 +131,10 @@ final class RepairVerifier
                     $failures[] = "the source customer's page still shows thread {$uuid}";
                 }
             }
-            foreach ([$source, $target] as $c) {
+            // The source may still carry rows of a THIRD business (another batch's work); its holds are then right, and
+            // only the target is required to read clean.
+            $sourceStillCrosses = collect($findings)->contains(fn ($f) => $f->customerId === $from && $f->kind !== 'identity_conflict');
+            foreach ($sourceStillCrosses ? [$target] : [$source, $target] as $c) {
                 $view = $this->suppression->forCustomer($c->fresh());
                 foreach (['aggregates', 'identities', 'threads'] as $kind) {
                     if (in_array($kind, $view->withheld(), true)) {

@@ -14,6 +14,11 @@ import { useState } from 'react';
  * docs/117 (ruling docs/110 §5 (m)): quarantine flags on relationships that cross a business boundary, and
  * the audited human review of each. A review records a decision only: it lifts no suppression, undoes no
  * merge and re-points nothing. A flag is listed only to a person who may see both of its businesses.
+ *
+ * docs/126 (ruling docs/120 A3, item 36): the repair the reviews lead to. The batches the dry run proposes, each
+ * row's review state, the ambiguous rows (never moved), and, for a person holding hq.customers.quarantine.repair,
+ * the button that asks the Tool Gateway to apply ONE batch whose every row was reviewed, and the assignment of a
+ * business to a memory the repair withheld.
  */
 
 type Review = { decision: string; note: string; by: string | null; at: string | null };
@@ -30,7 +35,45 @@ type Flag = {
     reviews: number;
     review: Review | null;
 };
-type Props = { flags: Flag[]; decisions: string[] };
+type SplitReview = {
+    needs_repair: number;
+    disputed: number;
+    confirmed_wrong: number;
+    unflagged: number;
+    authorized: boolean;
+    unreviewed_rows: string[];
+    flag_ids: number[];
+};
+type Split = {
+    key: string;
+    from_customer_id: number;
+    from_business: string | null;
+    to_customer_id: number | null;
+    merge_id: number | null;
+    counts: Record<string, number>;
+    review: SplitReview;
+};
+type Batch = { key: string; business_id: number; business: string; authorized: boolean; splits: Split[] };
+type Ambiguous = { subject: string; customer_id: number; reason: string; why: string };
+type HeldMemory = {
+    memory_id: number;
+    customer_id: number;
+    customer_business: string | null;
+    kind: string;
+    created_at: string | null;
+    excerpt: string | null;
+    choice_names: { id: number; name: string }[];
+};
+type Repair = { id: number; key: string; business: string | null; status: string; started_at: string | null; verified_at: string | null; splits: number };
+type Props = {
+    flags: Flag[];
+    decisions: string[];
+    can_repair: boolean;
+    batches: Batch[];
+    ambiguous: Ambiguous[];
+    held_memories: HeldMemory[];
+    repairs: Repair[];
+};
 
 const DECISION_TONES: Record<string, Tone> = { confirmed_wrong: 'danger', needs_repair: 'warn', disputed: 'info' };
 
@@ -39,7 +82,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Cross-business review', href: '/customers/quarantine' },
 ];
 
-export default function CustomerQuarantine({ flags, decisions }: Props) {
+export default function CustomerQuarantine({ flags, decisions, can_repair, batches, ambiguous, held_memories, repairs }: Props) {
     const t = useT();
     const [open, setOpen] = useState<number | null>(null);
     const form = useForm({ decision: decisions[0] ?? '', note: '' });
@@ -49,7 +92,7 @@ export default function CustomerQuarantine({ flags, decisions }: Props) {
     const decisionHint = (d: string) =>
         (({
             confirmed_wrong: t('This relationship should not exist.'),
-            needs_repair: t('It should be repaired when the lineage-preserving repair is ruled and built.'),
+            needs_repair: t('It should be repaired: the rows go to a customer of their own business, with lineage.'),
             disputed: t('You believe it is legitimate. Explain why; it stays held, because merges across businesses are not allowed.'),
         }) as Record<string, string>)[d] ?? '';
     const kindLabel = (k: string) =>
@@ -62,6 +105,9 @@ export default function CustomerQuarantine({ flags, decisions }: Props) {
             memory: t('Memory'),
             consent_event: t('Consent event'),
             consent_state: t('Consent position'),
+            participant: t('Thread participant'),
+            message: t('Message'),
+            identity_conflict: t('Identity conflict'),
         }) as Record<string, string>)[k] ?? k;
 
     return (
@@ -159,6 +205,66 @@ export default function CustomerQuarantine({ flags, decisions }: Props) {
                     )}
                 </section>
 
+                <section className="flex flex-col gap-2">
+                    <SectionHeader title={t('Repair')} aside={t('{count} batches proposed', { count: batches.length })} />
+                    <p className="text-muted-foreground text-sm">
+                        {t(
+                            'The dry run: rows of one business that hang under a customer of another, and the customer of their own business they would go to. A batch can be applied only when every row in it has a review, at least one says Needs repair and none is disputed. Nothing is deleted; the original merge row stays; every move is recorded.',
+                        )}
+                    </p>
+                    {batches.length === 0 ? (
+                        <EmptyState title={t('Nothing to repair')} description={t('No row of one business hangs under a customer of another.')} />
+                    ) : (
+                        batches.map((b) => <RepairBatch key={b.key} batch={b} canRepair={can_repair} />)
+                    )}
+                </section>
+
+                {ambiguous.length > 0 && (
+                    <section className="flex flex-col gap-2">
+                        <SectionHeader title={t('Not repaired: the business cannot be established')} aside={t('{count} rows', { count: ambiguous.length })} />
+                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                            {ambiguous.map((a) => (
+                                <li key={`${a.subject}-${a.reason}`} className="flex flex-col gap-1 px-3 py-2">
+                                    <span className="font-mono break-all">{a.subject}</span>
+                                    <span className="text-muted-foreground">{t('Customer #{id}', { id: a.customer_id })}</span>
+                                    <span className="break-words">{a.why}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
+                {held_memories.length > 0 && (
+                    <section className="flex flex-col gap-2">
+                        <SectionHeader title={t('Memories held until a person assigns a business')} aside={t('{count} memories', { count: held_memories.length })} />
+                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-sm">
+                            {held_memories.map((m) => (
+                                <HeldMemoryRow key={m.memory_id} memory={m} canAssign={can_repair} />
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
+                {repairs.length > 0 && (
+                    <section className="flex flex-col gap-2">
+                        <SectionHeader title={t('Repair history')} />
+                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                            {repairs.map((r) => (
+                                <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                                    <span className="font-mono">#{r.id}</span>
+                                    <span>{r.business ?? '-'}</span>
+                                    <StatusBadge tone={r.status === 'verified' ? 'ok' : 'warn'} dot={false}>
+                                        {r.status}
+                                    </StatusBadge>
+                                    <span className="font-mono break-all">{r.key.slice(0, 16)}</span>
+                                    <span className="text-muted-foreground">{t('{count} splits', { count: r.splits })}</span>
+                                    <span className="text-muted-foreground">{formatDateTime(r.verified_at ?? r.started_at)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
                 {open !== null && (
                     <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
                         <SectionHeader title={t('Review flag #{id}', { id: open })} />
@@ -214,5 +320,155 @@ export default function CustomerQuarantine({ flags, decisions }: Props) {
                 )}
             </div>
         </AppLayout>
+    );
+}
+
+function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean }) {
+    const t = useT();
+    const form = useForm({ business_id: batch.business_id, key: batch.key, reason: '' });
+    const errors = form.errors as Record<string, string | undefined>;
+
+    return (
+        <div className="bg-card flex flex-col gap-3 rounded-xl border p-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+                <strong>{t('Batch for {business}', { business: batch.business })}</strong>
+                <StatusBadge tone={batch.authorized ? 'ok' : 'warn'} dot={false}>
+                    {batch.authorized ? t('Every row reviewed') : t('Waiting for reviews')}
+                </StatusBadge>
+                <span className="text-muted-foreground font-mono text-xs break-all">{batch.key}</span>
+            </div>
+            <ul className="flex flex-col gap-2">
+                {batch.splits.map((s) => (
+                    <li key={s.key} className="flex flex-col gap-1 rounded-md border px-3 py-2 text-xs">
+                        <span>
+                            {t('From customer #{from} ({business}) to {target}', {
+                                from: s.from_customer_id,
+                                business: s.from_business ?? '-',
+                                target: s.to_customer_id === null ? t('a new customer') : t('customer #{id}', { id: s.to_customer_id }),
+                            })}
+                        </span>
+                        <span className="text-muted-foreground">
+                            {s.merge_id === null ? t('No merge lineage') : t('Reverses merge #{id}; the merge row stays', { id: s.merge_id })}
+                        </span>
+                        <span>
+                            {t('{orders} orders, {conversations} conversations, {participants} participants, {messages} messages, {identities} identities, {conflicts} conflicts', {
+                                orders: s.counts.orders ?? 0,
+                                conversations: s.counts.conversations ?? 0,
+                                participants: s.counts.participants ?? 0,
+                                messages: s.counts.messages ?? 0,
+                                identities: s.counts.identities ?? 0,
+                                conflicts: s.counts.conflicts ?? 0,
+                            })}
+                        </span>
+                        <span className="text-muted-foreground">
+                            {t('Held for a person: {memories} memories, {consent} consent records to re-record', {
+                                memories: s.counts.memories_withheld ?? 0,
+                                consent: s.counts.consent_rerecord ?? 0,
+                            })}
+                        </span>
+                        <span>
+                            {t('Reviewed rows: {needs} need repair, {wrong} confirmed wrong, {disputed} disputed, {open} not reviewed', {
+                                needs: s.review.needs_repair,
+                                wrong: s.review.confirmed_wrong,
+                                disputed: s.review.disputed,
+                                open: s.review.unflagged,
+                            })}
+                        </span>
+                        {s.review.unreviewed_rows.length > 0 && (
+                            <span className="font-mono break-all text-amber-700 dark:text-amber-300">{s.review.unreviewed_rows.join(', ')}</span>
+                        )}
+                    </li>
+                ))}
+            </ul>
+            {canRepair && batch.authorized && (
+                <form
+                    className="flex flex-col gap-3"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        form.post('/customers/quarantine/repair', { preserveScroll: true });
+                    }}
+                >
+                    <Field label={t('Why (recorded on the batch, every move and the audit)')} htmlFor={`reason-${batch.key}`} error={errors.reason ?? errors.repair}>
+                        <textarea
+                            id={`reason-${batch.key}`}
+                            value={form.data.reason}
+                            onChange={(e) => form.setData('reason', e.target.value)}
+                            rows={2}
+                            minLength={10}
+                            maxLength={2000}
+                            required
+                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                        />
+                    </Field>
+                    <div>
+                        <Button type="submit" disabled={form.processing}>
+                            {t('Apply this repair batch')}
+                        </Button>
+                    </div>
+                </form>
+            )}
+        </div>
+    );
+}
+
+function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: boolean }) {
+    const t = useT();
+    const form = useForm({ business_id: memory.choice_names[0]?.id ?? 0, note: '' });
+    const errors = form.errors as Record<string, string | undefined>;
+
+    return (
+        <li className="flex flex-col gap-2 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-mono">{t('Memory #{id}', { id: memory.memory_id })}</span>
+                <Link href={`/customers/${memory.customer_id}`} className="hover:underline">
+                    {t('Customer #{id}', { id: memory.customer_id })}
+                </Link>
+                <span className="text-muted-foreground">{memory.customer_business ?? '-'}</span>
+                <span className="text-muted-foreground">{formatDateTime(memory.created_at)}</span>
+            </div>
+            {memory.excerpt !== null && <p className="break-words">{memory.excerpt}</p>}
+            {canAssign && (
+                <form
+                    className="flex flex-col gap-2"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        form.post(`/customers/quarantine/memories/${memory.memory_id}/assign`, { preserveScroll: true });
+                    }}
+                >
+                    <FormRow>
+                        <Field label={t('Belongs to')} htmlFor={`business-${memory.memory_id}`} size="auto" error={errors.business_id ?? errors.memory}>
+                            <NativeSelect
+                                id={`business-${memory.memory_id}`}
+                                value={String(form.data.business_id)}
+                                onChange={(e) => form.setData('business_id', Number(e.target.value))}
+                            >
+                                {memory.choice_names.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name}
+                                    </option>
+                                ))}
+                            </NativeSelect>
+                        </Field>
+                    </FormRow>
+                    <Field label={t('Note')} htmlFor={`note-${memory.memory_id}`} error={errors.note}>
+                        <textarea
+                            id={`note-${memory.memory_id}`}
+                            value={form.data.note}
+                            onChange={(e) => form.setData('note', e.target.value)}
+                            rows={2}
+                            minLength={3}
+                            maxLength={1000}
+                            required
+                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                        />
+                    </Field>
+                    <div>
+                        <Button type="submit" variant="outline" size="sm" disabled={form.processing}>
+                            {t('Assign business')}
+                        </Button>
+                    </div>
+                </form>
+            )}
+        </li>
     );
 }

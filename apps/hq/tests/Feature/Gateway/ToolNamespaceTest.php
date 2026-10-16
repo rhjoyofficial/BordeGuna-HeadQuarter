@@ -61,6 +61,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'consent.lift_restriction',
         // S3 follow-up (docs/115 §4, ruling Q11): the operator-asserted attribution, R3, permanently human-only, held by no agent.
         'outcomes.attribute',
+        // docs/126 (ruling docs/120 item 36): the reviewed cross-business repair, R3, permanently human-only, held by no agent.
+        'customers.quarantine.repair',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

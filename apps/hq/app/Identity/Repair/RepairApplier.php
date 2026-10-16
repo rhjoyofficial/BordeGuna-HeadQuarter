@@ -2,6 +2,9 @@
 
 namespace App\Identity\Repair;
 
+use App\Consent\ConsentBasis;
+use App\Consent\ConsentLedger;
+use App\Consent\ConsentState;
 use App\Identity\Quarantine\Finding;
 use App\Identity\Quarantine\QuarantineLedger;
 use App\Models\Customer;
@@ -9,6 +12,7 @@ use App\Models\CustomerIdentityRepair;
 use App\Models\CustomerMergeReversal;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Throwable;
@@ -26,20 +30,36 @@ use Throwable;
  *     split: a concurrent change), after checking the person may read both businesses, and after checking the
  *     split's flags carry a `needs_repair` review and no `disputed` one (docs/117 §5);
  *   - a split already recorded in `customer_merge_reversals` is skipped (idempotent, restartable);
- *   - never deletes a row, never touches a `customer_merges` row, never moves a consent row, never moves a
+ *   - never deletes a row, never touches a `customer_merges` row, never moves or edits a consent row, never moves a
  *     business-less memory (withheld, listed), never guesses: a row the planner marked ambiguous is quarantined
  *     (an append-only flag, `repair_ambiguous_*`) and reported;
+ *   - preserves outstanding restrictions (A3 point 9): a do-not-contact or withdrawal that is still the latest word at
+ *     its scope, recorded for the target business under the source customer, is APPENDED to the target customer's
+ *     ledger as the same restriction (a new event naming the original as evidence). A grant is never carried: the
+ *     target's ledger then refuses by silence. Both lists still go to a person to re-record in the correct scope;
+ *   - runs one at a time: a PostgreSQL advisory lock refuses a second repair while one is applying;
  *   - when every split is done, verifies ownership and the business-scoped reads (RepairVerifier) and only then
  *     marks the batch `verified`; otherwise the batch stays `partial` and the report says why, per split.
  */
 final class RepairApplier
 {
+    /** The advisory lock every repair takes for its whole run (one repair at a time). */
+    private const LOCK = 126_000_126;
+
+    /** The quarantine kind of a flag on a row of each table (the CHECK in 2026_10_15_600000). */
+    private const KIND_BY_TABLE = [
+        'customer_merges' => 'merge', 'customers' => 'merge_pointer', 'customer_identities' => 'identity', 'facts_orders' => 'order',
+        'conversations' => 'conversation', 'conversation_participants' => 'participant', 'conversation_messages' => 'message', 'memories' => 'memory',
+        'consent_events' => 'consent_event', 'consent_state' => 'consent_state', 'customer_identity_conflicts' => 'identity_conflict',
+    ];
+
     public function __construct(
         private readonly RepairPlanner $planner,
         private readonly RepairVerifier $verifier,
         private readonly RepairRecount $recount,
         private readonly QuarantineLedger $ledger,
         private readonly Auditor $auditor,
+        private readonly ConsentLedger $consent,
     ) {}
 
     /**
@@ -53,6 +73,22 @@ final class RepairApplier
             throw new InvalidArgumentException('A repair needs a reason of at least ten characters.');
         }
 
+        if (! (bool) DB::selectOne('SELECT pg_try_advisory_lock(?) AS ok', [self::LOCK])->ok) {
+            throw new InvalidArgumentException('Another identity repair is applying right now; nothing was changed. Try again when it has finished.');
+        }
+        try {
+            return $this->applyLocked($key, $businessId, $actor, $reason, $correlationId, $permittedBusinessIds);
+        } finally {
+            DB::selectOne('SELECT pg_advisory_unlock(?) AS ok', [self::LOCK]);
+        }
+    }
+
+    /**
+     * @param  list<int>|null  $permittedBusinessIds
+     * @return array<string, mixed>
+     */
+    private function applyLocked(string $key, int $businessId, User $actor, string $reason, ?string $correlationId, ?array $permittedBusinessIds): array
+    {
         $batch = CustomerIdentityRepair::query()->where('key', $key)->first();
         if ($batch !== null && (int) $batch->business_id !== $businessId) {
             throw new InvalidArgumentException("Batch [{$key}] belongs to another business than the one named.");
@@ -66,6 +102,13 @@ final class RepairApplier
             $planned = $live->batchByKey($key);
             if ($planned === null || (int) $planned['business_id'] !== $businessId) {
                 throw new InvalidArgumentException("No proposed batch carries the key [{$key}] for this business: the data changed since the dry run, or the key is not this business's. Run the dry run again and review it.");
+            }
+            // Item 36: only after an explicit needs_repair review. A first run writes nothing, not even the batch row,
+            // until every split of the batch is authorized (each split is checked again under lock below).
+            $unreviewed = array_values(array_filter($planned['splits'], fn (array $s) => ! $s['review']['authorized']));
+            if ($unreviewed !== []) {
+                throw new InvalidArgumentException(count($unreviewed).' split(s) of this batch are not reviewed: every row needs a review on the cross-business review screen, '
+                    .'at least one as needs_repair and none disputed. Nothing was changed.');
             }
             $batch = CustomerIdentityRepair::query()->create([
                 'key' => $key, 'business_id' => $businessId, 'status' => CustomerIdentityRepair::STATUS_APPLYING,
@@ -90,16 +133,9 @@ final class RepairApplier
             $results[] = $this->applySplit($batch, $planned, $live, $actor, $reason, $permittedBusinessIds);
         }
 
-        // Ambiguous rows: quarantined (append-only flag, audited as the person) and reported, never moved (A3 last paragraph).
-        $flagged = $this->ledger->flag(array_map(fn (array $a) => new Finding(
-            $a['kind'], $a['subject_table'], (int) $a['subject_id'], (int) $a['customer_id'], (int) $a['customer_business_id'],
-            $a['row_business_id'] === null ? null : (int) $a['row_business_id'], null, $a['reason'], ['why' => $a['why'], 'finding_reason' => $a['finding_reason'] ?? null],
-        ), array_values(array_filter($live->ambiguous, fn ($a) => $a['kind'] !== 'split'))), $actor->id);
-        $ambiguousSplits = array_values(array_filter($live->ambiguous, fn ($a) => $a['kind'] === 'split' && (int) $a['row_business_id'] === $businessId));
-        if ($ambiguousSplits !== []) {
-            $this->ledger->flag(array_map(fn (array $a) => new Finding('merge_pointer', 'customers', (int) $a['subject_id'], (int) $a['customer_id'], (int) $a['customer_business_id'],
-                (int) $a['row_business_id'], null, $a['reason'], ['why' => $a['why'], 'subjects' => $a['subjects']]), $ambiguousSplits), $actor->id);
-        }
+        // Ambiguous rows of this business: quarantined (append-only flag per row, audited as the person) and reported,
+        // never moved (A3 last paragraph). An ambiguous split flags every row it would have moved, each under its own kind.
+        $flagged = $this->ledger->flag($this->ambiguousFindings($live->ambiguous, $businessId), $actor->id);
 
         $allDone = collect($results)->every(fn ($r) => in_array($r['status'], ['applied', 'already_applied'], true));
         $verification = null;
@@ -107,7 +143,16 @@ final class RepairApplier
         if ($allDone) {
             $batch->forceFill(['status' => CustomerIdentityRepair::STATUS_APPLIED, 'applied_at' => $batch->applied_at ?? now()])->save();
             $verification = $this->verifier->verify($batch->fresh(), $actor);
+            // Item 37: the affected customers' stored figures against their own business's rows. A mismatch fails the batch.
             $recount = $this->recount->recount($this->affectedBusinesses($batch), $this->affectedCustomers($batch));
+            if (! $recount['verified']) {
+                $verification['ok'] = false;
+                foreach ($recount['customers'] as $c) {
+                    if (! $c['orders_count']['ok'] || ! $c['lifetime_value']['ok']) {
+                        $verification['failures'][] = "customer #{$c['customer_id']}: stored figures differ from its own business's rows";
+                    }
+                }
+            }
             $batch->forceFill([
                 'status' => $verification['ok'] ? CustomerIdentityRepair::STATUS_VERIFIED : CustomerIdentityRepair::STATUS_VERIFICATION_FAILED,
                 'verified_at' => $verification['ok'] ? now() : null,
@@ -124,7 +169,7 @@ final class RepairApplier
             'repair_id' => $batch->id,
             'key' => $key,
             'splits' => $results,
-            'ambiguous_flagged' => count($flagged) + count($ambiguousSplits),
+            'ambiguous_flagged' => count($flagged),
             'ambiguous' => $live->ambiguous,
             'held_identities' => $live->heldIdentities,
             'open_conflicts' => $live->openConflicts,
@@ -178,7 +223,7 @@ final class RepairApplier
                     $target = Customer::create([
                         'business_id' => $to,
                         'primary_phone_canonical' => $split['new_customer']['phone'] ?? null,
-                        'name' => $split['new_customer']['name'] ?? null,
+                        'name' => null,
                         'email' => null,
                         'first_seen_at' => (clone $orders)->min('placed_at') ?? now(),
                         'last_seen_at' => (clone $orders)->max('placed_at') ?? now(),
@@ -221,6 +266,10 @@ final class RepairApplier
                 $moved['memories'] = $this->update('memories', $rows['memories'], fn ($q) => $q->where('customer_id', $source->id), ['customer_id' => $targetId, 'updated_at' => $now]);
                 $moved['conflicts_resolved'] = $this->update('customer_identity_conflicts', $rows['conflicts_resolve'], fn ($q) => $q->whereNull('resolved_at'),
                     ['resolved_at' => $now, 'resolved_by' => $actor->id, 'resolution' => 'repaired:'.substr($batch->key, 0, 12), 'updated_at' => $now]);
+
+                // Outstanding restrictions of the target business under the source customer are preserved on the target
+                // (appended, never moved, never a grant). The source's consent rows are not touched.
+                $moved['restrictions_carried'] = $this->carryRestrictions((int) $source->id, $targetId, $to, $moved['identities'], $actor, $reason, $batch->key);
 
                 // A merge explained the rows: the absorbed row's pointer into the other business is cleared. The merge row itself is untouched.
                 if ($split['clear_merge_pointer']) {
@@ -270,10 +319,92 @@ final class RepairApplier
     }
 
     /**
+     * The outstanding restrictions of business `$to` recorded under the source customer: per scope (brand, identity,
+     * channel, purpose) the latest event, kept when it is a do-not-contact or a withdrawal. Each is appended to the
+     * target's ledger as the same restriction; an identity scope is kept only when that identity now lives under the
+     * target (else the restriction is widened to every identity: broader, never narrower).
+     *
+     * @param  list<int>  $movedIdentities
+     * @return list<array{from_event: int, to_event: int, state: string}>
+     */
+    private function carryRestrictions(int $from, int $targetId, int $to, array $movedIdentities, User $actor, string $reason, string $repairKey): array
+    {
+        $latest = [];
+        foreach (DB::table('consent_events')->where('customer_id', $from)->where('business_id', $to)->orderBy('occurred_at')->orderBy('id')->get() as $e) {
+            $latest[($e->brand_id ?? '*').'|'.($e->identity_id ?? '*').'|'.($e->channel ?? '*').'|'.($e->purpose ?? '*')] = $e;
+        }
+        $carried = [];
+        foreach ($latest as $e) {
+            if (! in_array($e->state, [ConsentState::DoNotContact->value, ConsentState::Withdrawn->value], true)) {
+                continue;
+            }
+            $identityId = $e->identity_id !== null && in_array((int) $e->identity_id, $movedIdentities, true) ? (int) $e->identity_id : null;
+            $event = $this->consent->record(
+                customerId: $targetId,
+                businessId: $to,
+                purpose: $e->purpose,
+                state: ConsentState::from($e->state),
+                basis: ConsentBasis::Operator,
+                channel: $e->channel,
+                attributes: [
+                    'brand_id' => $e->brand_id === null ? null : (int) $e->brand_id,
+                    'identity_id' => $identityId,
+                    'evidence_ref' => "consent_events#{$e->id}",
+                    'evidence' => ['act' => 'restriction_carried_by_identity_repair', 'from_event_id' => (int) $e->id, 'from_customer_id' => $from, 'repair_key' => $repairKey],
+                    'actor_type' => 'human',
+                    'actor_id' => $actor->id,
+                    'actor_label' => $actor->email,
+                    'reason' => 'identity repair: restriction preserved from consent event #'.$e->id.' (recorded under another customer); re-record in the correct scope. '.$reason,
+                ],
+            );
+            $carried[] = ['from_event' => (int) $e->id, 'to_event' => (int) $event->id, 'state' => (string) $e->state];
+        }
+
+        return $carried;
+    }
+
+    /**
+     * The ambiguous rows of this business as quarantine findings, one per row (an ambiguous split names every row
+     * it would have moved).
+     *
+     * @param  list<array<string, mixed>>  $ambiguous
+     * @return list<Finding>
+     */
+    private function ambiguousFindings(array $ambiguous, int $businessId): array
+    {
+        $out = [];
+        foreach ($ambiguous as $a) {
+            $rowBusiness = $a['row_business_id'] === null ? null : (int) $a['row_business_id'];
+            if ($rowBusiness !== $businessId && (int) $a['customer_business_id'] !== $businessId) {
+                continue;
+            }
+            $detail = ['why' => $a['why'], 'finding_reason' => $a['finding_reason'] ?? null];
+            if ($a['kind'] !== 'split') {
+                $out[] = new Finding($a['kind'], $a['subject_table'], (int) $a['subject_id'], (int) $a['customer_id'], (int) $a['customer_business_id'],
+                    $rowBusiness, null, $a['reason'], $detail);
+
+                continue;
+            }
+            $rows = [];
+            foreach ($a['subjects'] as $subject) {
+                [$table, $id] = explode(':', $subject, 3);
+                $rows["{$table}:{$id}"] = [$table, (int) $id];
+            }
+            ksort($rows);
+            foreach ($rows as [$table, $id]) {
+                $out[] = new Finding(self::KIND_BY_TABLE[$table] ?? 'merge_pointer', $table, $id, (int) $a['customer_id'], (int) $a['customer_business_id'],
+                    $rowBusiness, null, $a['reason'], $detail);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Updates the listed rows that still match the guard, returning the ids actually changed.
      *
      * @param  list<int>  $ids
-     * @param  callable(\Illuminate\Database\Query\Builder): \Illuminate\Database\Query\Builder  $guard
+     * @param  callable(Builder): Builder  $guard
      * @param  array<string, mixed>  $values
      * @return list<int>
      */

@@ -110,7 +110,7 @@ final class QuarantineRepairTool implements PreviewableTool, Tool
             monetaryImpact: MonetaryImpact::None,
             customerFacing: false,
             reversibility: Reversibility::Reversible,
-            dataClass: DataClass::Internal,
+            dataClass: DataClass::Personal,
             cardinality: ToolCardinality::OnePerBusiness,
         );
     }

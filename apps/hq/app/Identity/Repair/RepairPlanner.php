@@ -73,11 +73,13 @@ final class RepairPlanner
                     $movedIdentityIds[$f->subjectId] = (int) $f->rowBusinessId;
                     break;
                 case 'identity_quarantined':
-                    if ($f->rowBusinessId !== null) {
-                        $g = &$this->group($groups, $f->customerId, $f->rowBusinessId);
+                    // A store-less row a cross-business merge moved names the absorbed business through that merge's lineage.
+                    $rowBusiness = $f->rowBusinessId ?? ($f->mergeId !== null && $merges->has($f->mergeId) ? (int) $merges->get($f->mergeId)->absorbed_business_id : null);
+                    if ($rowBusiness !== null && $rowBusiness !== $f->customerBusinessId) {
+                        $g = &$this->group($groups, $f->customerId, $rowBusiness);
                         $g['identities'][$f->subjectId] = true;
                         $g['subjects'][] = $f->key();
-                        $movedIdentityIds[$f->subjectId] = $f->rowBusinessId;
+                        $movedIdentityIds[$f->subjectId] = $rowBusiness;
                     } else {
                         $heldIdentities[] = ['identity_id' => $f->subjectId, 'customer_id' => $f->customerId, 'business_id' => $f->customerBusinessId,
                             'channel' => $f->detail['channel'], 'quarantine_reason' => $f->detail['quarantine_reason'],
@@ -119,15 +121,17 @@ final class RepairPlanner
             unset($g);
         }
 
-        // Conflicts on identities a split moves are resolved by it; the rest stay open for a person.
+        // A `quarantined` conflict on an identity a split actually moves back live is resolved by that split; every
+        // other conflict (a refused re-point, a held row the split cannot move) stays open for a person.
         $resolvedByMove = [];
-        foreach ($openConflicts as $i => $c) {
+        foreach ($openConflicts as $c) {
             if (isset($movedIdentityIds[$c['identity_id']]) && $c['kind'] === 'quarantined') {
                 $resolvedByMove[$c['identity_id']][] = $c['conflict_id'];
-                unset($openConflicts[$i]);
             }
         }
-        $openConflicts = array_values($openConflicts);
+        // An identity a split carries is not also reported as held.
+        $heldIdentities = array_values(array_filter($heldIdentities, fn (array $h) => ! isset($movedIdentityIds[$h['identity_id']])));
+        $resolvedBySplits = [];
 
         $slugs = Business::query()->pluck('slug', 'id');
         $batches = [];
@@ -140,21 +144,31 @@ final class RepairPlanner
 
                 continue;
             }
+            foreach ($split['ambiguous_rows'] as $row) {
+                $ambiguous[] = $row;
+            }
+            unset($split['ambiguous_rows']);
             foreach ($split['withheld']['consent_rerecord'] as $c) {
                 $human['consent_rerecord'][] = $c + ['customer_id' => $from, 'business_id' => $to];
             }
             foreach ($split['withheld']['memories_unscoped'] as $id) {
-                $human['memories_unscoped'][] = ['memory_id' => $id, 'customer_id' => $from];
+                $human['memories_unscoped'][$id] = ['memory_id' => $id, 'customer_id' => $from];
             }
             // A group with nothing to move (consent rows only, or only business-less memories) creates no customer:
             // what it lists is a person's work and nothing else.
             if (RepairPlan::splitRowCount($split) === 0 && $split['merge_id'] === null) {
                 continue;
             }
+            foreach ($split['rows']['conflicts_resolve'] as $conflictId) {
+                $resolvedBySplits[$conflictId] = true;
+            }
             $batches[$to] ??= ['key' => '', 'business_id' => $to, 'business_slug' => (string) ($slugs[$to] ?? $to), 'splits' => []];
             $batches[$to]['splits'][] = $split;
         }
         ksort($batches);
+        ksort($human['memories_unscoped']);
+        $human['memories_unscoped'] = array_values($human['memories_unscoped']);
+        $openConflicts = array_values(array_filter($openConflicts, fn (array $c) => ! isset($resolvedBySplits[$c['conflict_id']])));
         foreach ($batches as $to => &$batch) {
             usort($batch['splits'], fn ($a, $b) => $a['from_customer_id'] <=> $b['from_customer_id']);
             $batch['key'] = hash('sha256', $to.'|'.implode(',', array_column($batch['splits'], 'key')));
@@ -221,10 +235,24 @@ final class RepairPlanner
         }
 
         // 2. Identities: a quarantined store-scoped row (or one a merge moved) goes back live under the target, unless the
-        //    target already holds that key live (then the held row stays as evidence and its conflict is closed as superseded).
+        //    target already holds that key live (then the held row stays where it is as evidence and its conflict stays
+        //    open for a person: two rows claim one key, and which one is right is not the repair's guess).
+        //    An identity a thread participant or a consent row of ANOTHER business than the target still uses cannot move
+        //    without creating a new crossing: its business is not established by evidence, so it stays where it is,
+        //    held, and is reported (A3 last paragraph: quarantine, never guess).
         $move = [];
         $superseded = [];
+        $ambiguousRows = [];
         foreach ($identities as $i) {
+            $usedElsewhere = $this->identityUsedOutside((int) $i->id, $to);
+            if ($usedElsewhere !== []) {
+                $ambiguousRows[] = ['kind' => 'identity', 'subject_table' => 'customer_identities', 'subject_id' => (int) $i->id, 'customer_id' => $from,
+                    'customer_business_id' => $fromBusiness, 'row_business_id' => $to, 'reason' => 'repair_ambiguous_identity',
+                    'finding_reason' => 'identity_used_by_two_businesses',
+                    'why' => 'the identity is also used by rows of another business ('.implode(', ', $usedElsewhere).'); moving it would create a new crossing'];
+
+                continue;
+            }
             $live = CustomerIdentity::query()->key($to, $i->channel, $i->external_id, $i->source_store_id === null ? null : (int) $i->source_store_id)->first();
             if ($live !== null && (int) $live->id !== (int) $i->id) {
                 $superseded[] = (int) $i->id;
@@ -240,7 +268,7 @@ final class RepairPlanner
             }
         }
         $conflicts = [];
-        foreach ([...$move, ...$superseded] as $id) {
+        foreach ($move as $id) {
             foreach ($resolvedByMove[$id] ?? [] as $conflictId) {
                 $conflicts[] = (int) $conflictId;
             }
@@ -286,7 +314,9 @@ final class RepairPlanner
             'to_customer_created' => $created,
             'merge_id' => $mergeId === null ? null : (int) $mergeId,
             'clear_merge_pointer' => $group['clear_merge_pointer_for'] !== null && $targetId !== null && (int) $group['clear_merge_pointer_for'] === $targetId,
-            'new_customer' => $created ? ['phone' => $phone, 'name' => $phone !== null && $phone === $source->primary_phone_canonical ? $source->name : null] : null,
+            // Built from the rows' own evidence only: the order's phone. Never the source customer's name, e-mail or
+            // anything else of the other business (that would be the leak again, in the other direction).
+            'new_customer' => $created ? ['phone' => $phone, 'name' => null] : null,
             'rows' => $rows,
             'withheld' => ['memories_unscoped' => array_values(array_unique([...$this->ints($group['memories_unscoped']), ...$unscoped])), 'consent_rerecord' => $consent],
             'subjects' => $subjects,
@@ -294,6 +324,7 @@ final class RepairPlanner
         ];
         sort($split['withheld']['memories_unscoped']);
         $split['fingerprint'] = $this->fingerprint($split, $source);
+        $split['ambiguous_rows'] = $ambiguousRows;
 
         return $split;
     }
@@ -337,24 +368,71 @@ final class RepairPlanner
     }
 
     /**
-     * The review state of the flags on this split's subjects (docs/117 §5). Authorized when at least one latest
-     * decision is `needs_repair` and none is `disputed`.
+     * The review state of this split's rows (docs/117 §5, ruling docs/120 item 36: a repair executes only after an
+     * explicit `needs_repair` review). Counted per subject ROW, whatever reasons the detector flagged it under: a row
+     * is disputed when any of its flags' latest decision is `disputed`, reviewed when any has a decision, and
+     * unreviewed when none has (flagged or not). Authorized only when every row was reviewed, at least one as
+     * `needs_repair`, and none is disputed: nothing moves that a person has not looked at.
      *
      * @param  list<string>  $subjects
-     * @return array{needs_repair: int, disputed: int, confirmed_wrong: int, unflagged: int, authorized: bool}
+     * @return array{needs_repair: int, disputed: int, confirmed_wrong: int, unflagged: int, authorized: bool, unreviewed_rows: list<string>, flag_ids: list<int>}
      */
     private function review(array $subjects): array
     {
-        $counts = ['needs_repair' => 0, 'disputed' => 0, 'confirmed_wrong' => 0, 'unflagged' => 0];
+        $rows = [];
         foreach ($subjects as $subject) {
-            [$table, $id, $reason] = explode(':', $subject, 3);
-            $flag = CrossBusinessQuarantine::query()->with('latestReview')->where('subject_table', $table)->where('subject_id', (int) $id)->where('reason', $reason)->first();
-            $decision = $flag?->latestReview?->decision?->value;
-            $decision === null ? $counts['unflagged']++ : $counts[$decision]++;
+            [$table, $id] = explode(':', $subject, 3);
+            $rows["{$table}:{$id}"] = [$table, (int) $id];
         }
-        $counts['authorized'] = $counts['needs_repair'] > 0 && $counts['disputed'] === 0;
+        ksort($rows);
+        $counts = ['needs_repair' => 0, 'disputed' => 0, 'confirmed_wrong' => 0, 'unflagged' => 0];
+        $unreviewed = [];
+        $flagIds = [];
+        foreach ($rows as $key => [$table, $id]) {
+            $decisions = [];
+            foreach (CrossBusinessQuarantine::query()->with('latestReview')->where('subject_table', $table)->where('subject_id', $id)->orderBy('id')->get() as $flag) {
+                $flagIds[] = (int) $flag->id;
+                $decision = $flag->latestReview?->decision?->value;
+                if ($decision !== null) {
+                    $decisions[$decision] = true;
+                }
+            }
+            $state = isset($decisions['disputed']) ? 'disputed' : (isset($decisions['needs_repair']) ? 'needs_repair' : (isset($decisions['confirmed_wrong']) ? 'confirmed_wrong' : null));
+            if ($state === null) {
+                $counts['unflagged']++;
+                $unreviewed[] = $key;
+            } else {
+                $counts[$state]++;
+            }
+        }
+        sort($flagIds);
 
-        return $counts;
+        return $counts + [
+            'authorized' => $counts['needs_repair'] > 0 && $counts['disputed'] === 0 && $counts['unflagged'] === 0,
+            'unreviewed_rows' => $unreviewed,
+            'flag_ids' => $flagIds,
+        ];
+    }
+
+    /**
+     * Where, outside the target business, thread participants or consent rows reference this identity. SELECT only.
+     *
+     * @return list<string>
+     */
+    private function identityUsedOutside(int $identityId, int $to): array
+    {
+        $uses = [];
+        foreach (DB::table('conversation_participants as p')->join('conversations as v', 'v.id', '=', 'p.conversation_id')
+            ->where('p.identity_id', $identityId)->where('v.business_id', '!=', $to)->orderBy('p.id')->pluck('p.id') as $id) {
+            $uses[] = "conversation_participants#{$id}";
+        }
+        foreach (['consent_events', 'consent_state'] as $table) {
+            foreach (DB::table($table)->where('identity_id', $identityId)->where('business_id', '!=', $to)->orderBy('id')->pluck('id') as $id) {
+                $uses[] = "{$table}#{$id}";
+            }
+        }
+
+        return $uses;
     }
 
     /**
@@ -365,10 +443,12 @@ final class RepairPlanner
      */
     private function fingerprint(array $split, Customer $source): string
     {
-        $parts = ['customers:'.$source->id.':'.$source->business_id.':'.($source->merged_into_id ?? '-').':'.$source->updated_at?->format('U')];
+        // The customers by what decides the split (business, merge pointer, the chosen target), not by `updated_at`:
+        // an unrelated touch of a customer (a recount, a new order of its own business) is not a change to this split.
+        $parts = ['customers:'.$source->id.':'.$source->business_id.':'.($source->merged_into_id ?? '-'), 'target:'.($split['to_customer_id'] ?? 'new')];
         if ($split['to_customer_id'] !== null) {
-            $t = DB::table('customers')->where('id', $split['to_customer_id'])->first(['business_id', 'merged_into_id', 'updated_at']);
-            $parts[] = 'customers:'.$split['to_customer_id'].':'.($t?->business_id ?? '-').':'.($t?->merged_into_id ?? '-').':'.($t?->updated_at ?? '-');
+            $t = DB::table('customers')->where('id', $split['to_customer_id'])->first(['business_id', 'merged_into_id']);
+            $parts[] = 'customers:'.$split['to_customer_id'].':'.($t?->business_id ?? '-').':'.($t?->merged_into_id ?? '-');
         }
         $tables = [
             'facts_orders' => [$split['rows']['orders'], ['customer_id', 'business_id', 'updated_at']],

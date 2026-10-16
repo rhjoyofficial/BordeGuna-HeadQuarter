@@ -79,18 +79,22 @@ final class IdentityRepair extends Command
                 $r = $s['rows'];
                 $this->line(sprintf('    rows: %d order(s) %s, %d conversation(s) %s, %d participant(s), %d message(s), %d memory(ies) with a business',
                     count($r['orders']), $this->ids($r['orders']), count($r['conversations']), $this->ids($r['conversations']), count($r['participants']), count($r['messages']), count($r['memories'])));
-                $this->line(sprintf('    identities: %d back live under the target %s, %d superseded by a live row (stay held, conflict closed), %d copied (%s), %d conflict(s) resolved',
+                $this->line(sprintf('    identities: %d back live under the target %s, %d superseded by a live row (stay held, conflict stays open), %d copied (%s), %d conflict(s) resolved',
                     count($r['identities_move']), $this->ids($r['identities_move']), count($r['identities_superseded']), count($r['identities_copy']),
                     implode(', ', array_map(fn ($c) => $c['channel'], $r['identities_copy'])) ?: '-', count($r['conflicts_resolve'])));
                 if ($s['new_customer'] !== null) {
-                    $this->line('    new customer: phone '.($s['new_customer']['phone'] === null ? 'none' : 'from the order').', name '.($s['new_customer']['name'] === null ? 'none' : 'from the source customer (same phone)'));
+                    $this->line('    new customer: phone '.($s['new_customer']['phone'] === null ? 'none' : 'from the order').', nothing else (no name or e-mail of the other business is copied)');
                 }
                 $this->line(sprintf('    withheld for a person: %d business-less memory(ies) %s, %d consent row(s) to re-record (%d restriction(s))',
                     count($s['withheld']['memories_unscoped']), $this->ids($s['withheld']['memories_unscoped']), count($s['withheld']['consent_rerecord']),
                     count(array_filter($s['withheld']['consent_rerecord'], fn ($c) => $c['restriction']))));
                 $rv = $s['review'];
-                $this->line(sprintf('    review: %s (needs_repair %d, confirmed_wrong %d, disputed %d, unflagged %d of %d flags)',
-                    $rv['authorized'] ? 'AUTHORIZED' : 'NOT YET (needs a needs_repair review and no disputed one)', $rv['needs_repair'], $rv['confirmed_wrong'], $rv['disputed'], $rv['unflagged'], count($s['subjects'])));
+                $this->line(sprintf('    review: %s (rows: needs_repair %d, confirmed_wrong %d, disputed %d, not reviewed %d; flags %s)',
+                    $rv['authorized'] ? 'AUTHORIZED' : 'NOT YET (every row needs a review, at least one needs_repair, none disputed)',
+                    $rv['needs_repair'], $rv['confirmed_wrong'], $rv['disputed'], $rv['unflagged'], $rv['flag_ids'] === [] ? 'none yet (run hq:identity:cross-business --flag)' : $this->ids($rv['flag_ids'])));
+                if ($rv['unreviewed_rows'] !== []) {
+                    $this->line('    not reviewed: '.implode(', ', $rv['unreviewed_rows']));
+                }
                 $this->line('    fingerprint '.substr($s['fingerprint'], 0, 16).'...');
             }
         }
