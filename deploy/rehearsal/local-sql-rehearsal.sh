@@ -101,6 +101,8 @@ trap cleanup EXIT
 # psql on Windows ends lines with CRLF; every capture is normalised so comparisons see the text only.
 q() { psql -d "${2:-$DB}" -At -v ON_ERROR_STOP=1 -c "$1" | tr -d '\r'; }
 snapshot() { psql -d "$1" -At -v ON_ERROR_STOP=1 -f "${SELF_DIR}/sql/snapshot.sql" | tr -d '\r'; }
+# Row level (sql/row-hashes.sql): count and md5 of every row per table; no row content leaves the database.
+rowhashes() { psql -d "$1" -At -v ON_ERROR_STOP=1 -f "${SELF_DIR}/sql/row-hashes.sql" | tr -d '\r' | grep '^rows '; }
 posture() {
     psql -d "$DB" -At -v ON_ERROR_STOP=1 \
         -c "SELECT 'flag ' || key || ' ' || environment || ' ' || enabled FROM feature_flags ORDER BY key, environment" \
@@ -167,6 +169,7 @@ RO() { PGOPTIONS='-c default_transaction_read_only=on' psql -d "$DB" -At "$@" | 
 RO -v ON_ERROR_STOP=1 -f "${SELF_DIR}/../tools/release-posture-readonly.sql" > "${EVIDENCE}/04-before-checklist-posture.txt" 2>&1 || true
 grep -q 'read_only=on' "${EVIDENCE}/04-before-checklist-posture.txt" && pass "pre-release checklist posture read ran in a read-only session ($(grep -cE '^[a-z_]+ ' "${EVIDENCE}/04-before-checklist-posture.txt") lines)" || fail "release-posture-readonly.sql did not run read-only before the release"
 snapshot "$DB" > "${EVIDENCE}/04-before-snapshot.txt"
+rowhashes "$DB" > "${EVIDENCE}/04-before-rows.txt"
 grep '^migration ' "${EVIDENCE}/04-before-snapshot.txt" | cut -d' ' -f2 > "${EVIDENCE}/04-before-migrations.txt"
 posture > "${EVIDENCE}/04-before-posture.txt"
 pass "BEFORE: $(grep -c '^count ' "${EVIDENCE}/04-before-snapshot.txt") tables counted, $(wc -l < "${EVIDENCE}/04-before-migrations.txt" | tr -d ' ') migrations, posture captured"
@@ -186,16 +189,33 @@ psql -d "$DB" -At -v ON_ERROR_STOP=1 -f "${SELF_DIR}/sql/verify-constraints.sql"
 if grep -q '^FAIL' "${EVIDENCE}/07-constraints.txt"; then fail "constraints: $(grep '^FAIL' "${EVIDENCE}/07-constraints.txt" | tr '\n' ';')"; else pass "constraints: all $(grep -c '^PASS' "${EVIDENCE}/07-constraints.txt") checks PASS"; fi
 
 (cd "$C" && php artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force --no-ansi) > "${EVIDENCE}/08-seeder.txt" 2>&1 || fail "the permission seeder failed"
-PERMS=$(q "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review')")
-[ "$PERMS" = "13" ] && pass "permission seeder --class: the thirteen wave 1-4 permissions exist (permissions total $(q 'SELECT count(*) FROM permissions'))" || fail "seeder: ${PERMS} of 13 permissions exist"
+PERMS=$(q "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review','hq.customers.quarantine.repair')")
+[ "$PERMS" = "14" ] && pass "permission seeder --class: the fourteen wave 1-4 permissions exist, W2's hq.customers.quarantine.repair included (permissions total $(q 'SELECT count(*) FROM permissions'))" || fail "seeder: ${PERMS} of 14 permissions exist"
 
 snapshot "$DB" > "${EVIDENCE}/09-before-dry-runs.txt"
+rowhashes "$DB" > "${EVIDENCE}/09-before-dry-runs-rows.txt"
 (cd "$C" && php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/10-detector-dry-run.txt" 2>&1 && pass "detector dry run: $(grep -iE 'finding|nothing to flag' "${EVIDENCE}/10-detector-dry-run.txt" | head -1 | tr -s ' ')" || fail "hq:identity:cross-business --dry-run failed"
 (cd "$C" && php artisan hq:evaluation:attribute-cost --no-ansi) > "${EVIDENCE}/11-cost-dry-run.txt" 2>&1 && pass "cost attribution dry run ran ($(grep -ci 'dry run' "${EVIDENCE}/11-cost-dry-run.txt") dry-run line(s))" || fail "hq:evaluation:attribute-cost dry run failed"
 (cd "$C" && php artisan hq:decisions:report --unassigned --no-ansi) > "${EVIDENCE}/12-decisions-unassigned.txt" 2>&1 && pass "decisions report --unassigned ran" || warn "hq:decisions:report --unassigned did not run clean"
-REPAIR=$(cd "$C" && php artisan list --raw --no-ansi 2>/dev/null | awk '{print $1}' | grep -E '^hq:(identity|customers):.*repair' | head -1 || true)
-[ -n "$REPAIR" ] && warn "a repair command ${REPAIR} exists; this local rehearsal does not run it" || warn "no repair command on the candidate (W2 not merged); repair dry run NOT exercised"
+# W2 (docs/126): the repair dry run with the business-scoped recount. Never --apply, --key or --by.
+R12="${EVIDENCE}/12-repair-dry-run.txt"
+if (cd "$C" && php artisan list --raw --no-ansi 2>/dev/null | awk '{print $1}' | grep -qx 'hq:identity:repair'); then
+    if (cd "$C" && php artisan hq:identity:repair --recount --no-ansi) > "$R12" 2>&1 && grep -q 'Dry run: nothing written' "$R12"; then
+        pass "repair dry run --recount: $(grep -cE '^ +split ' "$R12") split(s); $(grep -E '^[0-9]+ ambiguous case' "$R12" | cut -d' ' -f1) ambiguous; $(grep -E '^[0-9]+ identity.* stay quarantined' "$R12" | cut -d' ' -f1) identities held; $(grep -E '^[0-9]+ conflict.* stay open' "$R12" | cut -d' ' -f1) conflicts open; $(grep -E 'Stored figures match|MISMATCH' "$R12" | head -1)"
+    else
+        fail "hq:identity:repair --recount (dry run) failed (12-repair-dry-run.txt)"
+    fi
+else
+    fail "the candidate has no hq:identity:repair command; W2 is expected on the candidate"
+fi
 snapshot "$DB" > "${EVIDENCE}/13-after-dry-runs.txt"
+rowhashes "$DB" > "${EVIDENCE}/13-after-dry-runs-rows.txt"
+if diff -q "${EVIDENCE}/09-before-dry-runs-rows.txt" "${EVIDENCE}/13-after-dry-runs-rows.txt" >/dev/null; then
+    pass "the dry runs wrote nothing, row level: all $(grep -c . "${EVIDENCE}/13-after-dry-runs-rows.txt") tables hold identical rows (count and md5 of every row) before and after the detector, cost, decisions and repair dry runs"
+else
+    diff "${EVIDENCE}/09-before-dry-runs-rows.txt" "${EVIDENCE}/13-after-dry-runs-rows.txt" > "${EVIDENCE}/13-dry-run-rows-diff.txt" || true
+    fail "a dry run changed rows (13-dry-run-rows-diff.txt)"
+fi
 if diff -q <(grep '^count ' "${EVIDENCE}/09-before-dry-runs.txt") <(grep '^count ' "${EVIDENCE}/13-after-dry-runs.txt") >/dev/null; then
     pass "the dry runs wrote nothing: every table count unchanged"
 else
@@ -213,7 +233,7 @@ else
     diff "${EVIDENCE}/04-before-checklist-posture.txt" "${EVIDENCE}/14-after-checklist-posture.txt" > "${EVIDENCE}/14-checklist-posture-diff.txt" || true
     fail "checklist posture changed across the release (14-checklist-posture-diff.txt)"
 fi
-(cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:evaluation:attribute-cost --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:decisions:report --unassigned --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && pass "detector, cost and decisions dry runs also complete in a session PostgreSQL holds read-only (the checklist's form)"     || fail "a dry run failed in a read-only session: it tried to write (14-detector-readonly-session.txt)"
+(cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:evaluation:attribute-cost --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:decisions:report --unassigned --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:repair --recount --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && pass "detector, cost, decisions and repair dry runs also complete in a session PostgreSQL holds read-only (the checklist's form)"     || fail "a dry run failed in a read-only session: it tried to write (14-detector-readonly-session.txt)"
 q "SELECT 'decision_records business assigned=' || count(*) FILTER (WHERE business_id IS NOT NULL) || ' unassigned=' || count(*) FILTER (WHERE business_id IS NULL) FROM decision_records" >> "${EVIDENCE}/14-quarantine.txt"
 q "SELECT 'consent_state rows=' || count(*) || ' with_brand=' || count(brand_id) || ' with_identity=' || count(identity_id) FROM consent_state" >> "${EVIDENCE}/14-quarantine.txt"
 if [ "$SCENARIO" = "corrupted" ]; then
@@ -224,7 +244,7 @@ if [ "$SCENARIO" = "corrupted" ]; then
         && [ "$(grep -c 'seeded identity .* email .* quarantined=duplicate_ambiguous_owner' "$Qf")" = "2" ] \
         && grep -q 'seeded identity .* messenger_psid .* quarantined=contradicted_by_evidence' "$Qf" \
         && grep -q 'seeded order .* cross_business=t' "$Qf"; then
-        pass "W1 quarantined the seeded store mismatch (shop_user, shop_order), the duplicate phone, both ambiguous e-mails, the foreign PSID; the seeded Bionic order still points at the LaLaDia customer (W2's work)"
+        pass "W1 quarantined the seeded store mismatch (shop_user, shop_order), the duplicate phone, both ambiguous e-mails, the foreign PSID; the seeded Bionic order still points at the LaLaDia customer (W2 repairs it only on a reviewed --apply, never in this rehearsal)"
     else
         fail "the seeded corruption was not quarantined as docs/122 describes (14-quarantine.txt)"
     fi
@@ -283,6 +303,13 @@ fi
 createdb "${DB}_restorecheck"
 pg_restore --no-owner -d "${DB}_restorecheck" "${WORK}/pre-migration.dump" > "${EVIDENCE}/17-restore.txt" 2>&1 || { cat "${EVIDENCE}/17-restore.txt"; fail "pg_restore of the pre-migration dump failed"; }
 snapshot "${DB}_restorecheck" > "${EVIDENCE}/17-restored-snapshot.txt"
+rowhashes "${DB}_restorecheck" > "${EVIDENCE}/17-restored-rows.txt"
+if diff -q "${EVIDENCE}/04-before-rows.txt" "${EVIDENCE}/17-restored-rows.txt" >/dev/null; then
+    pass "restore proof, row level: all $(grep -c . "${EVIDENCE}/17-restored-rows.txt") tables of the restored database hold identical rows to BEFORE (count and md5 of every row)"
+else
+    diff "${EVIDENCE}/04-before-rows.txt" "${EVIDENCE}/17-restored-rows.txt" > "${EVIDENCE}/17-restore-rows-diff.txt" || true
+    fail "restore proof: restored rows differ from BEFORE (17-restore-rows-diff.txt)"
+fi
 if diff -q "${EVIDENCE}/04-before-snapshot.txt" "${EVIDENCE}/17-restored-snapshot.txt" >/dev/null; then
     pass "restore proof: the pre-migration dump restores to EXACTLY the BEFORE snapshot ($(grep -c . "${EVIDENCE}/17-restored-snapshot.txt") lines compared)"
 else
