@@ -25,6 +25,14 @@ final class ProcessDomainEvents extends Command
 
     public function handle(EventTriggeredJobs $eventJobs, WorkflowEvents $workflows): int
     {
+        // docs/132: the operator pause. Checked before the lock and before any read, so a paused drain
+        // claims nothing, increments no attempt and leaves every row exactly as it was recorded.
+        if (config('hq.events.drain_paused')) {
+            $this->warn('events: drain paused (HQ_EVENTS_DRAIN_PAUSED); nothing was claimed. Pending events stay pending.');
+
+            return self::SUCCESS;
+        }
+
         $lock = Cache::lock('hq:events:process', 55);
         if (! $lock->get()) {
             return self::SUCCESS;

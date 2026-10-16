@@ -417,6 +417,12 @@ return [
         ],
         'default_max_attempts' => 5,
         'backoff_seconds' => [30, 120, 600, 1800, 3600],
+        // docs/132: an operator switch, OFF by default. While true, hq:events:process claims nothing and
+        // every inbound row stays `pending` (the webhook still records it). It exists for docs/131 Stage D
+        // step 4: a deploy's `up -d` starts a stopped scheduler, and without this the drain would resume
+        // through the new resolver before the repair is verified. Set it in deploy/.env BEFORE such a
+        // release; unset it (and recreate the scheduler) only when replay is authorised.
+        'drain_paused' => (bool) env('HQ_EVENTS_DRAIN_PAUSED', false),
     ],
 
     // docs/95 stream W2a: the inbox's own switches. ⛔ Neither activates anything customer-facing.
