@@ -65,6 +65,12 @@ jobs:
       - name: Pint (code style)
         run: vendor/bin/pint --test
 
+      # Ruling docs/120 C Stage 6 (docs/128 section 6): no unscoped identity lookup, no effectful-tool invocation
+      # outside the Tool Gateway, no unauthorized consent or playbook reader. Read only; pass/fail per search.
+      # The same searches run as a Pest test with a negative control (tests/Feature/Release/StructuralSearchesTest.php).
+      - name: Structural searches (Stage 6)
+        run: php ../../deploy/tools/structural-searches.php --root .
+
       - name: Migrations run clean on PostgreSQL 17 (fresh + rollback + fresh + seed)
         env: { DB_PASSWORD: postgres }
         run: |
@@ -127,3 +133,8 @@ jobs:
       # predecessor (docs/58). Nothing in the PHP suite can see a bash ordering bug.
       - name: Deployment safety regression suite
         run: bash deploy/tests/deploy-safety-test.sh
+
+      # docs/128 D.1/D.2: the rehearsal scripts refuse every production name, database and path before any docker
+      # call, and make-compose.sh turns the real compose file into one that cannot reach production.
+      - name: Rehearsal guard suite
+        run: bash deploy/rehearsal/tests/rehearsal-guard-test.sh
