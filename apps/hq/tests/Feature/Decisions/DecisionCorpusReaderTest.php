@@ -153,6 +153,9 @@ it('derives every edit category from the stored change by a fixed rule, and iden
     }
     expect($classifier->classifyArguments($arguments['scope_narrowed']->delta))->toBe(['labels' => ['scope_narrowed'], 'keys' => ['quantity']]);
 
+    // The report window ends at "now"; two reads across a second boundary differ in window.until (docs/128 blocker 8).
+    // Freeze two whole seconds ahead so a created_at the database rounded up stays inside the window.
+    $this->travelTo(now()->addSeconds(2)->startOfSecond());
     $first = corpusRead();
     $second = corpusRead();
     expect($second)->toBe($first);

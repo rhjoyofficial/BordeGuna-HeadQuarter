@@ -154,6 +154,6 @@ Release readiness requires code, schema, data-isolation and operational recovery
 6. Containment choice open (docs/121 section 5, Option 1 or 2). Clears with: Joy's decision recorded.
 7. Post-release verification (D.4) cannot precede a release. After Joy independently releases: the post-release checklist, pasted here, before any repair or backfill; the remaining quarantine reported as found.
 
-8. The `DecisionCorpusReaderTest` second-boundary flake (section 3). Clears with: the test freezes time (a one-line `travelTo`/`freezeTime` fix in that test), so the combined gate cannot go red or green by chance.
+8. CLEARED 16 Oct: the `DecisionCorpusReaderTest` second-boundary flake (section 3) is fixed by a `travelTo` two whole seconds ahead before the two reads (3 of 3 runs green). Was: clears with: the test freezes time (a one-line `travelTo`/`freezeTime` fix in that test), so the combined gate cannot go red or green by chance.
 
 Until 1 to 6 and 8 are cleared, this release is not ready, and it must not be described as ready because CI is green.
