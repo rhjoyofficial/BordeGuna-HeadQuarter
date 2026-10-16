@@ -80,6 +80,7 @@ grep -E '^(migrations|evaluation_cost_attribution|scheduler_gateway_row) ' /root
 $C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on app php artisan hq:evaluation:attribute-cost --no-ansi
 $C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on app php artisan hq:decisions:report --unassigned --no-ansi
 $C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on app php artisan hq:ai:cost --no-ansi
+$C exec -T -e PGOPTIONS=-cdefault_transaction_read_only=on app php artisan hq:facts:tz-backfill --no-ansi
 ```
 
 Expected:
@@ -90,6 +91,7 @@ Expected:
 - `hq:evaluation:attribute-cost` (dry run by default): a ` DRY RUN ` banner, one row per finished evaluation run with recorded and computed cost and `results linked/no-call/unaccounted`, ending `<n> run(s) read; none written (dry run); <m> incomplete (never written).` Unaccounted results are shown as unaccounted, never as zero cost. These are the backfill dry-run figures for D.6.
 - `hq:decisions:report --unassigned`: `<n> decision record(s) without a business. None is guessed`, each with its reason.
 - `hq:ai:cost`: the month's AI spend, unchanged by the release.
+- `hq:facts:tz-backfill` (dry run by default, docs/133; only when the release carries it): a ` DRY RUN ` banner, the totals line `facts_orders rows <n>; timestamps examined <n>; already correct by evidence <n>; correctable <n>; ambiguous <n>.`, the ambiguous count per reason, the batch key, the corrections by business and Dhaka day, delivered sales per day before and after, each correctable timestamp (source string, stored and corrected UTC), every ambiguous timestamp, and `Dry run: nothing written.` In the read-only session it cannot write; it is the evidence Joy reads for item 8.
 
 ## 6. Scheduler and Gateway: no effectful execution bypass in the DEPLOYED code
 
@@ -111,7 +113,16 @@ Removing the row is a separate, deliberate write and only after BOTH: section 6 
 
 ## 8. What stays gated (ruling D.5)
 
-Neither runs as part of the release or of this checklist: the W2 quarantine repair (dry run, human review, Joy's explicit authorization, Tool Gateway authorization, then the idempotent mutation) and the cost backfill (`hq:evaluation:attribute-cost` reviewed, Joy's explicit authorization, then `--apply`).
+None runs as part of the release or of this checklist: the W2 quarantine repair (dry run, human review, Joy's explicit authorization, Tool Gateway authorization, then the idempotent mutation), the cost backfill (`hq:evaluation:attribute-cost` reviewed, Joy's explicit authorization, then `--apply`) and the time-zone backfill (docs/133).
+
+**MUTATING, JOY-AUTHORIZED ONLY, NOT PART OF THIS CHECKLIST.** After Joy has read the section 5 tz dry run and explicitly authorized that exact batch, and only then, with a fresh backup first:
+
+```
+# JOY-AUTHORIZED MUTATION. Writes facts_orders, facts_tz_corrections and audit_logs. Do not run from this checklist.
+$C exec -T app php artisan hq:facts:tz-backfill --apply --key=<batch key the dry run printed> --by=<Joy's HQ e-mail> --reason="<why>" --no-ansi
+```
+
+It refuses a key that no longer matches the live data, never changes an ambiguous timestamp, and a second run changes nothing.
 
 ## 9. Rollback, if section 1, 2 or 3 fails
 

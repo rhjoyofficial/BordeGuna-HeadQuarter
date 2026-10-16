@@ -42,8 +42,10 @@ final class FactsTzBackfill extends Command
             }
             $this->line('<bg=blue;fg=white> DRY RUN </> nothing is written.');
             $this->printPlan($plan);
-            $this->comment('Dry run: nothing written. To apply this exact batch (Joy-authorized only): '
-                ."php artisan hq:facts:tz-backfill --apply --key={$plan['batch_key']} --by=<email> --reason=\"<why>\"");
+            $this->comment($plan['correctable'] === []
+                ? 'Dry run: nothing written. Nothing is correctable from the evidence; there is nothing to apply.'
+                : 'Dry run: nothing written. To apply this exact batch (Joy-authorized only): '
+                    ."php artisan hq:facts:tz-backfill --apply --key={$plan['batch_key']} --by=<email> --reason=\"<why>\"");
 
             return self::SUCCESS;
         }

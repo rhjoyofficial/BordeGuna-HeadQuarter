@@ -208,10 +208,22 @@ if (cd "$C" && php artisan list --raw --no-ansi 2>/dev/null | awk '{print $1}' |
 else
     fail "the candidate has no hq:identity:repair command; W2 is expected on the candidate"
 fi
+# docs/133 (ruling docs/131 item 8, Stage B): the time-zone backfill dry run, only when the candidate carries the command.
+# Never --apply, --key or --by. The row hashes below (09 before, 13 after) prove it wrote nothing.
+R12T="${EVIDENCE}/12-tz-backfill-dry-run.txt"
+if (cd "$C" && php artisan list --raw --no-ansi 2>/dev/null | awk '{print $1}' | grep -qx 'hq:facts:tz-backfill'); then
+    if (cd "$C" && php artisan hq:facts:tz-backfill --no-ansi) > "$R12T" 2>&1 && grep -q 'Dry run: nothing written' "$R12T"; then
+        pass "tz backfill dry run: $(grep -E '^facts_orders rows ' "$R12T" | head -1)"
+    else
+        fail "hq:facts:tz-backfill (dry run) failed (12-tz-backfill-dry-run.txt)"
+    fi
+else
+    warn "the candidate has no hq:facts:tz-backfill command (docs/133 not on it); tz dry run skipped"
+fi
 snapshot "$DB" > "${EVIDENCE}/13-after-dry-runs.txt"
 rowhashes "$DB" > "${EVIDENCE}/13-after-dry-runs-rows.txt"
 if diff -q "${EVIDENCE}/09-before-dry-runs-rows.txt" "${EVIDENCE}/13-after-dry-runs-rows.txt" >/dev/null; then
-    pass "the dry runs wrote nothing, row level: all $(grep -c . "${EVIDENCE}/13-after-dry-runs-rows.txt") tables hold identical rows (count and md5 of every row) before and after the detector, cost, decisions and repair dry runs"
+    pass "the dry runs wrote nothing, row level: all $(grep -c . "${EVIDENCE}/13-after-dry-runs-rows.txt") tables hold identical rows (count and md5 of every row) before and after the detector, cost, decisions, repair and tz backfill dry runs"
 else
     diff "${EVIDENCE}/09-before-dry-runs-rows.txt" "${EVIDENCE}/13-after-dry-runs-rows.txt" > "${EVIDENCE}/13-dry-run-rows-diff.txt" || true
     fail "a dry run changed rows (13-dry-run-rows-diff.txt)"
@@ -233,7 +245,7 @@ else
     diff "${EVIDENCE}/04-before-checklist-posture.txt" "${EVIDENCE}/14-after-checklist-posture.txt" > "${EVIDENCE}/14-checklist-posture-diff.txt" || true
     fail "checklist posture changed across the release (14-checklist-posture-diff.txt)"
 fi
-(cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:evaluation:attribute-cost --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:decisions:report --unassigned --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:repair --recount --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && pass "detector, cost, decisions and repair dry runs also complete in a session PostgreSQL holds read-only (the checklist's form)"     || fail "a dry run failed in a read-only session: it tried to write (14-detector-readonly-session.txt)"
+(cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:cross-business --dry-run --no-ansi) > "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:evaluation:attribute-cost --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:decisions:report --unassigned --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:identity:repair --recount --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1     && { ! (cd "$C" && php artisan list --raw --no-ansi 2>/dev/null | awk '{print $1}' | grep -qx 'hq:facts:tz-backfill') || (cd "$C" && PGOPTIONS='-c default_transaction_read_only=on' php artisan hq:facts:tz-backfill --no-ansi) >> "${EVIDENCE}/14-detector-readonly-session.txt" 2>&1; }     && pass "detector, cost, decisions, repair and tz backfill (when present) dry runs also complete in a session PostgreSQL holds read-only (the checklist's form)"     || fail "a dry run failed in a read-only session: it tried to write (14-detector-readonly-session.txt)"
 q "SELECT 'decision_records business assigned=' || count(*) FILTER (WHERE business_id IS NOT NULL) || ' unassigned=' || count(*) FILTER (WHERE business_id IS NULL) FROM decision_records" >> "${EVIDENCE}/14-quarantine.txt"
 q "SELECT 'consent_state rows=' || count(*) || ' with_brand=' || count(brand_id) || ' with_identity=' || count(identity_id) FROM consent_state" >> "${EVIDENCE}/14-quarantine.txt"
 if [ "$SCENARIO" = "corrupted" ]; then
