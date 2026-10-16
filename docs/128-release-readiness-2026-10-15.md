@@ -157,3 +157,8 @@ Release readiness requires code, schema, data-isolation and operational recovery
 8. CLEARED 16 Oct: the `DecisionCorpusReaderTest` second-boundary flake (section 3) is fixed by a `travelTo` two whole seconds ahead before the two reads (3 of 3 runs green). Was: clears with: the test freezes time (a one-line `travelTo`/`freezeTime` fix in that test), so the combined gate cannot go red or green by chance.
 
 Until 1 to 6 and 8 are cleared, this release is not ready, and it must not be described as ready because CI is green.
+
+## 15. Update 16 Oct: W2 and W7 merged on main a7bb85e
+- Combined gate on the full tree: 2,143 Pest passed, 0 failed; Pint, tsc, Vite clean; structural searches 4/4 PASS (W2's two gateway call sites and two consent readers reviewed and allowed with reasons). Blocker 1 (W2 not merged) cleared; blocker 8 (flake) cleared.
+- NEW BLOCKER: GitHub Actions run 38912755286 on a7bb85e was not started: "recent account payments have failed or your spending limit needs to be increased". CI on the exact candidate (ruling D, C stage 6) cannot be produced until billing allows it. The last green CI is 38681310680 on 357fabc.
+- Still blocking: the local SQL rehearsal re-run on the candidate (now including 2026_10_15_600000), the VPS Docker rehearsal with real restore.sh (production dump + Joy's go), Joy's containment choice, post-release checks. Verdict: NOT READY.
