@@ -1,5 +1,5 @@
 #!/bin/bash
-# LOCAL, SQL-level migration rehearsal (docs/128 section D.1; ruling docs/120 D.1). No Docker, no dump, no production.
+# LOCAL, SQL-level migration rehearsal (docs/128 section 9; ruling docs/120 D.1). No Docker, no dump, no production.
 #
 #   bash deploy/rehearsal/local-sql-rehearsal.sh --vendor-from <apps/hq with vendor/> --work <new dir> \
 #        [--scenario corrupted|clean] [--production-commit b96a396] [--candidate HEAD] [--db hq_rehearsal_local_<x>] \
