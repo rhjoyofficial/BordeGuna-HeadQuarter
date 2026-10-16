@@ -330,7 +330,7 @@ NEW_MIGRATIONS=$(comm -13 "${EVIDENCE}/02-before-migrations.txt" "${EVIDENCE}/08
 echo "$NEW_MIGRATIONS" > "${EVIDENCE}/08-new-migrations.txt"
 pass "migrations applied by the release: $(echo "$NEW_MIGRATIONS" | grep -c .)"
 psql_db "$DB" -f - < "${SELF_DIR}/sql/verify-constraints.sql" > "${EVIDENCE}/09-constraints.txt" 2>&1 || { cat "${EVIDENCE}/09-constraints.txt"; fail "verify-constraints.sql did not run"; }
-if grep -q '^FAIL' "${EVIDENCE}/09-constraints.txt"; then fail "constraints: $(grep -c '^FAIL' "${EVIDENCE}/09-constraints.txt") FAIL line(s) in 09-constraints.txt"; else pass "constraints: all $(grep -c '^PASS' "${EVIDENCE}/09-constraints.txt") checks PASS (W1 keys, composite FKs, triggers, ten migrations)"; fi
+if grep -q '^FAIL' "${EVIDENCE}/09-constraints.txt"; then fail "constraints: $(grep -c '^FAIL' "${EVIDENCE}/09-constraints.txt") FAIL line(s) in 09-constraints.txt"; else pass "constraints: all $(grep -c '^PASS' "${EVIDENCE}/09-constraints.txt") checks PASS, 29 expected (W1 keys, composite FKs, triggers, the repair, reversal and tz ledgers, twelve migrations)"; fi
 
 artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force > "${EVIDENCE}/10-seeder.txt" 2>&1 || fail "the permission seeder failed (10-seeder.txt)"
 PERMS=$(psql_db "$DB" -c "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review')")
