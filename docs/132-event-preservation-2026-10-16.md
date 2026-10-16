@@ -120,3 +120,13 @@ Full Pest parallel on `hq_test_e`, Pint, `bash -n` on the changed scripts, `depl
 - `deploy/rehearsal/tests/rehearsal-guard-test.sh`: 48 passed, 0 failed.
 - `deploy/tools/structural-searches.sh`: S1 to S4 PASS.
 - `rehearse.sh` section 10 itself needs Docker and runs only on the VPS copy with Joy's go: NOT run.
+
+## 9. Plan: keep the scheduler stopped across a rollback or a release (open item 2, written before the code)
+
+Branch `platform/rollback-keep-scheduler-stopped` from `main` `69a1bb1`. Nothing here touches production.
+
+1. `deploy/rollback.sh`: an opt-in `--keep-scheduler-stopped` (or `HQ_KEEP_SCHEDULER_STOPPED=1`). With it, the rollback stops the scheduler and starts only `app horizon web`, then prints that the scheduler is left stopped and the exact command that starts it. Without it, the `up` line is unchanged. When the scheduler is not running as the rollback starts, a loud warning recommends the flag; the default is still unchanged. Any other value of the variable is refused before anything moves.
+2. `deploy/deploy.sh`: the same opt-in, independent of `HQ_EVENTS_DRAIN_PAUSED` in `deploy/.env`. With it, the release's `up -d --remove-orphans` gets `--scale scheduler=0`, so compose starts everything else and leaves no scheduler running. The same warning when the scheduler is stopped and the flag is not given. Default unchanged.
+3. `deploy/tests/deploy-safety-test.sh` (the CI job "Deployment/backup safety invariant", stubbed `docker`): default `up` lines unchanged (scheduler in the list), the flag and the variable exclude it, the warning is printed when the stub reports the scheduler stopped, a bad variable value is refused with nothing moved.
+4. This document (sections 5 and 6) and `deploy/checklists/*.md`: the operator sequences with the flag.
+5. Gate: `bash -n` on every script, the safety suite, the rehearsal guard suite, `deploy/tools/structural-searches.sh`.
