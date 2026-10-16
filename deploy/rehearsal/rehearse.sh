@@ -360,7 +360,7 @@ else
 fi
 psql_db "$DB" -f - < "${SELF_DIR}/sql/show-quarantine.sql" > "${EVIDENCE}/17-quarantine.txt" 2>&1 || true
 if [ "$SEED" = "1" ]; then
-    if grep -q 'seeded identity .* shop_user .* quarantined=store_business_mismatch .* conflict=quarantined/store_business_mismatch' "${EVIDENCE}/17-quarantine.txt" \
+    if grep -q 'seeded identity .* shop_user .* quarantined=store_business_mismatch conflict=quarantined/store_business_mismatch' "${EVIDENCE}/17-quarantine.txt" \
         && grep -q 'seeded identity .* shop_order .* quarantined=store_business_mismatch' "${EVIDENCE}/17-quarantine.txt" \
         && grep -q 'seeded identity .* phone .* quarantined=duplicate_same_customer' "${EVIDENCE}/17-quarantine.txt" \
         && [ "$(grep -c 'seeded identity .* email .* quarantined=duplicate_ambiguous_owner' "${EVIDENCE}/17-quarantine.txt")" = "2" ] \

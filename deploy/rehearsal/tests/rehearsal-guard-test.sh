@@ -174,6 +174,20 @@ else
     bad "make-compose on the real compose file: rc=${rc} out=${out}"
 fi
 
+echo "local-sql-rehearsal.sh refusals (before any database or file is touched)"
+LOCAL="${REHEARSAL_DIR}/local-sql-rehearsal.sh"
+local_refuses() {
+    local label=$1 want=$2 out rc; shift 2
+    BASELINE=$(files_in_world)
+    out=$(bash "$LOCAL" "$@" 2>&1); rc=$?
+    if [ "$rc" != "0" ] && grep -q REFUSED <<<"$out" && grep -qF -- "$want" <<<"$out" && [ "$(files_in_world)" = "$BASELINE" ]; then ok "$label"; else bad "${label}: rc=${rc} out=$(head -1 <<<"$out")"; fi
+}
+local_refuses "local: database hq" "must be hq_rehearsal_local" --db hq --work "${WORLD}/lw1" --vendor-from "$REPO_ROOT/apps/hq"
+local_refuses "local: database hq_rehearsal (the VPS name, not a local one)" "must be hq_rehearsal_local" --db hq_rehearsal --work "${WORLD}/lw1" --vendor-from "$REPO_ROOT/apps/hq"
+local_refuses "local: a remote host" "local only" --pg-host 200.97.162.40 --work "${WORLD}/lw1" --vendor-from "$REPO_ROOT/apps/hq"
+local_refuses "local: an existing work directory" "already exists" --work "${WORLD}/scratch/exists" --vendor-from "$REPO_ROOT/apps/hq"
+local_refuses "local: an unknown argument" "unknown argument '--apply'" --apply
+
 echo
 echo "rehearsal guard suite: ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" = "0" ]
