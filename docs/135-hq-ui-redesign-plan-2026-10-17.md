@@ -277,3 +277,21 @@ Pure UI, no ruling needed: tokens, shell, navigation, the console layout over ex
 9. **"Bor de Guna HQ", against the artboard.** The brand spelling rule wins over "BordeGuna HQ".
 10. **Fonts from Bunny, not Google.** HQ already loads fonts from fonts.bunny.net (no tracking cookies, same files). Geist, Geist Mono and Noto Sans Bengali are all served there.
 11. **W-UI1 changes no behaviour.** No route, controller, permission, prop or test expectation changes in the first wave. That keeps it safe to hold behind the frozen release and merge later without re-proving anything but rendering.
+
+## (g) W-UI1 as built (17 October 2026)
+
+Branch `ui/w-ui1-shell-and-tokens` from main `c0db11e`, pushed, not merged (main is frozen on the release candidate).
+
+What changed:
+- `resources/css/app.css`: the token set of section (d) for light and dark glass; Geist, Geist Mono and Noto Sans Bengali (Bangla first on a Bangla page); radius scale; glass, orb, shadow and motion tokens; a `touch` variant for 44 px targets; a global focus ring; themed thin scrollbars; reduced motion and reduced transparency fallbacks.
+- `resources/views/app.blade.php`: the three font families from fonts.bunny.net, and the saved theme applied before the first paint.
+- Shell: glass sidebar and glass page panel (`ui/sidebar.tsx`), pill buttons (`ui/button.tsx`), HQ name and "Head office" under the logo, a light, dark or device theme switch beside the language switch, the sign-in frame on the same ground and glass.
+- Navigation: five groups (Work, Customers, Operations, Control, Observe); every entry keeps its title, URL, icon and permission; the cross-business review is linked; one entry lights per page (longest match).
+- One small fix: the theme hook no longer removes the device-theme listener when a screen unmounts, so "System" keeps following the device.
+- Bangla: five new dictionary entries; `app-logo.tsx` and `theme-toggle.tsx` added to `BanglaDictionaryTest`.
+- New `tests/Feature/Foundation/AppShellTest.php` (8 tests): every sidebar entry has a GET route behind the same permission; the review link is gated; both themes define the same tokens; body and secondary text at 4.5:1 or better on the ground and on the brightest glow; fonts, focus ring, touch size, reduced motion; the theme switch posts nothing.
+- No route, controller, permission, prop or existing test expectation changed.
+
+Gate on the final commit: Pest 2,174 passed, 0 failed (parallel, 3 processes, Postgres `hq_test_k`); Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
+
+Rendering proof: a local throwaway database (dropped afterwards) served the branch; headless Edge signed in and opened all 30 screens in both themes (with `ask_hq` and `scheduler.nl` switched on locally so their screens render too): 60 page loads, 0 JavaScript errors, exactly one lit nav entry per page, Noto Sans Bengali active on a Bangla page, and the shell fits a 390 px phone.
