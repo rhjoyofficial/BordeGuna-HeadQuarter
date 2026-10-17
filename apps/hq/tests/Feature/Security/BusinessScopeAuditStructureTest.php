@@ -37,6 +37,8 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Health/HealthController.php' => 'no business rows',
     'Identity/CustomerConsentController.php' => 'scoped',
     'Identity/CustomerController.php' => 'scoped',
+    // docs/140: open identity conflicts listed only for readable businesses; another business's conflict answers 404.
+    'Identity/CustomerIdentityConflictController.php' => 'scoped',
     'Identity/CustomerQuarantineController.php' => 'scoped',
     'Inbox/InboxController.php' => 'scoped',
     'Observe/BriefingController.php' => 'scoped',

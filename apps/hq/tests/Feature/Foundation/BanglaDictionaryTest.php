@@ -45,6 +45,7 @@ const BANGLA_SCREENS = [
     'js/components/customers/follow-ups-section.tsx',
     // docs/117: the cross-business quarantine review screen.
     'js/pages/customers/quarantine.tsx',
+    'js/pages/customers/identity-conflicts.tsx',
     // docs/135 (W-UI1): the shell's own words, the HQ name under the logo and the theme switch.
     'js/components/app-logo.tsx',
     'js/components/theme-toggle.tsx',

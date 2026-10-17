@@ -86,6 +86,10 @@ class RolesAndPermissionsSeeder extends Seeder
         // gateway tool `customers.quarantine.repair`, and assigning a business to a memory the repair withheld.
         // Owner and operator hold it through '*'; no other role is given it.
         'hq.customers.quarantine.repair',
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an open identity conflict with evidence, through
+        // the human-only gateway tool `customers.identity_conflicts.resolve` only. Owner and operator hold it through
+        // '*'; no other role is given it.
+        'hq.customers.identity_conflicts.resolve',
     ];
 
     public const ROLES = [
