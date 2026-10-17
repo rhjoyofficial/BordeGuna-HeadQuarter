@@ -9,6 +9,13 @@ on:
   # docs/131 Stage A: CI must run on the EXACT release candidate, which can be a docs-only commit the path filter skips.
   workflow_dispatch:
 
+# docs/139: the repository is public; the token gets read access only, and build records are not uploaded as artifacts.
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: false
+
 concurrency:
   group: hq-ci-${{ github.ref }}
   cancel-in-progress: true
