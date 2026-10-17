@@ -319,3 +319,51 @@ Screen groups, each its own WIP checkpoint:
 - Account and sign-in: settings (profile, password, appearance, sessions), two-factor, and the sign-in screens, which already sit on the W-UI1 frame.
 
 Gate: full Pest in parallel on Postgres (`hq_test_f`), Pint, `tsc --noEmit`, Vite build, structural searches, and a rendering pass in headless Edge over every screen in both themes and at phone width on a throwaway database that is dropped afterwards.
+
+## (i) W-UI3 as built (17 October 2026)
+
+Branch `ui/w-ui3-restyle` from `ui/w-ui1-shell-and-tokens` (`56a7456`), pushed, not merged. The dashboard was left alone: it belongs to W-UI2.
+
+Shared primitives (the look comes from here, not from each page):
+- Status tones as theme tokens in `resources/css/app.css` (`--tone-ok`, `-bg`, `-line`, `-dot`, and the same for pending, warn, danger, info and neutral) in both themes, the dark values taken from the artboards. `StatusBadge`, `CountPill` and the new `Notice` draw only from them, so "waiting" looks the same on every screen.
+- New: `ui/surface.tsx` (`Surface`, the glass card; `TableBox`, the scrolling table box; `DefinitionList`), `ui/notice.tsx` (`Notice` in the six tones, and `InertNotice`), `ui/textarea.tsx`, and `Toolbar` in `page-header.tsx`.
+- `EmptyState` gained `variant="inert"` with `reason` and `gate`: a switched-off feature shows "Switched off", why, and what turns it on.
+- CSS surfaces `.hq-card`, `.hq-table-box` (sideways and downward scroll, a header row that stays in view and never wraps, row hover), `.hq-field` (inputs that read on glass) and `.hq-eyebrow` (small caps labels).
+- Restyled in place: `PageHeader` (22 px title, optional eyebrow, actions that wrap), `SectionHeader`, `TechnicalDetail`, `JsonBlock`, `Stat` (glass, 26 px figure), `DataTable` (in a table box), `Input`, `Select`, `NativeSelect`, outline buttons (on the field token, so they are glass in the dark theme), `Card`, `Alert`, `Dialog` (floating glass, 24 px corners, never wider than a phone less its gutter, scrolls when tall, 44 px close on touch), `Pagination` (pills, `aria-current`), `InputError` and `ConfirmDialog`.
+
+Screens restyled: 44 screen files (40 pages and 4 screen components) across the 35 screens:
+- Work: Ask HQ, Approvals (list and one approval), Inbox (list and thread), Follow-ups.
+- Customers: Customers, Customer 360, Consent, Cross-business review, and the Customer 360 follow-ups section.
+- Operations: Scheduler (list, one job, describe a job), Briefings (archive and one briefing), Agents (list and one run, with the execution context panel), Businesses.
+- Control: Tools, Playbooks (list and one playbook), Credentials, Feature flags, Activation posture.
+- Observe: Alerts, AI health, Cost, Control plane, Autonomy evidence, Decision corpus, Platform (with the release state panel), Audit log.
+- Account: the settings frame (section pills that wrap on a phone, content on a glass card), profile, password, appearance, sessions, two-factor, and small fixes on the sign-in screens.
+
+Honesty fixes, each read from a prop the screen already had:
+- Ask HQ, AI health and describing a job show the AI runtime as switched off, with why and what turns it on.
+- The inbox reply area says sending is not enabled, with its gate (P3-G4); the agent notice names the agent's real state. The Send button is unchanged.
+- A paused agent says it runs and proposes nothing until a person resumes it; briefing narration and the `scheduler.nl` flag show as switched off when they are.
+- An empty alert list says checks run on the scheduler, so while it is stopped, empty means unchecked; Platform says "the scheduler is not ticking" from its own stale flag.
+- Cost no longer says no briefing was composed when some were.
+- "Proposal only. Never sent." is a neutral chip, not a claim.
+
+Joy's popup rule:
+- Moved into a dialog, with the same `useForm`, URL and body: recording a consent event, reviewing a quarantine flag, proposing a follow-up and recording an interest. Each closes after a save; Inertia keeps the dialog open with its errors after a refused save, because a POST preserves state.
+- Left for later: the playbook "New draft" form. It sits below the tables, not above a list, and moving it should come with its own test of the error case.
+- Not add forms, so left inline: the inbox reply, internal note and "Remember" forms, the quarantine repair batch and memory assignment, and the decide box inside a follow-up row.
+
+Bangla: 171 new dictionary entries. 20 more screens joined `BanglaDictionaryTest`, owner-facing first (one approval, the approval banner, the inbox list and thread, Ask HQ, the customer list, businesses, describing a job, tools, flags, two-factor, the settings frame and its four pages, pagination, the job and run status chips). Screens still outside the list: the agent run page, the briefing pages, cost, platform, alerts, the scheduler list and job page, and the sign-in screens.
+
+Tests: new `tests/Feature/Foundation/ScreenRestyleTest.php` (8 tests):
+- every tone exists in both themes, and each reads at 4.5:1 on its own tint over the ground, the brightest glow and a card, and as plain text;
+- no restyled screen carries a palette colour of its own, every table sits in a table box with a sticky header, and no textarea is hand-styled;
+- the inert state names why and what turns it on;
+- chips and callouts draw only from the tones, and dialogs fit a phone.
+
+No route, controller, permission, prop or request shape changed, and no existing test expectation was edited.
+
+Gate on the final commit: Pest 2,182 passed, 0 failed (parallel, 3 processes, Postgres `hq_test_f`); Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
+
+Rendering proof: a throwaway database `hq_ui3_f` (dropped afterwards) served the branch through PHP's built-in server with sample rows (two approvals, an alert, a customer, a conversation, a job, an agent run; `ask_hq` and `scheduler.nl` switched on locally). Headless Edge signed in with a one-time code and opened all 35 screens, including the detail pages, in both themes at 1440 px and at 390 px: 140 page loads, 0 JavaScript errors, no sideways scroll at phone width, all 100 rendered tables inside a table box, and no form control without a label.
+
+One finding about the harness, not the app: on Windows, PHP's built-in server sometimes cut the 147 KB tools page short. A refetch of the same URL was whole. The harness retries such a load and counts the retries; the final pass needed none.
