@@ -21,6 +21,7 @@ use App\Models\PlatformAccount;
 use App\Models\ScheduledJob;
 use App\Models\Store;
 use App\Models\ToolRegistration;
+use App\Observe\Console\ConsoleReader;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -53,7 +54,7 @@ final class AdminController extends Controller
      * bottom. Counts that describe rows a restricted operator may not see are computed inside the
      * same business scope the screens use.
      */
-    public function dashboard(Request $request): Response
+    public function dashboard(Request $request, ConsoleReader $console): Response
     {
         $user = $request->user();
         $scoped = fn ($query, string $column = 'business_id') => $user === null ? $query : $this->businessScope->restrict($query, $user, $column);
@@ -167,6 +168,9 @@ final class AdminController extends Controller
             ],
             'scheduler' => ['last_tick' => $lastTick],
             'recentAudit' => AuditLog::latest('occurred_at')->limit(10)->get(),
+            // docs/135 W-UI2: the console's brief, decision cards, live panel and composer. Read-only;
+            // each block behind its own screen's permission and the person's business restriction.
+            'console' => $user === null ? null : $console->build($user),
         ]);
     }
 
