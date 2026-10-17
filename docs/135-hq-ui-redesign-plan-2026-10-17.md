@@ -295,3 +295,27 @@ What changed:
 Gate on the final commit: Pest 2,174 passed, 0 failed (parallel, 3 processes, Postgres `hq_test_k`); Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
 
 Rendering proof: a local throwaway database (dropped afterwards) served the branch; headless Edge signed in and opened all 30 screens in both themes (with `ask_hq` and `scheduler.nl` switched on locally so their screens render too): 60 page loads, 0 JavaScript errors, exactly one lit nav entry per page, Noto Sans Bengali active on a Bangla page, and the shell fits a 390 px phone.
+
+## (h) W-UI3 plan: restyle of every existing screen (17 October 2026)
+
+Branch `ui/w-ui3-restyle` from `ui/w-ui1-shell-and-tokens` (`56a7456`). The dashboard is not part of this wave: `/dashboard` belongs to W-UI2 on `ui/w-ui2-console`.
+
+Rules for this wave:
+- No behaviour change: no route, controller, permission, prop or request shape moves. Copy changes only where the honesty rules of section (a) require them, and every new string gets its Bangla entry.
+- Shared primitives first, pages second. A page takes the look from the components it already uses (`PageHeader`, `Panel`, `DataTable`, `StatusBadge`, `EmptyState`, `Field`, `NativeSelect`, dialogs) and from a small set of new ones, never from its own copy of a colour or a radius.
+- Add and edit happen in a dialog, never in a form above a list (Joy's rule). Where a screen still has an inline add form above its list, it moves into a dialog only when the move is purely presentational and the request stays byte for byte the same; otherwise it is listed in the as-built section for later.
+
+Shared work:
+- Status tones as tokens for both themes (tinted chip, hairline, readable text), used by `StatusBadge`, `CountPill` and a new `Notice` callout, so "waiting" looks the same on every screen and every callout reads at 4.5:1.
+- `Surface` (the glass card), `TableBox` (a scrollable glass box with a sticky header for every table), a `Textarea`, and an `inert` variant of `EmptyState` that names why a feature is off and what turns it on.
+- Inputs, selects and textareas on a field token that reads on glass, 44 px on touch screens; dialogs as floating glass that scroll on a phone; pagination as pills.
+
+Screen groups, each its own WIP checkpoint:
+- Work: Ask HQ, Approvals (list and one approval), Inbox (list and thread), Follow-ups.
+- Customers: Customers, Customer 360, Consent, Cross-business review.
+- Operations: Scheduler (list, one job, describe a job), Briefings (archive and one briefing), Agents (list and one run), Businesses.
+- Control: Tools, Playbooks (list and one playbook), Credentials, Feature flags, Activation posture.
+- Observe: Alerts, AI health, Cost, Control plane, Autonomy evidence, Decision corpus, Platform, Audit log.
+- Account and sign-in: settings (profile, password, appearance, sessions), two-factor, and the sign-in screens, which already sit on the W-UI1 frame.
+
+Gate: full Pest in parallel on Postgres (`hq_test_f`), Pint, `tsc --noEmit`, Vite build, structural searches, and a rendering pass in headless Edge over every screen in both themes and at phone width on a throwaway database that is dropped afterwards.
