@@ -48,7 +48,8 @@ export default function Dashboard({ attention, console: data }: { attention: Att
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Today" />
-            <div className="grid gap-5 p-3 md:p-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            {/* W-UI5: on a phone the pinned composer pill sits above the bottom bar; this room under the page lets every card scroll above it. */}
+            <div className="grid gap-5 p-3 pb-20 md:p-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="flex min-w-0 flex-col gap-5">
                     <header className="flex flex-wrap items-center gap-2">
                         <h1 className="text-lg font-semibold">{t('Today')}</h1>

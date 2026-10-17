@@ -19,6 +19,7 @@ use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
 use App\Http\Controllers\Security\TwoFactorController;
+use App\Http\Controllers\Voice\VoiceModeController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'))->name('home');
@@ -40,6 +41,9 @@ Route::middleware(['auth'])->group(function () {
 // Everything else requires password + confirmed 2FA + a verified challenge this session.
 Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('dashboard', [AdminController::class, 'dashboard'])->middleware('permission:hq.dashboard.view')->name('dashboard');
+    // docs/135 W-UI5: voice mode, drawn and INERT (Phase 7, needs a speech provider and a ruling). One GET, the
+    // console's own permission; no microphone, no upload, no other method.
+    Route::get('voice', VoiceModeController::class)->middleware('permission:hq.dashboard.view')->name('voice');
 
     Route::get('settings/sessions', [SessionsController::class, 'index'])->name('sessions.index');
     Route::delete('settings/sessions/others', [SessionsController::class, 'destroyOthers'])->name('sessions.destroy-others');
