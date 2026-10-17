@@ -160,7 +160,7 @@ export default function DecisionCorpus({
                         'What people kept, edited and refused of what the agents proposed, and which corrections recur. Counts and references only: no proposal, reply or reason text appears here. This page reads; it changes no prompt, policy, playbook or autonomy.',
                     )}
                 >
-                    <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex max-w-full flex-wrap items-center gap-x-4 gap-y-2">
                         <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('Period')}>
                             {window.options.map((key) => (
                                 <Button

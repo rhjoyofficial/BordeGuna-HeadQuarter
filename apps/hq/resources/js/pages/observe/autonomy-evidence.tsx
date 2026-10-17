@@ -1,3 +1,4 @@
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -237,7 +238,7 @@ function Mono({ children }: { children: ReactNode }) {
 function Figure({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-[11px] tracking-wide uppercase">{label}</dt>
+            <dt className="hq-eyebrow">{label}</dt>
             <dd className="text-sm font-medium tabular-nums">{children}</dd>
         </div>
     );
@@ -261,7 +262,7 @@ function MeasurementBadge({ row }: { row: Row }) {
 
 function SourceBlock({ source }: { source: Source }) {
     return (
-        <div className="bg-muted/30 flex min-w-0 flex-col gap-1 rounded-md border p-3">
+        <div className="bg-muted border-glass-border flex min-w-0 flex-col gap-1 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 Run {source.run_id} of <Mono>{source.suite_key}</Mono>
                 <StatusBadge status={source.run_status} />
@@ -333,7 +334,7 @@ function RowCard({ row }: { row: Row }) {
                         <SourceBlock key={source.run_id} source={source} />
                     ))}
                     {row.requirements.map((req) => (
-                        <div key={req.grant_id} className="bg-muted/30 rounded-md border p-3 text-xs">
+                        <div key={req.grant_id} className="bg-muted border-glass-border rounded-lg border p-3 text-xs">
                             <div className="text-sm font-medium">
                                 Grant {req.grant_id}: {req.grant_name}{' '}
                                 {req.met ? <StatusBadge tone="ok">met</StatusBadge> : <StatusBadge tone="warn">not met</StatusBadge>}
@@ -446,7 +447,7 @@ function PolicyPanel({ policy }: { policy: PolicySection }) {
                     </>
                 )}
                 {policy.proposed.map((proposed) => (
-                    <div key={proposed.version} className="bg-muted/30 flex min-w-0 flex-col gap-2 rounded-md border p-3">
+                    <div key={proposed.version} className="bg-muted border-glass-border flex min-w-0 flex-col gap-2 rounded-lg border p-3">
                         <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                             Version {proposed.version}: {proposed.name} <StatusBadge tone="neutral">proposed, not in force</StatusBadge>
                         </div>
@@ -485,7 +486,7 @@ function JudgementBlock({ judgement }: { judgement: Judgement }) {
             <TechnicalDetail summary={`Level by level (runs ${judgement.run_ids.join(', ') || 'none'})`}>
                 <div className="flex flex-col gap-2 text-xs">
                     {judgement.levels.map((level) => (
-                        <div key={level.level} className="bg-muted/30 flex min-w-0 flex-col gap-1 rounded-md border p-3">
+                        <div key={level.level} className="bg-muted border-glass-border flex min-w-0 flex-col gap-1 rounded-lg border p-3">
                             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                                 {level.level.toUpperCase()}
                                 {level.eligible ? <StatusBadge tone="ok">reached</StatusBadge> : <StatusBadge tone="warn">not reached</StatusBadge>}
@@ -633,9 +634,10 @@ export default function AutonomyEvidencePage(props: Props) {
                 <PolicyPanel policy={props.policy} />
 
                 {props.agents.length === 0 && (
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
-                        No agents are registered.
-                    </div>
+                    <EmptyState
+                        title="No agents are registered."
+                        description="An agent appears here once it is registered; its evidence comes from finished evaluation runs for its role."
+                    />
                 )}
 
                 {props.agents.map((agent) => (

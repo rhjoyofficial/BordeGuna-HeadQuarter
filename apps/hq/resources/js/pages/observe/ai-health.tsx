@@ -1,5 +1,6 @@
 import { Bar, DataTable, Note, Panel, Stat, StatGrid, WindowPicker, orDash, type DashboardWindow } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
+import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis } from '@/lib/format';
@@ -50,13 +51,21 @@ export default function AiHealth(props: Props) {
                     <WindowPicker period={period} path="/observe/ai-health" />
                 </PageHeader>
 
+                {!props.ai_runtime && (
+                    <InertNotice
+                        title="AI runtime off"
+                        reason="No agent runs and no model is called, so every figure below is a past record."
+                        gate="A person switches the AI runtime on. Agents still start paused at A0, where HQ only proposes and a person acts."
+                    />
+                )}
+
                 <StatGrid>
                     <Stat label="Agent runs" value={totalRuns} detail={`since ${formatDateTime(period.since)}`} />
                     <Stat
                         label="Shadow runs to read"
                         value={props.shadow_runs_to_review}
                         detail={
-                            <Link href="/agents?filter=unreviewed" className="underline">
+                            <Link href="/agents?filter=unreviewed" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                                 Open the agents screen
                             </Link>
                         }

@@ -1,4 +1,5 @@
 import { EmptyState } from '@/components/empty-state';
+import { Field } from '@/components/form/field';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Pagination, type PageLink } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
@@ -52,14 +53,17 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                     description="Everything that changed, who changed it, and why. Append-only: nothing here can be edited or deleted, by database rule."
                     actions={<span className="text-muted-foreground text-sm">{logs.total.toLocaleString('en-US')} entries</span>}
                 >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Input
-                            className="w-64"
-                            placeholder="Action starts with, e.g. approval"
-                            value={action}
-                            onChange={(e) => setAction(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && apply({ action })}
-                        />
+                    <div className="flex flex-wrap items-end gap-2">
+                        <Field label="Filter by action" htmlFor="audit-action" className="w-full sm:w-64">
+                            <Input
+                                id="audit-action"
+                                placeholder="Action starts with, e.g. approval"
+                                value={action}
+                                onChange={(e) => setAction(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && apply({ action })}
+                            />
+                        </Field>
+                        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Actor">
                         {ACTORS.map((a) => (
                             <Button
                                 key={a.key || 'all'}
@@ -70,11 +74,16 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                                 {a.label}
                             </Button>
                         ))}
+                        </div>
                     </div>
                 </PageHeader>
 
                 {logs.data.length === 0 ? (
-                    <EmptyState icon={ScrollText} title="Nothing recorded for that filter" description="Clear the action or pick another actor." />
+                    <EmptyState
+                        icon={ScrollText}
+                        title="Nothing recorded for that filter"
+                        description="Every change is recorded here, so an empty list means no entry matches this action or actor. Clear the action or pick another actor."
+                    />
                 ) : (
                     <div className="hq-table-box">
                         <table className="w-full text-sm">

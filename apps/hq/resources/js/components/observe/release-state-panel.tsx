@@ -53,7 +53,7 @@ export type ReleaseState = {
     summary: string[];
 };
 
-const Sha = ({ value }: { value: string | null | undefined }) => <span className="font-mono text-xl">{value ?? 'unknown'}</span>;
+const Sha = ({ value }: { value: string | null | undefined }) => <span className="font-mono text-xl break-all">{value ?? 'unknown'}</span>;
 
 export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
     const { production, main, last_verified: lastVerified, last_attempt: lastAttempt } = release;
@@ -146,7 +146,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
             {known && ahead !== null && ahead > 0 && (
                 <div className="grid gap-4 xl:grid-cols-2">
                     <div className="hq-card min-w-0 p-4">
-                        <div className="text-muted-foreground mb-2 text-xs tracking-wide uppercase">Merged to main, not released ({ahead})</div>
+                        <div className="hq-eyebrow mb-2">Merged to main, not released ({ahead})</div>
                         <ul className="flex flex-col gap-1 text-sm">
                             {main.subjects.map((subject, i) => (
                                 <li key={`${i}-${subject}`} className="break-words">
@@ -159,7 +159,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                         )}
                     </div>
                     <div className="hq-card min-w-0 p-4">
-                        <div className="text-muted-foreground mb-2 text-xs tracking-wide uppercase">
+                        <div className="hq-eyebrow mb-2">
                             Migrations on main that have not run here ({main.migrations.length})
                         </div>
                         {main.migrations.length === 0 ? (

@@ -1,11 +1,12 @@
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note, Panel } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { BellOff } from 'lucide-react';
 
 type AlertRow = {
@@ -56,7 +57,12 @@ export default function Alerts({ open, resolved, rules }: Props) {
                     <EmptyState
                         icon={BellOff}
                         title="Nothing is wrong right now"
-                        description="Every rule found its condition clear on the last check."
+                        description="Every rule found its condition clear on the last check. Checks run on the scheduler: while it is stopped no check runs, so an empty list then means nothing was checked, not that nothing is wrong."
+                        action={
+                            <Button asChild size="sm" variant="outline">
+                                <Link href="/observe/platform">See the scheduler on Platform</Link>
+                            </Button>
+                        }
                     />
                 ) : (
                     <div className="flex flex-col gap-3">
@@ -116,6 +122,11 @@ export default function Alerts({ open, resolved, rules }: Props) {
                         ]}
                     />
                 </Panel>
+
+                <Note>
+                    Checks run on the scheduler. While the scheduler is stopped no check runs and no alert opens or clears; the Platform screen shows its
+                    last tick.
+                </Note>
 
                 <Note>
                     A condition another component already pages (the host monitor, the model runtime, the approvals sweep) is recorded here and not
