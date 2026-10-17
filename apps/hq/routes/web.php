@@ -68,7 +68,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
 
     // Phase 2 M1: what HQ can do, and the audited runtime kill switch (docs/48 D.2).
     Route::get('tools', [ToolRegistryController::class, 'index'])->middleware('permission:hq.tools.view')->name('tools.index');
-    Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware('permission:hq.tools.manage')->name('tools.toggle');
+    Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware(['permission:hq.tools.manage', 'group.wide:hq.tools.manage'])->name('tools.toggle');
 
     // Phase 2 M3: the Approval Center (docs/48 G, docs/51).
     //
@@ -147,8 +147,8 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
 
     Route::get('flags', [AdminController::class, 'flags'])->middleware('permission:hq.flags.view')->name('flags.index');
-    Route::post('flags', [AdminController::class, 'storeFlag'])->middleware('permission:hq.flags.manage')->name('flags.store');
-    Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware('permission:hq.flags.manage')->name('flags.toggle');
+    Route::post('flags', [AdminController::class, 'storeFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.store');
+    Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.toggle');
 
     Route::get('credentials', [AdminController::class, 'credentials'])->middleware('permission:hq.credentials.view')->name('credentials.index');
     Route::post('credentials', [AdminController::class, 'storeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.store');

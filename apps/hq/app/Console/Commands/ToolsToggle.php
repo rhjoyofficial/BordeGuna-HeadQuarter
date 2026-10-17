@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Gateway\Registry\ToolSwitch;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
 
@@ -12,6 +13,9 @@ use InvalidArgumentException;
  *
  * The screen at /tools is the ordinary way an operator does this. This exists because "disable the
  * tool that is misbehaving" is exactly the thing you need when the application is the problem.
+ *
+ * docs/138 ruling 13: both directions need --reason, and a person named with --as needs group-wide
+ * authority (`hq.tools.manage` and no business restriction); a restricted person is refused.
  */
 final class ToolsToggle extends Command
 {
@@ -52,10 +56,16 @@ final class ToolsToggle extends Command
                 $switch->disable($key, $reason, $by);
                 $this->info("[{$key}] is disabled for every caller.");
             } else {
-                $switch->enable($key, $this->option('reason') ?: null, $by);
+                $reason = (string) $this->option('reason');
+                if (trim($reason) === '') {
+                    $this->error('Enabling needs --reason too: the switch acts on every business (docs/138 ruling 13).');
+
+                    return self::FAILURE;
+                }
+                $switch->enable($key, $reason, $by);
                 $this->info("[{$key}] is enabled.");
             }
-        } catch (InvalidArgumentException $e) {
+        } catch (InvalidArgumentException|AuthorizationException $e) {
             $this->error($e->getMessage());
 
             return self::FAILURE;

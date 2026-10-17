@@ -17,6 +17,7 @@ use App\Models\ShadowPeriod;
 use App\Models\User;
 use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\GroupWideAuthority;
 use App\Support\Features\Features;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -54,7 +55,15 @@ final class ShadowPeriods
         private readonly PlatformRegistry $platforms,
         private readonly ShadowProbes $probes,
         private readonly ServingProvider $serving,
+        private readonly GroupWideAuthority $authority,
     ) {}
+
+    /**
+     * docs/138 ruling 13: opening or closing a shadow period switches `ai.runtime` and an agent's
+     * status, both of which act on every business. A named person needs `hq.agents.manage` and no
+     * business restriction.
+     */
+    public const PERMISSION = 'hq.agents.manage';
 
     /**
      * Every reason the agent may not enter a shadow period now. An empty list means it may.
@@ -251,11 +260,26 @@ final class ShadowPeriods
         if ($active !== true) {
             throw new RuntimeException("The opener (user #{$actorUserId}) is disabled, so nothing opens on their word.");
         }
+
+        $this->assertGroupWide($actorUserId);
+    }
+
+    /** docs/138 ruling 13: a named person needs group-wide authority; refused as a RuntimeException like every other refusal here. */
+    private function assertGroupWide(int $actorUserId): void
+    {
+        $refusal = $this->authority->refusal(User::query()->find($actorUserId), self::PERMISSION);
+        if ($refusal !== null) {
+            throw new RuntimeException($refusal);
+        }
     }
 
     /** Close a period normally: agent paused, runtime off when no other period needs it, record closed. */
     public function close(ShadowPeriod $period, string $reason, ?int $actorUserId = null): ShadowPeriod
     {
+        if ($actorUserId !== null) {
+            $this->assertGroupWide($actorUserId);
+        }
+
         return $this->end($period, ShadowPeriod::STATUS_CLOSED, $reason, null, $actorUserId);
     }
 
@@ -380,8 +404,10 @@ final class ShadowPeriods
 
     private function audit(string $action, $target, ?array $before, ?array $after, string $reason, ?int $actorUserId): void
     {
+        // docs/138 ruling 13: every row here is a switch that acts on every business.
+        $context = $this->authority->auditContext(self::PERMISSION, $actorUserId === null ? null : User::query()->find($actorUserId));
         $actorUserId === null
-            ? $this->auditor->recordSystem($action, $target, $before, $after, $reason)
-            : $this->auditor->record($action, $target, $before, $after, $reason, $actorUserId);
+            ? $this->auditor->recordSystem($action, $target, $before, $after, $reason, context: $context)
+            : $this->auditor->record($action, $target, $before, $after, $reason, $actorUserId, $context);
     }
 }
