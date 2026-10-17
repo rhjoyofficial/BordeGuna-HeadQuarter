@@ -336,8 +336,7 @@ psql_db "$DB" -c "SELECT name FROM permissions ORDER BY name" > "${EVIDENCE}/10-
 artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force > "${EVIDENCE}/10-seeder.txt" 2>&1 || fail "the permission seeder failed (10-seeder.txt)"
 psql_db "$DB" -c "SELECT name FROM permissions ORDER BY name" > "${EVIDENCE}/10-permissions-after-seeder.txt" 2>&1 || true
 comm -13 "${EVIDENCE}/10-permissions-before-seeder.txt" "${EVIDENCE}/10-permissions-after-seeder.txt" > "${EVIDENCE}/10-permissions-added.txt" || true
-pass "seeder added $(grep -c . "${EVIDENCE}/10-permissions-added.txt") permission(s): $(tr '
-' ' ' < "${EVIDENCE}/10-permissions-added.txt")"
+pass "seeder added $(grep -c . "${EVIDENCE}/10-permissions-added.txt") permission(s): $(tr '\n' ' ' < "${EVIDENCE}/10-permissions-added.txt")"
 PERMS=$(psql_db "$DB" -c "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review','hq.customers.quarantine.repair')")
 [ "$PERMS" = "14" ] && pass "seeder: the fourteen wave 1-4 permissions exist" || fail "seeder: ${PERMS} of 14 permissions exist"
 psql_db "$DB" -c "SELECT r.name || ' ' || count(p.id) FROM roles r LEFT JOIN role_has_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id GROUP BY r.name ORDER BY r.name" > "${EVIDENCE}/10-roles.txt"
