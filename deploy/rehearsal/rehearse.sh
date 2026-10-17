@@ -27,7 +27,7 @@
 #   -> [--seed-corruption] -> the candidate's OWN deploy.sh --verify-only --no-pull, then deploy.sh --no-pull
 #   (host lock, backup boundary, verified dump, build stamped with the commit, up, entrypoint `migrate --force`,
 #   horizon restart, /up, /api/health naming the commit, release records) -> schema and counts AFTER ->
-#   constraints (verify-constraints.sql) -> permission seeder --class and the thirteen permissions -> detector dry
+#   constraints (verify-constraints.sql) -> permission seeder --class and the fourteen permissions -> detector dry
 #   run, cost dry run, repair dry run and tz backfill dry run if the commands exist; proof they wrote nothing (the tz
 #   dry run by row hashes) -> [quarantine listing]
 #   -> ROLLBACK one migration at a time until a down() refuses or the pre-release schema is reached; counts compared
@@ -332,9 +332,13 @@ pass "migrations applied by the release: $(echo "$NEW_MIGRATIONS" | grep -c .)"
 psql_db "$DB" -f - < "${SELF_DIR}/sql/verify-constraints.sql" > "${EVIDENCE}/09-constraints.txt" 2>&1 || { cat "${EVIDENCE}/09-constraints.txt"; fail "verify-constraints.sql did not run"; }
 if grep -q '^FAIL' "${EVIDENCE}/09-constraints.txt"; then fail "constraints: $(grep -c '^FAIL' "${EVIDENCE}/09-constraints.txt") FAIL line(s) in 09-constraints.txt"; else pass "constraints: all $(grep -c '^PASS' "${EVIDENCE}/09-constraints.txt") checks PASS, 29 expected (W1 keys, composite FKs, triggers, the repair, reversal and tz ledgers, twelve migrations)"; fi
 
+psql_db "$DB" -c "SELECT name FROM permissions ORDER BY name" > "${EVIDENCE}/10-permissions-before-seeder.txt" 2>&1 || true
 artisan db:seed --class='Database\Seeders\RolesAndPermissionsSeeder' --force > "${EVIDENCE}/10-seeder.txt" 2>&1 || fail "the permission seeder failed (10-seeder.txt)"
-PERMS=$(psql_db "$DB" -c "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review')")
-[ "$PERMS" = "13" ] && pass "seeder: the thirteen wave 1-4 permissions exist" || fail "seeder: ${PERMS} of 13 permissions exist"
+psql_db "$DB" -c "SELECT name FROM permissions ORDER BY name" > "${EVIDENCE}/10-permissions-after-seeder.txt" 2>&1 || true
+comm -13 "${EVIDENCE}/10-permissions-before-seeder.txt" "${EVIDENCE}/10-permissions-after-seeder.txt" > "${EVIDENCE}/10-permissions-added.txt" || true
+pass "seeder added $(grep -c . "${EVIDENCE}/10-permissions-added.txt") permission(s): $(tr '\n' ' ' < "${EVIDENCE}/10-permissions-added.txt")"
+PERMS=$(psql_db "$DB" -c "SELECT count(*) FROM permissions WHERE name IN ('hq.consent.view','hq.consent.restrict','hq.consent.grant','hq.playbooks.view','hq.playbooks.draft','hq.playbooks.review','hq.playbooks.activate','hq.followups.view','hq.followups.propose','hq.followups.decide','hq.consent.lift_restriction','hq.outcomes.attribute','hq.customers.quarantine.review','hq.customers.quarantine.repair')")
+[ "$PERMS" = "14" ] && pass "seeder: the fourteen wave 1-4 permissions exist" || fail "seeder: ${PERMS} of 14 permissions exist"
 psql_db "$DB" -c "SELECT r.name || ' ' || count(p.id) FROM roles r LEFT JOIN role_has_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id GROUP BY r.name ORDER BY r.name" > "${EVIDENCE}/10-roles.txt"
 
 snapshot "$DB" > "${EVIDENCE}/11-before-dry-runs.txt"
@@ -397,7 +401,9 @@ if [ "$SEED" = "1" ]; then
     if grep -q 'seeded identity .* phone .* quarantined=no' "${EVIDENCE}/17-quarantine.txt"; then pass "the phone with evidence in its own business stayed live"; else fail "the first phone copy should have stayed live"; fi
 fi
 grep -q 'store_mismatch_total [0-9]* quarantined=' "${EVIDENCE}/17-quarantine.txt" && {
-    T=$(grep -o 'store_mismatch_total [0-9]*' "${EVIDENCE}/17-quarantine.txt" | awk '{print $2}'); Q=$(grep -o 'quarantined=[0-9]*' "${EVIDENCE}/17-quarantine.txt" | head -1 | cut -d= -f2)
+    # Both numbers come from the ONE summary line: per-identity lines also carry 'quarantined=<reason>' (17 Oct VPS run read line 9).
+    T=$(grep -o 'store_mismatch_total [0-9]* quarantined=[0-9]*' "${EVIDENCE}/17-quarantine.txt" | head -1 | awk '{print $2}')
+    Q=$(grep -o 'store_mismatch_total [0-9]* quarantined=[0-9]*' "${EVIDENCE}/17-quarantine.txt" | head -1 | sed 's/.*quarantined=//')
     [ "$T" = "$Q" ] && pass "every store-scoped identity under another business's customer is quarantined (${Q} of ${T})" || fail "store-scoped mismatches not all quarantined (${Q} of ${T})"; }
 
 # ── 7. Rollback, one migration at a time, until a down() refuses or the pre-release schema is reached
