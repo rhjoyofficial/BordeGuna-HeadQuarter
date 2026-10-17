@@ -1,8 +1,8 @@
 import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, PreviewList, riskTone } from '@/components/approvals/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
-import { NativeSelect } from '@/components/form/field';
-import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Field, NativeSelect } from '@/components/form/field';
+import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -122,13 +122,13 @@ export default function ApprovalsIndex({
                         </>
                     }
                     actions={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge tone="pending">{counts.pending} waiting</StatusBadge>
                             {counts.overdue > 0 && <StatusBadge tone="warn">{counts.overdue} past deadline</StatusBadge>}
                         </div>
                     }
                 >
-                    <div className="flex flex-wrap gap-2">
+                    <Toolbar label="Filter by status">
                         {STATUS_FILTERS.map((s) => (
                             <Button
                                 key={s.key}
@@ -139,7 +139,7 @@ export default function ApprovalsIndex({
                                 {s.label}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
                 <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
@@ -151,7 +151,7 @@ export default function ApprovalsIndex({
                         description={
                             filters.status === 'pending'
                                 ? 'When a tool needs a human before it may run, the request appears here with what it would do.'
-                                : 'Try another filter.'
+                                : 'No approval has this status. Try another filter.'
                         }
                     />
                 ) : (
@@ -213,8 +213,8 @@ export default function ApprovalsIndex({
                                             </div>
 
                                             {a.preview && (
-                                                <div className="mt-3">
-                                                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Would do</div>
+                                                <div className="bg-muted mt-3 rounded-lg p-3">
+                                                    <div className="hq-eyebrow mb-1">Would do</div>
                                                     <PreviewList preview={a.preview} />
                                                 </div>
                                             )}
@@ -295,7 +295,7 @@ export default function ApprovalsIndex({
                 onConfirm={() => decision && submit(decision.approval, 'approve')}
             >
                 {decision?.approval.preview?.available && (
-                    <div className="rounded-md border p-3">
+                    <div className="bg-muted rounded-lg p-3">
                         <PreviewList preview={decision.approval.preview} />
                     </div>
                 )}
@@ -332,13 +332,15 @@ export default function ApprovalsIndex({
                 busy={busy !== null || delegateTo === ''}
                 onConfirm={() => decision && submit(decision.approval, 'delegate', { user_id: Number(delegateTo) })}
             >
-                <NativeSelect value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
-                    {approvers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                            {u.email}
-                        </option>
-                    ))}
-                </NativeSelect>
+                <Field label="Approver" htmlFor="delegate-approver">
+                    <NativeSelect id="delegate-approver" value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
+                        {approvers.map((u) => (
+                            <option key={u.id} value={u.id}>
+                                {u.email}
+                            </option>
+                        ))}
+                    </NativeSelect>
+                </Field>
             </ConfirmDialog>
         </AppLayout>
     );

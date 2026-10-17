@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
-import { PageHeader } from '@/components/page-header';
+import { PageHeader, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, timeAgo, truncate } from '@/lib/format';
@@ -78,11 +79,13 @@ export function customerLabel(t: ThreadCard): string {
 
 export function AgentNotice({ agent }: { agent: AgentStatus }) {
     return agent.active ? (
-        <p className="text-muted-foreground text-sm">The support agent is active. Threads it cannot keep come here.</p>
+        <Notice tone="info">The support agent is active. Threads it cannot keep come here.</Notice>
     ) : (
-        <p className="text-muted-foreground text-sm">
-            The support agent is {agent.status ?? 'not seeded'}. Every thread comes to a person; nothing is answered automatically.
-        </p>
+        <InertNotice
+            title="Answers from the support agent"
+            reason={`The support agent is ${agent.status ?? 'not seeded'}. Every thread comes to a person; nothing is answered automatically.`}
+            gate="A person activates the support agent after its shadow review. Until then it can only propose."
+        />
     );
 }
 
@@ -105,13 +108,13 @@ export default function InboxIndex({
                     title="Inbox"
                     description="Customer conversations from every channel the group listens on, and who is answering each one."
                     actions={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge tone="warn">{counts.needs_person} need a person</StatusBadge>
                             <StatusBadge tone="neutral">{counts.open} open</StatusBadge>
                         </div>
                     }
                 >
-                    <div className="flex flex-wrap gap-2">
+                    <Toolbar label="Filter conversations">
                         {FILTERS.map((f) => (
                             <Button
                                 key={f.key}
@@ -122,7 +125,7 @@ export default function InboxIndex({
                                 {f.label}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
                 <AgentNotice agent={agent} />

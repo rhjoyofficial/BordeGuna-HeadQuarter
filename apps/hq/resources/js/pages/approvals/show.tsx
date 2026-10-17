@@ -2,7 +2,9 @@ import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, Preview
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
@@ -77,8 +79,8 @@ function PayloadList({ payload }: { payload: Record<string, unknown> | null }) {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-sm break-words">{children}</dd>
+            <dt className="hq-eyebrow">{label}</dt>
+            <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
@@ -131,6 +133,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
             <Head title={`Approval ${approval.id}: ${title}`} />
             <div className="flex max-w-4xl flex-col gap-6 p-4 md:p-6">
                 <PageHeader
+                    eyebrow="Approvals"
                     title={
                         <span className="flex flex-wrap items-center gap-2">
                             {title}
@@ -169,19 +172,19 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {approval.status === 'consumed' && approval.execution_status !== 'succeeded' && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+                    <Notice tone="pending">
                         <strong>This approval was spent without the action running.</strong> It was approved, but the gateway refused the call at
                         execution time{approval.execution_error ? `: ${approval.execution_error}` : '.'} An approval is single use, so a fresh request
                         is needed rather than a retry.
-                    </div>
+                    </Notice>
                 )}
 
                 {!approval.payload_intact && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
+                    <Notice tone="danger" alert>
                         <strong>Integrity failure.</strong> The stored payload no longer matches the hash recorded when this approval was created.
                         This cannot happen through the application, so the row was changed underneath it. Execution is refused and nothing will be
                         repaired.
-                    </div>
+                    </Notice>
                 )}
 
                 <section className="hq-card p-4">
@@ -242,14 +245,14 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         {approval.consumed_at && <Fact label="Executed">{formatDateTime(approval.consumed_at)}</Fact>}
                         {approval.supersedes_id && (
                             <Fact label="Replaces">
-                                <a href={`/approvals/${approval.supersedes_id}`} className="underline">
+                                <a href={`/approvals/${approval.supersedes_id}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
                                     approval #{approval.supersedes_id}
                                 </a>
                             </Fact>
                         )}
                         {approval.superseded_by && (
                             <Fact label="Replaced by">
-                                <a href={`/approvals/${approval.superseded_by}`} className="underline">
+                                <a href={`/approvals/${approval.superseded_by}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
                                     approval #{approval.superseded_by}
                                 </a>
                             </Fact>
@@ -268,13 +271,13 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     />
                     {editing ? (
                         <>
-                            <textarea
-                                className="border-input hq-field h-56 w-full rounded-md border p-2 font-mono text-xs"
+                            <Textarea
+                                className="h-56 font-mono text-xs md:text-xs"
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
                                 aria-label="Edited arguments as JSON"
                             />
-                            {draftError && <p className="text-sm text-tone-danger">{draftError}</p>}
+                            {draftError && <Notice tone="danger" alert>{draftError}</Notice>}
                             <p className="text-muted-foreground text-xs">
                                 The original stays on the record unchanged. Approving creates a new approval for what you edited, validated against
                                 the tool's own schema.
@@ -347,7 +350,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 onConfirm={() => post('approve', {})}
             >
                 {approval.preview?.available && (
-                    <div className="rounded-md border p-3">
+                    <div className="bg-muted rounded-lg p-3">
                         <PreviewList preview={approval.preview} />
                     </div>
                 )}

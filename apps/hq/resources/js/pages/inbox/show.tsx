@@ -2,7 +2,9 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, timeAgo } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
@@ -116,7 +118,7 @@ function provenanceLabel(m: Message): string {
 function HandoverCard({ handover }: { handover: Handover }) {
     const t = useT();
     return (
-        <section className="rounded-xl border p-4 bg-tone-pending-bg border-tone-pending-line text-tone-pending" data-testid="handover-reason">
+        <section className="bg-tone-pending-bg border-tone-pending-line rounded-xl border p-4" data-testid="handover-reason">
             <SectionHeader title={t('Why a person is needed')} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusBadge tone="warn">{handover.reason ?? t('reason not recorded')}</StatusBadge>
@@ -143,7 +145,7 @@ function RecentOrdersCard({ orders, known }: { orders: RecentOrder[]; known: boo
             ) : (
                 <ul className="mt-2 flex flex-col gap-2">
                     {orders.map((o) => (
-                        <li key={o.ref} className="rounded-md border p-2 text-sm">
+                        <li key={o.ref} className="bg-muted rounded-lg p-2.5 text-sm">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="font-medium">{o.ref}</span>
                                 <StatusBadge tone="neutral" dot={false}>
@@ -255,31 +257,31 @@ export default function InboxShow({
                 />
 
                 {errors?.state && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
+                    <Notice tone="danger" alert>
                         <strong>That move is not allowed.</strong> {errors.state}
-                    </div>
+                    </Notice>
                 )}
                 {errors?.decision && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
+                    <Notice tone="danger" alert>
                         {errors.decision}
-                    </div>
+                    </Notice>
                 )}
                 {notSent && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-warn-bg border-tone-warn-line text-tone-warn">
+                    <Notice tone="warn" alert>
                         <strong>Not sent.</strong> {outcome?.error ?? SENDING_NOTICE}
-                    </div>
+                    </Notice>
                 )}
                 {flash?.status === 'reply-sent' && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok">
+                    <Notice tone="ok">
                         <strong>Sent.</strong> The provider accepted it; delivery is verified separately.
-                    </div>
+                    </Notice>
                 )}
                 {flash?.status === 'proposal-discarded' && (
-                    <div className="hq-card p-4 text-sm">The proposal was discarded and the decision recorded.</div>
+                    <Notice tone="neutral">The proposal was discarded and the decision recorded.</Notice>
                 )}
 
-                <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-                    <div className="flex flex-col gap-6">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="flex min-w-0 flex-col gap-6">
                         <section>
                             <SectionHeader title="Conversation" aside={<span className="text-muted-foreground text-xs">{messages.length} messages</span>} />
                             <div className="mt-3 flex flex-col gap-3">
@@ -289,10 +291,10 @@ export default function InboxShow({
                                         key={m.uuid}
                                         className={
                                             m.direction === 'internal'
-                                                ? 'bg-muted/60 rounded-xl border border-dashed p-3'
+                                                ? 'bg-muted border-glass-border rounded-xl border border-dashed p-3'
                                                 : m.direction === 'inbound'
-                                                  ? 'bg-card mr-8 rounded-xl border p-3'
-                                                  : 'bg-primary/5 ml-8 rounded-xl border p-3'
+                                                  ? 'hq-card mr-4 rounded-[22px_22px_22px_6px] p-3.5 sm:mr-8'
+                                                  : 'bg-accent border-glass-border ml-4 rounded-[22px_22px_6px_22px] border p-3.5 sm:ml-8'
                                         }
                                     >
                                         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -327,18 +329,19 @@ export default function InboxShow({
                                 <SectionHeader title="The agent suggested" />
                                 <div className="mt-3 flex flex-col gap-3">
                                     {proposals.map((p) => (
-                                        <article key={p.run_id} className="rounded-xl border p-4 bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+                                        <article key={p.run_id} className="hq-card border-tone-pending-line p-4">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
                                                 <span>proposed by the support agent</span>
                                                 {p.at && <span>{timeAgo(p.at)}</span>}
-                                                <Link href={`/agents/runs/${p.run_id}`} className="hover:underline">
+                                                <Link href={`/agents/runs/${p.run_id}`} className="underline-offset-4 hover:underline touch:inline-flex touch:min-h-11 touch:items-center">
                                                     run #{p.run_id}
                                                 </Link>
                                             </div>
                                             {p.why && <p className="mt-1 text-xs italic">{p.why}</p>}
                                             {can.manage ? (
-                                                <textarea
-                                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
+                                                <Textarea
+                                                    className="mt-2"
+                                                    aria-label="Proposed reply"
                                                     rows={3}
                                                     value={editing[p.run_id] ?? p.text}
                                                     onChange={(e) => setEditing({ ...editing, [p.run_id]: e.target.value })}
@@ -379,7 +382,7 @@ export default function InboxShow({
                                         <article key={c.id} className="hq-card p-4">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
                                                 {c.run_id !== null && (
-                                                    <Link href={`/agents/runs/${c.run_id}`} className="hover:underline">
+                                                    <Link href={`/agents/runs/${c.run_id}`} className="underline-offset-4 hover:underline touch:inline-flex touch:min-h-11 touch:items-center">
                                                         proposal, run #{c.run_id}
                                                     </Link>
                                                 )}
@@ -389,11 +392,11 @@ export default function InboxShow({
                                             </div>
                                             <div className="mt-2 grid gap-3 sm:grid-cols-2">
                                                 <div>
-                                                    <div className="text-muted-foreground text-xs">the agent proposed</div>
+                                                    <div className="hq-eyebrow">the agent proposed</div>
                                                     <p className="mt-1 text-sm whitespace-pre-wrap">{c.proposed ?? '(the run no longer holds a proposal)'}</p>
                                                 </div>
                                                 <div>
-                                                    <div className="text-muted-foreground text-xs">what was actually sent</div>
+                                                    <div className="hq-eyebrow">what was actually sent</div>
                                                     <p className="mt-1 text-sm whitespace-pre-wrap">{c.sent ?? (c.verdict === 'unmeasured' ? '(nothing was sent within a day)' : '(no text)')}</p>
                                                 </div>
                                             </div>
@@ -421,9 +424,15 @@ export default function InboxShow({
                         {can.manage && (
                             <section>
                                 <SectionHeader title="Reply" />
-                                <p className="text-muted-foreground mt-1 text-xs">{SENDING_NOTICE}</p>
-                                <textarea
-                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
+                                <InertNotice
+                                    className="mt-2"
+                                    title="Sending to the customer"
+                                    reason={SENDING_NOTICE}
+                                    gate="A messaging provider is registered and the channel is connected and verified (gate P3-G4)."
+                                />
+                                <Textarea
+                                    className="mt-2"
+                                    aria-label="Reply"
                                     rows={3}
                                     placeholder="Write in the customer's language"
                                     value={text}
@@ -433,8 +442,8 @@ export default function InboxShow({
                                     <Button size="sm" disabled={busy || text.trim() === ''} onClick={() => post('reply', { text, keep_as_note: keepAsNote }, () => setText(''))}>
                                         Send through the control plane
                                     </Button>
-                                    <label className="flex items-center gap-2 text-xs">
-                                        <input type="checkbox" checked={keepAsNote} onChange={(e) => setKeepAsNote(e.target.checked)} />
+                                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs touch:min-h-11">
+                                        <input type="checkbox" className="accent-hq-violet size-4" checked={keepAsNote} onChange={(e) => setKeepAsNote(e.target.checked)} />
                                         keep as an internal note if it cannot be sent
                                     </label>
                                 </div>
@@ -444,8 +453,9 @@ export default function InboxShow({
                         {can.manage && (
                             <section>
                                 <SectionHeader title="Internal note" />
-                                <textarea
-                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
+                                <Textarea
+                                    className="mt-2"
+                                    aria-label="Internal note"
                                     rows={2}
                                     placeholder="Seen by colleagues only"
                                     value={note}
@@ -474,7 +484,7 @@ export default function InboxShow({
                                 ) : (
                                     <ul className="mt-3 flex flex-col gap-2">
                                         {memory.map((m) => (
-                                            <li key={m.id} className="rounded-md border p-2 text-sm">
+                                            <li key={m.id} className="bg-muted rounded-lg p-2.5 text-sm">
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div>
                                                         {m.kind === 'structured' && (
@@ -500,12 +510,12 @@ export default function InboxShow({
                                 {can.manage && can_remember && (
                                     <div className="mt-3 flex flex-col gap-2">
                                         <div className="flex flex-wrap gap-2">
-                                            <NativeSelect value={memKind} onChange={(e) => setMemKind(e.target.value as 'structured' | 'episodic')}>
+                                            <NativeSelect aria-label="Kind of memory" value={memKind} onChange={(e) => setMemKind(e.target.value as 'structured' | 'episodic')}>
                                                 <option value="structured">A fact (replaces the previous one for its key)</option>
                                                 <option value="episodic">Something that happened (kept as it was)</option>
                                             </NativeSelect>
                                             {memKind === 'structured' && (
-                                                <NativeSelect value={memKey} onChange={(e) => setMemKey(e.target.value)}>
+                                                <NativeSelect aria-label="Which fact" value={memKey} onChange={(e) => setMemKey(e.target.value)}>
                                                     {memory_keys.map((k) => (
                                                         <option key={k} value={k}>
                                                             {MEMORY_KEY_LABELS[k] ?? k}
@@ -514,16 +524,16 @@ export default function InboxShow({
                                                 </NativeSelect>
                                             )}
                                         </div>
-                                        <textarea
-                                            className="hq-field border-input w-full rounded-md border p-2 text-sm"
+                                        <Textarea
+                                            aria-label="What to remember"
                                             rows={2}
                                             placeholder={memKind === 'structured' ? 'The fact, in a few words' : 'What happened, in a sentence'}
                                             value={memText}
                                             onChange={(e) => setMemText(e.target.value)}
                                         />
-                                        {errors.kind && <p className="text-destructive text-xs">{errors.kind}</p>}
-                                        {errors.value && <p className="text-destructive text-xs">{errors.value}</p>}
-                                        {errors.content && <p className="text-destructive text-xs">{errors.content}</p>}
+                                        {errors.kind && <p className="text-tone-danger text-xs">{errors.kind}</p>}
+                                        {errors.value && <p className="text-tone-danger text-xs">{errors.value}</p>}
+                                        {errors.content && <p className="text-tone-danger text-xs">{errors.content}</p>}
                                         <div>
                                             <Button
                                                 size="sm"
@@ -561,7 +571,7 @@ export default function InboxShow({
                                     <dd>{thread.stranger ? 'a stranger until an order or a phone links them' : 'known'}</dd>
                                     <dt className="text-muted-foreground">360</dt>
                                     <dd>
-                                        <Link href={`/customers/${thread.customer.id}`} className="hover:underline">
+                                        <Link href={`/customers/${thread.customer.id}`} className="underline underline-offset-4 touch:inline-flex touch:min-h-11 touch:items-center">
                                             open the customer
                                         </Link>
                                     </dd>
@@ -610,8 +620,8 @@ export default function InboxShow({
                                         </Button>
                                     )}
                                     {assignees.length > 0 && thread.status !== 'closed' && (
-                                        <div className="mt-2 flex items-center gap-2">
-                                            <NativeSelect value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
+                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <NativeSelect aria-label="Assign to" className="min-w-0 flex-1" value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
                                                 {assignees.map((u) => (
                                                     <option key={u.id} value={u.id}>
                                                         {u.email}

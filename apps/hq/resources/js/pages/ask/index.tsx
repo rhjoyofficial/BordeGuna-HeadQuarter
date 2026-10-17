@@ -3,7 +3,9 @@ import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import InputError from '@/components/input-error';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { humanKey, humanMillis, timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -54,10 +56,10 @@ function Answer({ message }: { message: Message }) {
     return (
         <div className="flex flex-col gap-2">
             {run?.shadow && (
-                <div className="rounded-md border px-3 py-2 text-xs bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+                <Notice tone="pending" className="text-xs">
                     <strong>Shadow.</strong> The agent runs at autonomy {run.autonomy_level?.toUpperCase() ?? 'A0'}, so what follows is not HQ&apos;s
                     answer. It is a proposal for a person to review, and nothing was done because of it.
-                </div>
+                </Notice>
             )}
             <p className="text-sm whitespace-pre-line">{message.content || 'The agent gave no text.'}</p>
             {run && (
@@ -65,7 +67,7 @@ function Answer({ message }: { message: Message }) {
                     <StatusBadge status={run.status} />
                     {run.stop_reason && <span>stopped: {humanKey(run.stop_reason)}</span>}
                     <span>{run.tool_calls.length} tool call(s)</span>
-                    <Link href={`/agents/runs/${run.id}`} className="underline">
+                    <Link href={`/agents/runs/${run.id}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
                         Open the run
                     </Link>
                 </div>
@@ -153,16 +155,16 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                             </Link>
                         </Button>
                         {conversations.length === 0 ? (
-                            <p className="text-muted-foreground text-xs">No conversations yet.</p>
+                            <p className="text-muted-foreground text-xs">No conversations yet. Asking a question starts one.</p>
                         ) : (
-                            <nav className="flex flex-col gap-1">
+                            <nav className="flex flex-col gap-1" aria-label="Conversations">
                                 {conversations.map((c) => (
                                     <Link
                                         key={c.uuid}
                                         href={`/ask/${c.uuid}`}
                                         className={cn(
-                                            'hover:bg-muted rounded-md px-2 py-1.5 text-sm',
-                                            conversation?.uuid === c.uuid && 'bg-muted font-medium',
+                                            'hover:bg-accent flex min-h-10 flex-col justify-center rounded-lg px-3 py-1.5 text-sm transition-colors touch:min-h-11',
+                                            conversation?.uuid === c.uuid && 'bg-accent font-medium',
                                         )}
                                     >
                                         <div className="truncate">{c.title}</div>
@@ -188,10 +190,10 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                     <li
                                         key={m.id}
                                         className={cn(
-                                            'rounded-xl border p-3',
-                                            m.role === 'user' && 'bg-muted/40 ml-auto max-w-3xl',
-                                            m.role === 'assistant' && 'bg-card mr-auto max-w-3xl',
-                                            m.role === 'system' && 'mx-auto max-w-3xl border-dashed',
+                                            'max-w-3xl min-w-0 p-3.5',
+                                            m.role === 'user' && 'bg-accent border-glass-border ml-auto rounded-[22px_22px_6px_22px] border',
+                                            m.role === 'assistant' && 'hq-card mr-auto',
+                                            m.role === 'system' && 'border-glass-border mx-auto rounded-xl border border-dashed',
                                         )}
                                     >
                                         <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-xs">
@@ -212,15 +214,17 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                         )}
 
                         <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
-                            <textarea
-                                value={form.data.question}
-                                onChange={(e) => form.setData('question', e.target.value)}
-                                rows={3}
-                                maxLength={max_question}
-                                placeholder="Your question, in Bangla or English"
-                                className="border-input hq-field w-full rounded-md border p-2 text-sm"
-                                aria-label="Your question"
-                            />
+                            <Field label="Your question" htmlFor="ask-question">
+                                <Textarea
+                                    id="ask-question"
+                                    value={form.data.question}
+                                    onChange={(e) => form.setData('question', e.target.value)}
+                                    rows={3}
+                                    maxLength={max_question}
+                                    placeholder="Your question, in Bangla or English"
+                                    aria-label="Your question"
+                                />
+                            </Field>
                             <InputError message={form.errors.question} />
                             <FormRow>
                                 <Field label="Agent" htmlFor="ask-agent" error={form.errors.agent_key}>
@@ -251,17 +255,19 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                     </NativeSelect>
                                 </Field>
                             </FormRow>
-                            {chosen?.refusal && <p className="text-sm text-tone-pending">{chosen.refusal}</p>}
+                            {chosen?.refusal && <Notice tone="pending">{chosen.refusal}</Notice>}
                             <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing || form.data.question.trim() === '' || chosen?.refusal !== null}>
                                     Ask
                                 </Button>
-                                {!runtime_on && (
-                                    <span className="text-muted-foreground text-xs">
-                                        The AI runtime is off, so the question is recorded and not asked.
-                                    </span>
-                                )}
                             </div>
+                            {!runtime_on && (
+                                <InertNotice
+                                    title="Answers from an agent"
+                                    reason="The AI runtime is off, so the question is recorded and not asked."
+                                    gate="A person switches the AI runtime on. Until then no agent answers and nothing is done."
+                                />
+                            )}
                         </form>
                     </section>
                 </div>
