@@ -18,7 +18,8 @@ export function Pagination({ links, total, noun }: { links: PageLink[]; total?: 
                         key={i}
                         href={l.url}
                         preserveScroll
-                        className={`rounded-md border px-2.5 py-1 tabular-nums ${l.active ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent'}`}
+                        aria-current={l.active ? 'page' : undefined}
+                        className={`touch:h-11 touch:min-w-11 inline-flex h-9 min-w-9 items-center justify-center rounded-full border px-3 tabular-nums transition-colors ${l.active ? 'bg-primary text-primary-foreground border-primary' : 'border-glass-border bg-card hover:bg-accent'}`}
                     >
                         {clean(l.label)}
                     </Link>

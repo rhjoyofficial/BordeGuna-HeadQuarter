@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { type ReactNode, useEffect, useState } from 'react';
 
 /**
@@ -57,7 +58,7 @@ export function ConfirmDialog({
                 {reason && (
                     <div className="grid gap-1.5">
                         <Label htmlFor="confirm-reason">{reason.label}</Label>
-                        <textarea
+                        <Textarea
                             id="confirm-reason"
                             autoFocus
                             rows={3}
@@ -65,11 +66,10 @@ export function ConfirmDialog({
                             value={text}
                             onChange={(e) => setText(e.target.value)}
                             placeholder={reason.placeholder}
-                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border p-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </div>
                 )}
-                <DialogFooter className="gap-2 sm:gap-0">
+                <DialogFooter>
                     <Button type="button" variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
                         {cancelLabel}
                     </Button>

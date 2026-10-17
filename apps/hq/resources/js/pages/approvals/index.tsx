@@ -1,8 +1,8 @@
 import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, PreviewList, riskTone } from '@/components/approvals/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
-import { NativeSelect } from '@/components/form/field';
-import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Field, NativeSelect } from '@/components/form/field';
+import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -122,13 +122,13 @@ export default function ApprovalsIndex({
                         </>
                     }
                     actions={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge tone="pending">{counts.pending} waiting</StatusBadge>
                             {counts.overdue > 0 && <StatusBadge tone="warn">{counts.overdue} past deadline</StatusBadge>}
                         </div>
                     }
                 >
-                    <div className="flex flex-wrap gap-2">
+                    <Toolbar label="Filter by status">
                         {STATUS_FILTERS.map((s) => (
                             <Button
                                 key={s.key}
@@ -139,7 +139,7 @@ export default function ApprovalsIndex({
                                 {s.label}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
                 <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
@@ -151,7 +151,7 @@ export default function ApprovalsIndex({
                         description={
                             filters.status === 'pending'
                                 ? 'When a tool needs a human before it may run, the request appears here with what it would do.'
-                                : 'Try another filter.'
+                                : 'No approval has this status. Try another filter.'
                         }
                     />
                 ) : (
@@ -160,7 +160,7 @@ export default function ApprovalsIndex({
                             const st = approvalStatus(a);
                             const overdue = a.status === 'pending' && a.sla_due_at && new Date(a.sla_due_at).getTime() < Date.now();
                             return (
-                                <article key={a.id} className="bg-card rounded-xl border p-4">
+                                <article key={a.id} className="hq-card p-4">
                                     <div className="flex flex-wrap items-start justify-between gap-4">
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
@@ -186,12 +186,12 @@ export default function ApprovalsIndex({
                                                     </span>
                                                 )}
                                                 {a.agent_key && (
-                                                    <span className="text-amber-700 dark:text-amber-300">proposed by the {a.agent_key} agent</span>
+                                                    <span className="text-tone-pending">proposed by the {a.agent_key} agent</span>
                                                 )}
                                                 {a.requested_by && !a.agent_key && <span>asked by {a.requested_by}</span>}
                                                 {a.requested_by && a.agent_key && a.requester_recorded && <span>asked by {a.requested_by}</span>}
                                                 {a.delegated_to && (
-                                                    <span className="text-sky-700 dark:text-sky-300">delegated to {a.delegated_to}</span>
+                                                    <span className="text-tone-info">delegated to {a.delegated_to}</span>
                                                 )}
                                                 {a.decided_by && (
                                                     <span>
@@ -202,7 +202,7 @@ export default function ApprovalsIndex({
                                                 {a.status === 'pending' && a.sla_due_at && (
                                                     <span
                                                         title={formatDateTime(a.sla_due_at)}
-                                                        className={overdue ? 'text-orange-700 dark:text-orange-300' : ''}
+                                                        className={overdue ? 'text-tone-warn' : ''}
                                                     >
                                                         decide {timeAgo(a.sla_due_at)}
                                                     </span>
@@ -213,8 +213,8 @@ export default function ApprovalsIndex({
                                             </div>
 
                                             {a.preview && (
-                                                <div className="mt-3">
-                                                    <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Would do</div>
+                                                <div className="bg-muted mt-3 rounded-lg p-3">
+                                                    <div className="hq-eyebrow mb-1">Would do</div>
                                                     <PreviewList preview={a.preview} />
                                                 </div>
                                             )}
@@ -222,7 +222,7 @@ export default function ApprovalsIndex({
                                                 <p className="text-muted-foreground mt-2 text-xs italic">Reason given: {a.decision_note}</p>
                                             )}
                                             {a.execution_error && (
-                                                <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">
+                                                <p className="mt-2 text-xs text-tone-warn">
                                                     Refused at execution: {a.execution_error}
                                                 </p>
                                             )}
@@ -295,7 +295,7 @@ export default function ApprovalsIndex({
                 onConfirm={() => decision && submit(decision.approval, 'approve')}
             >
                 {decision?.approval.preview?.available && (
-                    <div className="rounded-md border p-3">
+                    <div className="bg-muted rounded-lg p-3">
                         <PreviewList preview={decision.approval.preview} />
                     </div>
                 )}
@@ -332,13 +332,15 @@ export default function ApprovalsIndex({
                 busy={busy !== null || delegateTo === ''}
                 onConfirm={() => decision && submit(decision.approval, 'delegate', { user_id: Number(delegateTo) })}
             >
-                <NativeSelect value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
-                    {approvers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                            {u.email}
-                        </option>
-                    ))}
-                </NativeSelect>
+                <Field label="Approver" htmlFor="delegate-approver">
+                    <NativeSelect id="delegate-approver" value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
+                        {approvers.map((u) => (
+                            <option key={u.id} value={u.id}>
+                                {u.email}
+                            </option>
+                        ))}
+                    </NativeSelect>
+                </Field>
             </ConfirmDialog>
         </AppLayout>
     );

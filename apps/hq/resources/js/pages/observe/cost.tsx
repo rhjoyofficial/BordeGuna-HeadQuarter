@@ -94,7 +94,11 @@ export default function Cost(props: Props) {
                         <Stat
                             label="Per daily briefing"
                             value={orDash(unit.per_briefing_usd === null ? null : humanUsd(unit.per_briefing_usd))}
-                            detail="No briefing has been composed yet; it needs the model and comes after the gates."
+                            detail={
+                                unit.briefings === 0
+                                    ? 'No briefing has been composed yet; it needs the model and comes after the gates.'
+                                    : `${unit.briefings} briefing(s) composed`
+                            }
                         />
                     </StatGrid>
                 </Panel>

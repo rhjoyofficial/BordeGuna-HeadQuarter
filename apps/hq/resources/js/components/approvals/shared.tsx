@@ -1,3 +1,4 @@
+import { Notice } from '@/components/ui/notice';
 import { type Tone } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
 
@@ -66,24 +67,24 @@ export function PreviewList({ preview }: { preview: ApprovalPreview }) {
 export function OutcomeBanner({ status, outcome, error }: { status?: string | null; outcome?: ApprovalOutcome | null; error?: string }) {
     if (error) {
         return (
-            <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            <Notice tone="danger" alert>
                 <strong>The decision could not be applied.</strong> {error}
-            </div>
+            </Notice>
         );
     }
     if (!status || !outcome) return null;
     if (status === 'approval-executed' && outcome.status === 'succeeded') {
         return (
-            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+            <Notice tone="ok">
                 <strong>Approved and executed.</strong> The action ran once
                 {outcome.tool_call_id ? ` and was recorded as tool call #${outcome.tool_call_id}` : ''}.
-            </div>
+            </Notice>
         );
     }
     return (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <Notice tone="pending">
             <strong>Nothing ran.</strong> {outcome.error ?? 'The gateway refused the call.'}
             <div className="mt-1 text-xs">Authority is re-checked at execution time, so a change since the request was made can refuse it here.</div>
-        </div>
+        </Notice>
     );
 }

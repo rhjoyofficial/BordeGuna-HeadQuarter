@@ -9,7 +9,20 @@
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
         <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
+        {{-- docs/135 (d): Geist for Latin, Geist Mono for codes and figures, Noto Sans Bengali for Bangla. --}}
+        <link href="https://fonts.bunny.net/css?family=geist:400,500,600|geist-mono:400,500|noto-sans-bengali:400,500,600&display=swap" rel="stylesheet" />
+
+        {{-- Applies the saved light or dark choice before the first paint, so a dark-theme page never flashes white.
+             The same rule as resources/js/hooks/use-appearance.tsx, which takes over once the app boots. --}}
+        <script>
+            (function () {
+                try {
+                    var a = localStorage.getItem('appearance') || 'system';
+                    var dark = a === 'dark' || (a === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                    document.documentElement.classList.toggle('dark', dark);
+                } catch (e) {}
+            })();
+        </script>
 
         @routes
         @viteReactRefresh

@@ -3,7 +3,9 @@ import { Field, FormRow } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
@@ -49,8 +51,6 @@ type Props = {
     can: { draft: boolean; review: boolean; activate: boolean };
 };
 
-const textareaClass = 'border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden';
-
 function ReasonForm({ action, label, hint, field = 'reason', extra, variant = 'default' }: { action: string; label: string; hint?: string; field?: string; extra?: Record<string, string>; variant?: 'default' | 'outline' | 'destructive' }) {
     const t = useT();
     const form = useForm<Record<string, string>>({ [field]: '', ...(extra ?? {}) });
@@ -65,7 +65,7 @@ function ReasonForm({ action, label, hint, field = 'reason', extra, variant = 'd
             }}
         >
             <Field label={label} htmlFor={`${field}-${action}`} hint={hint} error={form.errors[field] ?? errors[field]}>
-                <textarea id={`${field}-${action}`} value={form.data[field]} onChange={(e) => form.setData(field, e.target.value)} rows={2} maxLength={1000} required className={textareaClass} />
+                <Textarea id={`${field}-${action}`} value={form.data[field]} onChange={(e) => form.setData(field, e.target.value)} rows={2} maxLength={1000} required className="min-h-0" />
             </Field>
             <div>
                 <Button type="submit" variant={variant} size="sm" disabled={form.processing}>
@@ -146,7 +146,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                         kind: kindLabel(version.kind),
                     })}
                     actions={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge tone={STATUS_TONES[version.status] ?? 'neutral'}>{statusLabel(version.status)}</StatusBadge>
                             <Button asChild variant="outline" size="sm">
                                 <Link href="/playbooks">{t('All playbooks')}</Link>
@@ -155,14 +155,18 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                     }
                 />
 
-                {errors.act && <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-xl border px-4 py-3 text-sm">{errors.act}</div>}
+                {errors.act && (
+                    <Notice tone="danger" alert>
+                        {errors.act}
+                    </Notice>
+                )}
 
-                <section className="bg-card rounded-xl border p-4">
+                <section className="hq-card p-4">
                     <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
                         {facts.map((f) => (
                             <div key={f.label} className="flex flex-col">
-                                <dt className="text-muted-foreground text-xs">{f.label}</dt>
-                                <dd>{f.value}</dd>
+                                <dt className="hq-eyebrow">{f.label}</dt>
+                                <dd className="mt-0.5 min-w-0 break-words">{f.value}</dd>
                             </div>
                         ))}
                     </dl>
@@ -171,7 +175,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                 {version.warnings.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Lines that read as instructions to the agent')} aside={t('Advice for the reviewer. Nothing is blocked, and nothing here can change what an agent may do.')} />
-                        <div className="bg-card rounded-xl border">
+                        <div className="hq-card">
                             <ul className="divide-y text-sm">
                                 {version.warnings.map((w) => (
                                     <li key={`${w.line}-${w.note}`} className="flex flex-col gap-0.5 px-4 py-2">
@@ -190,7 +194,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                     <SectionHeader title={t('Guidance')} aside={editable ? t('Editable while a draft') : t('Frozen; a change is a new draft')} />
                     {editable ? (
                         <form
-                            className="bg-card flex flex-col gap-4 rounded-xl border p-4"
+                            className="hq-card flex flex-col gap-4 p-4"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 edit.transform((d) => ({ ...d, summary: d.summary === '' ? null : d.summary, reason: d.reason === '' ? null : d.reason }));
@@ -214,7 +218,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                                 })}
                                 error={edit.errors.body}
                             >
-                                <textarea id="body" value={edit.data.body} onChange={(e) => edit.setData('body', e.target.value)} rows={14} maxLength={limits.max_chars} required className={`${textareaClass} font-mono`} />
+                                <Textarea id="body" value={edit.data.body} onChange={(e) => edit.setData('body', e.target.value)} rows={14} maxLength={limits.max_chars} required className="font-mono md:text-sm" />
                             </Field>
                             <FormRow>
                                 <Field label={t('What changed')} htmlFor="edit-reason" size="lg" hint={t('Optional. Kept in the history.')} error={edit.errors.reason}>
@@ -228,7 +232,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                             </div>
                         </form>
                     ) : (
-                        <div className="bg-card rounded-xl border p-4">
+                        <div className="hq-card p-4">
                             {version.summary && <p className="text-muted-foreground mb-3 text-sm">{version.summary}</p>}
                             <pre className="font-sans text-sm whitespace-pre-wrap">{version.body}</pre>
                         </div>
@@ -237,7 +241,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Acts')} aside={t('Each act is recorded with the person, the time and the reason')} />
-                    <div className="bg-card grid grid-cols-1 gap-6 rounded-xl border p-4 md:grid-cols-2">
+                    <div className="hq-card grid grid-cols-1 gap-6 p-4 md:grid-cols-2">
                         {version.status === 'draft' && can.draft && (
                             <form
                                 className="flex flex-col gap-2"
@@ -282,9 +286,9 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Events')} aside={t('{count} events', { count: events.length })} />
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">{t('When')}</th>
                                     <th className="px-3 py-2 font-medium">{t('Event')}</th>
@@ -311,11 +315,11 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Every version of this key')} aside={t('{count} versions', { count: history.length })} />
                     {history.length === 0 ? (
-                        <EmptyState title={t('No other version')} />
+                        <EmptyState title={t('No other version')} description={t('This is the only version of this key so far. A change to an active version starts a new draft, which appears here.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Version')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Status')}</th>
@@ -326,7 +330,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                                 </thead>
                                 <tbody>
                                     {history.map((h) => (
-                                        <tr key={h.uuid} className={`border-t ${h.uuid === version.uuid ? 'bg-muted/30' : ''}`}>
+                                        <tr key={h.uuid} className={h.uuid === version.uuid ? 'bg-muted/40' : ''} aria-current={h.uuid === version.uuid ? 'true' : undefined}>
                                             <td className="px-3 py-2 text-xs">
                                                 <Link href={`/playbooks/${h.uuid}`} className="hover:underline">
                                                     v{h.version}

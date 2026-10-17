@@ -24,13 +24,13 @@ export default function BusinessesIndex({ businesses }: { businesses: Business[]
                     description="The group as HQ sees it. A business owns brands and operates stores; a store sells the products of one or more businesses. The ERP is the master for business and brand identity, so nothing here is edited by hand."
                 />
                 {businesses.length === 0 ? (
-                    <EmptyState icon={Building2} title="No businesses" description="Businesses are seeded from config and mastered by the ERP." />
+                    <EmptyState icon={Building2} title="No businesses" description="None is set up yet. Businesses are seeded from config and mastered by the ERP, never added on this screen." />
                 ) : (
                     <div className="grid gap-4 lg:grid-cols-2">
                         {businesses.map((b) => (
-                            <article key={b.id} className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                            <article key={b.id} className="hq-card flex flex-col gap-4 p-4">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                    <h2 className="text-lg font-semibold">{b.name}</h2>
+                                    <h2 className="text-base font-semibold">{b.name}</h2>
                                     <span className="text-muted-foreground text-xs">
                                         {b.timezone}
                                         {b.erp_business_id ? ` · in the ERP as business ${b.erp_business_id}` : ' · not in the ERP'}
@@ -39,7 +39,7 @@ export default function BusinessesIndex({ businesses }: { businesses: Business[]
 
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <div>
-                                        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Brands</div>
+                                        <div className="hq-eyebrow mb-1">Brands</div>
                                         {b.brands.length === 0 && <div className="text-muted-foreground text-sm">none</div>}
                                         <ul className="flex flex-col gap-2">
                                             {b.brands.map((br) => (
@@ -61,7 +61,7 @@ export default function BusinessesIndex({ businesses }: { businesses: Business[]
                                         </ul>
                                     </div>
                                     <div>
-                                        <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">Stores</div>
+                                        <div className="hq-eyebrow mb-1">Stores</div>
                                         {b.stores.length === 0 && <div className="text-muted-foreground text-sm">none</div>}
                                         <ul className="flex flex-col gap-2">
                                             {b.stores.map((s) => (

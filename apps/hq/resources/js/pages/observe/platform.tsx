@@ -1,6 +1,8 @@
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { ReleaseStatePanel, type ReleaseState } from '@/components/observe/release-state-panel';
 import { PageHeader } from '@/components/page-header';
+import { EmptyState } from '@/components/empty-state';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanDuration, humanKey, humanMillis, timeAgo } from '@/lib/format';
@@ -57,11 +59,20 @@ export default function Platform(props: Props) {
                     title="Platform"
                     description={`The machinery under HQ: queues, scheduler, events, connectors, credentials, data freshness, the host and retention. Read ${timeAgo(props.checked_at)}.`}
                     actions={
-                        <Link href="/observe/alerts">
+                        <Link href="/observe/alerts" className="inline-flex min-h-8 items-center rounded-full touch:min-h-11">
                             <StatusBadge tone={openAlerts > 0 ? 'warn' : 'ok'}>{openAlerts} alert(s) open</StatusBadge>
                         </Link>
                     }
                 />
+
+                {scheduler.stale && (
+                    <Notice tone="warn" title="The scheduler is not ticking">
+                        {scheduler.age_seconds === null
+                            ? 'No tick has been recorded. '
+                            : `The last tick was ${humanDuration(scheduler.age_seconds)} ago. `}
+                        Until it ticks again, alert checks, sweeps, the event drain and scheduled jobs do not run, so the alert list is not being refreshed.
+                    </Notice>
+                )}
 
                 <ReleaseStatePanel release={props.release} />
 
@@ -149,7 +160,7 @@ export default function Platform(props: Props) {
                 <Panel
                     title="Readiness"
                     aside={
-                        <Link href="/credentials" className="underline">
+                        <Link href="/credentials" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                             Credentials screen
                         </Link>
                     }
@@ -197,9 +208,7 @@ export default function Platform(props: Props) {
 
                     <Panel title="Order-fact integrity">
                         {props.integrity === null ? (
-                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-                                The integrity check has not run yet.
-                            </div>
+                            <EmptyState title="The integrity check has not run yet." description="This panel fills after the first check of the order facts." />
                         ) : (
                             <StatGrid>
                                 <Stat label="Checked" value={props.integrity.checked} detail={`last run ${timeAgo(props.integrity.at)}`} />
@@ -252,9 +261,7 @@ export default function Platform(props: Props) {
 
                     <Panel title="Retention">
                         {retention.last_run === null ? (
-                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-                                No retention pass has run yet.
-                            </div>
+                            <EmptyState title="No retention pass has run yet." description="This panel fills after the first retention pass." />
                         ) : (
                             <StatGrid>
                                 <Stat

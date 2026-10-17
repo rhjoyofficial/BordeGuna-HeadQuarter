@@ -60,7 +60,7 @@ function names(list: Named[], hidden: number): string {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs font-medium uppercase">{label}</dt>
+            <dt className="hq-eyebrow">{label}</dt>
             <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
@@ -69,7 +69,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function ExecutionContextPanel({ context }: { context: ExecutionContext }) {
     if (context.state === 'before_adr_047') {
         return (
-            <section className="bg-card flex flex-col gap-2 rounded-xl border p-4">
+            <section className="hq-card flex flex-col gap-2 p-4">
                 <SectionHeader title="Whose authority this run had" />
                 <p className="text-muted-foreground text-sm">
                     Recorded before execution contexts existed. This run was made before HQ wrote down who asked, who enabled the agent and what the
@@ -83,7 +83,7 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
     const narrowedCount = c.narrowed.length;
 
     return (
-        <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+        <section className="hq-card flex flex-col gap-4 p-4">
             <SectionHeader
                 title="Whose authority this run had"
                 aside={
@@ -138,13 +138,13 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
             </dl>
 
             <div>
-                <div className="text-muted-foreground text-xs font-medium uppercase">Tools it could reach · {c.tools.length}</div>
+                <div className="hq-eyebrow">Tools it could reach · {c.tools.length}</div>
                 {c.tools.length === 0 ? (
                     <p className="text-muted-foreground mt-1 text-sm">None.</p>
                 ) : (
                     <ul className="mt-1 flex flex-wrap gap-1.5">
                         {c.tools.map((t) => (
-                            <li key={t} title={t} className="bg-muted/50 rounded-md px-2 py-0.5 text-xs">
+                            <li key={t} title={t} className="bg-muted border-glass-border rounded-full border px-2.5 py-0.5 text-xs">
                                 {humanKey(t)}
                             </li>
                         ))}
@@ -153,7 +153,7 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
             </div>
 
             <div>
-                <div className="text-muted-foreground text-xs font-medium uppercase">What narrowed it, and why</div>
+                <div className="hq-eyebrow">What narrowed it, and why</div>
                 {narrowedCount === 0 ? (
                     <p className="text-muted-foreground mt-1 text-sm">
                         Nothing. The person who asked, the person who enabled the agent and the agent&rsquo;s own settings set no limit beyond the

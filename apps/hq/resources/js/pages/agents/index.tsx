@@ -1,7 +1,8 @@
 import { runStatus } from '@/components/agents/run-status';
 import { EmptyState } from '@/components/empty-state';
-import { PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { PageHeader, SectionHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo, truncate } from '@/lib/format';
@@ -85,14 +86,22 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                         />
                     )}
                     {agents.map((agent) => (
-                        <article key={agent.key} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                        <article key={agent.key} className="hq-card flex flex-col gap-3 p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <h2 className="text-lg font-semibold">{agent.name}</h2>
+                                    <h2 className="text-base font-semibold">{agent.name}</h2>
                                     {agent.purpose && <p className="text-muted-foreground mt-1 text-sm">{agent.purpose}</p>}
                                 </div>
                                 <StatusBadge status={agent.status} tone={agent.status === 'active' ? 'ok' : 'neutral'} />
                             </div>
+
+                            {agent.status === 'paused' && (
+                                <InertNotice
+                                    title="Paused"
+                                    reason="A paused agent runs nothing and proposes nothing."
+                                    gate="A person resumes it from the console or a deploy, never from this screen."
+                                />
+                            )}
 
                             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                                 <dt className="text-muted-foreground">Autonomy</dt>
@@ -138,33 +147,29 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                 </section>
 
                 {unreviewed > 0 && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <Notice tone="pending">
                         <strong>
                             {unreviewed} shadow {unreviewed === 1 ? 'run is' : 'runs are'} waiting to be read.
                         </strong>{' '}
                         A shadow run is not HQ&rsquo;s answer: it is what an agent would have said. The shadow period is these runs being reviewed,
                         and autonomy widens on that evidence rather than on a date.
-                    </div>
+                    </Notice>
                 )}
 
                 <section className="flex flex-col gap-3">
-                    <SectionHeader
-                        title="Runs"
-                        aside={
-                            <div className="flex flex-wrap gap-2">
-                                {filters.map((f) => (
-                                    <Button
-                                        key={f.key}
-                                        size="sm"
-                                        variant={filter === f.key ? 'default' : 'outline'}
-                                        onClick={() => router.get('/agents', f.key === 'all' ? {} : { filter: f.key }, { preserveState: true })}
-                                    >
-                                        {f.label}
-                                    </Button>
-                                ))}
-                            </div>
-                        }
-                    />
+                    <SectionHeader title="Runs" />
+                    <Toolbar label="Run filter">
+                        {filters.map((f) => (
+                            <Button
+                                key={f.key}
+                                size="sm"
+                                variant={filter === f.key ? 'default' : 'outline'}
+                                onClick={() => router.get('/agents', f.key === 'all' ? {} : { filter: f.key }, { preserveState: true })}
+                            >
+                                {f.label}
+                            </Button>
+                        ))}
+                    </Toolbar>
 
                     {runs.length === 0 ? (
                         <EmptyState
@@ -182,9 +187,9 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                             }
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">When</th>
                                         <th className="px-3 py-2 font-medium">Agent</th>

@@ -1,7 +1,7 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
-import { PageHeader } from '@/components/page-header';
+import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -201,7 +201,7 @@ function NewCredentialDialog({
                             required
                         />
                     </Field>
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
@@ -228,6 +228,7 @@ export default function CredentialsIndex({
     readiness: Readiness[];
     kinds: Kind[];
 }) {
+    const t = useT();
     const incidents = readiness.filter((r) => r.incident);
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.credentials.manage');
@@ -273,10 +274,10 @@ export default function CredentialsIndex({
                 />
 
                 <section className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <h2 className="text-base font-semibold">Readiness</h2>
-                            <p className="text-muted-foreground text-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 basis-72">
+                            <h2 className="text-[0.9375rem] font-semibold tracking-tight">Readiness</h2>
+                            <p className="text-muted-foreground mt-1 max-w-3xl text-sm leading-relaxed">
                                 For each store, ERP business and the model provider: whether HQ would send a call, and whether the provider last
                                 accepted the credential. Those are two facts: an unverified key, or an account with no credit, would still be tried
                                 and would not work. A store with no connector is unsupported by design, not an incident.
@@ -290,9 +291,9 @@ export default function CredentialsIndex({
                             <StatusBadge tone="ok">no incidents</StatusBadge>
                         )}
                     </div>
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Target</th>
                                     <th className="px-3 py-2 font-medium">Provider</th>
@@ -342,16 +343,17 @@ export default function CredentialsIndex({
                     </div>
                 </section>
 
+                <SectionHeader title="Stored credentials" aside={t('{count} active', { count: active.length })} />
                 {credentials.length === 0 ? (
                     <EmptyState
                         icon={KeyRound}
                         title="No credentials stored"
-                        description="Connectors that need a key refuse to run until one is stored here."
+                        description="Nothing has been stored yet. Connectors that need a key refuse to run until one is stored here."
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Provider</th>
                                     <th className="px-3 py-2 font-medium">Used for</th>

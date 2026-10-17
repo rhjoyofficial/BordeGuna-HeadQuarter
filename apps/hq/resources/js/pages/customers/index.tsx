@@ -81,7 +81,7 @@ export default function CustomersIndex({
                     title="Customers"
                     description="One customer per person per business, matched on the phone number first, across every shop. A read model: the shops keep the transactional truth, and this can be rebuilt from them."
                     actions={
-                        <span className="flex items-center gap-3">
+                        <span className="flex flex-wrap items-center gap-3">
                             {canReview && (
                                 <Button asChild variant="outline" size="sm">
                                     <Link href="/customers/quarantine">Cross-business review</Link>
@@ -100,7 +100,14 @@ export default function CustomersIndex({
                         }}
                         className="flex flex-wrap items-center gap-2"
                     >
-                        <Input placeholder="Search name, email or phone" value={q} onChange={(e) => setQ(e.target.value)} className="w-72" />
+                        <Input
+                            type="search"
+                            aria-label="Search customers"
+                            placeholder="Search name, email or phone"
+                            value={q}
+                            onChange={(e) => setQ(e.target.value)}
+                            className="w-full max-w-72 sm:w-72"
+                        />
                         <Button type="submit" variant="outline">
                             Search
                         </Button>
@@ -119,7 +126,7 @@ export default function CustomersIndex({
                 {candidates.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title="Are these the same person?" aside={`${candidates.length} to decide`} />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {candidates.map((c) => (
@@ -142,7 +149,7 @@ export default function CustomersIndex({
                                             </td>
                                             <td className="px-3 py-3 text-right">
                                                 {canManage && (
-                                                    <div className="flex justify-end gap-2">
+                                                    <div className="flex flex-wrap justify-end gap-2">
                                                         <Button size="sm" disabled={busy} onClick={() => setMerging(c)}>
                                                             Same person
                                                         </Button>
@@ -172,9 +179,9 @@ export default function CustomersIndex({
                         description={filters.q ? 'Try a shorter name or the phone number.' : 'Customers appear as orders arrive from the shops.'}
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Customer</th>
                                     <th className="px-3 py-2 font-medium">Phone</th>

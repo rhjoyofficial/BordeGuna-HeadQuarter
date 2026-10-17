@@ -1,11 +1,14 @@
 import { FollowUpsBody, type CustomerFollowUps } from '@/components/customers/follow-ups-section';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note, Panel, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice, toneClass } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 import { type ReactNode } from 'react';
@@ -227,7 +230,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
               d;
 
     return (
-        <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+        <div role="status" className={cn('flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm', toneClass('pending'))}>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <strong>{t('Held for review: records that cross a business boundary')}</strong>
                 {canReview && (
@@ -272,9 +275,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
 function NeedsInbox() {
     const t = useT();
     return (
-        <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-            {t('Shown only to people who may read the inbox.')}
-        </div>
+        <EmptyState title={t('Shown only to people who may read the inbox.')} className="py-6" />
     );
 }
 
@@ -294,6 +295,7 @@ export default function CustomerShow(props: Props) {
             <Head title={name} />
             <div className="flex max-w-6xl flex-col gap-8 p-4 md:p-6">
                 <PageHeader
+                    eyebrow={t('Customer 360')}
                     title={name}
                     description={
                         customer.business
@@ -311,17 +313,17 @@ export default function CustomerShow(props: Props) {
                     }
                 />
 
-                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                <Notice tone="info">
                     {t(
                         'Each section says what kind of information it holds. Observed facts, what HQ inferred, memory, consent records, promises, hand-overs and order copies are kept apart. The same phone in another business is a different customer and is not shown here.',
                     )}
-                </div>
+                </Notice>
 
                 {quarantine.held && <QuarantinePanel quarantine={quarantine} canReview={permissions.includes('hq.customers.quarantine.review')} />}
 
                 {/* Observed */}
                 <Section kind="observed" title="Identity" explain="What a channel, a shop or a person put on the record.">
-                    <section className="bg-card rounded-xl border p-4">
+                    <section className="hq-card p-4">
                         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                             <Fact label="Name">{orDash(observed.name)}</Fact>
                             <Fact label="Phone">{orDash(observed.phone)}</Fact>
@@ -381,7 +383,7 @@ export default function CustomerShow(props: Props) {
                     title="What HQ inferred or computed"
                     explain="HQ's own reading of the record, never a fact about the person. Nothing here is acted on automatically; merges are decided by a person on the customer list."
                 >
-                    <section className="bg-card rounded-xl border p-4">
+                    <section className="hq-card p-4">
                         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                             <Fact label="Order copies counted">{formatNumber(inferred.orders_count)}</Fact>
                             <Fact label="Lifetime value from copies">{taka(inferred.lifetime_value)}</Fact>
@@ -411,7 +413,7 @@ export default function CustomerShow(props: Props) {
                                 key: 'other',
                                 label: 'Possible duplicate',
                                 render: (c) => (
-                                    <Link href={`/customers/${c.other_id}`} className="underline">
+                                    <Link href={`/customers/${c.other_id}`} className="underline underline-offset-2">
                                         {t('Customer #{id}', { id: c.other_id })}
                                     </Link>
                                 ),
@@ -665,7 +667,7 @@ export default function CustomerShow(props: Props) {
                     title="Outcomes"
                     explain="Waits for the canonical outcome model (S3). Nothing is computed here until it is agreed."
                 >
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{t('Not built yet.')}</div>
+                    <EmptyState title={t('Not built yet.')} description={t('Waits for the canonical outcome model (S3).')} className="py-6" />
                 </Section>
             </div>
         </AppLayout>

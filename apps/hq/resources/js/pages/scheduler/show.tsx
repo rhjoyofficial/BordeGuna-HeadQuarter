@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanDuration, humanKey, humanMillis, humanSchedule, timeAgo } from '@/lib/format';
@@ -58,8 +59,8 @@ const MISSED: Record<string, string> = {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-sm break-words">{children}</dd>
+            <dt className="hq-eyebrow">{label}</dt>
+            <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
@@ -135,7 +136,13 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                     }
                 />
 
-                <section className="bg-card rounded-xl border p-4">
+                {job.approval_state === 'pending' && (
+                    <Notice tone="pending" title="Waiting for approval">
+                        This job does not run until a person approves it. Nothing has been scheduled yet.
+                    </Notice>
+                )}
+
+                <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <Fact label="Next run">
                             {job.next_run_at ? (
@@ -195,9 +202,9 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                             description="The first run appears here when the schedule fires, or when you press Run now."
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">Slot</th>
                                         <th className="px-3 py-2 font-medium">Started by</th>
@@ -240,7 +247,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                             </td>
                                             <td className="max-w-md px-3 py-2 text-xs">
                                                 {r.error ? (
-                                                    <span className="text-red-700 dark:text-red-300">{r.error}</span>
+                                                    <span className="text-tone-danger">{r.error}</span>
                                                 ) : r.output?.output && Object.keys(r.output.output).length > 0 ? (
                                                     <TechnicalDetail summary="Output">
                                                         <JsonBlock value={r.output.output} />

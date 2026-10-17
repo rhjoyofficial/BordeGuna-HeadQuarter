@@ -64,7 +64,7 @@ export function NativeSelect({ className, children, ...props }: React.ComponentP
     return (
         <select
             className={cn(
-                'border-input bg-background focus-visible:ring-ring h-9 w-auto max-w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-hidden',
+                'hq-field border-input focus-visible:ring-ring touch:h-11 [&>option]:bg-popover [&>option]:text-popover-foreground h-10 w-auto max-w-full rounded-md border px-3 text-sm focus-visible:ring-2 focus-visible:outline-hidden',
                 className,
             )}
             {...props}

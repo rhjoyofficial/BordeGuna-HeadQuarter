@@ -2,7 +2,9 @@ import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, Preview
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
@@ -77,8 +79,8 @@ function PayloadList({ payload }: { payload: Record<string, unknown> | null }) {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-sm break-words">{children}</dd>
+            <dt className="hq-eyebrow">{label}</dt>
+            <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
@@ -131,6 +133,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
             <Head title={`Approval ${approval.id}: ${title}`} />
             <div className="flex max-w-4xl flex-col gap-6 p-4 md:p-6">
                 <PageHeader
+                    eyebrow="Approvals"
                     title={
                         <span className="flex flex-wrap items-center gap-2">
                             {title}
@@ -169,22 +172,22 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {approval.status === 'consumed' && approval.execution_status !== 'succeeded' && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <Notice tone="pending">
                         <strong>This approval was spent without the action running.</strong> It was approved, but the gateway refused the call at
                         execution time{approval.execution_error ? `: ${approval.execution_error}` : '.'} An approval is single use, so a fresh request
                         is needed rather than a retry.
-                    </div>
+                    </Notice>
                 )}
 
                 {!approval.payload_intact && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    <Notice tone="danger" alert>
                         <strong>Integrity failure.</strong> The stored payload no longer matches the hash recorded when this approval was created.
                         This cannot happen through the application, so the row was changed underneath it. Execution is refused and nothing will be
                         repaired.
-                    </div>
+                    </Notice>
                 )}
 
-                <section className="bg-card rounded-xl border p-4">
+                <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <Fact label="Business">
                             {approval.business ?? (approval.business_id ? `#${approval.business_id}` : 'not business-specific')}
@@ -192,7 +195,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         </Fact>
                         <Fact label={approval.agent_key ? 'Proposed by' : 'Asked by'}>
                             {approval.agent_key ? (
-                                <span className="text-amber-700 dark:text-amber-300">the {approval.agent_key} agent</span>
+                                <span className="text-tone-pending">the {approval.agent_key} agent</span>
                             ) : (
                                 (approval.requested_by ?? 'system')
                             )}
@@ -220,7 +223,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         {approval.status === 'pending' && (
                             <Fact label="Decide by">
                                 {approval.sla_due_at ? (
-                                    <span className={overdue ? 'text-orange-700 dark:text-orange-300' : ''}>
+                                    <span className={overdue ? 'text-tone-warn' : ''}>
                                         {formatDateTime(approval.sla_due_at)} ({timeAgo(approval.sla_due_at)})
                                     </span>
                                 ) : (
@@ -242,14 +245,14 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         {approval.consumed_at && <Fact label="Executed">{formatDateTime(approval.consumed_at)}</Fact>}
                         {approval.supersedes_id && (
                             <Fact label="Replaces">
-                                <a href={`/approvals/${approval.supersedes_id}`} className="underline">
+                                <a href={`/approvals/${approval.supersedes_id}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
                                     approval #{approval.supersedes_id}
                                 </a>
                             </Fact>
                         )}
                         {approval.superseded_by && (
                             <Fact label="Replaced by">
-                                <a href={`/approvals/${approval.superseded_by}`} className="underline">
+                                <a href={`/approvals/${approval.superseded_by}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
                                     approval #{approval.superseded_by}
                                 </a>
                             </Fact>
@@ -257,7 +260,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     </dl>
                 </section>
 
-                <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                <section className="hq-card flex flex-col gap-3 p-4">
                     <SectionHeader
                         title="What will run"
                         aside={
@@ -268,13 +271,13 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     />
                     {editing ? (
                         <>
-                            <textarea
-                                className="border-input bg-background h-56 w-full rounded-md border p-2 font-mono text-xs"
+                            <Textarea
+                                className="h-56 font-mono text-xs md:text-xs"
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
                                 aria-label="Edited arguments as JSON"
                             />
-                            {draftError && <p className="text-sm text-red-600 dark:text-red-400">{draftError}</p>}
+                            {draftError && <Notice tone="danger" alert>{draftError}</Notice>}
                             <p className="text-muted-foreground text-xs">
                                 The original stays on the record unchanged. Approving creates a new approval for what you edited, validated against
                                 the tool's own schema.
@@ -303,7 +306,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 </section>
 
                 {approval.preview && (
-                    <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title="What it would do" />
                         <PreviewList preview={approval.preview} />
                         {approval.preview.available && (
@@ -315,7 +318,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {approval.evidence && (
-                    <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title="Evidence the request rests on" />
                         <JsonBlock value={approval.evidence} />
                     </section>
@@ -347,7 +350,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 onConfirm={() => post('approve', {})}
             >
                 {approval.preview?.available && (
-                    <div className="rounded-md border p-3">
+                    <div className="bg-muted rounded-lg p-3">
                         <PreviewList preview={approval.preview} />
                     </div>
                 )}

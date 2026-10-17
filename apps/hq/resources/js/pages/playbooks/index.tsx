@@ -4,6 +4,7 @@ import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
@@ -101,9 +102,9 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                             {business.rows.length === 0 ? (
                                 <EmptyState title={t('Nothing written yet')} description={t('No active playbook and no draft for this business. The agents read nothing here until a version is activated.')} />
                             ) : (
-                                <div className="bg-card overflow-x-auto rounded-xl border">
+                                <div className="hq-table-box">
                                     <table className="w-full text-sm">
-                                        <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                        <thead className="text-left text-xs">
                                             <tr>
                                                 <th className="px-3 py-2 font-medium">{t('Scope')}</th>
                                                 <th className="px-3 py-2 font-medium">{t('Kind')}</th>
@@ -165,7 +166,7 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                 )}
 
                 {can.draft && businesses.length > 0 && (
-                    <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-4 p-4">
                         <SectionHeader title={t('New draft')} aside={t('A draft reaches no agent until it is reviewed and activated')} />
                         <form
                             className="flex flex-col gap-4"
@@ -233,14 +234,14 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                                 })}
                                 error={form.errors.body}
                             >
-                                <textarea
+                                <Textarea
                                     id="body"
                                     value={form.data.body}
                                     onChange={(e) => form.setData('body', e.target.value)}
                                     rows={10}
                                     maxLength={limits.max_chars}
                                     required
-                                    className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 font-mono text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                                    className="font-mono md:text-sm"
                                 />
                             </Field>
                             <FormRow>
@@ -248,7 +249,7 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                                     <Input id="reason" value={form.data.reason} onChange={(e) => form.setData('reason', e.target.value)} maxLength={1000} />
                                 </Field>
                             </FormRow>
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing}>
                                     {t('Save draft')}
                                 </Button>

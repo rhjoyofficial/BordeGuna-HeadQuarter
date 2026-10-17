@@ -1,6 +1,7 @@
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingReason, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
@@ -153,8 +154,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
 
                 {/* Freshness first, before any number (docs/48 M.3). */}
                 {attention.length > 0 && (
-                    <div className="flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
-                        <div className="font-medium">Stale or missing sources</div>
+                    <Notice tone="pending" title="Stale or missing sources">
                         <ul className="flex flex-col gap-1 text-sm">
                             {attention.map((s) => (
                                 <li key={s.key}>
@@ -164,7 +164,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                                 </li>
                             ))}
                         </ul>
-                    </div>
+                    </Notice>
                 )}
 
                 {briefing.degraded_reasons.length > 0 && (
@@ -197,7 +197,17 @@ export default function BriefingPage({ briefing, bundle }: Props) {
 
                 <Panel title="Narrative">
                     {briefing.narrative ? (
-                        <div className="bg-card rounded-xl border p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
+                        <div className="hq-card p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
+                    ) : briefing.narration_state === 'off' || briefing.narration_state === 'runtime_off' ? (
+                        <InertNotice
+                            title="Narration"
+                            reason={`${NARRATION_LABEL[briefing.narration_state]}. No narrative is stored.`}
+                            gate={
+                                briefing.narration_state === 'off'
+                                    ? 'A person switches the briefing.narration flag on.'
+                                    : 'A person switches the AI runtime on.'
+                            }
+                        />
                     ) : (
                         <Note>{NARRATION_LABEL[briefing.narration_state] ?? briefing.narration_state}. No narrative is stored.</Note>
                     )}

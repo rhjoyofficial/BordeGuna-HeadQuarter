@@ -1,5 +1,6 @@
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
@@ -135,17 +136,11 @@ export default function Posture(props: Props) {
                     actions={<StatusBadge tone={inert ? 'ok' : 'warn'}>{inert ? t('Inert') : t('Something is on')}</StatusBadge>}
                 />
 
-                <div
-                    className={
-                        inert
-                            ? 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-                            : 'rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200'
-                    }
-                >
+                <Notice tone={inert ? 'ok' : 'warn'}>
                     {inert
                         ? t('Production is inert: the AI runtime is off, every agent is paused, and nothing can reach a customer, spend money or take an order.')
                         : t('Switched on now: {items}.', { items: switchedOn.join(', ') })}
-                </div>
+                </Notice>
 
                 <StatGrid>
                     <Stat label="AI runtime" value={<OnOff on={switches.ai_runtime} />} detail="Off unless a gate or a shadow period is running." />
@@ -236,7 +231,7 @@ export default function Posture(props: Props) {
                 <Panel title="What stands between each agent and its shadow week">
                     <div className="flex flex-col gap-3">
                         {props.shadow.map((s) => (
-                            <div key={s.agent_key} className="bg-card rounded-xl border p-4 text-sm">
+                            <div key={s.agent_key} className="hq-card p-4 text-sm">
                                 <div className="mb-2 flex flex-wrap items-center gap-2">
                                     <span className="font-medium">{humanKey(s.agent_key)}</span>
                                     <StatusBadge tone={s.may_open ? 'ok' : 'pending'}>
