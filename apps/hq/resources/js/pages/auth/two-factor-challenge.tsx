@@ -48,12 +48,12 @@ export default function TwoFactorChallenge() {
                     </div>
                 )}
                 {(form.errors.code || form.errors.recovery_code) && (
-                    <div className="text-sm text-tone-danger">{form.errors.code ?? form.errors.recovery_code}</div>
+                    <div role="alert" className="text-tone-danger text-sm">{form.errors.code ?? form.errors.recovery_code}</div>
                 )}
                 <Button type="submit" disabled={form.processing}>
                     Verify
                 </Button>
-                <button type="button" className="text-muted-foreground text-sm underline" onClick={() => setUseRecovery(!useRecovery)}>
+                <button type="button" className="text-muted-foreground hover:text-foreground min-h-9 rounded-md text-sm underline touch:min-h-11" onClick={() => setUseRecovery(!useRecovery)}>
                     {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
                 </button>
             </form>

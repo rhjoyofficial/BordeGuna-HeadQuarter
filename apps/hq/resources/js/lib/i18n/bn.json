@@ -878,5 +878,18 @@
     "Dark": "গাঢ়",
     "Theme": "থিম",
     "Switched off": "বন্ধ রাখা আছে",
-    "Turns on when": "চালু হবে যখন"
+    "Turns on when": "চালু হবে যখন",
+    "Settings": "সেটিংস",
+    "Profile": "প্রোফাইল",
+    "Password": "পাসওয়ার্ড",
+    "Appearance": "চেহারা",
+    "Sessions": "সেশন",
+    "Manage your profile and account settings": "আপনার প্রোফাইল ও অ্যাকাউন্টের সেটিংস ঠিক করুন",
+    "setting up": "চালু করা হচ্ছে",
+    "not set up": "চালু করা হয়নি",
+    "Your authenticator app": "আপনার অথেনটিকেটর অ্যাপ",
+    "Set up your authenticator app": "আপনার অথেনটিকেটর অ্যাপ চালু করুন",
+    "Two-factor authentication (TOTP)": "দুই ধাপের যাচাই (TOTP)",
+    "Use Google Authenticator, Authy, 1Password or any TOTP app.": "Google Authenticator, Authy, 1Password বা যেকোনো TOTP অ্যাপ ব্যবহার করুন।",
+    "this device": "এই ডিভাইস"
 }

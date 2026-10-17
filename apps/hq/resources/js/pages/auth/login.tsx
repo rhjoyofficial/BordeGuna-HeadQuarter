@@ -41,7 +41,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
             <Head title="Sign in" />
 
             {status && (
-                <div className="mb-4 rounded-md border p-3 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok">
+                <div role="status" className="bg-tone-ok-bg border-tone-ok-line text-tone-ok mb-4 rounded-xl border p-3 text-sm">
                     {status}
                 </div>
             )}
