@@ -295,3 +295,16 @@ What changed:
 Gate on the final commit: Pest 2,174 passed, 0 failed (parallel, 3 processes, Postgres `hq_test_k`); Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
 
 Rendering proof: a local throwaway database (dropped afterwards) served the branch; headless Edge signed in and opened all 30 screens in both themes (with `ask_hq` and `scheduler.nl` switched on locally so their screens render too): 60 page loads, 0 JavaScript errors, exactly one lit nav entry per page, Noto Sans Bengali active on a Bangla page, and the shell fits a 390 px phone.
+
+## (h) W-UI2 plan: the console on `/dashboard` (17 October 2026)
+
+Branch `ui/w-ui2-console` from `ui/w-ui1-shell-and-tokens`. Owns the dashboard page, the props its controller action hands it, and new components under `components/console`. No other page, no shared layout, no route, no permission, no tool, no capability, no write path.
+
+Numbered steps:
+1. A read-only assembler, `App\Observe\Console\ConsoleReader`, called by `AdminController::dashboard` and added as ONE new prop, `console`. Every existing prop stays as it is, so nothing that reads them moves.
+2. The brief: the newest stored briefing the person may see (the briefings screen's own visibility rule and permission, `hq.tools.facts.read`), and yesterday's order figures and the source list from the briefing's own deterministic readers (`SourceReader`, `YesterdayOrders`), under the same permission and the person's business restriction. A store without facts gives "no figure", never a zero; a total over some stores is withheld, as the briefing already does. Marketing and finance render as "not connected" with the contract's own reason.
+3. Decision cards: pending approvals, scoped by `BusinessScope` exactly as the dashboard already counts them, only for `hq.approvals.view`. A card links to `/approvals/{id}`; it has no approve button. Recent receipts: approvals decided in the last day, same scope, with the outcome label the approvals screen uses ("approved, did not run" stays that).
+4. Live panel, each block behind the permission of the screen it summarises: alerts (`hq.audit.view`), scheduler heartbeat and jobs (`hq.jobs.view` for the jobs; the heartbeat is already on the dashboard), cost against the cap (`hq.ai.cost.view`, the budget reader the cost screen uses), the authority guard (`hq.tools.view`, the control plane reader for the last 24 hours, scoped as that screen scopes it), and the posture (AI runtime, agents and their level, as the dashboard already shows). A stopped scheduler says that alerts, the event drain, sweeps and Telegram alerting are paused.
+5. The composer: Ask only, posting to the existing `POST /ask`. Shown usable only when the person holds `hq.ask.use`, the flag `ask_hq` is on and the AI runtime is on; otherwise it renders disabled with the reason in place. Do and Plan render disabled with "agents are at A0: HQ proposes, a person acts".
+6. Bangla through `t()`; the console files join `BanglaDictionaryTest`; English digits.
+7. Tests: props per business and permission, no cards without approval permission, inert reasons, no new route and no form on the console other than the existing `POST /ask` (structural pin).
