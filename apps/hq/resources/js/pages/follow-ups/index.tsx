@@ -318,7 +318,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
 
                 {flashText && <Notice tone="ok">{flashText}</Notice>}
 
-                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {[
                         { label: t('Awaiting a decision'), value: counts.proposed },
                         { label: t('Due now'), value: counts.due },

@@ -67,7 +67,7 @@ function restyledScreens(): array
     foreach (['js/pages', 'js/components/customers', 'js/components/agents', 'js/components/observe', 'js/components/scheduler', 'js/components/approvals', 'js/layouts/settings'] as $dir) {
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(resource_path($dir), FilesystemIterator::SKIP_DOTS));
         foreach ($it as $file) {
-            $path = str_replace('\\', '/',$file->getPathname());
+            $path = str_replace('\\', '/', $file->getPathname());
             if (str_ends_with($path, '.tsx') && ! str_ends_with($path, 'js/pages/dashboard.tsx')) {
                 $files[] = $file->getPathname();
             }
@@ -189,4 +189,3 @@ it('keeps dialogs inside a phone screen and scrollable, with a close control lar
     expect($dialog)->toContain('w-[calc(100%-2rem)]')->toContain('max-h-[calc(100dvh-2rem)]')->toContain('overflow-y-auto')
         ->toContain('touch:size-11');
 });
-

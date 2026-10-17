@@ -404,6 +404,7 @@
         text-transform: uppercase;
         text-align: left;
         border-bottom: 1px solid var(--border);
+        white-space: nowrap;
     }
 
     .hq-table-box > table > tbody > tr > td {
