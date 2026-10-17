@@ -117,6 +117,7 @@ final class ConsoleReader
                 'id' => $item->id,
                 'figure' => explode('.', $item->id)[1] ?? $item->id,
                 'business' => $item->scope->business,
+                'business_name' => $item->scope->business === null ? null : (Business::query()->where('slug', $item->scope->business)->value('name') ?? $item->scope->business),
                 'value' => $item->value,
                 'unit' => $item->unit,
                 'as_of' => $item->asOf?->utc()->toIso8601String(),

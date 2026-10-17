@@ -19,7 +19,11 @@ export function DecisionCard({ card }: { card: DecisionCardData }) {
         ? t('Proposed by the {agent} agent', { agent: humanKey(card.agent_key) })
         : card.requester_kind === 'human'
           ? t('Requested by a person')
-          : t('Requested by HQ');
+          : card.requester_kind === 'on_behalf_of'
+            ? t('Requested by the scheduler for a person')
+            : card.requester_kind === null
+              ? t('Requester not recorded')
+              : t('Requested from the console or an evaluation');
     const where = [card.business, card.store].filter(Boolean).join(', ');
 
     return (
@@ -38,7 +42,7 @@ export function DecisionCard({ card }: { card: DecisionCardData }) {
                     {who}
                     {where ? `, ${where}` : ''}
                     {', '}
-                    {t('waiting {age}', { age: ago(t, card.created_at) })}
+                    {t('asked {age}', { age: ago(t, card.created_at) })}
                 </div>
                 {!card.decidable && <div className="text-muted-foreground text-xs">{t('You can read this one; someone else decides it.')}</div>}
             </div>

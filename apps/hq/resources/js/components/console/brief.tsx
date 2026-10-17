@@ -58,8 +58,11 @@ export function BriefMessage({
         if (!brief) return [];
         const group = brief.figures.filter((f) => f.business === null);
         if (group.length) return [{ name: t('All businesses'), figures: group }];
-        const names = Array.from(new Set(brief.figures.map((f) => f.business).filter((b): b is string => b !== null)));
-        return names.map((name) => ({ name, figures: brief.figures.filter((f) => f.business === name) }));
+        const slugs = Array.from(new Set(brief.figures.map((f) => f.business).filter((b): b is string => b !== null)));
+        return slugs.map((slug) => {
+            const figures = brief.figures.filter((f) => f.business === slug);
+            return { name: figures[0]?.business_name ?? slug, figures };
+        });
     })();
 
     const labels: Record<(typeof FIGURE_ORDER)[number], string> = {
@@ -88,7 +91,7 @@ export function BriefMessage({
                     <li>
                         {pending === 0
                             ? t('No approval is waiting for a person.')
-                            : t('{count} approvals are waiting for a person. Each one opens on its own page.', { count: pending })}
+                            : t('Approvals waiting for a person: {count}. Each one opens on its own page.', { count: pending })}
                     </li>
                 )}
                 {!scheduler.running && (
@@ -135,7 +138,7 @@ export function BriefMessage({
                         ) : (
                             scopes.map((scope) => (
                                 <div key={scope.name} className="flex flex-col gap-1.5">
-                                    {scopes.length > 1 && <div className="text-sm font-medium">{scope.name}</div>}
+                                    <div className="text-sm font-medium">{scope.name}</div>
                                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                                         {FIGURE_ORDER.map((key) => (
                                             <FigureTile key={key} label={labels[key]} figure={scope.figures.find((f) => f.figure === key)} />

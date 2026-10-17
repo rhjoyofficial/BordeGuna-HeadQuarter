@@ -1,5 +1,5 @@
 import { StatusBadge } from '@/components/ui/status-badge';
-import { humanKey, humanUsd } from '@/lib/format';
+import { humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { Link } from '@inertiajs/react';
 import { type ReactNode } from 'react';
@@ -21,6 +21,9 @@ function Block({ title, href, linkLabel, children }: { title: string; href?: str
         </section>
     );
 }
+
+/** Dollars with cents, so nothing spent reads $0.00 and never "free". */
+const usd = (n: number) => `$${n.toFixed(2)}`;
 
 const SEVERITY_TONE = { critical: 'danger', warning: 'warn', info: 'info' } as const;
 
@@ -58,7 +61,7 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
                 {scheduler.jobs !== null && (
                     <>
                         <div className="text-muted-foreground text-xs">
-                            {t('{active} active jobs, {paused} paused, {failed} failed runs in the last day', {
+                            {t('Jobs: {active} active, {paused} paused. Failed runs in the last day: {failed}.', {
                                 active: scheduler.jobs.active,
                                 paused: scheduler.jobs.paused,
                                 failed: scheduler.jobs.failed_24h,
@@ -101,7 +104,7 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
                             ))}
                             {alerts.total > alerts.items.length && (
                                 <li className="text-muted-foreground text-xs">
-                                    {t('{count} more open', { count: alerts.total - alerts.items.length })}
+                                    {t('More open: {count}', { count: alerts.total - alerts.items.length })}
                                 </li>
                             )}
                         </ul>
@@ -117,8 +120,8 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
             {cost !== null && (
                 <Block title={t('AI cost this month')} href="/observe/cost" linkLabel={t('Open')}>
                     <div className="font-mono text-lg font-semibold tabular-nums">
-                        {humanUsd(cost.spent_usd)}
-                        {cost.cap_usd !== null && <span className="text-muted-foreground text-sm font-normal"> / {humanUsd(cost.cap_usd)}</span>}
+                        {usd(cost.spent_usd)}
+                        {cost.cap_usd !== null && <span className="text-muted-foreground text-sm font-normal"> / {usd(cost.cap_usd)}</span>}
                     </div>
                     <div className="text-muted-foreground text-xs">
                         {cost.cap_usd === null ? t('No monthly cap is set.') : t('{percent}% of the monthly cap', { percent: cost.share_percent })}
@@ -136,18 +139,20 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
                     <p className="text-muted-foreground text-xs leading-relaxed">
                         {t('A chat can ask for anything. HQ only does what policy allows, and a person approves the rest.')}
                     </p>
-                    <div className="text-sm">{t('{count} tool calls in the last day', { count: guard.calls_total })}</div>
+                    <div className="text-sm">{t('Tool calls in the last day: {count}', { count: guard.calls_total })}</div>
                     {guard.policy_outcomes.length > 0 && (
                         <ul className="flex flex-wrap gap-1.5">
                             {guard.policy_outcomes.map((o) => (
                                 <li key={o.value ?? 'none'}>
-                                    <StatusBadge status={o.value ?? 'unknown'}>{`${humanKey(o.value ?? 'unknown')}: ${o.count}`}</StatusBadge>
+                                    <StatusBadge
+                                        status={o.value ?? 'unknown'}
+                                    >{`${o.value === null ? t('not recorded') : humanKey(o.value)}: ${o.count}`}</StatusBadge>
                                 </li>
                             ))}
                         </ul>
                     )}
                     <div className="text-muted-foreground text-xs">
-                        {t('{tools} tools switched off by hand, {grants} autonomy grants active, {shadow} shadow periods open', {
+                        {t('Tools switched off by hand: {tools}. Autonomy grants active: {grants}. Shadow periods open: {shadow}.', {
                             tools: guard.tools_disabled,
                             grants: guard.active_grants,
                             shadow: guard.open_shadow_periods,

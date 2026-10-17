@@ -20,6 +20,7 @@ export type ConsoleFigure = {
     id: string;
     figure: 'placed' | 'gross' | 'confirmed' | 'delivered' | 'cancelled' | string;
     business: string | null;
+    business_name: string | null;
     value: number | string;
     unit: string;
     as_of: string | null;

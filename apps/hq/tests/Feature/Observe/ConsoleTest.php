@@ -245,3 +245,25 @@ it('adds no route: the console is the one GET it always was, and its only form p
     $reader = file_get_contents(app_path('Observe/Console/ConsoleReader.php'));
     expect($reader)->not->toMatch('/->(save|update|delete|insert|forceFill|increment|decrement)\(|::create\(|::updateOrCreate\(|->execute\(/');
 });
+
+it('renders every switched-off state with its reason, never hidden: the composer, Do and Plan, the stopped scheduler, missing figures', function () {
+    $composer = file_get_contents(resource_path('js/components/console/composer.tsx'));
+    $live = file_get_contents(resource_path('js/components/console/live-panel.tsx'));
+    $brief = file_get_contents(resource_path('js/components/console/brief.tsx'));
+
+    // One reason per missing switch, in the order the server reports them.
+    expect($composer)->toContain('needs the permission hq.ask.use')
+        ->and($composer)->toContain('switched off (flag ask_hq)')
+        ->and($composer)->toContain('The AI runtime is off, so HQ cannot answer a question yet')
+        // Do and Plan are drawn and disabled, with the A0 reason as their title and in the text.
+        ->and(preg_match_all('/disabled\s+aria-disabled="true"\s+title=\{modeReason\}/', $composer))->toBe(2)
+        ->and($composer)->toContain('Do and Plan are off: agents are at A0, so HQ proposes and a person acts.');
+
+    expect($live)->toContain('The scheduler is not ticking')
+        ->and($live)->toContain('No new alert is raised while the scheduler is stopped');
+
+    // A missing figure says so; nothing in the brief falls back to a zero.
+    expect($brief)->toContain("t('no figure')")
+        ->and($brief)->toContain('That is not the same as no orders.')
+        ->and($brief)->not->toMatch('/\?\?\s*0\b/');
+});

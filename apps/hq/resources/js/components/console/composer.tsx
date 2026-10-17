@@ -41,7 +41,7 @@ export function Composer({ composer }: { composer: ComposerData }) {
     return (
         <form
             onSubmit={submit}
-            className="hq-glass sticky bottom-3 z-10 flex flex-col gap-3 rounded-3xl p-3 shadow-[var(--hq-shadow-float)] md:p-4"
+            className="hq-glass flex flex-col gap-3 rounded-3xl p-3 shadow-[var(--hq-shadow-float)] md:p-4"
             aria-label={t('Instruction to HQ')}
         >
             <div className="flex items-start gap-3">
