@@ -48,6 +48,14 @@ const BANGLA_SCREENS = [
     // docs/135 (W-UI1): the shell's own words, the HQ name under the logo and the theme switch.
     'js/components/app-logo.tsx',
     'js/components/theme-toggle.tsx',
+    // docs/135 (W-UI2): the console on /dashboard and its parts.
+    'js/pages/dashboard.tsx',
+    'js/components/console/age.ts',
+    'js/components/console/source-chip.tsx',
+    'js/components/console/brief.tsx',
+    'js/components/console/decisions.tsx',
+    'js/components/console/live-panel.tsx',
+    'js/components/console/composer.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */
