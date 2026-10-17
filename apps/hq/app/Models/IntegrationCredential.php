@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\Authorization\BusinessScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -38,6 +40,15 @@ class IntegrationCredential extends Model
             'last_verified_at' => 'datetime',
             'last_refreshed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The rows this person may see (docs/136): their businesses only, and no row without a business
+     * when they are restricted (ADR-035 §4, fail closed). A no-op for a group-wide person.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        return app(BusinessScope::class)->restrict($query, $user, $query->qualifyColumn('business_id'));
     }
 
     public function business(): BelongsTo

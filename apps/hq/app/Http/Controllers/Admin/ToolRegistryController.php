@@ -9,6 +9,7 @@ use App\Gateway\Registry\ToolSwitch;
 use App\Gateway\ToolGateway;
 use App\Http\Controllers\Controller;
 use App\Models\ToolCall;
+use App\Support\Authorization\BusinessScope;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,7 @@ final class ToolRegistryController extends Controller
         private readonly ToolAvailability $availability,
         private readonly ToolSwitch $switch,
         private readonly PolicyRepository $policies,
+        private readonly BusinessScope $businessScope,
     ) {}
 
     public function index(Request $request): Response
@@ -39,7 +41,9 @@ final class ToolRegistryController extends Controller
 
         // One grouped query rather than three per tool: the screen lists every registered tool and
         // a per-tool count each would be a query multiplied by the registry's size.
-        $recent = ToolCall::query()
+        // docs/136: the calls of the businesses this person may see; a call with no business only for a group-wide person.
+        $calls = fn () => $this->businessScope->restrict(ToolCall::query(), $request->user());
+        $recent = $calls()
             ->where('created_at', '>=', now()->subDay())
             ->selectRaw('tool_key, count(*) as calls, sum(case when status in (?, ?) then 1 else 0 end) as ok, max(created_at) as last_at', [
                 OutcomeStatus::Succeeded->value, OutcomeStatus::Replayed->value,
@@ -61,7 +65,7 @@ final class ToolRegistryController extends Controller
                 'input_schema' => $tool->inputSchema(),
                 'output_schema' => $tool->outputSchema(),
                 'governing_policy' => $this->governingPolicy($key),
-                'recent' => ToolCall::query()
+                'recent' => $calls()
                     ->where('tool_key', $key)
                     ->latest('id')
                     ->limit(5)

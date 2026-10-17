@@ -45,7 +45,8 @@ final class ApprovalController extends Controller
         $status = (string) $request->query('status', 'pending');
         // `resultingToolCall` is loaded because the card's label depends on whether the action
         // actually ran, not merely on whether the approval was spent.
-        $query = Approval::query()->with([
+        // docs/136: only the businesses this person may see; a row with no business only for a group-wide person.
+        $query = Approval::query()->visibleTo($request->user())->with([
             'requestedBy:id,email', 'enabledBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email',
             'resultingToolCall:id,status,error',
         ]);
@@ -64,8 +65,8 @@ final class ApprovalController extends Controller
             'approvals' => $approvals,
             'filters' => ['status' => $status],
             'counts' => [
-                'pending' => Approval::pending()->count(),
-                'overdue' => Approval::pastSla()->count(),
+                'pending' => Approval::pending()->visibleTo($request->user())->count(),
+                'overdue' => Approval::pastSla()->visibleTo($request->user())->count(),
             ],
             'channels' => $this->notifier->channelStatus(),
             'approvers' => User::query()->get(['id', 'email'])
@@ -77,6 +78,8 @@ final class ApprovalController extends Controller
 
     public function show(Request $request, Approval $approval): Response
     {
+        $this->assertVisible($request, $approval);
+
         return Inertia::render('approvals/show', [
             'approval' => $approval->toCard() + $this->readable($approval) + $this->people($approval) + [
                 'decided_by' => $approval->decidedBy?->email,
@@ -140,6 +143,7 @@ final class ApprovalController extends Controller
      */
     public function approve(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
         $this->assertDecidable($request, $approval);
 
         $data = $request->validate([
@@ -175,6 +179,7 @@ final class ApprovalController extends Controller
 
     public function reject(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
         $this->assertDecidable($request, $approval);
         $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
 
@@ -187,6 +192,8 @@ final class ApprovalController extends Controller
 
     public function cancel(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
+
         if (! $approval->status->isOpen()) {
             throw ValidationException::withMessages(['approval' => "This approval is {$approval->status->label()} and can no longer be cancelled."]);
         }
@@ -208,8 +215,15 @@ final class ApprovalController extends Controller
 
     public function delegate(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
+
         $data = $request->validate(['user_id' => ['required', 'integer', 'exists:users,id']]);
         $to = User::findOrFail($data['user_id']);
+        // A delegate who could not open the approval could never decide it, and handing it over would
+        // tell them it exists (docs/136).
+        if (! Approval::query()->visibleTo($to)->whereKey($approval->getKey())->exists()) {
+            throw ValidationException::withMessages(['user_id' => 'That person may not see this business, so the approval cannot be handed to them.']);
+        }
 
         try {
             $this->approvals->delegate($approval, $to, $request->user());
@@ -218,6 +232,17 @@ final class ApprovalController extends Controller
         }
 
         return back()->with('status', 'approval-delegated');
+    }
+
+    /**
+     * docs/136 (rulings docs/120 A4, docs/131 §1): an approval of a business this person may not see is
+     * not there. 404, not 403, as on the agent, inbox and customer screens: its existence is a disclosure.
+     */
+    private function assertVisible(Request $request, Approval $approval): void
+    {
+        if (! Approval::query()->visibleTo($request->user())->whereKey($approval->getKey())->exists()) {
+            abort(404);
+        }
     }
 
     private function assertDecidable(Request $request, Approval $approval): void

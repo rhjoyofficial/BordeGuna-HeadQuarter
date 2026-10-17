@@ -122,7 +122,8 @@ final class ListApprovalsTool implements Tool
 
         return ToolResult::succeeded([
             'approvals' => $approvals,
-            'pending_count' => Approval::query()->where('status', 'pending')->count(),
+            // docs/136: a count is a disclosure, so it is narrowed to the caller's businesses like the list.
+            'pending_count' => $context->restrictBusinesses(Approval::query(), 'business_id')->where('status', 'pending')->count(),
             'overdue_count' => $overdue,
             'as_of' => $now->toIso8601String(),
         ]);

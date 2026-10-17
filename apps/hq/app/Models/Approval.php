@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Gateway\Approval\ApprovalStatus;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\Descriptor\RiskTier;
+use App\Support\Authorization\BusinessScope;
 use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -98,6 +99,15 @@ class Approval extends Model
     public function resultingToolCall(): BelongsTo
     {
         return $this->belongsTo(ToolCall::class, 'resulting_tool_call_id');
+    }
+
+    /**
+     * The rows this person may see (docs/136): their businesses only, and no row without a business
+     * when they are restricted (ADR-035 §4, fail closed). A no-op for a group-wide person.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        return app(BusinessScope::class)->restrict($query, $user, $query->qualifyColumn('business_id'));
     }
 
     public function scopePending(Builder $query): Builder

@@ -21,6 +21,7 @@ use App\Models\PlatformAccount;
 use App\Models\ScheduledJob;
 use App\Models\Store;
 use App\Models\ToolRegistration;
+use App\Models\User;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -31,6 +32,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -58,6 +60,10 @@ final class AdminController extends Controller
         $user = $request->user();
         $scoped = fn ($query, string $column = 'business_id') => $user === null ? $query : $this->businessScope->restrict($query, $user, $column);
         $since = now()->subDay();
+        // docs/136: the audit log carries no business, so it is group-wide by nature and a restricted
+        // person gets none of it here (ADR-035 section 4, fail closed).
+        $groupWide = $user === null || ! $this->businessScope->isRestricted($user);
+        $runs = fn () => $user === null ? JobRun::query() : JobRun::query()->visibleTo($user);
 
         $attention = [
             [
@@ -88,7 +94,7 @@ final class AdminController extends Controller
             [
                 'key' => 'jobs_failed',
                 'label' => 'Scheduled runs that failed in the last day',
-                'count' => JobRun::whereIn('status', ['failed', 'dead'])->where('created_at', '>=', $since)->count(),
+                'count' => $runs()->whereIn('status', ['failed', 'dead'])->where('created_at', '>=', $since)->count(),
                 'href' => '/scheduler',
                 'permission' => 'hq.jobs.view',
                 'tone' => 'danger',
@@ -96,7 +102,7 @@ final class AdminController extends Controller
             [
                 'key' => 'events_dead',
                 'label' => 'Events that could not be processed',
-                'count' => DomainEvent::where('status', 'dead')->count(),
+                'count' => $scoped(DomainEvent::query())->where('status', 'dead')->count(),
                 'href' => '/audit?action=event',
                 'permission' => 'hq.audit.view',
                 'tone' => 'danger',
@@ -112,7 +118,7 @@ final class AdminController extends Controller
         ];
 
         $lastTick = Cache::get(SchedulerTick::HEARTBEAT_KEY);
-        $connectorCalls = ConnectorCall::where('created_at', '>=', $since)
+        $connectorCalls = $scoped(ConnectorCall::query())->where('created_at', '>=', $since)
             ->selectRaw("count(*) as total, sum(case when status = 'succeeded' then 1 else 0 end) as ok")
             ->first();
 
@@ -126,9 +132,9 @@ final class AdminController extends Controller
                 ->map(fn (Agent $a) => ['key' => $a->key, 'name' => $a->name, 'status' => $a->status, 'autonomy' => $a->max_autonomy_level?->value])
                 ->values(),
             'events' => [
-                'pending' => DomainEvent::whereIn('status', ['pending', 'failed'])->count(),
-                'dead' => DomainEvent::where('status', 'dead')->count(),
-                'last_at' => DomainEvent::max('occurred_at'),
+                'pending' => $scoped(DomainEvent::query())->whereIn('status', ['pending', 'failed'])->count(),
+                'dead' => $scoped(DomainEvent::query())->where('status', 'dead')->count(),
+                'last_at' => $scoped(DomainEvent::query())->max('occurred_at'),
             ],
             'connectors_24h' => [
                 'total' => (int) ($connectorCalls?->total ?? 0),
@@ -156,22 +162,24 @@ final class AdminController extends Controller
             'health' => $health,
             'businesses' => $businesses,
             'counts' => [
-                'businesses' => Business::count(), 'brands' => Brand::count(), 'stores' => Store::count(),
-                'platform_accounts' => PlatformAccount::count(), 'credentials' => IntegrationCredential::count(),
-                'jobs_active' => ScheduledJob::where('state', 'active')->count(),
-                'runs_24h' => JobRun::where('created_at', '>=', now()->subDay())->count(),
-                'runs_failed_24h' => JobRun::whereIn('status', ['failed', 'dead'])->where('created_at', '>=', now()->subDay())->count(),
-                'events_pending' => DomainEvent::whereIn('status', ['pending', 'failed'])->count(),
-                'events_dead' => DomainEvent::where('status', 'dead')->count(),
-                'audit_24h' => AuditLog::where('occurred_at', '>=', now()->subDay())->count(),
+                'businesses' => $scoped(Business::query(), 'id')->count(), 'brands' => $scoped(Brand::query())->count(), 'stores' => $scoped(Store::query())->count(),
+                'platform_accounts' => PlatformAccount::query()->whereIn('brand_id', $scoped(Brand::query())->select('id'))->count(), 'credentials' => $scoped(IntegrationCredential::query())->count(),
+                'jobs_active' => $scoped(ScheduledJob::query())->where('state', 'active')->count(),
+                'runs_24h' => $runs()->where('created_at', '>=', now()->subDay())->count(),
+                'runs_failed_24h' => $runs()->whereIn('status', ['failed', 'dead'])->where('created_at', '>=', now()->subDay())->count(),
+                'events_pending' => $scoped(DomainEvent::query())->whereIn('status', ['pending', 'failed'])->count(),
+                'events_dead' => $scoped(DomainEvent::query())->where('status', 'dead')->count(),
+                'audit_24h' => $groupWide ? AuditLog::where('occurred_at', '>=', now()->subDay())->count() : 0,
             ],
             'scheduler' => ['last_tick' => $lastTick],
-            'recentAudit' => AuditLog::latest('occurred_at')->limit(10)->get(),
+            'recentAudit' => $groupWide ? AuditLog::latest('occurred_at')->limit(10)->get() : [],
         ]);
     }
 
     public function audit(Request $request): Response
     {
+        $this->assertGroupWide($request);
+
         $logs = AuditLog::query()
             ->when($request->filled('action'), fn ($q) => $q->where('action', 'like', $request->string('action').'%'))
             ->when($request->filled('actor_type'), fn ($q) => $q->where('actor_type', $request->string('actor_type')))
@@ -211,19 +219,23 @@ final class AdminController extends Controller
         return back()->with('status', 'flag-toggled');
     }
 
-    public function credentials(CapabilityReadiness $readiness, CredentialHealth $health): Response
+    public function credentials(Request $request, CapabilityReadiness $readiness, CredentialHealth $health): Response
     {
+        $user = $request->user();
+
         return Inertia::render('credentials/index', [
-            'credentials' => IntegrationCredential::with(['business:id,name', 'brand:id,name'])->orderBy('provider')->get()
+            // docs/136: a credential of another business, or of none (the model provider's key), is not shown
+            // to a person whose access is limited to some businesses.
+            'credentials' => IntegrationCredential::query()->visibleTo($user)->with(['business:id,name', 'brand:id,name'])->orderBy('provider')->get()
                 ->map(fn ($c) => $c->toSafeArray() + [
                     'business' => $c->business?->name, 'brand' => $c->brand?->name,
                     // What the provider last said about it (ADR-043): ok or a class, when, from where. Never the value.
                     'last_result' => $health->lastVerification($c),
                 ]),
-            'businesses' => Business::orderBy('name')->get(['id', 'name']),
-            'brands' => Brand::orderBy('name')->get(['id', 'name']),
+            'businesses' => $this->businessScope->restrict(Business::query(), $user, 'id')->orderBy('name')->get(['id', 'name']),
+            'brands' => $this->businessScope->restrict(Brand::query(), $user)->orderBy('name')->get(['id', 'name']),
             // Whether HQ could execute against each store, ERP business and the model provider right now.
-            'readiness' => array_map(fn ($row) => $row->toArray(), $readiness->inventory()),
+            'readiness' => $this->visibleReadiness($user, array_map(fn ($row) => $row->toArray(), $readiness->inventory())),
             // docs/95 §5: the only kinds the store accepts, each with the account reference its reader uses.
             'kinds' => CredentialKinds::options(),
         ]);
@@ -242,6 +254,11 @@ final class AdminController extends Controller
             'scopes' => ['nullable', 'array'],
             'expires_at' => ['nullable', 'date'],
         ]);
+        // docs/136: a restricted person stores a credential only for one of their businesses.
+        $scope = $this->businessScope->all($request->user());
+        if ($scope !== null && (! isset($data['business_id']) || ! in_array((int) $data['business_id'], $scope, true))) {
+            throw ValidationException::withMessages(['business_id' => 'Choose one of your businesses: your access is limited to some businesses.']);
+        }
         // Storing is REPLACING. The writer revokes whatever was active for this provider/account
         // first, in one transaction, so this screen can never leave two active rows for one
         // identity - the state that made a replaced key keep working during the M4 safety gate.
@@ -255,8 +272,11 @@ final class AdminController extends Controller
         return back()->with('status', 'credential-stored');
     }
 
-    public function revokeCredential(IntegrationCredential $credential): RedirectResponse
+    public function revokeCredential(Request $request, IntegrationCredential $credential): RedirectResponse
     {
+        // docs/136: another business's credential is not there.
+        abort_unless(IntegrationCredential::query()->visibleTo($request->user())->whereKey($credential->getKey())->exists(), 404);
+
         $before = $credential->toSafeArray();
         $credential->forceFill(['status' => 'revoked', 'payload' => null])->save();
         $this->auditor->record('credential.revoked', $credential, before: $before, after: $credential->toSafeArray());
@@ -264,10 +284,43 @@ final class AdminController extends Controller
         return back()->with('status', 'credential-revoked');
     }
 
-    public function businesses(): Response
+    public function businesses(Request $request): Response
     {
         return Inertia::render('businesses/index', [
-            'businesses' => Business::with(['brands.platformAccounts', 'stores.productOwners:id,name'])->orderBy('name')->get(),
+            // docs/136: the businesses this person may see, as the dashboard's business cards already were.
+            'businesses' => $this->businessScope->restrict(Business::query(), $request->user(), 'id')->with(['brands.platformAccounts', 'stores.productOwners:id,name'])->orderBy('name')->get(),
         ]);
+    }
+
+    /**
+     * docs/136: a screen whose rows carry no business (the audit log) is group-wide by nature, and a
+     * person whose access is limited to some businesses is refused it with the reason (ADR-035 section 4).
+     */
+    private function assertGroupWide(Request $request): void
+    {
+        abort_if($this->businessScope->isRestricted($request->user()), 403, 'This screen is group-wide and your access is limited to some businesses.');
+    }
+
+    /**
+     * The readiness rows of the stores and businesses this person may see. The model provider row
+     * belongs to no business and is left out for a restricted person (docs/136).
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function visibleReadiness(User $user, array $rows): array
+    {
+        $scope = $this->businessScope->all($user);
+        if ($scope === null) {
+            return $rows;
+        }
+        $businesses = Business::query()->whereIn('id', $scope)->pluck('slug')->all();
+        $stores = Store::query()->whereIn('business_id', $scope)->pluck('slug')->all();
+
+        return array_values(array_filter($rows, fn (array $row) => match ($row['target_kind'] ?? null) {
+            'store' => in_array($row['target'], $stores, true),
+            'business' => in_array($row['target'], $businesses, true),
+            default => false,
+        }));
     }
 }

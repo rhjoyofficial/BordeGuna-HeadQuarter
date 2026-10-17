@@ -53,7 +53,8 @@ final class NavBadges
                 ->count();
         }
 
-        if ($user->can('hq.audit.view')) {
+        // docs/136: alerts carry no business, so a restricted person, who is refused the alerts screen, gets no count.
+        if ($user->can('hq.audit.view') && ! $this->businessScope->isRestricted($user)) {
             // Only what HQ itself pages; a condition the host monitor pages is on the page, not on the badge.
             $badges['alerts'] = Alert::open()->whereNull('paged_by')->count();
         }
@@ -65,7 +66,7 @@ final class NavBadges
         }
 
         if ($user->can('hq.jobs.view')) {
-            $badges['scheduler'] = JobRun::query()
+            $badges['scheduler'] = JobRun::query()->visibleTo($user)
                 ->whereIn('status', ['failed', 'dead'])
                 ->where('created_at', '>=', now()->subDay())
                 ->count();

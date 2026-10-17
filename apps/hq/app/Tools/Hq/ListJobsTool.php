@@ -116,8 +116,9 @@ final class ListJobsTool implements Tool
 
         return ToolResult::succeeded([
             'jobs' => $jobs,
-            'failing_count' => ScheduledJob::query()->where('last_status', 'failed')->count(),
-            'recent_failures' => $this->recentFailures($timezone),
+            // docs/136: a count is a disclosure, so it is narrowed to the caller's businesses like the list.
+            'failing_count' => $context->restrictBusinesses(ScheduledJob::query(), 'business_id')->where('last_status', 'failed')->count(),
+            'recent_failures' => $this->recentFailures($timezone, $context),
             'as_of' => $now->toIso8601String(),
         ]);
     }
@@ -128,11 +129,13 @@ final class ListJobsTool implements Tool
     }
 
     /** @return list<array<string, mixed>> */
-    private function recentFailures(string $timezone): array
+    private function recentFailures(string $timezone, ToolContext $context): array
     {
         $out = [];
 
+        // docs/136: only runs of jobs the caller may see; a job with no business only for a group-wide caller.
         $runs = JobRun::query()
+            ->when($context->permittedBusinessIds !== null, fn ($q) => $q->whereHas('job', fn ($job) => $context->restrictBusinesses($job, 'business_id')))
             ->where('status', 'failed')
             ->where('created_at', '>=', CarbonImmutable::now()->subDays(7))
             ->latest('id')

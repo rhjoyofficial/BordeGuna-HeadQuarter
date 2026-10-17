@@ -81,7 +81,8 @@ final class PostureDashboard
                 'messaging_providers' => $this->platforms->platforms(),
                 'take_order_stores' => array_values((array) config('hq.orders.take_order_stores', [])),
                 'active_grants' => AutonomyGrant::query()->where('status', 'active')->count(),
-                'consent_events' => ConsentEvent::query()->count(),
+                // docs/136: a count of business-owned rows is narrowed to the viewer's businesses.
+                'consent_events' => ($user === null ? ConsentEvent::query() : $this->scope->restrict(ConsentEvent::query(), $user))->count(),
                 'active_evidence_policy' => $this->activeEvidencePolicy(),
                 'open_shadow_periods' => ShadowPeriod::query()->where('status', ShadowPeriod::STATUS_OPEN)->count(),
             ],
@@ -275,7 +276,7 @@ final class PostureDashboard
                 ->get(['id', 'tool_key', 'created_at', 'outcome_class'])
                 ->map(fn (ToolCall $c) => ['id' => $c->id, 'tool_key' => $c->tool_key, 'at' => $c->created_at?->toIso8601String(), 'outcome_class' => $c->outcome_class])
                 ->all(),
-            'dead_events' => DomainEvent::query()->where('status', DomainEvent::STATUS_DEAD)->count(),
+            'dead_events' => ($user === null ? DomainEvent::query() : $this->scope->restrict(DomainEvent::query(), $user))->where('status', DomainEvent::STATUS_DEAD)->count(),
             'open_alerts' => Alert::open()->count(),
             'failed_queue_jobs' => Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : null,
         ];
