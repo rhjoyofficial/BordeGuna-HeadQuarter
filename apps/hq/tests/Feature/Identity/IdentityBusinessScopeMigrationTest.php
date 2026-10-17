@@ -17,9 +17,33 @@ use Illuminate\Support\Str;
  | never a guess.
  */
 
+/**
+ * The W1 migration, with the docs/140 resolutions table (which references customer_identity_conflicts) taken down before
+ * it and put back after it, as a real rollback and re-apply would order them.
+ */
 function scopeMigration(): object
 {
-    return require database_path('migrations/2026_10_15_100000_scope_customer_identities_to_business.php');
+    $scope = require database_path('migrations/2026_10_15_100000_scope_customer_identities_to_business.php');
+    $resolutions = require database_path('migrations/2026_10_17_110000_create_identity_conflict_resolutions.php');
+
+    return new class($scope, $resolutions)
+    {
+        public function __construct(private object $scope, private object $resolutions) {}
+
+        public function down(): void
+        {
+            if (DB::selectOne("SELECT to_regclass('customer_identity_conflict_resolutions') IS NOT NULL AS present")->present) {
+                $this->resolutions->down();
+            }
+            $this->scope->down();
+        }
+
+        public function up(): void
+        {
+            $this->scope->up();
+            $this->resolutions->up();
+        }
+    };
 }
 
 beforeEach(function () {
