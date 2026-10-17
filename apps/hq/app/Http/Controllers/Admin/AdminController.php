@@ -174,7 +174,9 @@ final class AdminController extends Controller
                 'audit_24h' => $groupWide ? AuditLog::where('occurred_at', '>=', now()->subDay())->count() : 0,
             ],
             'scheduler' => ['last_tick' => $lastTick],
-            'recentAudit' => $groupWide ? AuditLog::latest('occurred_at')->limit(10)->get() : [],
+            // docs/136, decided 17 Oct: the last ten audit rows carry before/after of any business, so they
+            // need the audit log's own permission as well as a group-wide person (support_agent sees none).
+            'recentAudit' => $groupWide && $user?->can('hq.audit.view') ? AuditLog::latest('occurred_at')->limit(10)->get() : [],
             // docs/135 W-UI2: the console's brief, decision cards, live panel and composer. Read-only;
             // each block behind its own screen's permission and the person's business restriction.
             'console' => $user === null ? null : $console->build($user),

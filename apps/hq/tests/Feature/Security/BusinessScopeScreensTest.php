@@ -258,3 +258,16 @@ it('narrows the counts and the failures the list tools return, not only their li
     expect(app(ListApprovalsTool::class)->execute([], $restricted)->output['pending_count'])->toBe(1)
         ->and(app(ListApprovalsTool::class)->execute([], $groupWide)->output['pending_count'])->toBe(3);
 });
+
+it('sends the recent audit rows only to a group-wide person who holds hq.audit.view (decided 17 Oct)', function () {
+    AuditLog::create(['actor_type' => 'system', 'action' => 'test.row', 'occurred_at' => now()]);
+
+    // support_agent opens the dashboard but not the audit log: no rows, unrestricted or not.
+    $this->actingAsHq($this->hqUser('support_agent'))->get('/dashboard')->assertOk()
+        ->assertInertia(fn ($page) => $page->where('recentAudit', []));
+
+    $this->actingAsHq($this->hqUser('finance_viewer'))->get('/dashboard')->assertOk()
+        ->assertInertia(fn ($page) => $page->has('recentAudit', 1));
+    $this->actingAsHq($this->owner)->get('/dashboard')->assertOk()
+        ->assertInertia(fn ($page) => $page->has('recentAudit', 1));
+});
