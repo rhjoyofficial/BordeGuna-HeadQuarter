@@ -136,6 +136,7 @@ final class ListJobsTool implements Tool
         // docs/136: only runs of jobs the caller may see; a job with no business only for a group-wide caller.
         $runs = JobRun::query()
             ->when($context->permittedBusinessIds !== null, fn ($q) => $q->whereHas('job', fn ($job) => $context->restrictBusinesses($job, 'business_id')))
+            ->with('job:id,name')
             ->where('status', 'failed')
             ->where('created_at', '>=', CarbonImmutable::now()->subDays(7))
             ->latest('id')

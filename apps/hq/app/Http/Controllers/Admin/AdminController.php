@@ -118,7 +118,8 @@ final class AdminController extends Controller
         ];
 
         $lastTick = Cache::get(SchedulerTick::HEARTBEAT_KEY);
-        $connectorCalls = $scoped(ConnectorCall::query())->where('created_at', '>=', $since)
+        // docs/136: `connector_calls` carries no business and no content; a machinery health count, like the heartbeat.
+        $connectorCalls = ConnectorCall::query()->where('created_at', '>=', $since)
             ->selectRaw("count(*) as total, sum(case when status = 'succeeded' then 1 else 0 end) as ok")
             ->first();
 
