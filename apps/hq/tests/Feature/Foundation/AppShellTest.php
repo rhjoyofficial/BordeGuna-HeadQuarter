@@ -156,7 +156,7 @@ it('loads Geist and Noto Sans Bengali, puts Bangla first for a Bangla page, and 
 
     expect($blade)->toContain('geist:')->toContain('noto-sans-bengali:')->toContain('geist-mono:')
         ->and($css)->toContain("--font-sans: 'Geist', 'Noto Sans Bengali'")
-        ->and($css)->toContain('html:lang(bn) body')
+        ->and($css)->toContain('html:lang(bn) body')->and($css)->toContain('--font-sans: var(--font-bengali);')
         ->and($css)->toContain(':focus-visible')
         ->and($css)->toContain('@custom-variant touch (@media (pointer: coarse));')
         ->and($css)->toContain('@media (prefers-reduced-motion: reduce)')

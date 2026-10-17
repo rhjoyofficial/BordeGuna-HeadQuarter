@@ -225,6 +225,12 @@
 
     /* Bangla first (docs/135 (c)): Noto Sans Bengali leads and the line is taller, so conjuncts and vowel signs
        are never clipped. The page's lang is set by lib/i18n.ts from the person's saved choice. */
+    /* The body carries the `font-sans` utility (app.blade.php), which outranks this layer, so the switch is made on
+       the variable that utility reads. */
+    html:lang(bn) {
+        --font-sans: var(--font-bengali);
+    }
+
     html:lang(bn) body {
         font-family: var(--font-bengali);
         line-height: 1.65;
@@ -239,6 +245,13 @@
     samp,
     pre {
         font-family: var(--font-mono);
+    }
+
+    /* Quiet scrollbars that follow the theme, so the glass sidebar does not show a grey system bar. */
+    html,
+    [data-sidebar='content'] {
+        scrollbar-width: thin;
+        scrollbar-color: var(--input) transparent;
     }
 
     /* A visible focus ring for every keyboard focus that a component does not style itself. */
