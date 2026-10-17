@@ -442,3 +442,28 @@ Tests: new `tests/Feature/Foundation/PhoneAndVoiceTest.php` (7 tests): the voice
 Gate on the final commit: Pest 2,192 passed, 0 failed (parallel, 3 processes, Postgres `hq_test_k`); Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
 
 Rendering proof: a local throwaway database (`hq_ui_k`, dropped afterwards) with preview rows served the branch; headless Edge signed in and opened the console, the voice screen and the approvals list on a desktop and at 360 and 390 px (touch emulated), dark and light, English and Bangla: 42 page loads, 0 JavaScript errors, no horizontal scroll anywhere, every phone bar and pill target 44 px or more, the right bar entry lit on each page, Menu opening the full navigation, the last decision card able to scroll above the pill and the end of the page clearing it, Noto Sans Bengali leading on Bangla pages, no Bangla digit on screen. On the voice screen a microphone spy counted 0 calls, there were 0 requests after the page loaded, and the orb's animation was `none` under reduced motion.
+
+## (n) Final integration: W-UI1 to W-UI5 with the business scope fix (17 October 2026)
+
+Branch `integration/ui-and-scope`, built from `fix/business-scope-approvals-and-jobs` (docs/136), then `ui/w-ui3-restyle` and `ui/w-ui5-mobile-voice` (which carries W-UI1 and W-UI2) merged with `--no-ff`. Pushed, not merged to `main` (`c0db11e` stays the frozen release candidate).
+
+Conflicts and how they were resolved:
+- `AdminController::dashboard`: kept the scope branch's scoped counts and its rule that a restricted person gets no audit rows, and W-UI2's `console` prop; both imports kept.
+- `ConsoleReader`: now follows docs/136. Approvals, decided approvals, jobs and failed runs are read through `Approval::visibleTo()`, `ScheduledJob::visibleTo()` and `JobRun::visibleTo()`, so a restricted person sees no group-level row on the console (W-UI2 had shown them the group-level jobs). Open alerts are `null` for a restricted person, as the alerts screen refuses them. Section (k) is updated to say so.
+- `bn.json`: union with `resolve_merge_lists.py` semantics; no key was translated differently on the two sides, and no key appears twice.
+- `BanglaDictionaryTest`: union of the W-UI3 and W-UI2/W-UI5 screen lists.
+- This document: both waves had lettered their sections (h) and (i). W-UI3 keeps (h) and (i) (the components cite "docs/135 (h)"); W-UI2 became (j) and (k), W-UI5 (l) and (m). docs/136's two references now point at (k).
+- `routes/web.php` merged without a conflict (the `/voice` route and the scope branch's changes both kept).
+- `BusinessScopeAuditStructureTest`: the new `Voice/VoiceModeController.php` is listed (`no business rows`), and the test now also enumerates `app/Observe/Console` with `ConsoleReader.php` as `scoped`.
+
+Follow-ups decided by the lead (17 Oct), details in docs/136 "Decisions":
+- Dashboard recent audit rows need `hq.audit.view`.
+- A restricted person's sentence that names no business is refused, no group-level job made.
+- Flags and the tool switch for restricted operators unchanged, listed for a ChatGPT ruling.
+- Bangla finished on the screens W-UI3 left partly English: the agent run page and its execution context panel, the briefings list and briefing page, Cost, Platform and its release state panel, Alerts, the scheduler list and job page, and the six sign-in screens with their three auth layouts. 422 new dictionary entries (1,179 to 1,601); three keys the parallel slices translated differently were settled by hand ("As of", "paged by {who}", "None."). All 19 files joined `BanglaDictionaryTest`. English digits; brand "Bor de Guna" / "বর দে গুনা". Still English on purpose: server data and enum words shown through `humanKey()`, the browser tab titles (as on every translated screen), and the schedule and age phrases built by `lib/format.ts` (`humanSchedule`, `timeAgo`, `humanDuration`), which a later change can translate in one place.
+
+Gate on the final tree:
+- Pest, parallel, 3 processes, Postgres `hq_test_e`: 2,219 passed, 0 failed.
+- Pint passed; `tsc --noEmit` clean; Vite build clean; structural searches S1 to S4 PASS.
+
+Rendering proof: a local throwaway database (`hq_ui_e`, dropped afterwards) with preview rows; headless Edge signed in through the sign-in and two-factor screens and opened the console, approvals, the scheduler list and a job page, alerts, cost, platform, briefings and the voice screen, on a desktop and at 390 px, dark and light, English and Bangla, plus the sign-in screen at 390 px in both themes: 74 page loads, 0 JavaScript errors, no horizontal scroll, no Bangla digit on screen.
