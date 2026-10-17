@@ -319,3 +319,23 @@ Gate: `bash -n` on every rehearsal script; rehearsal guard suite 48 passed, 0 fa
 What this does not prove: the tz backfill on rows that carry source evidence (the seeds have none; production's figures come from the VPS rehearsal on a dump and the post-release checklist), the `--apply` paths and therefore the evidence-triggered refusals of migrations 11 and 12, production's real rows, the real `backup.sh` and `restore.sh`, the image, entrypoint and compose isolation (section 10).
 
 Blockers: section 17's list is unchanged except that the local rehearsal now covers migration 12 and the tz dry run. Verdict unchanged: NOT READY.
+
+## 19. FINAL: candidate c0db11e, 17 Oct 2026
+
+**Verdict: READY FOR JOY'S RELEASE DECISION.**
+
+Evidence, gate by gate (ruling docs/131):
+- Stage A, CI on the exact candidate: GitHub Actions run 39000064674 on `c0db11e` (tag `hq-rc-2026-10-17`), all three jobs green: Pest + Pint + TypeScript + Vite on PostgreSQL 17 / Redis 7 (11m53s), deployment/backup safety invariant, production image builds. The repository was made public by Joy on 17 Oct so Actions run without billing. Also green: run 38995695048 on `4e09793`.
+- Containment: Option 2 applied by Joy 17 Oct 03:35 UTC (docs/121 §6): scheduler stopped, 0 processing, 0 pending, max event 592.
+- Stage B, VPS Docker rehearsal on a fresh production dump (`hq-20261017-062904.dump`, 90 tables), isolated project `bordeguna-hq-rehearsal`, candidate `c0db11e`:
+  - Run 1 (06:29 UTC): every gate passed except one harness verdict, which misread its own evidence ("( of 4)"); the evidence line itself read `store_mismatch_total 4 quarantined=4`. Harness fixed on `platform/rehearsal-harness-fix` (`5408694`); the candidate code is unchanged.
+  - Run 2 (06:37 UTC): `RESULT: rehearsal PASSED`, 0 FAIL, 3 expected WARN. Evidence `/root/hq-rehearsal/20261017-063754/evidence` on the VPS.
+  - Proven there: the real `deploy/restore.sh` restored the dump; deploy.sh took and verified a pre-deploy dump before releasing; 12 migrations applied; constraints 29/29; seeder idempotent; detector, cost, repair and tz dry runs wrote nothing (row level, all 103 tables); W1 quarantined 4 of 4 store-scoped mismatches and the other seeded corruption, the own-business phone stayed live; rollback ran 4 migrations then the W1 migration REFUSED its down() (the documented one-way door); the pre-deploy dump restores to EXACTLY the BEFORE snapshot; re-apply clean; posture unchanged; event bridge: three deliveries after the dump survived a real restore with event_id, dedupe key and payload unchanged, pending, unprocessed, audited, second import idempotent.
+  - Warnings, all expected: the W1 down() refusal; permission and role_has_permissions counts after rollback and on re-apply (seeder rows are additive).
+- Seeder on production data adds 15 permissions, not 14: the 14 of waves 1-4 plus `hq.tools.ads.read`, a reserved Phase 5 permission present in production's code since 26 Sep (`1275482`) that production's seeder has not been run for since. No ads tool is registered; nothing checks it.
+- Time-zone dry run on the production copy: 46 order facts, 111 timestamps, 18 already correct by evidence, 0 correctable, 93 ambiguous (no source evidence). The tz backfill would change nothing on today's data.
+- Detector dry run on the production copy plus the seeded rows: 25 findings.
+
+Residual items that do not block the decision but stay open: shop webhook retry behaviour unconfirmed (keep restore windows short); `--scale scheduler=0` proven only by stub (check `ps scheduler` at release, docs/134 §5 step 4g); `events.occurred_at` and `customers.first/last_seen_at` stored without `->utc()` (docs/133, needs its own ruling); rows stuck at `processing` after a hard stop have no relabel path (there were 0 at containment).
+
+The release itself, the repair, both backfills, the drain resume and the shadow week each remain Joy's explicit, separate decisions (docs/134 §5).
