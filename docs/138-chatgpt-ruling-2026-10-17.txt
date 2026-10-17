@@ -1,0 +1,225 @@
+# HQ — Wave 4 Release, UI Release and Phase 3 Readiness: Authoritative Instruction
+
+Current Wave 4 candidate: `c0db11e`, tag `hq-rc-2026-10-17`.  
+Production remains `b96a396` until Joy releases.  
+UI/scope branch: `integration/ui-and-scope`; it must have its own frozen candidate and release.
+
+Follow this instruction end to end. Continue through routine milestones without requesting repeated approval. Stop at a failed gate, a genuinely new architecture question, an unresolved security/privacy concern or any production action requiring Joy's explicit authorization.
+
+## 1. Wave 4 release
+
+The report records Stage A/B gates as passed and declares readiness for Joy's release decision. Do not deploy or release on your own.
+
+Before the release sequence proceeds, verify the exact candidate, green CI run `39000064674`, rehearsal evidence, release notes, migrations, permissions and pre/post-release commands. Check for any changes to the candidate or its release manifest since the reported green run. Re-run the applicable gates if the exact code or artifact changes.
+
+Joy performs the release using his explicit step-by-step production authorization. After release, follow the read-only checklist first. Do not infer permission to mutate production from release approval.
+
+The scheduler remains stopped under Joy's containment decision. Do not restart it merely because deployment is healthy. Keep all event inputs durable and pending; do not replay any backlog until the new identity isolation is verified and Joy explicitly authorizes resumption.
+
+Run the approved identity detector and inspect its results. Apply conflict flags, quarantine repairs, cost attribution backfill and time-zone backfill only as separate operations with dry-run evidence and explicit Joy authorization. Verify each operation before proceeding to the next.
+
+## 2. Public repository exposure review
+
+The repository is now public. Treat this as a material security-surface change, not an automatic reason to reject release.
+
+Review the full accessible Git history, tags, release assets, CI artifacts/logs, documentation and tracked configuration for:
+- real credentials, tokens, secrets or private keys;
+- customer or employee personal data;
+- private dumps, sensitive exports or unintended production evidence;
+- configuration that grants unintended access or enables unsafe execution.
+
+Use appropriate automated secret scanning plus a human review of the findings. Redact or revoke anything exposed and rotate credentials if there is any credible exposure. Do not assume making the repository private later reverses a past exposure.
+
+Report the result to Joy. Do not place tokens or production credentials into follow-up commits, test fixtures or reports.
+
+## 3. UI redesign — separate release
+
+The UI redesign may follow the Wave 4 release as an independent release. Do not combine the two releases simply to shorten the process.
+
+Before freezing the UI candidate:
+- merge only intended UI and reviewed business-scope fixes;
+- run the full combined test suite, Pint, TypeScript, Vite and structural/negative-control tests;
+- run CI on the exact frozen candidate;
+- confirm that all decision cards open the relevant approval and never approve in place;
+- confirm that proposed content is visibly a proposal and never falsely labelled as sent;
+- verify both dark and light themes, responsive phone layout, Bangla rendering, evidence/source age, status labels and inert feature gates;
+- verify that the voice screen calls no microphone API and that no new capability has been activated.
+
+Run Stage B again against a production-shaped isolated environment: migrations/seeds as applicable, backup and real `restore.sh`, read-only post-deploy checks and the relevant scope/security tests. The fact that a separate Wave 4 candidate passed does not waive this gate.
+
+### Business-scope fix
+
+The approvals, scheduled jobs, dashboard counts, credentials, tool-call counts, posture counts, global switches and restricted-person queries must enforce scope at the server/backend level, not only in the UI.
+
+- Cross-business identifiers must fail closed, normally with 404 where previously ruled.
+- Group-level rows must remain hidden from restricted users under the existing fail-closed rule.
+- Global switches require group-wide scope and explicit backend permission.
+- Natural-language jobs that name no business must be refused for a restricted operator.
+- Dashboard audit rows require `hq.audit.view`.
+- One-tap Pause All AI must be human-only, audited and group-scoped. It can disable operation only; it cannot re-enable it. If the pause state cannot be reliably read, AI execution fails closed as paused.
+- Do not provision restricted operators or activate business-scoped delegation until the scope-fix release has passed its own gates and is deployed.
+
+Joy separately authorizes the UI release.
+
+## 4. Rulings for features 1–13
+
+### 1. Do mode
+
+NOT NOW.
+
+Keep the chat-first interface in Ask mode. Future Do mode may create structured proposals, but every consequential effect must pass through the Tool Gateway, authorization, permission, consent, policy, idempotency, audit and verification. Do not enable Do mode until Phase 9 evidence and a separate explicit activation ruling approve it.
+
+### 2. Owner voice mode
+
+Approve Phase 7 design work only.
+
+Speech-to-text feeds the exact same Ask path as typed input. A spoken “yes” may create a pending approval card, but must never approve or execute by itself. Approval must bind to the exact action/payload, with the usual authenticated human review and one-time approval checks. Do not activate microphone access or a live speech provider in this Phase 3 wave.
+
+### 3. Media upload and video/reel generation
+
+Approve the upload foundation subject to object-storage access controls, consent, data classification, retention/deletion rules, provenance, file type/size controls and any necessary malware scanning.
+
+Generation remains in the relevant content/media phase, behind the approved claims policy, brand rules, product-reference constraints and human review. An upload must not trigger generation, publishing or outbound distribution automatically.
+
+### 4. Email ingestion and PDF invoice extraction
+
+Approve as read-only extraction into a draft for a person to review.
+
+Email bodies, attached PDFs and extracted text are untrusted content. Instructions inside them cannot grant authority, create consent or bypass the Tool Gateway. This capability must not write an ERP invoice or bill in v1.
+
+### 5. ERP purchase-bill draft tool
+
+Approve a narrowly bounded draft capability, human-only at first.
+
+It may create or update an unposted draft through the appropriate governed ERP interface only after explicit authorization, idempotency and audit requirements. The ERP's own approval flow remains final. HQ must not post the bill, finalize accounting entries, authorize a payment or bypass ERP approval. Keep this capability inert until its own tests and activation gate pass.
+
+### 6. Courier adapter
+
+Approve read-only status integration for Pathao, Steadfast and RedX behind ConnectorRegistry.
+
+Confirm each provider's real API access, credentials, business terms and environment before implementation is declared ready. The first capability may read tracking/delivery status and relevant permitted evidence only. No booking, cancellation, shipment creation or automated fraud rejection. All consequential interpretations remain governed and verifiable.
+
+### 7. Pause All AI
+
+Approve a human-only, audited, group-wide kill switch.
+
+It may only turn AI execution off. It must not grant permission, alter consent, approve pending actions or restart providers. Re-enabling AI requires a distinct, authorized operation. Test pause during queued work, scheduler activity, agent runtime, retries and uncertain state. Human operations and auditability should remain available. If switch state cannot be verified, keep AI paused.
+
+### 8. Batch approval of customer messages
+
+Keep one approval per message, consistent with ADR-018.
+
+A batch view may show the pending messages and open them in sequence. Each approval is bound to the exact message payload and destination. Approving one message does not approve siblings or authorize later regenerated variants.
+
+### 9. One-click approval
+
+NO.
+
+A decision card is a navigation surface that opens the complete approval details. It must not approve in place. The reviewer must see the actual action, scope, destination, payload and relevant evidence before taking the separately governed approval action.
+
+### 10. Telegram morning brief
+
+Approve owner-only delivery, subject to a fixed, validated allowlist for the owner's own chat.
+
+The destination cannot be selected or overridden by a model or untrusted message. Send only the approved briefing content with data minimization; do not add customer details beyond what the brief is authorized to include. Verify destination and delivery evidence, and avoid secrets or sensitive unnecessary customer information in Telegram.
+
+### 11. Support response options
+
+Approve multiple proposals.
+
+The model may propose options A/B/C. A person chooses one, edits it if needed, and approves the exact final payload. Only the selected final message receives one approval. Any change to payload or destination after approval invalidates that approval. Preserve language/script validation and current handover rules.
+
+### 12. Event watches from chat
+
+Approve proposals only.
+
+A natural-language request can generate a proposed event-watch definition. Convert it into an active scheduler job only through the existing approval process, with explicit business scope, trigger, cadence, condition, data sources, notification destination and stop/retention behavior.
+
+Creating an event watch must not grant authority for consequential actions. The watch may detect and notify, but any resulting business action remains separately governed.
+
+### 13. Global switches
+
+Require explicit group-wide authority for any switch that affects all businesses, including `hq.flags.manage` and `hq.tools.manage` when they operate globally.
+
+Enforce this at the backend as well as in the UI. A restricted business operator cannot change group-wide posture, tool availability, AI activation or global kill switches. Ambiguous scope means refusal. Record the actor, scope, before/after state and reason.
+
+## 5. Next wave — Phase 3 Customer AI readiness while Meta verification is pending
+
+Keep all Phase 3 work inert and separate from the two releases. Use at most three concurrent agents/worktrees, one isolated test database per stream, a plan commit first and sequential `--no-ff` merges. Run the full combined suite and CI after assembly.
+
+### P3-W1 — Conversation and identity boundary
+
+Implement an additive migration that makes conversation thread uniqueness business-scoped, resolving the current global `(channel, external_thread_ref)` collision risk.
+
+Retain fail-closed collision handling until that migration is deployed and verified. Add tests for collisions across businesses and same-business replay/deduplication.
+
+Build the human-only, audited identity-conflict resolution screen/action from the already-approved quarantine model. No agent may resolve conflicts. Preserve evidence, explicit business ownership and the prohibition on cross-business customer identity merging.
+
+### P3-W2 — Meta readiness inventory
+
+While Business Verification is pending, prepare a channel-by-channel readiness record. Do not claim any provider prerequisites are complete without evidence.
+
+Track business verification, app review/permissions, Page and Instagram account prerequisites, WhatsApp Business Account/number/SIM, token ownership and lifecycle, webhook signing, callback configuration, consent/privacy/deletion obligations and test-account readiness.
+
+Do not acquire workarounds that bypass platform review or permission gates. A verified business is not the same as an approved app, an authorized permission or a live messaging channel.
+
+### P3-W3 — Inert Customer AI path
+
+Prepare and test the inbound → scoped identity → conversation → Ask/proposal → consent/policy review → human handover path using synthetic fixtures or approved test accounts.
+
+Required tests:
+- inbound replay does not duplicate work or change identity ownership;
+- cross-business identity/thread collision fails closed;
+- unresolved or quarantined identities never inherit another identity's grant;
+- mixed Bangla/English input yields a validated Bengali-script reply proposal;
+- the system does not send during Ask or shadow tests;
+- human handover is correct, including a second inbound while waiting;
+- support context and inbox read paths remain business-scoped;
+- provider failure and uncertain delivery are not mislabelled as successful delivery;
+- every consequential future send is still subject to Gateway, consent, idempotency, audit and verification.
+
+No live customer-channel traffic is authorized by these tests.
+
+### P3-W4 — Operational safety controls
+
+Implement and test the Pause All AI kill switch under ruling 7. Complete the global switch scope enforcement under ruling 13. Verify that the controls cannot be changed by restricted operators and that reactivation needs a separate authorized action.
+
+Keep the decision-corpus reader and playbook store read-only. No self-modifying policies or playbooks. Do not add new playbook readers without a separate ruling.
+
+### P3-W5 — Provider and future-phase contracts
+
+Record the approved future-phase designs without activating them:
+- voice STT into Ask, with no voice approval execution;
+- media upload with consent/retention and provenance;
+- read-only email/PDF extraction into drafts;
+- human-only ERP purchase-bill draft, finalized only by ERP's own approval;
+- read-only courier status adapters.
+
+Provider discovery and contracts may proceed, but no live customer effect or new provider activation is authorized by this readiness wave. If provider research depends on current service availability, pricing, API/region support or Bangladesh-specific terms, verify it from current official sources before calling that connector ready.
+
+### P3-W6 — Exit report
+
+Return a concise Phase 3 readiness report with:
+- exact commits and CI run;
+- migrations and structural scope tests;
+- conversation uniqueness results;
+- identity-conflict resolution behavior and permissions;
+- Pause All AI and global-switch security evidence;
+- channel-by-channel external prerequisites, with missing items clearly marked;
+- tests for the Ask/proposal path and no-outbound assertion;
+- provider contract status and remaining owner actions;
+- explicit list of capabilities still inert.
+
+Do not call Phase 3 live or enable Meta inbound/outbound until external prerequisites are actually approved, all required gates pass, and Joy explicitly authorizes the relevant activation.
+
+## 6. Final authority and stop conditions
+
+Continue the full engineering program without routine confirmation stops. Stop only on a failed gate, unresolved authorization/scope or privacy issue, an actual secret/data exposure requiring response, an unavailable mandatory prerequisite, or a new architectural decision not covered here.
+
+The release sequence remains:
+1. Joy releases the verified Wave 4 candidate.
+2. Post-release read-only verification and separately authorized repairs/backfills.
+3. UI/scope candidate is independently frozen, gated, rehearsed and released by Joy.
+4. Phase 3 remains inert until its own technical, external and activation gates pass.
+
+Never interpret successful CI, a green rehearsal, a verified Meta business or a finished UI as an automatic activation authorization.

@@ -1,0 +1,29 @@
+Status per your 16 Oct ruling (docs/131), plus a UI redesign Joy asked for. Production still b96a396; nothing released yet.
+
+1. RELEASE GATES, ALL MET.
+Stage A: GitHub billing could not be paid, so Joy made the repository public; Actions now run free. Candidate frozen at c0db11e (tag hq-rc-2026-10-17); CI run 39000064674 green on that exact commit (Pest+Pint+tsc+Vite on PG17/Redis7, deploy/backup safety, image builds). A workflow_dispatch trigger was added so a docs-only candidate can still get CI.
+Containment: Option 2 applied by Joy 17 Oct 03:35 UTC (scheduler stopped; 0 processing, 0 pending, max event 592).
+Before release we also closed two gaps found while proving event durability: (a) restoring the pre-deploy dump would have dropped events accepted after the dump: fixed with read-only hq:events:export-since and audited, idempotent hq:events:import (pending, never processed); (b) deploy.sh and rollback.sh restart a stopped scheduler: added an opt-in --keep-scheduler-stopped flag (defaults unchanged) and an HQ_EVENTS_DRAIN_PAUSED flag (off by default). Item 8: hq:facts:tz-backfill, evidence-only, dry-run default. Item 4: self-decision refused once a second eligible decider exists.
+Stage B: VPS Docker rehearsal on a fresh production dump in an isolated project, run 2: RESULT PASSED, 0 FAIL. Real restore.sh restored the dump exactly; 12 migrations; constraints 29/29; seeder idempotent; detector, cost, repair and tz dry runs wrote nothing at row level; W1 down() refused (one-way door), pre-deploy dump restore exact, re-apply clean; event bridge: deliveries after the dump survived a real restore, pending and unprocessed. (Run 1 failed only on a harness parse bug: it read "quarantined=no" from a per-identity line; evidence said 4 of 4; harness fixed, candidate unchanged.) Seeder adds 15 permissions on production: the 14 plus hq.tools.ads.read, reserved since 26 Sep and never seeded there. TZ dry run on the production copy: 0 correctable, 93 ambiguous for lack of evidence.
+Verdict recorded: READY FOR JOY'S RELEASE DECISION. Joy said release; the release runs in four steps he pastes (Claude's classifier refuses production mutations), then Stage D one authorization at a time.
+
+2. UI REDESIGN FROM JOY'S DESIGN CANVAS ("run the whole company by talking to it"; six artboards: chat brief, reel creation, customer takeover, email+invoice to ERP, voice, phone). Verified 79 design elements against HQ: 11 live, 21 built-inert, 26 partial, 20 missing. Built, pure UI, no new capability: dark-glass and light themes, chat-first console on /dashboard over existing read data (decision cards are links that open the approval, never approve in place; source chips show real age and state; inert features rendered with reason and gate; "proposed" never "sent"), all 35 other screens restyled, phone bottom bar, an inert /voice screen with no microphone API, full Bangla. Branch integration/ui-and-scope: 2,219 Pest green; CI run 39019780576 green. Not merged; it follows this release as its own release.
+
+3. A BUSINESS-SCOPE DEFECT FOUND DURING THE UI WORK (also on production b96a396). The approvals list/show/decide, scheduled jobs list/show/actions, several dashboard counts, credentials, tool call counts and posture counts did not apply BusinessScope for a restricted person. Fixed on the same branch: visibleTo scopes, 404 for another business's id, group-level rows hidden from restricted people (the existing fail-closed rule), a structural test enumerating every controller and dashboard class with a verdict. Lead decisions applied: dashboard audit rows need hq.audit.view; a restricted person's natural-language job that names no business is refused. Today's impact: none (single operator with no scope rows).
+
+4. QUESTIONS (our recommendation in brackets).
+1. Do mode: agents acting from the chat. [Not now; keep Ask only until Phase 9 evidence; design it as proposals through the gateway.]
+2. Owner voice mode (speech provider, microphone). [Approve as Phase 7 design work: speech-to-text only into the same Ask path; a spoken yes only creates a pending approval card.]
+3. Media upload into chat and reel/video generation. [Upload to R2 with consent and retention rules first; generation is Phase 6/8 behind the claims policy.]
+4. Email ingestion and PDF invoice extraction. [Read-only extraction into a draft for a person; no ERP write.]
+5. ERP purchase-bill draft tool (ERP write). [Only as a draft the ERP's own approval finalises; human-only at first.]
+6. Courier connector (Pathao, Steadfast, RedX). [Read-only status adapter behind ConnectorRegistry first.]
+7. One-tap "pause all AI". [Approve: a human-only kill switch that only turns things off, audited.]
+8. Approving a batch of customer messages in one act. [Keep ADR-018: one approval per message; a batch view that opens them in sequence.]
+9. One-click approve on a console card. [No; the card opens the approval.]
+10. Morning brief on Telegram. [Approve to the owner's own chat only, no customer data beyond the brief.]
+11. Several reply options (A, B, C) from Support. [Approve as proposals; the person picks and edits; one approval.]
+12. Event watches created from chat. [Proposals that become scheduler jobs through the existing approval.]
+13. A restricted operator can still flip hq.flags.manage / hq.tools.manage switches that act on every business. [Require group-wide scope for global switches.]
+
+5. REQUEST. Please rule 1-13 in bulk or by number, confirm the UI release can follow this release as its own release (same Stage A/B gates), and give one instruction for the next wave after Stage D (Phase 3 readiness inert work while Meta verification is pending).
