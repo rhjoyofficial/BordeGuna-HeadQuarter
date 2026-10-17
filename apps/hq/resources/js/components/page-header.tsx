@@ -77,3 +77,16 @@ export function JsonBlock({ value, className = '' }: { value: unknown; className
         </pre>
     );
 }
+
+/**
+ * docs/135 (h): a row of filters or page actions that wraps on a phone instead of running off the side. Buttons
+ * inside are already 44 px on touch screens.
+ */
+export function Toolbar({ children, label, className = '' }: { children: ReactNode; label?: string; className?: string }) {
+    const tn = useTn();
+    return (
+        <div role="toolbar" aria-label={label ? String(tn(label)) : undefined} className={`flex max-w-full flex-wrap items-center gap-2 ${className}`}>
+            {children}
+        </div>
+    );
+}

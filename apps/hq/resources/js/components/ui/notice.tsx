@@ -42,3 +42,30 @@ export function Notice({
         </div>
     );
 }
+
+/**
+ * docs/135 (a) honesty rule, inline form: a capability that is switched off on purpose, shown where it would be,
+ * with WHY it is off and WHAT turns it on. For a whole empty block use `EmptyState variant="inert"` instead.
+ */
+export function InertNotice({ title, reason, gate, children, className }: { title: ReactNode; reason: ReactNode; gate?: ReactNode; children?: ReactNode; className?: string }) {
+    const tn = useTn();
+    return (
+        <div role="status" data-state="inert" className={cn('rounded-xl border border-dashed px-4 py-3 text-sm', TONE_CLASS.neutral, className)}>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="hq-eyebrow">{tn('Switched off')}</span>
+                <span className="font-semibold">{tn(title)}</span>
+            </div>
+            <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                <dt className="font-medium opacity-80">{tn('Why')}</dt>
+                <dd>{tn(reason)}</dd>
+                {gate && (
+                    <>
+                        <dt className="font-medium opacity-80">{tn('Turns on when')}</dt>
+                        <dd>{tn(gate)}</dd>
+                    </>
+                )}
+            </dl>
+            {children && <div className="mt-2">{tn(children)}</div>}
+        </div>
+    );
+}
