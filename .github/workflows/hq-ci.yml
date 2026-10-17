@@ -6,6 +6,8 @@ on:
     paths: ['apps/hq/**', 'deploy/**', '.github/workflows/hq-ci.yml']
   pull_request:
     paths: ['apps/hq/**', 'deploy/**', '.github/workflows/hq-ci.yml']
+  # docs/131 Stage A: CI must run on the EXACT release candidate, which can be a docs-only commit the path filter skips.
+  workflow_dispatch:
 
 concurrency:
   group: hq-ci-${{ github.ref }}
