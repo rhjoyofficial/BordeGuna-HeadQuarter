@@ -80,6 +80,26 @@ const BANGLA_SCREENS = [
     // docs/135 (W-UI5): the phone's bottom bar and the inert voice screen.
     'js/components/phone-bar.tsx',
     'js/pages/voice.tsx',
+    // Integration follow-up (decided 17 Oct): the screens W-UI3 left partly English.
+    'js/pages/agents/show.tsx',
+    'js/components/agents/execution-context-panel.tsx',
+    'js/pages/observe/briefings.tsx',
+    'js/pages/observe/briefing.tsx',
+    'js/pages/observe/cost.tsx',
+    'js/pages/observe/platform.tsx',
+    'js/components/observe/release-state-panel.tsx',
+    'js/pages/observe/alerts.tsx',
+    'js/pages/scheduler/index.tsx',
+    'js/pages/scheduler/show.tsx',
+    'js/pages/auth/login.tsx',
+    'js/pages/auth/two-factor-challenge.tsx',
+    'js/pages/auth/forgot-password.tsx',
+    'js/pages/auth/reset-password.tsx',
+    'js/pages/auth/confirm-password.tsx',
+    'js/pages/auth/verify-email.tsx',
+    'js/layouts/auth/auth-simple-layout.tsx',
+    'js/layouts/auth/auth-card-layout.tsx',
+    'js/layouts/auth/auth-split-layout.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

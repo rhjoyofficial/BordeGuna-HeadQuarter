@@ -6,6 +6,7 @@ import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import { Newspaper } from 'lucide-react';
@@ -15,9 +16,11 @@ type Props = { briefings: BriefingSummary[]; contract: Record<string, unknown> }
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Briefings', href: '/observe/briefings' }];
 
 export default function Briefings({ briefings, contract }: Props) {
+    const t = useT();
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Briefings" />
+            <Head title={t('Briefings')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Briefings"
@@ -46,7 +49,7 @@ export default function Briefings({ briefings, contract }: Props) {
                                         </Link>
                                     ),
                                 },
-                                { key: 'scope', label: 'Scope', render: (b) => scopeLabel(b) },
+                                { key: 'scope', label: 'Scope', render: (b) => b.business ?? t(scopeLabel(b)) },
                                 {
                                     key: 'state',
                                     label: 'State',
@@ -60,7 +63,11 @@ export default function Briefings({ briefings, contract }: Props) {
                                             ? '-'
                                             : [...new Set(b.degraded_reasons.map((r) => humanKey(r.code)))].join(', '),
                                 },
-                                { key: 'narration', label: 'Narration', render: (b) => NARRATION_LABEL[b.narration_state] ?? b.narration_state },
+                                {
+                                    key: 'narration',
+                                    label: 'Narration',
+                                    render: (b) => (NARRATION_LABEL[b.narration_state] ? t(NARRATION_LABEL[b.narration_state]) : b.narration_state),
+                                },
                                 { key: 'items', label: 'Items', align: 'right', render: (b) => b.items },
                                 { key: 'generated', label: 'Composed', render: (b) => formatDateTime(b.generated_at) },
                             ]}

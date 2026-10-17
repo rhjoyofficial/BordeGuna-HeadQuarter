@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanUsd } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 
@@ -51,10 +52,11 @@ export default function Cost(props: Props) {
     const { window: period, totals, budget, unit_costs: unit } = props;
     const maxOf = (rows: Spend[]) => Math.max(0, ...rows.map((r) => r.usd));
     const budgetTone = budget.refuse ? 'danger' : budget.downgrade ? 'warn' : budget.notify ? 'pending' : 'ok';
+    const t = useT();
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Cost" />
+            <Head title={t('Cost')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Cost"
@@ -67,27 +69,30 @@ export default function Cost(props: Props) {
                     <Stat
                         label="Spend in this period"
                         value={humanUsd(totals.usd)}
-                        detail={`${totals.runs} model calls since ${formatDateTime(period.since)}`}
+                        detail={t('{n} model calls since {when}', { n: totals.runs, when: formatDateTime(period.since) })}
                     />
                     <Stat label="Per model call" value={orDash(totals.per_run_usd === null ? null : humanUsd(totals.per_run_usd))} />
                     <Stat
                         label="Per agent run"
                         value={orDash(unit.per_agent_run_usd === null ? null : humanUsd(unit.per_agent_run_usd))}
-                        detail={`${unit.agent_runs} agent runs`}
+                        detail={t('{n} agent runs', { n: unit.agent_runs })}
                     />
                     <Stat
                         label="Per conversation"
                         value={orDash(unit.per_conversation_usd === null ? null : humanUsd(unit.per_conversation_usd))}
-                        detail={`${unit.conversations} conversations with model work`}
+                        detail={t('{n} conversations with model work', { n: unit.conversations })}
                     />
                 </StatGrid>
 
-                <Panel title="Monthly budget" aside={<StatusBadge tone={budgetTone}>{budget.share_percent}% of the cap</StatusBadge>}>
+                <Panel
+                    title="Monthly budget"
+                    aside={<StatusBadge tone={budgetTone}>{t('{n}% of the cap', { n: budget.share_percent })}</StatusBadge>}
+                >
                     <StatGrid>
-                        <Stat label={`Spent this month (${budget.scope})`} value={humanUsd(budget.spent_usd)} />
+                        <Stat label={t('Spent this month ({scope})', { scope: budget.scope })} value={humanUsd(budget.spent_usd)} />
                         <Stat
                             label="Cap"
-                            value={budget.cap_usd === null ? 'none' : humanUsd(budget.cap_usd)}
+                            value={budget.cap_usd === null ? t('none') : humanUsd(budget.cap_usd)}
                             detail="A soft cap: at 100% HQ uses a cheaper tier."
                         />
                         <Stat label="Month at this pace" value={humanUsd(budget.projected_month_usd)} />
@@ -97,7 +102,7 @@ export default function Cost(props: Props) {
                             detail={
                                 unit.briefings === 0
                                     ? 'No briefing has been composed yet; it needs the model and comes after the gates.'
-                                    : `${unit.briefings} briefing(s) composed`
+                                    : t('{n} briefing(s) composed', { n: unit.briefings })
                             }
                         />
                     </StatGrid>
@@ -143,7 +148,7 @@ export default function Cost(props: Props) {
                                 {
                                     key: 'agent',
                                     label: 'Agent',
-                                    render: (r) => r.agent_key ?? <span className="text-muted-foreground">no agent (probes, checks)</span>,
+                                    render: (r) => r.agent_key ?? <span className="text-muted-foreground">{t('no agent (probes, checks)')}</span>,
                                 },
                                 ...spendColumns(maxOf(props.by_agent)),
                             ]}
@@ -161,7 +166,7 @@ export default function Cost(props: Props) {
                                 {
                                     key: 'business',
                                     label: 'Business',
-                                    render: (r) => r.business ?? <span className="text-muted-foreground">group-wide</span>,
+                                    render: (r) => r.business ?? <span className="text-muted-foreground">{t('group-wide')}</span>,
                                 },
                                 ...spendColumns(maxOf(props.by_business)),
                             ]}
@@ -174,7 +179,7 @@ export default function Cost(props: Props) {
                             rows={props.by_cost_source}
                             empty="No model call in this period."
                             columns={[
-                                { key: 'source', label: 'Cost from', render: (r) => r.cost_source ?? 'estimate from the price table' },
+                                { key: 'source', label: 'Cost from', render: (r) => r.cost_source ?? t('estimate from the price table') },
                                 ...spendColumns(maxOf(props.by_cost_source)),
                             ]}
                         />

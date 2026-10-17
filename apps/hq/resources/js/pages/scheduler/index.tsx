@@ -10,6 +10,7 @@ import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanSchedule, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { CalendarClock, Plus } from 'lucide-react';
@@ -73,6 +74,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
         retry_max: 3,
         payload: { message: '' },
     });
+    const t = useT();
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -90,22 +92,23 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                     className="flex flex-col gap-5"
                 >
                     <DialogHeader>
-                        <DialogTitle>New scheduled job</DialogTitle>
+                        <DialogTitle>{t('New scheduled job')}</DialogTitle>
                         <DialogDescription>
-                            A job runs one tool on a schedule, through the same gateway as everything else. A tool that needs approval still needs it
-                            on every run.
+                            {t(
+                                'A job runs one tool on a schedule, through the same gateway as everything else. A tool that needs approval still needs it on every run.',
+                            )}
                         </DialogDescription>
                     </DialogHeader>
 
                     <FormRow>
-                        <Field label="Name" htmlFor="name" size="grow" error={form.errors.name}>
+                        <Field label={t('Name')} htmlFor="name" size="grow" error={form.errors.name}>
                             <Input id="name" value={form.data.name} onChange={(e) => form.setData('name', e.target.value)} required autoFocus />
                         </Field>
-                        <Field label="Tool" htmlFor="tool" size="auto" error={form.errors.tool_key}>
+                        <Field label={t('Tool')} htmlFor="tool" size="auto" error={form.errors.tool_key}>
                             <NativeSelect id="tool" value={form.data.tool_key} onChange={(e) => form.setData('tool_key', e.target.value)}>
-                                {tools.map((t) => (
-                                    <option key={t} value={t}>
-                                        {humanKey(t)}
+                                {tools.map((tool) => (
+                                    <option key={tool} value={tool}>
+                                        {humanKey(tool)}
                                     </option>
                                 ))}
                             </NativeSelect>
@@ -114,7 +117,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
 
                     <div className="grid gap-1.5" role="group" aria-labelledby="job-kind-label">
                         <div id="job-kind-label" className="text-sm font-medium">
-                            When
+                            {t('When')}
                         </div>
                         <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4">
                             {KINDS.map((k) => (
@@ -127,8 +130,8 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                                         form.data.kind === k.key ? 'border-primary bg-accent' : 'border-glass-border bg-card hover:bg-accent/50'
                                     }`}
                                 >
-                                    <div className="font-medium">{k.label}</div>
-                                    <div className="text-muted-foreground text-xs">{k.hint}</div>
+                                    <div className="font-medium">{t(k.label)}</div>
+                                    <div className="text-muted-foreground text-xs">{t(k.hint)}</div>
                                 </button>
                             ))}
                         </div>
@@ -136,7 +139,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
 
                     <FormRow>
                         {form.data.kind === 'once' && (
-                            <Field label="Run at" htmlFor="run_at" size="auto" hint="Local to the timezone" error={form.errors.run_at}>
+                            <Field label={t('Run at')} htmlFor="run_at" size="auto" hint={t('Local to the timezone')} error={form.errors.run_at}>
                                 <Input
                                     id="run_at"
                                     type="datetime-local"
@@ -148,13 +151,13 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                         )}
                         {form.data.kind === 'cron' && (
                             <Field
-                                label="Cron expression"
+                                label={t('Cron expression')}
                                 htmlFor="cron"
                                 size="sm"
                                 hint={
                                     form.data.cron_expression
                                         ? humanSchedule({ kind: 'cron', cron_expression: form.data.cron_expression })
-                                        : 'minute hour day month weekday'
+                                        : t('minute hour day month weekday')
                                 }
                                 error={form.errors.cron_expression}
                             >
@@ -169,7 +172,13 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                             </Field>
                         )}
                         {form.data.kind === 'interval' && (
-                            <Field label="Every (seconds)" htmlFor="interval" size="sm" hint="At least 60" error={form.errors.interval_seconds}>
+                            <Field
+                                label={t('Every (seconds)')}
+                                htmlFor="interval"
+                                size="sm"
+                                hint={t('At least 60')}
+                                error={form.errors.interval_seconds}
+                            >
                                 <Input
                                     id="interval"
                                     type="number"
@@ -181,7 +190,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                             </Field>
                         )}
                         {form.data.kind === 'event' && (
-                            <Field label="Event type" htmlFor="event" size="md" error={form.errors.event_type}>
+                            <Field label={t('Event type')} htmlFor="event" size="md" error={form.errors.event_type}>
                                 <Input
                                     id="event"
                                     placeholder="order.created"
@@ -192,22 +201,22 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                                 />
                             </Field>
                         )}
-                        <Field label="Timezone" htmlFor="tz" size="md" error={form.errors.timezone}>
+                        <Field label={t('Timezone')} htmlFor="tz" size="md" error={form.errors.timezone}>
                             <Input id="tz" value={form.data.timezone} onChange={(e) => form.setData('timezone', e.target.value)} />
                         </Field>
                     </FormRow>
 
                     <FormRow>
-                        <Field label="If a slot is missed" htmlFor="missed" size="auto" error={form.errors.missed_policy}>
+                        <Field label={t('If a slot is missed')} htmlFor="missed" size="auto" error={form.errors.missed_policy}>
                             <NativeSelect id="missed" value={form.data.missed_policy} onChange={(e) => form.setData('missed_policy', e.target.value)}>
                                 {Object.entries(MISSED).map(([k, label]) => (
                                     <option key={k} value={k}>
-                                        {label}
+                                        {t(label)}
                                     </option>
                                 ))}
                             </NativeSelect>
                         </Field>
-                        <Field label="Retries" htmlFor="retry" size="xs" error={form.errors.retry_max}>
+                        <Field label={t('Retries')} htmlFor="retry" size="xs" error={form.errors.retry_max}>
                             <Input
                                 id="retry"
                                 type="number"
@@ -218,7 +227,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                                 onChange={(e) => form.setData('retry_max', Number(e.target.value))}
                             />
                         </Field>
-                        <Field label="Message to the tool" htmlFor="msg" size="grow" hint="Optional">
+                        <Field label={t('Message to the tool')} htmlFor="msg" size="grow" hint={t('Optional')}>
                             <Input
                                 id="msg"
                                 value={form.data.payload.message}
@@ -227,16 +236,14 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                         </Field>
                     </FormRow>
 
-                    {Object.values(form.errors).length > 0 && (
-                        <div className="text-sm text-tone-danger">{Object.values(form.errors).join(' ')}</div>
-                    )}
+                    {Object.values(form.errors).length > 0 && <div className="text-tone-danger text-sm">{Object.values(form.errors).join(' ')}</div>}
 
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                            Cancel
+                            {t('Cancel')}
                         </Button>
                         <Button type="submit" disabled={form.processing}>
-                            Create job
+                            {t('Create job')}
                         </Button>
                     </DialogFooter>
                 </form>
@@ -250,30 +257,33 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
     const canManage = auth.permissions.includes('hq.jobs.manage');
     const inWords = canManage && (nav?.features?.scheduler_nl ?? false);
     const [creating, setCreating] = useState(false);
+    const t = useT();
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Scheduler" />
+            <Head title={t('Scheduler')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title="Scheduler"
-                    description="Work HQ does on its own clock: polls, syncs and checks, each running one tool through the gateway. Pause a job to stop it without losing it."
+                    title={t('Scheduler')}
+                    description={t(
+                        'Work HQ does on its own clock: polls, syncs and checks, each running one tool through the gateway. Pause a job to stop it without losing it.',
+                    )}
                     actions={
                         canManage ? (
                             <>
                                 {inWords && (
                                     <Button variant="outline" asChild>
-                                        <Link href="/scheduler/nl">Describe a job</Link>
+                                        <Link href="/scheduler/nl">{t('Describe a job')}</Link>
                                     </Button>
                                 )}
                                 <Button onClick={() => setCreating(true)}>
-                                    <Plus className="size-4" aria-hidden /> New job
+                                    <Plus className="size-4" aria-hidden /> {t('New job')}
                                 </Button>
                             </>
                         ) : undefined
                     }
                 >
-                    <Toolbar label="Filter by state">
+                    <Toolbar label={t('Filter by state')}>
                         {STATES.map((s) => (
                             <Button
                                 key={s.key || 'all'}
@@ -281,36 +291,36 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                                 variant={filters.state === s.key ? 'default' : 'outline'}
                                 onClick={() => router.get('/scheduler', s.key ? { state: s.key } : {}, { preserveState: true, replace: true })}
                             >
-                                {s.label}
+                                {t(s.label)}
                             </Button>
                         ))}
                         <span className="text-muted-foreground ml-auto text-sm">
-                            {jobs.total} {jobs.total === 1 ? 'job' : 'jobs'}
+                            {t(jobs.total === 1 ? '{count} job' : '{count} jobs', { count: jobs.total })}
                         </span>
                     </Toolbar>
                 </PageHeader>
 
                 {canManage && !inWords && (
                     <InertNotice
-                        title="Describe a job in words"
-                        reason="The scheduler.nl feature flag is off, so HQ does not read a sentence into a job."
-                        gate="A person with the right to manage feature flags switches scheduler.nl on. New job works either way."
+                        title={t('Describe a job in words')}
+                        reason={t('The scheduler.nl feature flag is off, so HQ does not read a sentence into a job.')}
+                        gate={t('A person with the right to manage feature flags switches scheduler.nl on. New job works either way.')}
                     />
                 )}
 
                 {jobs.data.length === 0 ? (
                     <EmptyState
                         icon={CalendarClock}
-                        title={filters.state ? `No ${filters.state} jobs` : 'No scheduled jobs'}
+                        title={filters.state ? t('No {state} jobs', { state: t(filters.state) }) : t('No scheduled jobs')}
                         description={
                             filters.state
-                                ? 'No job is in this state. Try another filter.'
-                                : 'Nothing runs on HQ\'s own clock until a job exists. Create one to have HQ run a tool on a schedule.'
+                                ? t('No job is in this state. Try another filter.')
+                                : t("Nothing runs on HQ's own clock until a job exists. Create one to have HQ run a tool on a schedule.")
                         }
                         action={
                             canManage && !filters.state ? (
                                 <Button size="sm" onClick={() => setCreating(true)}>
-                                    New job
+                                    {t('New job')}
                                 </Button>
                             ) : undefined
                         }
@@ -320,12 +330,12 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         <table className="w-full text-sm">
                             <thead className="text-left text-xs">
                                 <tr>
-                                    <th className="px-3 py-2 font-medium">Job</th>
-                                    <th className="px-3 py-2 font-medium">Schedule</th>
-                                    <th className="px-3 py-2 font-medium">Runs</th>
-                                    <th className="px-3 py-2 font-medium">State</th>
-                                    <th className="px-3 py-2 font-medium">Next run</th>
-                                    <th className="px-3 py-2 font-medium">Last run</th>
+                                    <th className="px-3 py-2 font-medium">{t('Job')}</th>
+                                    <th className="px-3 py-2 font-medium">{t('Schedule')}</th>
+                                    <th className="px-3 py-2 font-medium">{t('Runs')}</th>
+                                    <th className="px-3 py-2 font-medium">{t('State')}</th>
+                                    <th className="px-3 py-2 font-medium">{t('Next run')}</th>
+                                    <th className="px-3 py-2 font-medium">{t('Last run')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -369,7 +379,7 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                                                         </span>
                                                     </div>
                                                 ) : (
-                                                    <span className="text-muted-foreground">never</span>
+                                                    <span className="text-muted-foreground">{t('never')}</span>
                                                 )}
                                             </td>
                                         </tr>
@@ -379,7 +389,7 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         </table>
                     </div>
                 )}
-                <Pagination links={jobs.links} total={jobs.total} noun="jobs" />
+                <Pagination links={jobs.links} total={jobs.total} noun={t('jobs')} />
             </div>
 
             {canManage && <NewJobDialog tools={tools} open={creating} onOpenChange={setCreating} />}

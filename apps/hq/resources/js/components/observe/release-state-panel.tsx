@@ -1,6 +1,7 @@
 import { Note, Panel, Stat, StatGrid } from '@/components/observe/panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDateTime, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /**
  * What is released here against what is only merged (docs/80 C.4). Read-only: no button, no form.
@@ -53,9 +54,13 @@ export type ReleaseState = {
     summary: string[];
 };
 
-const Sha = ({ value }: { value: string | null | undefined }) => <span className="font-mono text-xl break-all">{value ?? 'unknown'}</span>;
+function Sha({ value }: { value: string | null | undefined }) {
+    const t = useT();
+    return <span className="font-mono text-xl break-all">{value ?? t('unknown')}</span>;
+}
 
 export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
+    const t = useT();
     const { production, main, last_verified: lastVerified, last_attempt: lastAttempt } = release;
 
     if (release.mode === 'development' || production === null || main === null) {
@@ -74,7 +79,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
             title="Release state"
             aside={
                 known ? (
-                    <StatusBadge tone={ahead === 0 ? 'ok' : 'info'}>{ahead === 0 ? 'nothing unreleased' : `${ahead} unreleased on main`}</StatusBadge>
+                    <StatusBadge tone={ahead === 0 ? 'ok' : 'info'}>{ahead === 0 ? 'nothing unreleased' : t('{n} unreleased on main', { n: ahead })}</StatusBadge>
                 ) : (
                     <StatusBadge tone="warn">main state unknown</StatusBadge>
                 )
@@ -93,21 +98,25 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                     detail={
                         production.released_at === null
                             ? 'no release record on this host'
-                            : `${production.kind === 'rollback' ? 'rolled back' : 'released'} ${formatDateTime(production.released_at)}${
+                            : `${t(production.kind === 'rollback' ? 'rolled back {at}' : 'released {at}', { at: formatDateTime(production.released_at) })}${
                                   production.previous === null
                                       ? ''
-                                      : `, after ${production.previous}${production.previous_known ? '' : ' (predecessor not verified)'}`
+                                      : production.previous_known
+                                        ? t(', after {commit}', { commit: production.previous })
+                                        : t(', after {commit} (predecessor not verified)', { commit: production.previous })
                               }`
                     }
                     badge={<StatusBadge tone={production.verification === 'verified' ? 'ok' : 'warn'}>{production.verification}</StatusBadge>}
                 />
                 <Stat
                     label="Last verified release"
-                    value={<Sha value={lastVerified?.commit ?? 'none'} />}
+                    value={<Sha value={lastVerified?.commit ?? t('none')} />}
                     detail={
                         lastVerified === null
                             ? 'no release has passed its post-release check on this host'
-                            : `checked ${formatDateTime(lastVerified.verified_at)}${lastVerified.is_running ? '' : '; NOT the release that is running'}`
+                            : t(lastVerified.is_running ? 'checked {at}' : 'checked {at}; NOT the release that is running', {
+                                  at: formatDateTime(lastVerified.verified_at),
+                              })
                     }
                     badge={lastVerified !== null && !lastVerified.is_running ? <StatusBadge tone="warn">not running</StatusBadge> : undefined}
                 />
@@ -117,36 +126,38 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                     detail={
                         main.fetched_at === null
                             ? 'never fetched by the host'
-                            : `fetched by the host ${timeAgo(main.fetched_at)}${main.fetch_failing ? '; the latest fetch failed' : ''}`
+                            : t(main.fetch_failing ? 'fetched by the host {ago}; the latest fetch failed' : 'fetched by the host {ago}', {
+                                  ago: timeAgo(main.fetched_at),
+                              })
                     }
                     badge={known ? undefined : <StatusBadge tone="warn">{main.state.replace('_', ' ')}</StatusBadge>}
                 />
                 <Stat
                     label="Unreleased on main"
-                    value={ahead === null ? 'unknown' : `${ahead} commit(s)`}
+                    value={ahead === null ? t('unknown') : t('{n} commit(s)', { n: ahead })}
                     detail={
                         ahead === null
                             ? (main.reason ?? 'not known')
                             : ahead === 0
                               ? 'nothing merged is waiting'
-                              : `${main.migrations.length} migration(s) not run here. None of it is live.`
+                              : t('{n} migration(s) not run here. None of it is live.', { n: main.migrations.length })
                     }
                 />
             </StatGrid>
 
             {lastAttempt !== null && lastAttempt.status === 'failed' && (
                 <Note>
-                    Last {lastAttempt.kind} attempt: <span className="font-mono">{lastAttempt.commit}</span> failed at the {lastAttempt.failed_stage}{' '}
-                    stage
+                    {t('Last {kind} attempt:', { kind: lastAttempt.kind })} <span className="font-mono">{lastAttempt.commit}</span>{' '}
+                    {t('failed at the {stage} stage', { stage: lastAttempt.failed_stage })}
                     {lastAttempt.recorded_at === null ? '' : ` (${formatDateTime(lastAttempt.recorded_at)})`}.
-                    {lastAttempt.is_running ? ' That image is nevertheless what is running.' : ' It is not what is running.'}
+                    {' '}{lastAttempt.is_running ? t('That image is nevertheless what is running.') : t('It is not what is running.')}
                 </Note>
             )}
 
             {known && ahead !== null && ahead > 0 && (
                 <div className="grid gap-4 xl:grid-cols-2">
                     <div className="hq-card min-w-0 p-4">
-                        <div className="hq-eyebrow mb-2">Merged to main, not released ({ahead})</div>
+                        <div className="hq-eyebrow mb-2">{t('Merged to main, not released ({n})', { n: ahead })}</div>
                         <ul className="flex flex-col gap-1 text-sm">
                             {main.subjects.map((subject, i) => (
                                 <li key={`${i}-${subject}`} className="break-words">
@@ -155,15 +166,15 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                             ))}
                         </ul>
                         {main.subjects_truncated && (
-                            <p className="text-muted-foreground mt-2 text-xs">Only the newest {main.subjects.length} are listed.</p>
+                            <p className="text-muted-foreground mt-2 text-xs">{t('Only the newest {n} are listed.', { n: main.subjects.length })}</p>
                         )}
                     </div>
                     <div className="hq-card min-w-0 p-4">
                         <div className="hq-eyebrow mb-2">
-                            Migrations on main that have not run here ({main.migrations.length})
+                            {t('Migrations on main that have not run here ({n})', { n: main.migrations.length })}
                         </div>
                         {main.migrations.length === 0 ? (
-                            <p className="text-muted-foreground text-sm">None.</p>
+                            <p className="text-muted-foreground text-sm">{t('None.')}</p>
                         ) : (
                             <ul className="flex flex-col gap-1 font-mono text-xs">
                                 {main.migrations.map((name) => (
@@ -178,9 +189,10 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
             )}
 
             <Note>
-                The release is read from the image itself; the release record and main are written by the host (deploy.sh and the 5-minute monitor)
-                into a read-only directory. HQ never calls GitHub. Main is considered unknown once the host's last successful fetch is older than{' '}
-                {main.stale_after_minutes} minutes. Only commit subjects and migration file names are listed: nothing here infers what a change does.
+                {t(
+                    "The release is read from the image itself; the release record and main are written by the host (deploy.sh and the 5-minute monitor) into a read-only directory. HQ never calls GitHub. Main is considered unknown once the host's last successful fetch is older than {n} minutes. Only commit subjects and migration file names are listed: nothing here infers what a change does.",
+                    { n: main.stale_after_minutes },
+                )}
             </Note>
         </Panel>
     );

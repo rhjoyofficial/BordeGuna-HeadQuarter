@@ -6,6 +6,7 @@ import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanDuration, humanKey, humanMillis, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 
@@ -48,6 +49,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Platform', href: '/observe/plat
 const GB = 1073741824;
 
 export default function Platform(props: Props) {
+    const t = useT();
     const { queues, scheduler, events, host, retention } = props;
     const openAlerts = Object.values(props.alerts_open).reduce((a, b) => a + b, 0);
 
@@ -57,10 +59,10 @@ export default function Platform(props: Props) {
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Platform"
-                    description={`The machinery under HQ: queues, scheduler, events, connectors, credentials, data freshness, the host and retention. Read ${timeAgo(props.checked_at)}.`}
+                    description={t('The machinery under HQ: queues, scheduler, events, connectors, credentials, data freshness, the host and retention. Read {ago}.', { ago: timeAgo(props.checked_at) })}
                     actions={
                         <Link href="/observe/alerts" className="inline-flex min-h-8 items-center rounded-full touch:min-h-11">
-                            <StatusBadge tone={openAlerts > 0 ? 'warn' : 'ok'}>{openAlerts} alert(s) open</StatusBadge>
+                            <StatusBadge tone={openAlerts > 0 ? 'warn' : 'ok'}>{t('{n} alert(s) open', { n: openAlerts })}</StatusBadge>
                         </Link>
                     }
                 />
@@ -68,9 +70,9 @@ export default function Platform(props: Props) {
                 {scheduler.stale && (
                     <Notice tone="warn" title="The scheduler is not ticking">
                         {scheduler.age_seconds === null
-                            ? 'No tick has been recorded. '
-                            : `The last tick was ${humanDuration(scheduler.age_seconds)} ago. `}
-                        Until it ticks again, alert checks, sweeps, the event drain and scheduled jobs do not run, so the alert list is not being refreshed.
+                            ? t('No tick has been recorded.') + ' '
+                            : t('The last tick was {ago} ago.', { ago: humanDuration(scheduler.age_seconds) }) + ' '}
+                        {t('Until it ticks again, alert checks, sweeps, the event drain and scheduled jobs do not run, so the alert list is not being refreshed.')}
                     </Notice>
                 )}
 
@@ -79,13 +81,13 @@ export default function Platform(props: Props) {
                 <StatGrid>
                     <Stat
                         label="Scheduler"
-                        value={scheduler.age_seconds === null ? 'no tick' : humanDuration(scheduler.age_seconds)}
-                        detail={`since the last tick; stale after ${scheduler.stale_after_seconds} s`}
+                        value={scheduler.age_seconds === null ? t('no tick') : humanDuration(scheduler.age_seconds)}
+                        detail={t('since the last tick; stale after {n} s', { n: scheduler.stale_after_seconds })}
                         badge={<StatusBadge status={scheduler.stale ? 'stale' : 'ok'} />}
                     />
                     <Stat
                         label="Queues (Horizon)"
-                        value={queues === null ? 'unknown' : `${queues.masters} supervisor(s)`}
+                        value={queues === null ? t('unknown') : t('{n} supervisor(s)', { n: queues.masters })}
                         detail={queues === null ? 'Redis did not answer from here.' : queues.paused ? 'paused' : 'running'}
                         badge={queues === null ? undefined : <StatusBadge status={queues.masters === 0 || queues.paused ? 'stopped' : 'ok'} />}
                     />
@@ -93,13 +95,13 @@ export default function Platform(props: Props) {
                         label="Events waiting"
                         value={events.waiting}
                         detail={
-                            events.oldest_waiting_minutes === null ? 'nothing waiting' : `oldest ${humanDuration(events.oldest_waiting_minutes * 60)}`
+                            events.oldest_waiting_minutes === null ? 'nothing waiting' : t('oldest {age}', { age: humanDuration(events.oldest_waiting_minutes * 60) })
                         }
                     />
                     <Stat
                         label="Events dead"
                         value={events.dead}
-                        detail={`${events.dead_last_7_days} in the last 7 days; last event ${timeAgo(events.last_occurred_at)}`}
+                        detail={t('{n} in the last 7 days; last event {ago}', { n: events.dead_last_7_days, ago: timeAgo(events.last_occurred_at) })}
                         badge={events.dead_last_7_days > 0 ? <StatusBadge status="dead" /> : undefined}
                     />
                 </StatGrid>
@@ -161,7 +163,7 @@ export default function Platform(props: Props) {
                     title="Readiness"
                     aside={
                         <Link href="/credentials" className="inline-flex min-h-8 items-center underline touch:min-h-11">
-                            Credentials screen
+                            {t('Credentials screen')}
                         </Link>
                     }
                 >
@@ -199,7 +201,7 @@ export default function Platform(props: Props) {
                                     key: 'state',
                                     label: '',
                                     render: (c) => (
-                                        <StatusBadge status={c.expired ? 'expired' : 'pending'}>{c.expired ? 'expired' : 'soon'}</StatusBadge>
+                                        <StatusBadge status={c.expired ? 'expired' : 'pending'}>{c.expired ? t('expired') : t('soon')}</StatusBadge>
                                     ),
                                 },
                             ]}
@@ -211,7 +213,7 @@ export default function Platform(props: Props) {
                             <EmptyState title="The integrity check has not run yet." description="This panel fills after the first check of the order facts." />
                         ) : (
                             <StatGrid>
-                                <Stat label="Checked" value={props.integrity.checked} detail={`last run ${timeAgo(props.integrity.at)}`} />
+                                <Stat label="Checked" value={props.integrity.checked} detail={t('last run {ago}', { ago: timeAgo(props.integrity.at) })} />
                                 <Stat
                                     label="Discrepancies"
                                     value={props.integrity.discrepancies}
@@ -223,7 +225,7 @@ export default function Platform(props: Props) {
                     </Panel>
                 </div>
 
-                <Panel title="ERP snapshots" aside={`stale after ${props.snapshot_stale_after_hours} h; the polls are daily`}>
+                <Panel title="ERP snapshots" aside={t('stale after {n} h; the polls are daily', { n: props.snapshot_stale_after_hours })}>
                     <DataTable
                         rowKey={(s) => `${s.business}-${s.kind}`}
                         rows={props.snapshots}
@@ -239,21 +241,24 @@ export default function Platform(props: Props) {
                 </Panel>
 
                 <div className="grid gap-6 xl:grid-cols-2">
-                    <Panel title="Host" aside={`paged by ${host.paged_by}`}>
+                    <Panel title="Host" aside={t('paged by {who}', { who: host.paged_by })}>
                         <StatGrid>
                             <Stat
                                 label="Disk used"
-                                value={host.disk === null ? 'unknown' : `${host.disk.used_percent}%`}
+                                value={host.disk === null ? t('unknown') : `${host.disk.used_percent}%`}
                                 detail={
                                     host.disk === null
                                         ? 'Not readable from here.'
-                                        : `${(host.disk.free_bytes / GB).toFixed(1)} GB free of ${(host.disk.total_bytes / GB).toFixed(1)} GB`
+                                        : t('{free} GB free of {total} GB', {
+                                              free: (host.disk.free_bytes / GB).toFixed(1),
+                                              total: (host.disk.total_bytes / GB).toFixed(1),
+                                          })
                                 }
                             />
                             <Stat
                                 label="Memory available"
-                                value={host.memory === null ? 'unknown' : `${host.memory.available_mb} MB`}
-                                detail={host.memory === null ? 'Not readable from here.' : `of ${host.memory.total_mb} MB`}
+                                value={host.memory === null ? t('unknown') : `${host.memory.available_mb} MB`}
+                                detail={host.memory === null ? 'Not readable from here.' : t('of {n} MB', { n: host.memory.total_mb })}
                             />
                         </StatGrid>
                         <Note>Backups are checked by the host monitor, which can see the backup directory; the application cannot.</Note>
@@ -274,15 +279,16 @@ export default function Platform(props: Props) {
                             </StatGrid>
                         )}
                         <Note>
-                            Detail kept{' '}
-                            {Object.entries(retention.policy.detail_keep_days)
-                                .map(([t, d]) => `${t} ${d} days`)
-                                .join(', ')}
-                            ; event payloads {retention.policy.event_payload_keep_days} days. Watermarks:{' '}
-                            {retention.watermarks.length === 0
-                                ? 'none yet'
-                                : retention.watermarks.map((w) => `${w.table} through ${w.through_day}`).join(', ')}
-                            .
+                            {t('Detail kept {kept}; event payloads {n} days. Watermarks: {marks}.', {
+                                kept: Object.entries(retention.policy.detail_keep_days)
+                                    .map(([table, d]) => t('{table} {n} days', { table, n: d }))
+                                    .join(', '),
+                                n: retention.policy.event_payload_keep_days,
+                                marks:
+                                    retention.watermarks.length === 0
+                                        ? t('none yet')
+                                        : retention.watermarks.map((w) => t('{table} through {day}', { table: w.table, day: w.through_day })).join(', '),
+                            })}
                         </Note>
                     </Panel>
                 </div>

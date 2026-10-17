@@ -1,6 +1,7 @@
 import { JsonBlock, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
+import { type Translator, useT } from '@/lib/i18n';
 import { type ReactNode } from 'react';
 
 type Person = { user_id: number | null; name: string | null };
@@ -28,52 +29,56 @@ export type ExecutionContext =
           resolved_at: string | null;
       };
 
-function person(p: Person): string {
-    if (p.user_id === null) return 'nobody recorded';
-    return p.name ? `${p.name} (user #${p.user_id})` : `user #${p.user_id}, who no longer exists`;
+function person(p: Person, t: Translator): string {
+    if (p.user_id === null) return t('nobody recorded');
+    return p.name ? t('{name} (user #{id})', { name: p.name, id: String(p.user_id) }) : t('user #{id}, who no longer exists', { id: String(p.user_id) });
 }
 
 /** Who asked, said the way the four kinds are accountable (ADR-047). */
-function askedSentence(c: Extract<ExecutionContext, { state: 'recorded' }>): string {
-    const who = person(c.requester);
+function askedSentence(c: Extract<ExecutionContext, { state: 'recorded' }>, t: Translator): string {
+    const who = person(c.requester, t);
     if (c.requester.as_enabled) {
         const door =
             c.requester.kind === 'gate_runner'
-                ? 'an evaluation'
+                ? t('an evaluation')
                 : c.requester.kind === 'console'
-                  ? 'a shell on the host'
-                  : 'a scheduled or system run';
-        return `Nobody separate asked: this was ${door}, so the agent ran as it was enabled and the accountable person is ${who}.`;
+                  ? t('a shell on the host')
+                  : t('a scheduled or system run');
+        return t('Nobody separate asked: this was {door}, so the agent ran as it was enabled and the accountable person is {who}.', { door, who });
     }
-    if (c.requester.kind === 'on_behalf_of') return `The scheduler or the system asked, on behalf of ${who}.`;
-    return `${who} asked.`;
+    if (c.requester.kind === 'on_behalf_of') return t('The scheduler or the system asked, on behalf of {who}.', { who });
+    return t('{who} asked.', { who });
 }
 
 const TERM_LABEL: Record<string, string> = { business: 'Businesses', brand: 'Brands', tool_permission: 'Tools' };
 
-function names(list: Named[], hidden: number): string {
+function names(list: Named[], hidden: number, t: Translator): string {
     const shown = list.map((n) => n.name).join(', ');
-    const rest = hidden > 0 ? `${shown ? ' and ' : ''}${hidden} outside what you may see` : '';
-    return `${shown}${rest}` || 'none';
+    const rest = hidden > 0 ? `${shown ? ` ${t('and')} ` : ''}${t('{n} outside what you may see', { n: hidden })}` : '';
+    return `${shown}${rest}` || t('none');
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
+    const t = useT();
     return (
         <div className="min-w-0">
-            <dt className="hq-eyebrow">{label}</dt>
+            <dt className="hq-eyebrow">{t(label)}</dt>
             <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
 
 export function ExecutionContextPanel({ context }: { context: ExecutionContext }) {
+    const t = useT();
+
     if (context.state === 'before_adr_047') {
         return (
             <section className="hq-card flex flex-col gap-2 p-4">
                 <SectionHeader title="Whose authority this run had" />
                 <p className="text-muted-foreground text-sm">
-                    Recorded before execution contexts existed. This run was made before HQ wrote down who asked, who enabled the agent and what the
-                    run could reach, so none of that is known for it. That is a gap in the record, not a statement that the run had no limits.
+                    {t(
+                        'Recorded before execution contexts existed. This run was made before HQ wrote down who asked, who enabled the agent and what the run could reach, so none of that is known for it. That is a gap in the record, not a statement that the run had no limits.',
+                    )}
                 </p>
             </section>
         );
@@ -88,64 +93,72 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
                 title="Whose authority this run had"
                 aside={
                     narrowedCount === 0 ? (
-                        <StatusBadge tone="neutral">nothing narrowed it</StatusBadge>
+                        <StatusBadge tone="neutral">{t('nothing narrowed it')}</StatusBadge>
                     ) : (
                         <StatusBadge tone="warn">
-                            narrowed {narrowedCount} {narrowedCount === 1 ? 'way' : 'ways'}
+                            {narrowedCount === 1 ? t('narrowed {n} way', { n: narrowedCount }) : t('narrowed {n} ways', { n: narrowedCount })}
                         </StatusBadge>
                     )
                 }
             />
 
             <p className="text-sm">
-                {askedSentence(c)}{' '}
+                {askedSentence(c, t)}{' '}
                 {c.requester.is_enabler
-                    ? 'The same person enabled the agent, so the run had that one person’s reach and the agent’s own limits.'
-                    : `${person(c.enabler)} enabled the agent. The run could reach only what BOTH of them may, inside the agent’s own limits.`}
+                    ? t('The same person enabled the agent, so the run had that one person’s reach and the agent’s own limits.')
+                    : t('{who} enabled the agent. The run could reach only what BOTH of them may, inside the agent’s own limits.', {
+                          who: person(c.enabler, t),
+                      })}
             </p>
 
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Fact label="Asked by">
-                    {person(c.requester)}
-                    {c.requester.basis && <div className="text-muted-foreground text-xs">read from {c.requester.basis}</div>}
+                    {person(c.requester, t)}
+                    {c.requester.basis && <div className="text-muted-foreground text-xs">{t('read from {basis}', { basis: c.requester.basis })}</div>}
                 </Fact>
-                <Fact label="Agent enabled by">{person(c.enabler)}</Fact>
+                <Fact label="Agent enabled by">{person(c.enabler, t)}</Fact>
                 <Fact label="Acted as">
-                    the {humanKey(c.agent.key)} agent
-                    {c.agent.role && <span className="text-muted-foreground"> · {humanKey(c.agent.role).toLowerCase()} role</span>}
+                    {t('the {agent} agent', { agent: humanKey(c.agent.key) })}
+                    {c.agent.role && (
+                        <span className="text-muted-foreground"> · {t('{role} role', { role: humanKey(c.agent.role).toLowerCase() })}</span>
+                    )}
                 </Fact>
                 <Fact label="Came in through">
-                    {c.entry_point ? humanKey(c.entry_point).toLowerCase() : 'not recorded'}
+                    {c.entry_point ? humanKey(c.entry_point).toLowerCase() : t('not recorded')}
                     {c.environment && <span className="text-muted-foreground"> · {c.environment}</span>}
                 </Fact>
                 <Fact label="Businesses it could read">
                     {c.business_scope.group_wide
-                        ? 'Every business (nothing narrowed it)'
-                        : names(c.business_scope.businesses, c.business_scope.outside_your_view)}
-                    {c.business_scope.requested && <div className="text-muted-foreground text-xs">opened for {c.business_scope.requested.name}</div>}
+                        ? t('Every business (nothing narrowed it)')
+                        : names(c.business_scope.businesses, c.business_scope.outside_your_view, t)}
+                    {c.business_scope.requested && (
+                        <div className="text-muted-foreground text-xs">{t('opened for {name}', { name: c.business_scope.requested.name })}</div>
+                    )}
                 </Fact>
                 <Fact label="Brands">
-                    {c.brand_scope.every_brand ? 'Every brand of those businesses' : names(c.brand_scope.brands, c.brand_scope.outside_your_view)}
-                    {c.brand_scope.requested && <div className="text-muted-foreground text-xs">opened for {c.brand_scope.requested.name}</div>}
+                    {c.brand_scope.every_brand ? t('Every brand of those businesses') : names(c.brand_scope.brands, c.brand_scope.outside_your_view, t)}
+                    {c.brand_scope.requested && (
+                        <div className="text-muted-foreground text-xs">{t('opened for {name}', { name: c.brand_scope.requested.name })}</div>
+                    )}
                 </Fact>
                 <Fact label="Resolved">
                     {c.resolved_at ? (
                         `${timeAgo(c.resolved_at)}, ${formatDateTime(c.resolved_at)}`
                     ) : (
-                        <span className="text-muted-foreground">The time was not recorded for this run.</span>
+                        <span className="text-muted-foreground">{t('The time was not recorded for this run.')}</span>
                     )}
                 </Fact>
             </dl>
 
             <div>
-                <div className="hq-eyebrow">Tools it could reach · {c.tools.length}</div>
+                <div className="hq-eyebrow">{t('Tools it could reach · {n}', { n: c.tools.length })}</div>
                 {c.tools.length === 0 ? (
-                    <p className="text-muted-foreground mt-1 text-sm">None.</p>
+                    <p className="text-muted-foreground mt-1 text-sm">{t('None.')}</p>
                 ) : (
                     <ul className="mt-1 flex flex-wrap gap-1.5">
-                        {c.tools.map((t) => (
-                            <li key={t} title={t} className="bg-muted border-glass-border rounded-full border px-2.5 py-0.5 text-xs">
-                                {humanKey(t)}
+                        {c.tools.map((tool) => (
+                            <li key={tool} title={tool} className="bg-muted border-glass-border rounded-full border px-2.5 py-0.5 text-xs">
+                                {humanKey(tool)}
                             </li>
                         ))}
                     </ul>
@@ -153,18 +166,19 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
             </div>
 
             <div>
-                <div className="hq-eyebrow">What narrowed it, and why</div>
+                <div className="hq-eyebrow">{t('What narrowed it, and why')}</div>
                 {narrowedCount === 0 ? (
                     <p className="text-muted-foreground mt-1 text-sm">
-                        Nothing. The person who asked, the person who enabled the agent and the agent&rsquo;s own settings set no limit beyond the
-                        agent&rsquo;s tool list.
+                        {t(
+                            'Nothing. The person who asked, the person who enabled the agent and the agent’s own settings set no limit beyond the agent’s tool list.',
+                        )}
                     </p>
                 ) : (
                     <ul className="mt-1 flex flex-col gap-1.5 text-sm">
                         {c.narrowed.map((n, i) => (
                             <li key={i} className="flex flex-wrap gap-x-2">
-                                <span className="font-medium">{TERM_LABEL[n.term] ?? humanKey(n.term)}</span>
-                                <span className="text-muted-foreground">by the {n.by.replace('+', ' and the ')}:</span>
+                                <span className="font-medium">{TERM_LABEL[n.term] ? t(TERM_LABEL[n.term]) : humanKey(n.term)}</span>
+                                <span className="text-muted-foreground">{t('by the {who}:', { who: n.by.replace('+', ' and the ') })}</span>
                                 <span className="min-w-0 break-words">{n.why}</span>
                             </li>
                         ))}
@@ -174,8 +188,9 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
 
             <TechnicalDetail summary="Technical detail: digest, permission names, what is decided per call">
                 <p className="text-muted-foreground mb-2 text-xs">
-                    Recorded when the run started and not recomputed since. Ids, keys and permission names only; the record holds no credential. Each
-                    call was still checked by the gateway for the terms listed as decided per call.
+                    {t(
+                        'Recorded when the run started and not recomputed since. Ids, keys and permission names only; the record holds no credential. Each call was still checked by the gateway for the terms listed as decided per call.',
+                    )}
                 </p>
                 <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
                     <dt>resolver</dt>

@@ -2,10 +2,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AuthLayout from '@/layouts/auth-layout';
+import { useT } from '@/lib/i18n';
 import { Head, useForm } from '@inertiajs/react';
 import { useState } from 'react';
 
 export default function TwoFactorChallenge() {
+    const t = useT();
     const [useRecovery, setUseRecovery] = useState(false);
     const form = useForm({ code: '', recovery_code: '' });
 
@@ -24,7 +26,7 @@ export default function TwoFactorChallenge() {
             >
                 {!useRecovery ? (
                     <div className="grid gap-2">
-                        <Label htmlFor="code">Authentication code</Label>
+                        <Label htmlFor="code">{t('Authentication code')}</Label>
                         <Input
                             id="code"
                             inputMode="numeric"
@@ -38,7 +40,7 @@ export default function TwoFactorChallenge() {
                     </div>
                 ) : (
                     <div className="grid gap-2">
-                        <Label htmlFor="recovery">Recovery code</Label>
+                        <Label htmlFor="recovery">{t('Recovery code')}</Label>
                         <Input
                             id="recovery"
                             autoFocus
@@ -51,10 +53,10 @@ export default function TwoFactorChallenge() {
                     <div role="alert" className="text-tone-danger text-sm">{form.errors.code ?? form.errors.recovery_code}</div>
                 )}
                 <Button type="submit" disabled={form.processing}>
-                    Verify
+                    {t('Verify')}
                 </Button>
                 <button type="button" className="text-muted-foreground hover:text-foreground min-h-9 rounded-md text-sm underline touch:min-h-11" onClick={() => setUseRecovery(!useRecovery)}>
-                    {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
+                    {useRecovery ? t('Use an authenticator code') : t('Use a recovery code')}
                 </button>
             </form>
         </AuthLayout>

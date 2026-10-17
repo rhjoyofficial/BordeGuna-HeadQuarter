@@ -1,4 +1,5 @@
 import AppLogoIcon from '@/components/app-logo-icon';
+import { useT } from '@/lib/i18n';
 import { Link } from '@inertiajs/react';
 
 interface AuthLayoutProps {
@@ -14,6 +15,8 @@ interface AuthLayoutProps {
  * looks like the house behind it, in the light theme and the dark one.
  */
 export default function AuthSimpleLayout({ children, title, description }: AuthLayoutProps) {
+    const t = useT();
+
     return (
         <div className="relative flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
 
@@ -25,20 +28,20 @@ export default function AuthSimpleLayout({ children, title, description }: AuthL
                         </div>
                         <div className="text-left leading-tight">
                             <div className="text-base font-semibold">Bor de Guna HQ</div>
-                            <div className="text-muted-foreground text-xs">Group control room</div>
+                            <div className="text-muted-foreground text-xs">{t('Group control room')}</div>
                         </div>
                     </Link>
 
                     <div className="hq-glass rounded-3xl p-6 sm:p-8">
                         <div className="mb-6 space-y-1">
-                            <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-                            {description && <p className="text-muted-foreground text-sm">{description}</p>}
+                            <h1 className="text-xl font-semibold tracking-tight">{title && t(title)}</h1>
+                            {description && <p className="text-muted-foreground text-sm">{t(description)}</p>}
                         </div>
                         {children}
                     </div>
 
                     <p className="text-muted-foreground text-center text-xs">
-                        Private to Bor de Guna. Every sign-in needs a password and a one-time code, and every action is recorded.
+                        {t('Private to Bor de Guna. Every sign-in needs a password and a one-time code, and every action is recorded.')}
                     </p>
                 </div>
             </div>

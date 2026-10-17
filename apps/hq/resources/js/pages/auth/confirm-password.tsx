@@ -8,8 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import AuthLayout from '@/layouts/auth-layout';
+import { useT } from '@/lib/i18n';
 
 export default function ConfirmPassword() {
+    const t = useT();
     const { data, setData, post, processing, errors, reset } = useForm({
         password: '',
     });
@@ -32,11 +34,11 @@ export default function ConfirmPassword() {
             <form onSubmit={submit}>
                 <div className="space-y-6">
                     <div className="grid gap-2">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="password">{t('Password')}</Label>
                         <PasswordInput
                             id="password"
                             name="password"
-                            placeholder="Password"
+                            placeholder={t('Password')}
                             autoComplete="current-password"
                             value={data.password}
                             autoFocus
@@ -49,7 +51,7 @@ export default function ConfirmPassword() {
                     <div className="flex items-center">
                         <Button className="w-full" disabled={processing}>
                             {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                            Confirm password
+                            {t('Confirm password')}
                         </Button>
                     </div>
                 </div>

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import AuthLayout from '@/layouts/auth-layout';
+import { useT } from '@/lib/i18n';
 
 type LoginForm = {
     email: string;
@@ -23,6 +24,7 @@ interface LoginProps {
 }
 
 export default function Login({ status, canResetPassword }: LoginProps) {
+    const t = useT();
     const { data, setData, post, processing, errors, reset } = useForm<LoginForm>({
         email: '',
         password: '',
@@ -48,7 +50,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
 
             <form className="flex flex-col gap-5" onSubmit={submit}>
                 <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{t('Email')}</Label>
                     <Input
                         id="email"
                         type="email"
@@ -66,10 +68,10 @@ export default function Login({ status, canResetPassword }: LoginProps) {
 
                 <div className="grid gap-2">
                     <div className="flex items-center">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="password">{t('Password')}</Label>
                         {canResetPassword && (
                             <TextLink href={route('password.request')} className="ml-auto text-sm" tabIndex={4}>
-                                Forgot it?
+                                {t('Forgot it?')}
                             </TextLink>
                         )}
                     </div>
@@ -80,7 +82,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         autoComplete="current-password"
                         value={data.password}
                         onChange={(e) => setData('password', e.target.value)}
-                        placeholder="Your password"
+                        placeholder={t('Your password')}
                     />
                     <InputError message={errors.password} />
                 </div>
@@ -94,13 +96,13 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         onCheckedChange={(v) => setData('remember', v === true)}
                     />
                     <Label htmlFor="remember" className="font-normal">
-                        Keep me signed in on this device
+                        {t('Keep me signed in on this device')}
                     </Label>
                 </div>
 
                 <Button type="submit" className="mt-2 w-full" tabIndex={3} disabled={processing}>
                     {processing && <LoaderCircle className="size-4 animate-spin" aria-hidden />}
-                    Continue
+                    {t('Continue')}
                 </Button>
             </form>
         </AuthLayout>
