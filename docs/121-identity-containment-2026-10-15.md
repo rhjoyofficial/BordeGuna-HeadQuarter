@@ -64,3 +64,13 @@ Ran `deploy/tools/identity-scope-readonly.sql` on production `b96a396` (57 migra
 - Clean: no conversations, participants, messages, consent events, consent state, memories or cross-business merges affected; no duplicate null-store identities; no identity re-pointed away from its order's customer.
 - What the W1 migration will do with this data: quarantine the store-scoped `shop_order` and `shop_user` rows (`store_business_mismatch`) with conflict rows; the phone identity has evidence in its owner's own business, so it stays live under LaLaDia. The W2 repair then splits order #16 onto a Bionic customer, with lineage.
 - Containment: NOT yet applied; Joy's choice between Option 1 (accept the small risk until the release) and Option 2 (stop the HQ scheduler) is open. Incident NOT claimed contained.
+
+## 6. Containment applied: Option 2 (Joy, 17 Oct 2026 03:35 UTC)
+
+Joy chose Option 2 ("proceed with your recommendation", ruling docs/131 §1.1) and ran it himself (the auto-mode classifier refuses production mutations to Claude).
+
+- `docker compose -f deploy/docker-compose.yml --env-file deploy/.env stop scheduler` on production `b96a396`: `bordeguna-hq-scheduler-1 Stopped`; `ps scheduler` lists nothing running.
+- Read-only snapshot right after (`deploy/tools/containment-snapshot-readonly.sql`, READ ONLY, rolled back), 03:35:11 UTC: events `processed` 80, `dead` 16 (the known September rows), `processing` 0 (no drain was cut mid-run), `pending` 0, max event id 592.
+- From now on: shop webhooks land as `pending` rows (id > 592) and nothing resolves a customer. No event is lost (docs/132 finding a). The release must keep the drain paused (docs/134 §5 step 4: `HQ_EVENTS_DRAIN_PAUSED=true` + `--keep-scheduler-stopped`) and replay only after the repair is verified (Stage D step 10).
+- Paused with it: scheduler tick, alerts, approvals sweep, retention, shadow ticks, delivery reconciliation, Horizon snapshots. `/api/health` will report the scheduler failing; that is expected, not a new incident.
+- The incident is now contained at the write path: no new cross-business link can be created until the drain resumes under the fixed resolver. The one existing mis-attached order (#16) remains until the authorized repair.
