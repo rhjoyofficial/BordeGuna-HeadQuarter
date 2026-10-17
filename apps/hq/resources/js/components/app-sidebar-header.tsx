@@ -9,7 +9,10 @@ export function AppSidebarHeader({ breadcrumbs = [] }: { breadcrumbs?: Breadcrum
         <header className="border-glass-border flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 md:px-5">
             <div className="flex min-w-0 items-center gap-2">
                 <SidebarTrigger className="-ml-1" />
-                <Breadcrumbs breadcrumbs={breadcrumbs} />
+                {/* W-UI5: below 640 px the page title says where you are, and the theme and language switches need the room. */}
+                <div className="hidden min-w-0 sm:block">
+                    <Breadcrumbs breadcrumbs={breadcrumbs} />
+                </div>
             </div>
             {/* docs/135 (c): the language and the theme are one tap away on every screen. */}
             <div className="flex shrink-0 items-center gap-2">

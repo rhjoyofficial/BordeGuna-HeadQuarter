@@ -69,6 +69,17 @@ const BANGLA_SCREENS = [
     'js/pages/settings/sessions.tsx',
     'js/components/appearance-tabs.tsx',
     'js/components/pagination.tsx',
+    // docs/135 (W-UI2): the console on /dashboard and its parts.
+    'js/pages/dashboard.tsx',
+    'js/components/console/age.ts',
+    'js/components/console/source-chip.tsx',
+    'js/components/console/brief.tsx',
+    'js/components/console/decisions.tsx',
+    'js/components/console/live-panel.tsx',
+    'js/components/console/composer.tsx',
+    // docs/135 (W-UI5): the phone's bottom bar and the inert voice screen.
+    'js/components/phone-bar.tsx',
+    'js/pages/voice.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

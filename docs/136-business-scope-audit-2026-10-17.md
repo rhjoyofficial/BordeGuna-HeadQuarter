@@ -4,7 +4,7 @@ Branch `fix/business-scope-approvals-and-jobs` from main `c0db11e`, worktree `hq
 
 ## Why
 
-- Found during W-UI2 (`docs/135` (i), branch `ui/w-ui2-console`): the approvals list and the scheduler list were not narrowed by business for a person whose access is limited to some businesses, while the dashboard counts already were.
+- Found during W-UI2 (`docs/135` (k) after the integration, (i) on its own branch `ui/w-ui2-console`): the approvals list and the scheduler list were not narrowed by business for a person whose access is limited to some businesses, while the dashboard counts already were.
 - Rulings `docs/120` A4 and `docs/131` §1: every query enforces business scope independently. A corrected reader elsewhere is not enough.
 
 ## The rule applied (found, not invented)
@@ -83,5 +83,5 @@ Branch `fix/business-scope-approvals-and-jobs` from main `c0db11e`, worktree `hq
 
 ## Notes for the other branches
 
-- W-UI2 (`ui/w-ui2-console`, `docs/135` (i)) has the console show "their businesses' jobs and the group-level ones" to a restricted person. The rule found here hides group-level rows from a restricted person; when that branch is rebased, its jobs block should use `ScheduledJob::visibleTo()` and `JobRun::visibleTo()` so the console and the scheduler agree.
+- W-UI2 (`ui/w-ui2-console`, `docs/135` (k) after the integration) has the console show "their businesses' jobs and the group-level ones" to a restricted person. The rule found here hides group-level rows from a restricted person; when that branch is rebased, its jobs block should use `ScheduledJob::visibleTo()` and `JobRun::visibleTo()` so the console and the scheduler agree.
 - Separate finding, not business scope and not changed here: before this branch the dashboard sent the last ten audit rows (with before/after) to every dashboard viewer, including roles without `hq.audit.view` such as `support_agent`. This branch hides them from a restricted person only; gating them by `hq.audit.view` for everyone is a one-line follow-up that needs Joy's yes, because it changes what an unrestricted role sees.

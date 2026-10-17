@@ -5,7 +5,8 @@ use Illuminate\Filesystem\Filesystem;
 /*
  | docs/136: the business scope audit, pinned.
  |
- | Every controller under app/Http/Controllers and every screen reader under app/Observe/Dashboards is
+ | Every controller under app/Http/Controllers and every screen reader under app/Observe/Dashboards and
+ | app/Observe/Console is
  | listed here with its verdict. A new file fails the first test until somebody audits it and adds it,
  | which is the point: the approvals and scheduler lists went unscoped because nobody was made to look.
  |
@@ -49,6 +50,8 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Security/TwoFactorController.php' => 'no business rows',
     'Settings/PasswordController.php' => 'no business rows',
     'Settings/ProfileController.php' => 'no business rows',
+    // docs/135 W-UI5: the inert voice screen; reads only whether a speech provider is registered.
+    'Voice/VoiceModeController.php' => 'no business rows',
     'Webhooks/MetaForwardController.php' => 'no business rows',
     'Webhooks/MetaWebhookController.php' => 'no business rows',
     'Webhooks/ShopWebhookController.php' => 'no business rows',
@@ -62,6 +65,12 @@ const SCOPE_AUDIT_DASHBOARDS = [
     // Group-wide by nature: ObserveController refuses the platform screen to a restricted person.
     'PlatformDashboard.php' => 'through:app/Http/Controllers/Observe/ObserveController.php',
     'PostureDashboard.php' => 'scoped',
+];
+
+// docs/135 W-UI2, integrated 17 Oct: the console on /dashboard reads approvals, jobs, runs, briefings,
+// alerts and the control plane, so it is audited like a dashboard reader.
+const SCOPE_AUDIT_CONSOLE = [
+    'ConsoleReader.php' => 'scoped',
 ];
 
 function scopeAuditFiles(string $dir): array
@@ -102,11 +111,13 @@ function scopeAuditCheck(array $verdicts, string $root): void
 it('lists every controller with its business scope verdict, so a new one fails until it is audited', function () {
     expect(scopeAuditFiles(app_path('Http/Controllers')))->toBe(array_keys(SCOPE_AUDIT_CONTROLLERS));
     expect(scopeAuditFiles(app_path('Observe/Dashboards')))->toBe(array_keys(SCOPE_AUDIT_DASHBOARDS));
+    expect(scopeAuditFiles(app_path('Observe/Console')))->toBe(array_keys(SCOPE_AUDIT_CONSOLE));
 });
 
 it('holds every scoped verdict to a file that actually applies the scope', function () {
     scopeAuditCheck(SCOPE_AUDIT_CONTROLLERS, 'app/Http/Controllers');
     scopeAuditCheck(SCOPE_AUDIT_DASHBOARDS, 'app/Observe/Dashboards');
+    scopeAuditCheck(SCOPE_AUDIT_CONSOLE, 'app/Observe/Console');
 });
 
 it('keeps visibleTo on every model whose rows the approvals, scheduler and credentials screens list, built on BusinessScope', function () {
