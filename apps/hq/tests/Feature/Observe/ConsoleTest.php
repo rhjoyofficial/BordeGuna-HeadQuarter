@@ -13,6 +13,7 @@ use App\Models\ToolCall;
 use App\Models\User;
 use App\Models\UserBusinessScope;
 use App\Scheduling\Commands\SchedulerTick;
+use App\Support\Features\Features;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -63,7 +64,7 @@ function consoleApproval(?string $businessSlug, array $overrides = []): Approval
 function consoleFlag(string $key, bool $on): void
 {
     FeatureFlag::updateOrCreate(['key' => $key, 'environment' => '*'], ['enabled' => $on, 'rollout' => null]);
-    app(\App\Support\Features\Features::class)->forget();
+    app(Features::class)->forget();
 }
 
 function consoleProps(User $user): array
