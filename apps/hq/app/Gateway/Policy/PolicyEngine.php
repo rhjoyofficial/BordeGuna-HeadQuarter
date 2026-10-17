@@ -3,11 +3,13 @@
 namespace App\Gateway\Policy;
 
 use App\Agents\RolePolicy;
+use App\Ai\Pause\AiPause;
 use App\Gateway\Descriptor\ActionClass;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
+use App\Gateway\CallerKind;
 use App\Gateway\ToolRequest;
 use App\Models\Business;
 use App\Support\Features\Features;
@@ -26,7 +28,7 @@ use Throwable;
  * that the cheapest and most certain refusals happen before anything expensive, and every one of
  * them happens before a credential is resolved:
  *
- *   1. Kill switches            - global freeze, paused agent, inactive business
+ *   1. Kill switches            - global freeze, Pause All AI for an agent's call, paused agent, inactive business
  *   2. agent_executable = false - unliftable by any approval or configuration
  *   3. Environment guard        - a write tool outside production
  *   4. Permission intersection  - the acting identity's authority
@@ -46,6 +48,7 @@ final class PolicyEngine
         private readonly PolicyRepository $policies,
         private readonly BudgetLedger $budgets,
         private readonly RolePolicy $roles,
+        private readonly AiPause $pause,
     ) {}
 
     /**
@@ -64,6 +67,13 @@ final class PolicyEngine
         // 1. Kill switches.
         if ($this->features->enabled(self::FREEZE_FLAG, $businessId)) {
             return PolicyDecision::deny('kill_switch.freeze', 'The global AI freeze flag is on: every tool is refused until it is cleared.');
+        }
+        // docs/138 ruling 7, docs/141: Pause All AI stops every tool call an agent proposed, whoever carries it
+        // to the gateway (the runner, an approval of the agent's proposal, any future path). A person's own
+        // calls, the scheduler's and a workflow's are human operations and are not touched by the pause.
+        // Unreadable pause state counts as paused (`AiPause`).
+        if (($identity->isAgent() || $request->caller === CallerKind::Agent) && $this->pause->isPaused()) {
+            return PolicyDecision::deny('kill_switch.ai_paused', 'Pause All AI is on (or its state could not be read): no tool an agent proposed runs until a person with group-wide authority turns AI back on.');
         }
         if ($identity->isAgent() && $identity->agent !== null && ! $identity->agent->isActive()) {
             return PolicyDecision::deny('kill_switch.agent_paused', "Agent [{$identity->agent->key}] is not active.");

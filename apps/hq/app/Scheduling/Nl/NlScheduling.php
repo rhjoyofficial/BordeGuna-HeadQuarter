@@ -2,6 +2,7 @@
 
 namespace App\Scheduling\Nl;
 
+use App\Ai\Pause\AiPause;
 use App\Models\Business;
 use App\Models\ScheduledJob;
 use App\Models\User;
@@ -40,6 +41,7 @@ final class NlScheduling
         private readonly ScheduledJobService $jobs,
         private readonly Auditor $auditor,
         private readonly BusinessScope $scope,
+        private readonly AiPause $pause,
     ) {}
 
     public function enabled(): bool
@@ -59,6 +61,15 @@ final class NlScheduling
     {
         $this->assertEnabled();
         $text = trim(mb_substr($text, 0, self::MAX_TEXT));
+
+        if ($this->pause->isPaused()) {
+            // docs/141: reading a sentence needs a model, and Pause All AI is on. The form still works.
+            $this->auditor->record('scheduler.nl_refused', 'scheduled_jobs', after: ['reason' => 'ai_paused', 'text_length' => mb_strlen($text)]);
+
+            return ['token' => null, 'preview' => [], 'questions' => [
+                'Pause All AI is on, so HQ cannot read a sentence now. Use the form on the scheduler screen instead.',
+            ], 'ai_run_id' => null];
+        }
 
         if (! $this->runtimeOn()) {
             // Said plainly, and nothing asked: reading a sentence needs a model, and the model is off.

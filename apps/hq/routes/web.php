@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AiPauseController;
 use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
@@ -149,6 +150,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('flags', [AdminController::class, 'flags'])->middleware('permission:hq.flags.view')->name('flags.index');
     Route::post('flags', [AdminController::class, 'storeFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.store');
     Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.toggle');
+
+    // docs/138 ruling 7, docs/141: Pause All AI. Two routes, two permissions: the pause route can only pause,
+    // and re-enabling is its own operation. Both act on every business, so both need group-wide authority.
+    Route::post('ai/pause', [AiPauseController::class, 'pause'])->middleware(['permission:hq.ai.pause', 'group.wide:hq.ai.pause'])->name('ai.pause');
+    Route::post('ai/resume', [AiPauseController::class, 'resume'])->middleware(['permission:hq.ai.resume', 'group.wide:hq.ai.resume'])->name('ai.resume');
 
     Route::get('credentials', [AdminController::class, 'credentials'])->middleware('permission:hq.credentials.view')->name('credentials.index');
     Route::post('credentials', [AdminController::class, 'storeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.store');

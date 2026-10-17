@@ -86,6 +86,10 @@ class RolesAndPermissionsSeeder extends Seeder
         // gateway tool `customers.quarantine.repair`, and assigning a business to a memory the repair withheld.
         // Owner and operator hold it through '*'; no other role is given it.
         'hq.customers.quarantine.repair',
+        // docs/138 ruling 7, docs/141: Pause All AI. `pause` can only turn AI execution off; `resume` is the
+        // distinct operation that turns it back on. Both also need group-wide authority (ruling 13). Owner and
+        // operator hold them through '*'; no other role is given either.
+        'hq.ai.pause', 'hq.ai.resume',
     ];
 
     public const ROLES = [
