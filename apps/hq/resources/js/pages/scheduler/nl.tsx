@@ -2,6 +2,8 @@ import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import InputError from '@/components/input-error';
 import { JsonBlock, PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
+import { Textarea } from '@/components/ui/textarea';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
@@ -41,7 +43,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
     return (
         <div className="flex flex-wrap gap-x-3 text-sm">
-            <dt className="text-muted-foreground w-32 shrink-0">{label}</dt>
+            <dt className="text-muted-foreground w-28 shrink-0 sm:w-32">{label}</dt>
             <dd className="min-w-0 break-words">{children}</dd>
         </div>
     );
@@ -76,16 +78,28 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                     actions={<StatusBadge tone={runtime_on ? 'warn' : 'neutral'}>{runtime_on ? 'AI runtime on' : 'AI runtime off'}</StatusBadge>}
                 />
 
-                <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
-                    <textarea
-                        value={form.data.text}
-                        onChange={(e) => form.setData('text', e.target.value)}
-                        rows={3}
-                        maxLength={max_text}
-                        placeholder="For example: every morning at 8 check the order facts for LaLaDia"
-                        className="border-input hq-field w-full rounded-md border p-2 text-sm"
-                        aria-label="The job, in words"
+                {!runtime_on && (
+                    <InertNotice
+                        title="Reading a sentence"
+                        reason="HQ's AI runtime is off, and reading a sentence needs a model. A sentence sent now comes back unread."
+                        gate="A person switches the AI runtime on. Until then, New job on the scheduler screen creates a job from a form."
                     />
+                )}
+
+                <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
+                    <div className="grid gap-1.5">
+                        <label htmlFor="nl-text" className="text-sm font-medium">
+                            The job, in words
+                        </label>
+                        <Textarea
+                            id="nl-text"
+                            value={form.data.text}
+                            onChange={(e) => form.setData('text', e.target.value)}
+                            rows={3}
+                            maxLength={max_text}
+                            placeholder="For example: every morning at 8 check the order facts for LaLaDia"
+                        />
+                    </div>
                     <InputError message={form.errors.text ?? errors.text} />
                     <FormRow>
                         <Field label="Business, if the sentence does not say" htmlFor="nl-business" error={form.errors.business_id}>
@@ -111,15 +125,14 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                 </form>
 
                 {result && result.questions.length > 0 && (
-                    <section className="flex flex-col gap-2 rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
-                        <strong>HQ needs to know more before it can create anything:</strong>
+                    <Notice tone="pending" title="HQ needs to know more before it can create anything:">
                         <ul className="list-disc pl-5">
                             {result.questions.map((q) => (
                                 <li key={q}>{q}</li>
                             ))}
                         </ul>
-                        <span className="text-xs">Nothing was created. Change the sentence and read it again.</span>
-                    </section>
+                        <span className="mt-1 block text-xs">Nothing was created. Change the sentence and read it again.</span>
+                    </Notice>
                 )}
 
                 {preview && (

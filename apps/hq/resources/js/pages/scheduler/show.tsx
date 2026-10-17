@@ -3,6 +3,7 @@ import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanDuration, humanKey, humanMillis, humanSchedule, timeAgo } from '@/lib/format';
@@ -58,8 +59,8 @@ const MISSED: Record<string, string> = {
 function Fact({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-sm break-words">{children}</dd>
+            <dt className="hq-eyebrow">{label}</dt>
+            <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
@@ -134,6 +135,12 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                         ) : undefined
                     }
                 />
+
+                {job.approval_state === 'pending' && (
+                    <Notice tone="pending" title="Waiting for approval">
+                        This job does not run until a person approves it. Nothing has been scheduled yet.
+                    </Notice>
+                )}
 
                 <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

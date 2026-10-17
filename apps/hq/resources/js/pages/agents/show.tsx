@@ -2,7 +2,9 @@ import { ExecutionContextPanel, type ExecutionContext } from '@/components/agent
 import { runStatus } from '@/components/agents/run-status';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -159,20 +161,20 @@ export default function AgentRunShow({
                 />
 
                 {run.shadow && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+                    <Notice tone="pending">
                         <strong>This is a shadow run, so what follows is not HQ&rsquo;s answer.</strong> It is what the {agentName} agent would have
                         said, recorded for you to read. {run.autonomy_reason && <>Autonomy was bound by: {run.autonomy_reason}.</>}
-                    </div>
+                    </Notice>
                 )}
 
                 <section className="hq-card flex flex-col gap-4 p-4">
                     <div>
-                        <div className="text-muted-foreground text-xs font-medium uppercase">The question</div>
+                        <div className="hq-eyebrow">The question</div>
                         <p className="mt-1 text-base">{run.question}</p>
                     </div>
                     {run.task !== null && (
                         <div>
-                            <div className="text-muted-foreground text-xs font-medium uppercase">What it set out to serve</div>
+                            <div className="hq-eyebrow">What it set out to serve</div>
                             {run.canonical_task ? (
                                 <p className="mt-1 text-sm">
                                     HQ established the task from your words.{' '}
@@ -227,7 +229,7 @@ export default function AgentRunShow({
                         </div>
                     )}
                     <div>
-                        <div className="text-muted-foreground text-xs font-medium uppercase">What it said</div>
+                        <div className="hq-eyebrow">What it said</div>
                         {run.answer ? (
                             <p className="mt-1 text-base leading-relaxed whitespace-pre-wrap">{run.answer}</p>
                         ) : (
@@ -297,8 +299,8 @@ export default function AgentRunShow({
                                         key={v.key}
                                         type="button"
                                         onClick={() => setVerdict(v.key)}
-                                        className={`rounded-lg border p-3 text-left text-sm transition-colors ${
-                                            verdict === v.key ? 'border-primary bg-accent' : 'hover:bg-accent/50'
+                                        className={`min-h-11 rounded-xl border p-3 text-left text-sm transition-colors ${
+                                            verdict === v.key ? 'border-primary bg-accent' : 'border-glass-border bg-card hover:bg-accent/50'
                                         }`}
                                         aria-pressed={verdict === v.key}
                                     >
@@ -307,28 +309,32 @@ export default function AgentRunShow({
                                     </button>
                                 ))}
                             </div>
-                            <textarea
-                                value={note}
-                                onChange={(e) => setNote(e.target.value)}
-                                rows={3}
-                                maxLength={2000}
-                                placeholder={
-                                    verdict === 'approved'
-                                        ? 'Optional: anything worth noting.'
-                                        : 'What was wrong with it, or what you would have said instead.'
-                                }
-                                className="border-input hq-field w-full rounded-md border p-2 text-sm"
-                            />
+                            <div className="grid gap-1.5">
+                                <label htmlFor="review-note" className="text-sm font-medium">
+                                    {t('Your note')}
+                                </label>
+                                <Textarea
+                                    id="review-note"
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                    rows={3}
+                                    maxLength={2000}
+                                    placeholder={
+                                        verdict === 'approved'
+                                            ? 'Optional: anything worth noting.'
+                                            : 'What was wrong with it, or what you would have said instead.'
+                                    }
+                                />
+                            </div>
                             {verdict !== 'approved' && (
                                 <SuggestionBox>
-                                    <textarea
+                                    <Textarea
                                         value={suggestion}
                                         onChange={(e) => setSuggestion(e.target.value)}
                                         rows={4}
                                         maxLength={2000}
                                         aria-label={t('What I would have sent')}
                                         placeholder={t('Optional: the answer as you would have written it.')}
-                                        className="border-input hq-field w-full rounded-md border p-2 text-sm"
                                     />
                                 </SuggestionBox>
                             )}
@@ -542,10 +548,12 @@ function SuggestionBox({ children }: { children: ReactNode }) {
     const t = useT();
 
     return (
-        <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3">
+        <div className="border-glass-border flex flex-col gap-2 rounded-xl border border-dashed p-3">
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{t('What I would have sent')}</span>
-                <span className="text-muted-foreground rounded border px-1.5 py-0.5 text-xs">{t('Proposal only. Never sent.')}</span>
+                <StatusBadge tone="neutral" dot={false}>
+                    {t('Proposal only. Never sent.')}
+                </StatusBadge>
             </div>
             <p className="text-muted-foreground text-xs">
                 {t(

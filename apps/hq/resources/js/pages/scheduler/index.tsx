@@ -1,11 +1,12 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
-import { PageHeader } from '@/components/page-header';
+import { PageHeader, Toolbar } from '@/components/page-header';
 import { Pagination, type PageLink } from '@/components/pagination';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanSchedule, timeAgo } from '@/lib/format';
@@ -111,17 +112,19 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                         </Field>
                     </FormRow>
 
-                    <div className="grid gap-1.5">
-                        <div className="text-sm font-medium">When</div>
-                        <div className="grid gap-2 sm:grid-cols-4">
+                    <div className="grid gap-1.5" role="group" aria-labelledby="job-kind-label">
+                        <div id="job-kind-label" className="text-sm font-medium">
+                            When
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:grid-cols-4">
                             {KINDS.map((k) => (
                                 <button
                                     key={k.key}
                                     type="button"
                                     onClick={() => form.setData('kind', k.key)}
                                     aria-pressed={form.data.kind === k.key}
-                                    className={`rounded-lg border p-2.5 text-left text-sm transition-colors ${
-                                        form.data.kind === k.key ? 'border-primary bg-accent' : 'hover:bg-accent/50'
+                                    className={`min-h-11 rounded-xl border p-2.5 text-left text-sm transition-colors ${
+                                        form.data.kind === k.key ? 'border-primary bg-accent' : 'border-glass-border bg-card hover:bg-accent/50'
                                     }`}
                                 >
                                     <div className="font-medium">{k.label}</div>
@@ -228,7 +231,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                         <div className="text-sm text-tone-danger">{Object.values(form.errors).join(' ')}</div>
                     )}
 
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
@@ -270,7 +273,7 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         ) : undefined
                     }
                 >
-                    <div className="flex flex-wrap items-center gap-2">
+                    <Toolbar label="Filter by state">
                         {STATES.map((s) => (
                             <Button
                                 key={s.key || 'all'}
@@ -284,14 +287,26 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         <span className="text-muted-foreground ml-auto text-sm">
                             {jobs.total} {jobs.total === 1 ? 'job' : 'jobs'}
                         </span>
-                    </div>
+                    </Toolbar>
                 </PageHeader>
+
+                {canManage && !inWords && (
+                    <InertNotice
+                        title="Describe a job in words"
+                        reason="The scheduler.nl feature flag is off, so HQ does not read a sentence into a job."
+                        gate="A person with the right to manage feature flags switches scheduler.nl on. New job works either way."
+                    />
+                )}
 
                 {jobs.data.length === 0 ? (
                     <EmptyState
                         icon={CalendarClock}
                         title={filters.state ? `No ${filters.state} jobs` : 'No scheduled jobs'}
-                        description={filters.state ? 'Try another filter.' : 'Create one to have HQ run a tool on a schedule.'}
+                        description={
+                            filters.state
+                                ? 'No job is in this state. Try another filter.'
+                                : 'Nothing runs on HQ\'s own clock until a job exists. Create one to have HQ run a tool on a schedule.'
+                        }
                         action={
                             canManage && !filters.state ? (
                                 <Button size="sm" onClick={() => setCreating(true)}>

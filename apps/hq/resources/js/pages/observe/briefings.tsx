@@ -2,6 +2,7 @@ import { EmptyState } from '@/components/empty-state';
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
@@ -73,6 +74,11 @@ export default function Briefings({ briefings, contract }: Props) {
                         bundle as the only thing a narrator may speak from. Narration sits behind the feature flag briefing.narration, which does not
                         exist as a row and is therefore off.
                     </Note>
+                    <InertNotice
+                        title="Narration"
+                        reason="The feature flag briefing.narration has no row, so it is off. A briefing holds evidence only."
+                        gate="A person creates the briefing.narration flag and switches it on, with the AI runtime on."
+                    />
                     <TechnicalDetail summary="Contract">
                         <JsonBlock value={contract} />
                     </TechnicalDetail>
