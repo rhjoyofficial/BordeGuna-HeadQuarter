@@ -81,7 +81,7 @@ export default function CustomersIndex({
                     title="Customers"
                     description="One customer per person per business, matched on the phone number first, across every shop. A read model: the shops keep the transactional truth, and this can be rebuilt from them."
                     actions={
-                        <span className="flex items-center gap-3">
+                        <span className="flex flex-wrap items-center gap-3">
                             {canReview && (
                                 <Button asChild variant="outline" size="sm">
                                     <Link href="/customers/quarantine">Cross-business review</Link>
@@ -100,7 +100,14 @@ export default function CustomersIndex({
                         }}
                         className="flex flex-wrap items-center gap-2"
                     >
-                        <Input placeholder="Search name, email or phone" value={q} onChange={(e) => setQ(e.target.value)} className="w-72" />
+                        <Input
+                            type="search"
+                            aria-label="Search customers"
+                            placeholder="Search name, email or phone"
+                            value={q}
+                            onChange={(e) => setQ(e.target.value)}
+                            className="w-full max-w-72 sm:w-72"
+                        />
                         <Button type="submit" variant="outline">
                             Search
                         </Button>
@@ -142,7 +149,7 @@ export default function CustomersIndex({
                                             </td>
                                             <td className="px-3 py-3 text-right">
                                                 {canManage && (
-                                                    <div className="flex justify-end gap-2">
+                                                    <div className="flex flex-wrap justify-end gap-2">
                                                         <Button size="sm" disabled={busy} onClick={() => setMerging(c)}>
                                                             Same person
                                                         </Button>

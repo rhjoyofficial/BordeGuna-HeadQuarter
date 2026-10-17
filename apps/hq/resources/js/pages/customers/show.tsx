@@ -1,11 +1,14 @@
 import { FollowUpsBody, type CustomerFollowUps } from '@/components/customers/follow-ups-section';
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note, Panel, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice, toneClass } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 import { type ReactNode } from 'react';
@@ -227,7 +230,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
               d;
 
     return (
-        <div className="flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+        <div role="status" className={cn('flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm', toneClass('pending'))}>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <strong>{t('Held for review: records that cross a business boundary')}</strong>
                 {canReview && (
@@ -272,9 +275,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
 function NeedsInbox() {
     const t = useT();
     return (
-        <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
-            {t('Shown only to people who may read the inbox.')}
-        </div>
+        <EmptyState title={t('Shown only to people who may read the inbox.')} className="py-6" />
     );
 }
 
@@ -294,6 +295,7 @@ export default function CustomerShow(props: Props) {
             <Head title={name} />
             <div className="flex max-w-6xl flex-col gap-8 p-4 md:p-6">
                 <PageHeader
+                    eyebrow={t('Customer 360')}
                     title={name}
                     description={
                         customer.business
@@ -311,11 +313,11 @@ export default function CustomerShow(props: Props) {
                     }
                 />
 
-                <div className="rounded-xl border px-4 py-3 text-sm bg-tone-info-bg border-tone-info-line text-tone-info">
+                <Notice tone="info">
                     {t(
                         'Each section says what kind of information it holds. Observed facts, what HQ inferred, memory, consent records, promises, hand-overs and order copies are kept apart. The same phone in another business is a different customer and is not shown here.',
                     )}
-                </div>
+                </Notice>
 
                 {quarantine.held && <QuarantinePanel quarantine={quarantine} canReview={permissions.includes('hq.customers.quarantine.review')} />}
 
@@ -411,7 +413,7 @@ export default function CustomerShow(props: Props) {
                                 key: 'other',
                                 label: 'Possible duplicate',
                                 render: (c) => (
-                                    <Link href={`/customers/${c.other_id}`} className="underline">
+                                    <Link href={`/customers/${c.other_id}`} className="underline underline-offset-2">
                                         {t('Customer #{id}', { id: c.other_id })}
                                     </Link>
                                 ),
@@ -665,7 +667,7 @@ export default function CustomerShow(props: Props) {
                     title="Outcomes"
                     explain="Waits for the canonical outcome model (S3). Nothing is computed here until it is agreed."
                 >
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">{t('Not built yet.')}</div>
+                    <EmptyState title={t('Not built yet.')} description={t('Waits for the canonical outcome model (S3).')} className="py-6" />
                 </Section>
             </div>
         </AppLayout>

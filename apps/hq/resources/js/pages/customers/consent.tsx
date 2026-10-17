@@ -2,14 +2,16 @@ import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, useForm } from '@inertiajs/react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 /**
  * A customer's consent (docs/108 §7, S7; docs/114, the follow-ups). The grid is the same ledger answer the
@@ -111,6 +113,8 @@ const ACTS: { key: string; group: 'restrict' | 'grant' }[] = [
 export default function CustomerConsent({ customer, brands, identities, channels, purposes, grid, identity_grid, position, history, pending_lifts, can }: Props) {
     const t = useT();
     const formRef = useRef<HTMLFormElement>(null);
+    // Joy's rule: adding happens in a dialog, never in a form above a list. Same form, same request.
+    const [recording, setRecording] = useState(false);
     const name = customer.name ?? t('Customer #{id}', { id: customer.id });
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Customers', href: '/customers' },
@@ -191,7 +195,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
             brand_id: p.brand_id === null ? '' : String(p.brand_id),
             identity_id: p.identity_id === null ? '' : String(p.identity_id),
         });
-        formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setRecording(true);
     };
 
     return (
@@ -204,9 +208,16 @@ export default function CustomerConsent({ customer, brands, identities, channels
                         'Every change here is a new event in the consent ledger. The Tool Gateway checks the same ledger before any message is sent, so a withdrawal or do not contact takes effect at once.',
                     )}
                     actions={
-                        <Button asChild variant="outline" size="sm">
-                            <Link href={`/customers/${customer.id}`}>{t('Back to customer')}</Link>
-                        </Button>
+                        <>
+                            {allowedActs.length > 0 && (
+                                <Button size="sm" onClick={() => setRecording(true)}>
+                                    {t('Record a consent event')}
+                                </Button>
+                            )}
+                            <Button asChild variant="outline" size="sm">
+                                <Link href={`/customers/${customer.id}`}>{t('Back to customer')}</Link>
+                            </Button>
+                        </>
                     }
                 />
 
@@ -386,7 +397,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
                                                     </Button>
                                                 )}
                                                 {p.two_person && (
-                                                    <span className="ml-2">
+                                                    <span className="ml-2 inline-block">
                                                         <StatusBadge tone="info" dot={false}>
                                                             {t('Two-person')}
                                                         </StatusBadge>
@@ -402,162 +413,172 @@ export default function CustomerConsent({ customer, brands, identities, channels
                 </section>
 
                 {allowedActs.length > 0 && (
-                    <section className="hq-card flex flex-col gap-4 p-4">
-                        <SectionHeader title={t('Record a consent event')} />
-                        <form
-                            ref={formRef}
-                            className="flex flex-col gap-4"
-                            onSubmit={(e) => {
-                                e.preventDefault();
-                                form.transform((d) => ({
-                                    ...d,
-                                    purpose: purposeChoice && d.purpose !== '' ? d.purpose : null,
-                                    channel: d.channel === '' ? null : d.channel,
-                                    brand_id: d.brand_id === '' ? null : Number(d.brand_id),
-                                    identity_id: d.identity_id === '' ? null : Number(d.identity_id),
-                                    // The browser's local time, sent as an absolute instant so the server never guesses a zone.
-                                    occurred_at: d.occurred_at === '' ? null : new Date(d.occurred_at).toISOString(),
-                                    expires_at: expiryAllowed && d.expires_at !== '' ? new Date(d.expires_at).toISOString() : null,
-                                }));
-                                form.post(`/customers/${customer.id}/consent`, {
-                                    preserveScroll: true,
-                                    onSuccess: () => form.reset('evidence_ref', 'reason', 'occurred_at', 'expires_at'),
-                                });
-                            }}
-                        >
-                            <FormRow>
-                                <Field label={t('Act')} htmlFor="act" size="auto" hint={actHint(act)} error={form.errors.act}>
-                                    <NativeSelect id="act" value={act} onChange={(e) => form.setData('act', e.target.value)} required>
-                                        {allowedActs.map((a) => (
-                                            <option key={a.key} value={a.key}>
-                                                {actLabel(a.key)}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                </Field>
-                                {purposeChoice && (
-                                    <Field label={t('Purpose')} htmlFor="purpose" size="auto" error={form.errors.purpose}>
-                                        <NativeSelect id="purpose" value={form.data.purpose} onChange={(e) => form.setData('purpose', e.target.value)}>
-                                            <option value="">{t('All purposes')}</option>
-                                            {purposes.map((p) => (
-                                                <option key={p} value={p}>
-                                                    {purposeLabel(p)}
+                    <Dialog open={recording} onOpenChange={setRecording}>
+                        <DialogContent className="sm:max-w-3xl">
+                            <DialogHeader>
+                                <DialogTitle>{t('Record a consent event')}</DialogTitle>
+                                <DialogDescription>{t('The ledger is the record: this form adds an event, it never edits one.')}</DialogDescription>
+                            </DialogHeader>
+                            <form
+                                ref={formRef}
+                                className="flex flex-col gap-4"
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    form.transform((d) => ({
+                                        ...d,
+                                        purpose: purposeChoice && d.purpose !== '' ? d.purpose : null,
+                                        channel: d.channel === '' ? null : d.channel,
+                                        brand_id: d.brand_id === '' ? null : Number(d.brand_id),
+                                        identity_id: d.identity_id === '' ? null : Number(d.identity_id),
+                                        // The browser's local time, sent as an absolute instant so the server never guesses a zone.
+                                        occurred_at: d.occurred_at === '' ? null : new Date(d.occurred_at).toISOString(),
+                                        expires_at: expiryAllowed && d.expires_at !== '' ? new Date(d.expires_at).toISOString() : null,
+                                    }));
+                                    form.post(`/customers/${customer.id}/consent`, {
+                                        preserveScroll: true,
+                                        onSuccess: () => {
+                                            form.reset('evidence_ref', 'reason', 'occurred_at', 'expires_at');
+                                            setRecording(false);
+                                        },
+                                    });
+                                }}
+                            >
+                                <FormRow>
+                                    <Field label={t('Act')} htmlFor="act" size="auto" hint={actHint(act)} error={form.errors.act}>
+                                        <NativeSelect id="act" value={act} onChange={(e) => form.setData('act', e.target.value)} required>
+                                            {allowedActs.map((a) => (
+                                                <option key={a.key} value={a.key}>
+                                                    {actLabel(a.key)}
                                                 </option>
                                             ))}
                                         </NativeSelect>
                                     </Field>
-                                )}
-                                <Field label={t('Channel')} htmlFor="channel" size="auto" error={form.errors.channel}>
-                                    <NativeSelect
-                                        id="channel"
-                                        value={form.data.channel}
-                                        onChange={(e) => form.setData('channel', e.target.value)}
-                                        required={channelRequired}
-                                    >
-                                        {!channelRequired && <option value="">{t('All channels')}</option>}
-                                        {channelRequired && <option value="">{t('Choose a channel')}</option>}
-                                        {Object.keys(CHANNEL_NAMES).map((c) => (
-                                            <option key={c} value={c}>
-                                                {channelLabel(c)}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                </Field>
-                                {brands.length > 0 && (
-                                    <Field label={t('Brand')} htmlFor="brand" size="auto" error={form.errors.brand_id}>
+                                    {purposeChoice && (
+                                        <Field label={t('Purpose')} htmlFor="purpose" size="auto" error={form.errors.purpose}>
+                                            <NativeSelect id="purpose" value={form.data.purpose} onChange={(e) => form.setData('purpose', e.target.value)}>
+                                                <option value="">{t('All purposes')}</option>
+                                                {purposes.map((p) => (
+                                                    <option key={p} value={p}>
+                                                        {purposeLabel(p)}
+                                                    </option>
+                                                ))}
+                                            </NativeSelect>
+                                        </Field>
+                                    )}
+                                    <Field label={t('Channel')} htmlFor="channel" size="auto" error={form.errors.channel}>
                                         <NativeSelect
-                                            id="brand"
-                                            value={form.data.brand_id}
-                                            onChange={(e) => form.setData('brand_id', e.target.value)}
-                                            required={act === 'marketing_opt_in'}
+                                            id="channel"
+                                            value={form.data.channel}
+                                            onChange={(e) => form.setData('channel', e.target.value)}
+                                            required={channelRequired}
                                         >
-                                            <option value="">{act === 'marketing_opt_in' ? t('Choose a brand') : t('All brands')}</option>
-                                            {brands.map((b) => (
-                                                <option key={b.id} value={b.id}>
-                                                    {b.name}
+                                            {!channelRequired && <option value="">{t('All channels')}</option>}
+                                            {channelRequired && <option value="">{t('Choose a channel')}</option>}
+                                            {Object.keys(CHANNEL_NAMES).map((c) => (
+                                                <option key={c} value={c}>
+                                                    {channelLabel(c)}
                                                 </option>
                                             ))}
                                         </NativeSelect>
                                     </Field>
-                                )}
-                                {identities.length > 0 && (
+                                    {brands.length > 0 && (
+                                        <Field label={t('Brand')} htmlFor="brand" size="auto" error={form.errors.brand_id}>
+                                            <NativeSelect
+                                                id="brand"
+                                                value={form.data.brand_id}
+                                                onChange={(e) => form.setData('brand_id', e.target.value)}
+                                                required={act === 'marketing_opt_in'}
+                                            >
+                                                <option value="">{act === 'marketing_opt_in' ? t('Choose a brand') : t('All brands')}</option>
+                                                {brands.map((b) => (
+                                                    <option key={b.id} value={b.id}>
+                                                        {b.name}
+                                                    </option>
+                                                ))}
+                                            </NativeSelect>
+                                        </Field>
+                                    )}
+                                    {identities.length > 0 && (
+                                        <Field
+                                            label={t('Identity')}
+                                            htmlFor="identity"
+                                            size="auto"
+                                            hint={t('One phone or account of this person, or the whole customer.')}
+                                            error={form.errors.identity_id}
+                                        >
+                                            <NativeSelect id="identity" value={form.data.identity_id} onChange={(e) => form.setData('identity_id', e.target.value)}>
+                                                <option value="">{t('Whole customer')}</option>
+                                                {identities.map((i) => (
+                                                    <option key={i.id} value={i.id}>
+                                                        {i.label}
+                                                    </option>
+                                                ))}
+                                            </NativeSelect>
+                                        </Field>
+                                    )}
+                                </FormRow>
+                                <FormRow>
                                     <Field
-                                        label={t('Identity')}
-                                        htmlFor="identity"
-                                        size="auto"
-                                        hint={t('One phone or account of this person, or the whole customer.')}
-                                        error={form.errors.identity_id}
+                                        label={t('Evidence')}
+                                        htmlFor="evidence"
+                                        size="lg"
+                                        hint={t('Where it is written down: a message, a call, a form.')}
+                                        error={form.errors.evidence_ref}
                                     >
-                                        <NativeSelect id="identity" value={form.data.identity_id} onChange={(e) => form.setData('identity_id', e.target.value)}>
-                                            <option value="">{t('Whole customer')}</option>
-                                            {identities.map((i) => (
-                                                <option key={i.id} value={i.id}>
-                                                    {i.label}
-                                                </option>
-                                            ))}
-                                        </NativeSelect>
+                                        <Input
+                                            id="evidence"
+                                            value={form.data.evidence_ref}
+                                            onChange={(e) => form.setData('evidence_ref', e.target.value)}
+                                            maxLength={191}
+                                            required
+                                        />
                                     </Field>
-                                )}
-                            </FormRow>
-                            <FormRow>
-                                <Field
-                                    label={t('Evidence')}
-                                    htmlFor="evidence"
-                                    size="lg"
-                                    hint={t('Where it is written down: a message, a call, a form.')}
-                                    error={form.errors.evidence_ref}
-                                >
-                                    <Input
-                                        id="evidence"
-                                        value={form.data.evidence_ref}
-                                        onChange={(e) => form.setData('evidence_ref', e.target.value)}
-                                        maxLength={191}
+                                    <Field
+                                        label={t('When it happened')}
+                                        htmlFor="occurred"
+                                        size="auto"
+                                        hint={t('Leave empty for now.')}
+                                        error={form.errors.occurred_at}
+                                    >
+                                        <Input
+                                            id="occurred"
+                                            type="datetime-local"
+                                            value={form.data.occurred_at}
+                                            onChange={(e) => form.setData('occurred_at', e.target.value)}
+                                        />
+                                    </Field>
+                                    {expiryAllowed && (
+                                        <Field label={t('Expires')} htmlFor="expires" size="auto" hint={t('Optional.')} error={form.errors.expires_at}>
+                                            <Input
+                                                id="expires"
+                                                type="datetime-local"
+                                                value={form.data.expires_at}
+                                                onChange={(e) => form.setData('expires_at', e.target.value)}
+                                            />
+                                        </Field>
+                                    )}
+                                </FormRow>
+                                <Field label={t('Reason')} htmlFor="reason" error={form.errors.reason}>
+                                    <Textarea
+                                        id="reason"
+                                        value={form.data.reason}
+                                        onChange={(e) => form.setData('reason', e.target.value)}
+                                        rows={2}
+                                        maxLength={1000}
                                         required
                                     />
                                 </Field>
-                                <Field
-                                    label={t('When it happened')}
-                                    htmlFor="occurred"
-                                    size="auto"
-                                    hint={t('Leave empty for now.')}
-                                    error={form.errors.occurred_at}
-                                >
-                                    <Input
-                                        id="occurred"
-                                        type="datetime-local"
-                                        value={form.data.occurred_at}
-                                        onChange={(e) => form.setData('occurred_at', e.target.value)}
-                                    />
-                                </Field>
-                                {expiryAllowed && (
-                                    <Field label={t('Expires')} htmlFor="expires" size="auto" hint={t('Optional.')} error={form.errors.expires_at}>
-                                        <Input
-                                            id="expires"
-                                            type="datetime-local"
-                                            value={form.data.expires_at}
-                                            onChange={(e) => form.setData('expires_at', e.target.value)}
-                                        />
-                                    </Field>
-                                )}
-                            </FormRow>
-                            <Field label={t('Reason')} htmlFor="reason" error={form.errors.reason}>
-                                <textarea
-                                    id="reason"
-                                    value={form.data.reason}
-                                    onChange={(e) => form.setData('reason', e.target.value)}
-                                    rows={2}
-                                    maxLength={1000}
-                                    required
-                                    className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
-                                />
-                            </Field>
-                            <div>
-                                <Button type="submit" disabled={form.processing || act === ''}>
-                                    {t('Record event')}
-                                </Button>
-                            </div>
-                        </form>
-                    </section>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                    <Button type="button" variant="outline" onClick={() => setRecording(false)}>
+                                        {t('Cancel')}
+                                    </Button>
+                                    <Button type="submit" disabled={form.processing || act === ''}>
+                                        {t('Record event')}
+                                    </Button>
+                                </div>
+                            </form>
+                        </DialogContent>
+                    </Dialog>
                 )}
 
                 <section className="flex flex-col gap-2">

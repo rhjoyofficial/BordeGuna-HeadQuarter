@@ -2,7 +2,9 @@ import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -265,9 +267,14 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                     </section>
                 )}
 
-                {open !== null && (
-                    <section className="hq-card flex flex-col gap-4 p-4">
-                        <SectionHeader title={t('Review flag #{id}', { id: open })} />
+                <Dialog open={open !== null} onOpenChange={(o) => !o && setOpen(null)}>
+                    <DialogContent className="sm:max-w-xl">
+                        <DialogHeader>
+                            <DialogTitle>{t('Review flag #{id}', { id: open ?? 0 })}</DialogTitle>
+                            <DialogDescription>
+                                {t('Your review is recorded and audited; it does not undo, move or delete anything.')}
+                            </DialogDescription>
+                        </DialogHeader>
                         <form
                             className="flex flex-col gap-4"
                             onSubmit={(e) => {
@@ -299,7 +306,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                                 </Field>
                             </FormRow>
                             <Field label={t('Note')} htmlFor="note" error={form.errors.note}>
-                                <textarea
+                                <Textarea
                                     id="note"
                                     value={form.data.note}
                                     onChange={(e) => form.setData('note', e.target.value)}
@@ -307,17 +314,19 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                                     minLength={3}
                                     maxLength={1000}
                                     required
-                                    className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                                 />
                             </Field>
-                            <div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                <Button type="button" variant="outline" onClick={() => setOpen(null)}>
+                                    {t('Cancel')}
+                                </Button>
                                 <Button type="submit" disabled={form.processing}>
                                     {t('Record review')}
                                 </Button>
                             </div>
                         </form>
-                    </section>
-                )}
+                    </DialogContent>
+                </Dialog>
             </div>
         </AppLayout>
     );
@@ -339,7 +348,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
             </div>
             <ul className="flex flex-col gap-2">
                 {batch.splits.map((s) => (
-                    <li key={s.key} className="flex flex-col gap-1 rounded-md border px-3 py-2 text-xs">
+                    <li key={s.key} className="border-glass-border bg-muted flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs">
                         <span>
                             {t('From customer #{from} ({business}) to {target}', {
                                 from: s.from_customer_id,
@@ -389,7 +398,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                     }}
                 >
                     <Field label={t('Why (recorded on the batch, every move and the audit)')} htmlFor={`reason-${batch.key}`} error={errors.reason ?? errors.repair}>
-                        <textarea
+                        <Textarea
                             id={`reason-${batch.key}`}
                             value={form.data.reason}
                             onChange={(e) => form.setData('reason', e.target.value)}
@@ -397,7 +406,6 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                             minLength={10}
                             maxLength={2000}
                             required
-                            className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>
@@ -451,7 +459,7 @@ function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: b
                         </Field>
                     </FormRow>
                     <Field label={t('Note')} htmlFor={`note-${memory.memory_id}`} error={errors.note}>
-                        <textarea
+                        <Textarea
                             id={`note-${memory.memory_id}`}
                             value={form.data.note}
                             onChange={(e) => form.setData('note', e.target.value)}
@@ -459,7 +467,6 @@ function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: b
                             minLength={3}
                             maxLength={1000}
                             required
-                            className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>
