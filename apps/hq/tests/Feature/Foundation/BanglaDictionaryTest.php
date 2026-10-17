@@ -48,6 +48,27 @@ const BANGLA_SCREENS = [
     // docs/135 (W-UI1): the shell's own words, the HQ name under the logo and the theme switch.
     'js/components/app-logo.tsx',
     'js/components/theme-toggle.tsx',
+    // docs/135 (W-UI3): the restyled screens whose every literal now has its Bangla, owner-facing first.
+    'js/pages/approvals/show.tsx',
+    'js/components/approvals/shared.tsx',
+    'js/pages/inbox/index.tsx',
+    'js/pages/inbox/show.tsx',
+    'js/pages/ask/index.tsx',
+    'js/pages/customers/index.tsx',
+    'js/pages/businesses/index.tsx',
+    'js/pages/scheduler/nl.tsx',
+    'js/components/scheduler/job-state.tsx',
+    'js/components/agents/run-status.tsx',
+    'js/pages/tools/index.tsx',
+    'js/pages/flags/index.tsx',
+    'js/pages/security/two-factor.tsx',
+    'js/layouts/settings/layout.tsx',
+    'js/pages/settings/profile.tsx',
+    'js/pages/settings/password.tsx',
+    'js/pages/settings/appearance.tsx',
+    'js/pages/settings/sessions.tsx',
+    'js/components/appearance-tabs.tsx',
+    'js/components/pagination.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */
