@@ -68,11 +68,11 @@ function NewFlagDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
                     <Field label="What it switches" htmlFor="desc" size="grow" error={form.errors.description}>
                         <Input id="desc" value={form.data.description} onChange={(e) => form.setData('description', e.target.value)} />
                     </Field>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={form.data.enabled} onChange={(e) => form.setData('enabled', e.target.checked)} /> Turn it on
+                    <label className="flex items-center gap-2 text-sm touch:min-h-11">
+                        <input type="checkbox" className="accent-hq-violet size-4" checked={form.data.enabled} onChange={(e) => form.setData('enabled', e.target.checked)} /> Turn it on
                         now
                     </label>
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
@@ -119,7 +119,11 @@ export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[
                 />
 
                 {flags.length === 0 ? (
-                    <EmptyState icon={Flag} title="No flags yet" description="Later phases ship dark and are switched on here." />
+                    <EmptyState
+                        icon={Flag}
+                        title="No flags yet"
+                        description="No flag rows exist, so every flagged feature is off. Later phases ship dark and are switched on here."
+                    />
                 ) : (
                     <div className="hq-table-box">
                         <table className="w-full text-sm">

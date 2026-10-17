@@ -1,8 +1,9 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
-import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, timeAgo } from '@/lib/format';
@@ -120,9 +121,10 @@ export default function ToolsIndex({
                         </StatusBadge>
                     }
                 >
-                    <div className="flex flex-wrap items-center gap-2">
+                    <Toolbar label="Filter tools">
                         <Input
-                            className="w-64"
+                            className="w-full sm:w-64"
+                            aria-label="Search by name or purpose"
                             placeholder="Search by name or purpose"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
@@ -142,18 +144,22 @@ export default function ToolsIndex({
                                 {s.label}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
                 {orphans.length > 0 && (
-                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
+                    <Notice tone="pending">
                         <strong>Switch rows without a tool.</strong> These were switched off once and the code has since gone. They are kept, not
                         deleted, so the decision survives the code coming back: <span className="font-mono text-xs">{orphans.join(', ')}</span>
-                    </div>
+                    </Notice>
                 )}
 
                 {tools.length === 0 ? (
-                    <EmptyState icon={Wrench} title="No tools match" description="Clear the search or pick another filter." />
+                    <EmptyState
+                        icon={Wrench}
+                        title="No tools match"
+                        description="The search or the filter hides every registered tool. Clear the search or pick another filter."
+                    />
                 ) : (
                     <div className="hq-table-box">
                         <table className="w-full text-sm">
@@ -177,7 +183,7 @@ export default function ToolsIndex({
                                                 <td className="max-w-md px-3 py-3">
                                                     <button
                                                         type="button"
-                                                        className="flex items-start gap-1.5 text-left font-medium hover:underline"
+                                                        className="flex items-start gap-1.5 rounded-md text-left font-medium hover:underline touch:min-h-11"
                                                         onClick={() => setOpen(expanded ? null : t.key)}
                                                         aria-expanded={expanded}
                                                     >
@@ -270,11 +276,11 @@ export default function ToolsIndex({
                                                 </td>
                                             </tr>
                                             {expanded && (
-                                                <tr className="bg-muted/30 border-t">
+                                                <tr className="bg-muted/40">
                                                     <td colSpan={7} className="px-4 py-4">
                                                         <div className="grid gap-4 md:grid-cols-3">
                                                             <div>
-                                                                <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                                                                <div className="hq-eyebrow mb-1">
                                                                     Contract
                                                                 </div>
                                                                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
@@ -302,10 +308,10 @@ export default function ToolsIndex({
                                                                 </dl>
                                                             </div>
                                                             <div>
-                                                                <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
+                                                                <div className="hq-eyebrow mb-1">
                                                                     Recent calls
                                                                 </div>
-                                                                {t.recent.length === 0 && <div className="text-muted-foreground text-xs">none</div>}
+                                                                {t.recent.length === 0 && <div className="text-muted-foreground text-xs">No calls recorded for this tool yet.</div>}
                                                                 <ul className="space-y-1 text-xs">
                                                                     {t.recent.map((c) => (
                                                                         <li key={c.id} className="flex flex-wrap items-center gap-2">

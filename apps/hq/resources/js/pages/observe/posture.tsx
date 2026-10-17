@@ -1,5 +1,6 @@
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
@@ -135,17 +136,11 @@ export default function Posture(props: Props) {
                     actions={<StatusBadge tone={inert ? 'ok' : 'warn'}>{inert ? t('Inert') : t('Something is on')}</StatusBadge>}
                 />
 
-                <div
-                    className={
-                        inert
-                            ? 'rounded-xl border px-4 py-3 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok'
-                            : 'rounded-xl border px-4 py-3 text-sm bg-tone-warn-bg border-tone-warn-line text-tone-warn'
-                    }
-                >
+                <Notice tone={inert ? 'ok' : 'warn'}>
                     {inert
                         ? t('Production is inert: the AI runtime is off, every agent is paused, and nothing can reach a customer, spend money or take an order.')
                         : t('Switched on now: {items}.', { items: switchedOn.join(', ') })}
-                </div>
+                </Notice>
 
                 <StatGrid>
                     <Stat label="AI runtime" value={<OnOff on={switches.ai_runtime} />} detail="Off unless a gate or a shadow period is running." />

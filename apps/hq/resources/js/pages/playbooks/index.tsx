@@ -4,6 +4,7 @@ import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { formatNumber, useT } from '@/lib/i18n';
@@ -233,14 +234,14 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                                 })}
                                 error={form.errors.body}
                             >
-                                <textarea
+                                <Textarea
                                     id="body"
                                     value={form.data.body}
                                     onChange={(e) => form.setData('body', e.target.value)}
                                     rows={10}
                                     maxLength={limits.max_chars}
                                     required
-                                    className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 font-mono text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                                    className="font-mono md:text-sm"
                                 />
                             </Field>
                             <FormRow>
@@ -248,7 +249,7 @@ export default function PlaybooksIndex({ businesses, kinds, limits, can }: Props
                                     <Input id="reason" value={form.data.reason} onChange={(e) => form.setData('reason', e.target.value)} maxLength={1000} />
                                 </Field>
                             </FormRow>
-                            <div className="flex items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing}>
                                     {t('Save draft')}
                                 </Button>
