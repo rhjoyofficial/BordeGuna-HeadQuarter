@@ -27,7 +27,8 @@ createInertiaApp({
         root.render(<App {...props} />);
     },
     progress: {
-        color: '#4B5563',
+        // docs/135 (d): HQ violet, visible on both themes.
+        color: '#7C6CF6',
     },
 });
 

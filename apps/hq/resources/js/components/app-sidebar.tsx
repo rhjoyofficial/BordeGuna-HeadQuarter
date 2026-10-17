@@ -23,6 +23,7 @@ import {
     Scale,
     ScrollText,
     Server,
+    ShieldAlert,
     ShieldCheck,
     SlidersHorizontal,
     Sparkles,
@@ -38,13 +39,15 @@ type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<st
 type GatedItem = NavItem & { permission?: string; badge?: string; external?: boolean; feature?: string };
 
 /**
- * The navigation, grouped by what the operator is doing rather than by table.
+ * The navigation, grouped by what the person is doing rather than by table (docs/135 (c)):
  *
- *   Work        what needs a person today
- *   Operations  the things HQ watches and runs
+ *   Work        what needs a person today: the brief, Ask HQ, decisions, conversations, follow-ups
+ *   Customers   one customer of one business, and the cross-business review
+ *   Operations  the things HQ runs: jobs, briefings, the agents and their shadow review, the businesses
  *   Control     what HQ is allowed to do, and the switches
- *   Observe     the record: alerts, the four dashboards (docs/48 N.3), the audit log, the queues
+ *   Observe     the record: alerts, the dashboards (docs/48 N.3), the audit log, the queues
  *
+ * Every entry keeps its exact title, URL, icon and permission from before the regrouping; screen tests read them.
  * A badge names the key in `nav.badges` the middleware shares; the count is computed inside the same
  * visibility scope the screen uses, so the sidebar never says more than the page would.
  */
@@ -54,27 +57,36 @@ const sections: { label: string; items: GatedItem[] }[] = [
         items: [
             { title: 'Today', url: '/dashboard', icon: LayoutGrid, permission: 'hq.dashboard.view' },
             { title: 'Ask HQ', url: '/ask', icon: Sparkles, permission: 'hq.ask.use', feature: 'ask_hq' },
-            { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
             { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view', badge: 'approvals' },
-            { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
+            { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
+            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
+        ],
+    },
+    {
+        label: 'Customers',
+        items: [
+            { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
+            // docs/117 and docs/126: the cross-business review was reachable only from the customer list; a screen nobody can navigate to is a screen nobody uses.
+            { title: 'Cross-business review', url: '/customers/quarantine', icon: ShieldAlert, permission: 'hq.customers.quarantine.review' },
         ],
     },
     {
         label: 'Operations',
         items: [
             { title: 'Scheduler', url: '/scheduler', icon: CalendarClock, permission: 'hq.jobs.view', badge: 'scheduler' },
+            { title: 'Briefings', url: '/observe/briefings', icon: Newspaper, permission: 'hq.tools.facts.read' },
+            { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
             { title: 'Businesses', url: '/businesses', icon: Building2, permission: 'hq.businesses.view' },
-            { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
-            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
         ],
     },
     {
         label: 'Control',
         items: [
             { title: 'Tools', url: '/tools', icon: Wrench, permission: 'hq.tools.view' },
+            { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
-            { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
+            { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
         ],
     },
     {
@@ -86,9 +98,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Control plane', url: '/observe/control-plane', icon: SlidersHorizontal, permission: 'hq.tools.view' },
             { title: 'Autonomy evidence', url: '/observe/autonomy-evidence', icon: Scale, permission: 'hq.agents.view' },
             { title: 'Decision corpus', url: '/observe/decision-corpus', icon: GitCompareArrows, permission: 'hq.agents.view' },
-            { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
             { title: 'Platform', url: '/observe/platform', icon: Server, permission: 'hq.horizon.view' },
-            { title: 'Briefings', url: '/observe/briefings', icon: Newspaper, permission: 'hq.tools.facts.read' },
             { title: 'Audit log', url: '/audit', icon: ScrollText, permission: 'hq.audit.view' },
             { title: 'Queues (Horizon)', url: '/horizon', icon: Activity, permission: 'hq.horizon.view', external: true },
         ],

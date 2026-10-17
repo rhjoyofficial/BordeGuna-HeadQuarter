@@ -531,7 +531,6 @@
     "a person is answering": "একজন মানুষ উত্তর দিচ্ছেন",
     "resolved by a person": "মানুষ সমাধান করেছেন",
     "handed back to the agent": "এজেন্টের কাছে ফেরত দেওয়া হয়েছে",
-
     "Decision corpus": "সিদ্ধান্তের কর্পাস",
     "What people kept, edited and refused of what the agents proposed, and which corrections recur. Counts and references only: no proposal, reply or reason text appears here. This page reads; it changes no prompt, policy, playbook or autonomy.": "এজেন্ট যা প্রস্তাব করেছিল, মানুষ তার কতটা রেখেছে, বদলেছে বা বাতিল করেছে, আর কোন সংশোধন বারবার ঘটছে। শুধু গণনা আর রেফারেন্স: এখানে কোনো প্রস্তাব, উত্তর বা কারণের লেখা দেখানো হয় না। এই পাতা শুধু পড়ে; কোনো প্রম্পট, নীতি, প্লেবুক বা স্বায়ত্তশাসন বদলায় না।",
     "All businesses": "সব ব্যবসা",
@@ -872,5 +871,10 @@
     "Apply this repair batch": "এই মেরামতের ব্যাচ প্রয়োগ করুন",
     "Memory #{id}": "স্মৃতি #{id}",
     "Belongs to": "যার অন্তর্ভুক্ত",
-    "Assign business": "ব্যবসা নির্ধারণ করুন"
+    "Assign business": "ব্যবসা নির্ধারণ করুন",
+    "Bor de Guna HQ": "বর দে গুনা HQ",
+    "Head office": "প্রধান কার্যালয়",
+    "Light": "হালকা",
+    "Dark": "গাঢ়",
+    "Theme": "থিম"
 }
