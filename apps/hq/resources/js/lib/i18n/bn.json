@@ -1599,5 +1599,14 @@
     "neutral": "নিরপেক্ষ",
     "Two-factor challenge": "দুই ধাপের যাচাই",
     "Email verification": "ইমেইল যাচাই",
-    "Backups are checked by the host monitor, which can see the backup directory; the application cannot.": "ব্যাকআপ যাচাই করে হোস্ট মনিটর, যে ব্যাকআপ ফোল্ডার দেখতে পায়; অ্যাপ্লিকেশন তা পারে না।"
+    "Backups are checked by the host monitor, which can see the backup directory; the application cannot.": "ব্যাকআপ যাচাই করে হোস্ট মনিটর, যে ব্যাকআপ ফোল্ডার দেখতে পায়; অ্যাপ্লিকেশন তা পারে না।",
+    "Group-wide switch": "পুরো গ্রুপের সুইচ",
+    "This switch acts on every business, and your access is limited to some businesses. Only a person with group-wide access may change it.": "এই সুইচ সব ব্যবসার ওপর কাজ করে, আর আপনার অ্যাক্সেস কিছু ব্যবসায় সীমিত। শুধু পুরো গ্রুপের অ্যাক্সেস আছে এমন কেউ এটা বদলাতে পারেন।",
+    "A flag acts on every business. The reason is kept in the audit log.": "একটি ফ্ল্যাগ সব ব্যবসার ওপর কাজ করে। কারণটি অডিট লগে রাখা হয়।",
+    "Turn on": "চালু করুন",
+    "Turn off": "বন্ধ করুন",
+    "A flag acts on every business at once. The reason is kept in the audit log with who changed it, before and after.": "একটি ফ্ল্যাগ একসাথে সব ব্যবসার ওপর কাজ করে। কে বদলেছেন এবং আগে ও পরে কী ছিল, তার সাথে কারণটি অডিট লগে রাখা হয়।",
+    "What changed, and why now.": "কী বদলাল, আর এখনই কেন।",
+    "Every caller gets it back at once, for every business. The reason is kept in the audit log with who changed it, before and after.": "সব ব্যবসার জন্য প্রত্যেক ব্যবহারকারী এটা একসাথে ফিরে পায়। কে বদলেছেন এবং আগে ও পরে কী ছিল, তার সাথে কারণটি অডিট লগে রাখা হয়।",
+    "What was fixed, and why it is safe to turn back on.": "কী ঠিক করা হয়েছে, আর আবার চালু করা কেন নিরাপদ।"
 }

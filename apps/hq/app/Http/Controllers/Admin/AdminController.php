@@ -26,6 +26,7 @@ use App\Observe\Console\ConsoleReader;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Authorization\GroupWideAuthority;
 use App\Support\Credentials\CredentialKinds;
 use App\Support\Credentials\CredentialWriter;
 use App\Support\Features\Features;
@@ -45,7 +46,12 @@ final class AdminController extends Controller
         private readonly Features $features,
         private readonly CredentialWriter $credentials,
         private readonly BusinessScope $businessScope,
+        private readonly GroupWideAuthority $groupWide,
     ) {}
+
+    private const FLAGS_PERMISSION = 'hq.flags.manage';
+
+    private const FLAG_REASON_MESSAGE = 'Say why. A flag acts on every business, and the record has to answer that question later.';
 
     /**
      * The landing screen answers "what needs me" before it shows anything else.
@@ -195,33 +201,58 @@ final class AdminController extends Controller
         return Inertia::render('audit/index', ['logs' => $logs, 'filters' => $request->only('action', 'actor_type')]);
     }
 
-    public function flags(): Response
+    public function flags(Request $request): Response
     {
-        return Inertia::render('flags/index', ['flags' => FeatureFlag::orderBy('key')->get(), 'environment' => app()->environment()]);
+        return Inertia::render('flags/index', [
+            'flags' => FeatureFlag::orderBy('key')->get(),
+            'environment' => app()->environment(),
+            // docs/138 ruling 13: a flag acts on every business, so only a group-wide person may switch one.
+            'switch' => $this->groupWide->screenProps($request->user(), self::FLAGS_PERMISSION),
+        ]);
     }
 
+    /**
+     * docs/138 ruling 13: a flag acts on every business. The route's `group.wide` middleware refuses a
+     * restricted person first; this checks again, and the audit row carries actor, scope, before,
+     * after and the reason that is now required.
+     */
     public function storeFlag(Request $request): RedirectResponse
     {
+        $this->groupWide->assert($request->user(), self::FLAGS_PERMISSION);
+
         $data = $request->validate([
             'key' => ['required', 'regex:/^[a-z0-9_.-]{3,96}$/'],
             'description' => ['nullable', 'string', 'max:255'],
             'environment' => ['required', 'in:*,production,staging,local'],
             'enabled' => ['boolean'],
-        ]);
+            'reason' => ['required', 'string', 'max:500', 'regex:/\S/'],
+        ], ['reason.required' => self::FLAG_REASON_MESSAGE, 'reason.regex' => self::FLAG_REASON_MESSAGE]);
+
+        $existing = FeatureFlag::query()->where('key', $data['key'])->where('environment', $data['environment'])->first();
+        $before = $existing?->toArray();
         $flag = FeatureFlag::updateOrCreate(['key' => $data['key'], 'environment' => $data['environment']], ['description' => $data['description'] ?? null, 'enabled' => (bool) ($data['enabled'] ?? false)]);
         $this->features->forget();
-        $this->auditor->record('feature_flag.saved', $flag, after: $flag->toArray());
+        $this->auditor->record('feature_flag.saved', $flag, before: $before, after: $flag->toArray(), reason: trim($data['reason']),
+            context: $this->groupWide->auditContext(self::FLAGS_PERMISSION, $request->user()));
 
         return back()->with('status', 'flag-saved');
     }
 
-    public function toggleFlag(FeatureFlag $flag): RedirectResponse
+    public function toggleFlag(Request $request, FeatureFlag $flag): RedirectResponse
     {
+        $this->groupWide->assert($request->user(), self::FLAGS_PERMISSION);
+
+        $data = $request->validate(
+            ['reason' => ['required', 'string', 'max:500', 'regex:/\S/']],
+            ['reason.required' => self::FLAG_REASON_MESSAGE, 'reason.regex' => self::FLAG_REASON_MESSAGE],
+        );
+
         $before = $flag->toArray();
         $flag->enabled = ! $flag->enabled;
         $flag->save();
         $this->features->forget();
-        $this->auditor->record('feature_flag.toggled', $flag, before: $before, after: $flag->toArray());
+        $this->auditor->record('feature_flag.toggled', $flag, before: $before, after: $flag->toArray(), reason: trim($data['reason']),
+            context: $this->groupWide->auditContext(self::FLAGS_PERMISSION, $request->user()));
 
         return back()->with('status', 'flag-toggled');
     }

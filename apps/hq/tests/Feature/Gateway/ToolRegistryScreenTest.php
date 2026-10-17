@@ -54,7 +54,9 @@ it('disables and re-enables a tool from the screen, auditing both', function () 
     expect(app(ToolAvailability::class)->isAvailable('noop'))->toBeFalse();
 
     Cache::flush();
-    $this->actingAsHq($user)->post('/tools/noop/toggle', ['enabled' => true])->assertRedirect();
+    // docs/138 ruling 13: turning a tool back on needs a reason too.
+    $this->actingAsHq($user)->post('/tools/noop/toggle', ['enabled' => true])->assertSessionHasErrors('reason');
+    $this->actingAsHq($user)->post('/tools/noop/toggle', ['enabled' => true, 'reason' => 'fixed'])->assertRedirect();
     expect(app(ToolAvailability::class)->isAvailable('noop'))->toBeTrue();
 
     expect(AuditLog::whereIn('action', ['tool.disabled', 'tool.enabled'])->count())->toBe(2);

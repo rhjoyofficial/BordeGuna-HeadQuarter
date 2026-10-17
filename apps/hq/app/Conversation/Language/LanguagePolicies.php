@@ -7,6 +7,7 @@ use App\Models\LanguagePolicy;
 use App\Models\LanguagePolicyEvent;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\GroupWideAuthority;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -73,7 +74,10 @@ final class LanguagePolicies
         ],
     ];
 
-    public function __construct(private readonly Auditor $auditor) {}
+    public function __construct(
+        private readonly Auditor $auditor,
+        private readonly GroupWideAuthority $authority,
+    ) {}
 
     public function active(): ?LanguagePolicy
     {
@@ -182,6 +186,9 @@ final class LanguagePolicies
             $refusals[] = "user {$by->email} is disabled";
         } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
             $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
+        } elseif (($groupWide = $this->authority->refusal($by, self::PERMISSION)) !== null) {
+            // docs/138 ruling 13: the one active version acts on every business.
+            $refusals[] = $groupWide;
         }
 
         if (trim((string) $reason) === '') {
@@ -216,7 +223,8 @@ final class LanguagePolicies
             $policy->refresh();
             $this->event($policy, 'activated', $by, $reason);
             $this->auditor->record('conversation.language_policy.activated', $policy,
-                before: ['active_version' => $previous?->version], after: $this->snapshot($policy), reason: $reason, actorUserId: $by->getKey());
+                before: ['active_version' => $previous?->version], after: $this->snapshot($policy), reason: $reason, actorUserId: $by->getKey(),
+                context: $this->authority->auditContext(self::PERMISSION, $by));
 
             return $policy;
         });
@@ -240,6 +248,9 @@ final class LanguagePolicies
                 $refusals[] = "user {$by->email} is disabled";
             } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
                 $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
+            } elseif (($groupWide = $this->authority->refusal($by, self::PERMISSION)) !== null) {
+                // docs/138 ruling 13: the one active version acts on every business.
+                $refusals[] = $groupWide;
             }
             if (trim((string) $reason) === '') {
                 $refusals[] = 'no reason given (--reason)';
@@ -249,7 +260,8 @@ final class LanguagePolicies
             }
 
             $this->retireRow($fresh, $by, $reason);
-            $this->auditor->record('conversation.language_policy.retired', $fresh, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey());
+            $this->auditor->record('conversation.language_policy.retired', $fresh, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey(),
+                context: $this->authority->auditContext(self::PERMISSION, $by));
 
             return $fresh;
         });
