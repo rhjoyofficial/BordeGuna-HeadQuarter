@@ -197,7 +197,7 @@ export default function Platform(props: Props) {
 
                     <Panel title="Order-fact integrity">
                         {props.integrity === null ? (
-                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
                                 The integrity check has not run yet.
                             </div>
                         ) : (
@@ -252,7 +252,7 @@ export default function Platform(props: Props) {
 
                     <Panel title="Retention">
                         {retention.last_run === null ? (
-                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+                            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
                                 No retention pass has run yet.
                             </div>
                         ) : (

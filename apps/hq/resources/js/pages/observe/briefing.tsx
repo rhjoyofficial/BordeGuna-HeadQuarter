@@ -153,7 +153,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
 
                 {/* Freshness first, before any number (docs/48 M.3). */}
                 {attention.length > 0 && (
-                    <div className="flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+                    <div className="flex flex-col gap-2 rounded-xl border p-4 bg-tone-pending-dot">
                         <div className="font-medium">Stale or missing sources</div>
                         <ul className="flex flex-col gap-1 text-sm">
                             {attention.map((s) => (
@@ -197,7 +197,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
 
                 <Panel title="Narrative">
                     {briefing.narrative ? (
-                        <div className="bg-card rounded-xl border p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
+                        <div className="hq-card p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
                     ) : (
                         <Note>{NARRATION_LABEL[briefing.narration_state] ?? briefing.narration_state}. No narrative is stored.</Note>
                     )}

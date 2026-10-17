@@ -116,7 +116,7 @@ function provenanceLabel(m: Message): string {
 function HandoverCard({ handover }: { handover: Handover }) {
     const t = useT();
     return (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30" data-testid="handover-reason">
+        <section className="rounded-xl border p-4 bg-tone-pending-bg border-tone-pending-line text-tone-pending" data-testid="handover-reason">
             <SectionHeader title={t('Why a person is needed')} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusBadge tone="warn">{handover.reason ?? t('reason not recorded')}</StatusBadge>
@@ -136,7 +136,7 @@ function HandoverCard({ handover }: { handover: Handover }) {
 function RecentOrdersCard({ orders, known }: { orders: RecentOrder[]; known: boolean }) {
     const t = useT();
     return (
-        <section className="bg-card rounded-xl border p-4" data-testid="recent-orders">
+        <section className="hq-card p-4" data-testid="recent-orders">
             <SectionHeader title={t('Recent orders')} aside={<span className="text-muted-foreground text-xs">{t('HQ order facts, newest first')}</span>} />
             {!known || orders.length === 0 ? (
                 <p className="text-muted-foreground mt-2 text-sm">{t('No known orders')}</p>
@@ -255,27 +255,27 @@ export default function InboxShow({
                 />
 
                 {errors?.state && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
                         <strong>That move is not allowed.</strong> {errors.state}
                     </div>
                 )}
                 {errors?.decision && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
                         {errors.decision}
                     </div>
                 )}
                 {notSent && (
-                    <div className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-warn-bg border-tone-warn-line text-tone-warn">
                         <strong>Not sent.</strong> {outcome?.error ?? SENDING_NOTICE}
                     </div>
                 )}
                 {flash?.status === 'reply-sent' && (
-                    <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok">
                         <strong>Sent.</strong> The provider accepted it; delivery is verified separately.
                     </div>
                 )}
                 {flash?.status === 'proposal-discarded' && (
-                    <div className="rounded-xl border p-4 text-sm">The proposal was discarded and the decision recorded.</div>
+                    <div className="hq-card p-4 text-sm">The proposal was discarded and the decision recorded.</div>
                 )}
 
                 <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -327,7 +327,7 @@ export default function InboxShow({
                                 <SectionHeader title="The agent suggested" />
                                 <div className="mt-3 flex flex-col gap-3">
                                     {proposals.map((p) => (
-                                        <article key={p.run_id} className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+                                        <article key={p.run_id} className="rounded-xl border p-4 bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
                                                 <span>proposed by the support agent</span>
                                                 {p.at && <span>{timeAgo(p.at)}</span>}
@@ -338,7 +338,7 @@ export default function InboxShow({
                                             {p.why && <p className="mt-1 text-xs italic">{p.why}</p>}
                                             {can.manage ? (
                                                 <textarea
-                                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
                                                     rows={3}
                                                     value={editing[p.run_id] ?? p.text}
                                                     onChange={(e) => setEditing({ ...editing, [p.run_id]: e.target.value })}
@@ -376,7 +376,7 @@ export default function InboxShow({
                                 <SectionHeader title="Shadow comparison" aside={<span className="text-muted-foreground text-xs">what the agent proposed, beside what was sent</span>} />
                                 <div className="mt-3 flex flex-col gap-3">
                                     {comparisons.map((c) => (
-                                        <article key={c.id} className="rounded-xl border p-4">
+                                        <article key={c.id} className="hq-card p-4">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
                                                 {c.run_id !== null && (
                                                     <Link href={`/agents/runs/${c.run_id}`} className="hover:underline">
@@ -423,7 +423,7 @@ export default function InboxShow({
                                 <SectionHeader title="Reply" />
                                 <p className="text-muted-foreground mt-1 text-xs">{SENDING_NOTICE}</p>
                                 <textarea
-                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
                                     rows={3}
                                     placeholder="Write in the customer's language"
                                     value={text}
@@ -445,7 +445,7 @@ export default function InboxShow({
                             <section>
                                 <SectionHeader title="Internal note" />
                                 <textarea
-                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                    className="hq-field border-input mt-2 w-full rounded-md border p-2 text-sm"
                                     rows={2}
                                     placeholder="Seen by colleagues only"
                                     value={note}
@@ -463,7 +463,7 @@ export default function InboxShow({
                     <aside className="flex flex-col gap-6">
                         {handover !== null && <HandoverCard handover={handover} />}
                         {thread.customer_id !== null && (
-                            <section className="bg-card rounded-xl border p-4">
+                            <section className="hq-card p-4">
                                 <SectionHeader title="Remembered about this customer" />
                                 <p className="text-muted-foreground mt-1 text-xs">
                                     What a colleague chose to remember. Memory is not truth: the order facts win when they disagree, and the agent
@@ -515,7 +515,7 @@ export default function InboxShow({
                                             )}
                                         </div>
                                         <textarea
-                                            className="bg-background w-full rounded-md border p-2 text-sm"
+                                            className="hq-field border-input w-full rounded-md border p-2 text-sm"
                                             rows={2}
                                             placeholder={memKind === 'structured' ? 'The fact, in a few words' : 'What happened, in a sentence'}
                                             value={memText}
@@ -549,7 +549,7 @@ export default function InboxShow({
                                 )}
                             </section>
                         )}
-                        <section className="bg-card rounded-xl border p-4">
+                        <section className="hq-card p-4">
                             <SectionHeader title="Customer" />
                             {thread.customer ? (
                                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -573,7 +573,7 @@ export default function InboxShow({
 
                         <RecentOrdersCard orders={orders} known={thread.customer !== null && !thread.stranger} />
 
-                        <section className="bg-card rounded-xl border p-4">
+                        <section className="hq-card p-4">
                             <SectionHeader title="Handling" />
                             <div className="mt-2">
                                 <AgentNotice agent={agent} />
@@ -623,7 +623,7 @@ export default function InboxShow({
                                             </Button>
                                         </div>
                                     )}
-                                    {errors?.user_id && <p className="text-xs text-red-700 dark:text-red-300">{errors.user_id}</p>}
+                                    {errors?.user_id && <p className="text-xs text-tone-danger">{errors.user_id}</p>}
                                 </div>
                             )}
                         </section>

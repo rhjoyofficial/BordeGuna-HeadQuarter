@@ -55,9 +55,9 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                         title="Devices and sessions"
                         description="Every browser that is signed in as you. This one is marked; the others can be signed out below."
                     />
-                    <div className="overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr className="border-b">
                                     <th className="px-4 py-2 font-medium">Device</th>
                                     <th className="px-4 py-2 font-medium">Address</th>
@@ -70,7 +70,7 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                                         <td className="px-4 py-2" title={s.user_agent ?? undefined}>
                                             <div>{describeAgent(s.user_agent)}</div>
                                             {s.is_current ? (
-                                                <div className="text-xs text-emerald-600 dark:text-emerald-400">this device</div>
+                                                <div className="text-xs text-tone-ok">this device</div>
                                             ) : (
                                                 <div className="text-muted-foreground text-xs">another device</div>
                                             )}
@@ -106,7 +106,7 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                             value={form.data.password}
                             onChange={(e) => form.setData('password', e.target.value)}
                         />
-                        {form.errors.password && <div className="text-sm text-red-600">{form.errors.password}</div>}
+                        {form.errors.password && <div className="text-sm text-tone-danger">{form.errors.password}</div>}
                     </div>
                     <Button variant="outline" type="submit" disabled={form.processing}>
                         Sign out other devices

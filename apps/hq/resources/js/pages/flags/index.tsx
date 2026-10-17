@@ -121,9 +121,9 @@ export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[
                 {flags.length === 0 ? (
                     <EmptyState icon={Flag} title="No flags yet" description="Later phases ship dark and are switched on here." />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Flag</th>
                                     <th className="px-3 py-2 font-medium">Environment</th>

@@ -129,9 +129,9 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                             description={t('No relationship crossing a business boundary has been flagged for review.')}
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">#</th>
                                         <th className="px-3 py-2 font-medium">{t('Kind')}</th>
@@ -222,7 +222,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {ambiguous.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Not repaired: the business cannot be established')} aside={t('{count} rows', { count: ambiguous.length })} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                        <ul className="hq-card flex flex-col divide-y text-xs">
                             {ambiguous.map((a) => (
                                 <li key={`${a.subject}-${a.reason}`} className="flex flex-col gap-1 px-3 py-2">
                                     <span className="font-mono break-all">{a.subject}</span>
@@ -237,7 +237,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {held_memories.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Memories held until a person assigns a business')} aside={t('{count} memories', { count: held_memories.length })} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-sm">
+                        <ul className="hq-card flex flex-col divide-y text-sm">
                             {held_memories.map((m) => (
                                 <HeldMemoryRow key={m.memory_id} memory={m} canAssign={can_repair} />
                             ))}
@@ -248,7 +248,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {repairs.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Repair history')} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                        <ul className="hq-card flex flex-col divide-y text-xs">
                             {repairs.map((r) => (
                                 <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                                     <span className="font-mono">#{r.id}</span>
@@ -266,7 +266,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 )}
 
                 {open !== null && (
-                    <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-4 p-4">
                         <SectionHeader title={t('Review flag #{id}', { id: open })} />
                         <form
                             className="flex flex-col gap-4"
@@ -307,7 +307,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                                     minLength={3}
                                     maxLength={1000}
                                     required
-                                    className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                                    className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                                 />
                             </Field>
                             <div>
@@ -329,7 +329,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
     const errors = form.errors as Record<string, string | undefined>;
 
     return (
-        <div className="bg-card flex flex-col gap-3 rounded-xl border p-4 text-sm">
+        <div className="hq-card flex flex-col gap-3 p-4 text-sm">
             <div className="flex flex-wrap items-center gap-2">
                 <strong>{t('Batch for {business}', { business: batch.business })}</strong>
                 <StatusBadge tone={batch.authorized ? 'ok' : 'warn'} dot={false}>
@@ -375,7 +375,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                             })}
                         </span>
                         {s.review.unreviewed_rows.length > 0 && (
-                            <span className="font-mono break-all text-amber-700 dark:text-amber-300">{s.review.unreviewed_rows.join(', ')}</span>
+                            <span className="font-mono break-all text-tone-pending">{s.review.unreviewed_rows.join(', ')}</span>
                         )}
                     </li>
                 ))}
@@ -397,7 +397,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                             minLength={10}
                             maxLength={2000}
                             required
-                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                            className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>
@@ -459,7 +459,7 @@ function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: b
                             minLength={3}
                             maxLength={1000}
                             required
-                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                            className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>

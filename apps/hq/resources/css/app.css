@@ -77,6 +77,34 @@
     --shadow-raised: var(--hq-shadow-raised);
     --shadow-float: var(--hq-shadow-float);
 
+    /* docs/135 (d) status tones, W-UI3: one meaning per colour on every screen (status-badge.tsx, notice.tsx).
+       `tone-x` is readable text, `tone-x-bg` the tint, `tone-x-line` the hairline, `tone-x-dot` the solid dot. */
+    --color-tone-ok: var(--tone-ok);
+    --color-tone-ok-bg: var(--tone-ok-bg);
+    --color-tone-ok-line: var(--tone-ok-line);
+    --color-tone-ok-dot: var(--tone-ok-dot);
+    --color-tone-pending: var(--tone-pending);
+    --color-tone-pending-bg: var(--tone-pending-bg);
+    --color-tone-pending-line: var(--tone-pending-line);
+    --color-tone-pending-dot: var(--tone-pending-dot);
+    --color-tone-warn: var(--tone-warn);
+    --color-tone-warn-bg: var(--tone-warn-bg);
+    --color-tone-warn-line: var(--tone-warn-line);
+    --color-tone-warn-dot: var(--tone-warn-dot);
+    --color-tone-danger: var(--tone-danger);
+    --color-tone-danger-bg: var(--tone-danger-bg);
+    --color-tone-danger-line: var(--tone-danger-line);
+    --color-tone-danger-dot: var(--tone-danger-dot);
+    --color-tone-info: var(--tone-info);
+    --color-tone-info-bg: var(--tone-info-bg);
+    --color-tone-info-line: var(--tone-info-line);
+    --color-tone-info-dot: var(--tone-info-dot);
+    --color-tone-neutral: var(--tone-neutral);
+    --color-tone-neutral-bg: var(--tone-neutral-bg);
+    --color-tone-neutral-line: var(--tone-neutral-line);
+    --color-tone-neutral-dot: var(--tone-neutral-dot);
+    --color-field: var(--hq-field);
+
     --ease-hq: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -156,6 +184,32 @@
         radial-gradient(1000px 700px at 55% 115%, rgb(255 140 90 / 0.07), transparent 60%);
     --hq-orb: radial-gradient(circle at 32% 28%, #ffffff 0%, #d9d2ff 14%, #7c6cf6 44%, #20b2aa 80%, #0e5e73 100%);
 
+    --tone-ok: #065f46;
+    --tone-ok-bg: rgb(16 185 129 / 0.12);
+    --tone-ok-line: rgb(5 150 105 / 0.32);
+    --tone-ok-dot: #059669;
+    --tone-pending: #78350f;
+    --tone-pending-bg: rgb(245 158 11 / 0.14);
+    --tone-pending-line: rgb(217 119 6 / 0.35);
+    --tone-pending-dot: #d97706;
+    --tone-warn: #7c2d12;
+    --tone-warn-bg: rgb(249 115 22 / 0.12);
+    --tone-warn-line: rgb(234 88 12 / 0.34);
+    --tone-warn-dot: #ea580c;
+    --tone-danger: #7f1d1d;
+    --tone-danger-bg: rgb(239 68 68 / 0.11);
+    --tone-danger-line: rgb(220 38 38 / 0.32);
+    --tone-danger-dot: #dc2626;
+    --tone-info: #1e3a8a;
+    --tone-info-bg: rgb(59 130 246 / 0.11);
+    --tone-info-line: rgb(37 99 235 / 0.3);
+    --tone-info-dot: #2563eb;
+    --tone-neutral: #3f434e;
+    --tone-neutral-bg: rgb(20 21 26 / 0.06);
+    --tone-neutral-line: rgb(20 21 26 / 0.14);
+    --tone-neutral-dot: #8a8f9c;
+    --hq-field: rgb(255 255 255 / 0.86);
+
     --hq-duration-fast: 120ms;
     --hq-duration-base: 200ms;
     --hq-duration-slow: 320ms;
@@ -210,6 +264,31 @@
         radial-gradient(1100px 700px at 8% -12%, rgb(108 92 231 / 0.38), transparent 62%),
         radial-gradient(900px 640px at 100% 0%, rgb(32 178 170 / 0.26), transparent 60%),
         radial-gradient(1000px 700px at 55% 115%, rgb(255 140 90 / 0.2), transparent 60%);
+    --tone-ok: #a7f3d0;
+    --tone-ok-bg: rgb(110 231 183 / 0.12);
+    --tone-ok-line: rgb(110 231 183 / 0.3);
+    --tone-ok-dot: #6ee7b7;
+    --tone-pending: #fde68a;
+    --tone-pending-bg: rgb(252 211 77 / 0.12);
+    --tone-pending-line: rgb(252 211 77 / 0.3);
+    --tone-pending-dot: #fcd34d;
+    --tone-warn: #fed7aa;
+    --tone-warn-bg: rgb(253 186 116 / 0.12);
+    --tone-warn-line: rgb(253 186 116 / 0.32);
+    --tone-warn-dot: #fdba74;
+    --tone-danger: #fecdd3;
+    --tone-danger-bg: rgb(251 113 133 / 0.14);
+    --tone-danger-line: rgb(251 113 133 / 0.34);
+    --tone-danger-dot: #fb7185;
+    --tone-info: #bfdbfe;
+    --tone-info-bg: rgb(147 197 253 / 0.12);
+    --tone-info-line: rgb(147 197 253 / 0.3);
+    --tone-info-dot: #93c5fd;
+    --tone-neutral: #d7d9e0;
+    --tone-neutral-bg: rgb(255 255 255 / 0.07);
+    --tone-neutral-line: rgb(255 255 255 / 0.14);
+    --tone-neutral-dot: #8b90a0;
+    --hq-field: rgb(255 255 255 / 0.06);
 }
 
 @layer base {
@@ -282,6 +361,78 @@
         background-color: var(--hq-glass);
         border: 1px solid var(--hq-glass-border);
         box-shadow: var(--hq-glass-highlight), var(--hq-shadow-raised);
+    }
+
+    /* W-UI3 (docs/135 (h)): the shared surfaces every screen uses. A card is glass at 18 px, a table lives in a
+       scrolling glass box whose header stays put, a callout is a tinted tone box. */
+    .hq-card {
+        border-radius: var(--radius-xl);
+        background-color: var(--card);
+        border: 1px solid var(--hq-glass-border);
+        box-shadow: var(--hq-glass-highlight), var(--hq-shadow-raised);
+    }
+
+    .hq-table-box {
+        position: relative;
+        max-width: 100%;
+        max-height: min(70vh, 56rem);
+        overflow: auto;
+        overscroll-behavior-x: contain;
+        border-radius: var(--radius-xl);
+        background-color: var(--card);
+        border: 1px solid var(--hq-glass-border);
+        box-shadow: var(--hq-glass-highlight), var(--hq-shadow-raised);
+        scrollbar-width: thin;
+        scrollbar-color: var(--input) transparent;
+    }
+
+    .hq-table-box > table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .hq-table-box > table > thead > tr > th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background-color: var(--popover);
+        color: var(--muted-foreground);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .hq-table-box > table > tbody > tr > td {
+        border-top: 1px solid var(--border);
+    }
+
+    .hq-table-box > table > tbody > tr:first-child > td {
+        border-top: 0;
+    }
+
+    .hq-table-box > table > tbody > tr {
+        transition: background-color var(--hq-duration-fast) var(--ease-hq);
+    }
+
+    .hq-table-box > table > tbody > tr:hover {
+        background-color: var(--accent);
+    }
+
+    .hq-field {
+        background-color: var(--hq-field);
+    }
+
+    /* Small caps label for group headings and definition terms, as the artboards draw them. */
+    .hq-eyebrow {
+        font-size: 0.6875rem;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
     }
 
     .hq-orb {

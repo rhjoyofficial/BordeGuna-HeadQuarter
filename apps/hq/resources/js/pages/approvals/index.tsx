@@ -160,7 +160,7 @@ export default function ApprovalsIndex({
                             const st = approvalStatus(a);
                             const overdue = a.status === 'pending' && a.sla_due_at && new Date(a.sla_due_at).getTime() < Date.now();
                             return (
-                                <article key={a.id} className="bg-card rounded-xl border p-4">
+                                <article key={a.id} className="hq-card p-4">
                                     <div className="flex flex-wrap items-start justify-between gap-4">
                                         <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
@@ -186,12 +186,12 @@ export default function ApprovalsIndex({
                                                     </span>
                                                 )}
                                                 {a.agent_key && (
-                                                    <span className="text-amber-700 dark:text-amber-300">proposed by the {a.agent_key} agent</span>
+                                                    <span className="text-tone-pending">proposed by the {a.agent_key} agent</span>
                                                 )}
                                                 {a.requested_by && !a.agent_key && <span>asked by {a.requested_by}</span>}
                                                 {a.requested_by && a.agent_key && a.requester_recorded && <span>asked by {a.requested_by}</span>}
                                                 {a.delegated_to && (
-                                                    <span className="text-sky-700 dark:text-sky-300">delegated to {a.delegated_to}</span>
+                                                    <span className="text-tone-info">delegated to {a.delegated_to}</span>
                                                 )}
                                                 {a.decided_by && (
                                                     <span>
@@ -202,7 +202,7 @@ export default function ApprovalsIndex({
                                                 {a.status === 'pending' && a.sla_due_at && (
                                                     <span
                                                         title={formatDateTime(a.sla_due_at)}
-                                                        className={overdue ? 'text-orange-700 dark:text-orange-300' : ''}
+                                                        className={overdue ? 'text-tone-warn' : ''}
                                                     >
                                                         decide {timeAgo(a.sla_due_at)}
                                                     </span>
@@ -222,7 +222,7 @@ export default function ApprovalsIndex({
                                                 <p className="text-muted-foreground mt-2 text-xs italic">Reason given: {a.decision_note}</p>
                                             )}
                                             {a.execution_error && (
-                                                <p className="mt-2 text-xs text-orange-700 dark:text-orange-300">
+                                                <p className="mt-2 text-xs text-tone-warn">
                                                     Refused at execution: {a.execution_error}
                                                 </p>
                                             )}

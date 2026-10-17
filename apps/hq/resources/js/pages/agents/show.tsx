@@ -159,13 +159,13 @@ export default function AgentRunShow({
                 />
 
                 {run.shadow && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                         <strong>This is a shadow run, so what follows is not HQ&rsquo;s answer.</strong> It is what the {agentName} agent would have
                         said, recorded for you to read. {run.autonomy_reason && <>Autonomy was bound by: {run.autonomy_reason}.</>}
                     </div>
                 )}
 
-                <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                <section className="hq-card flex flex-col gap-4 p-4">
                     <div>
                         <div className="text-muted-foreground text-xs font-medium uppercase">The question</div>
                         <p className="mt-1 text-base">{run.question}</p>
@@ -191,7 +191,7 @@ export default function AgentRunShow({
                                 <p className="text-muted-foreground mt-1 text-sm italic">No task named in the message, so nothing was gathered.</p>
                             )}
                             {run.authority_request === 'refused' && (
-                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                <p className="mt-1 text-sm text-tone-pending">
                                     The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done
                                     in its place.
                                 </p>
@@ -208,7 +208,7 @@ export default function AgentRunShow({
                                 </p>
                             )}
                             {(run.prohibited_capability?.kinds?.length || run.prohibited_capability?.error) && (
-                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                                <p className="mt-1 text-sm text-tone-pending">
                                     The message asked for something HQ does not have
                                     {run.prohibited_capability?.kinds?.length
                                         ? ` (${run.prohibited_capability.kinds.map((k) => k.replace(/_/g, ' ')).join(', ')})`
@@ -261,7 +261,7 @@ export default function AgentRunShow({
 
                 <ExecutionContextPanel context={execution_context} />
 
-                <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                <section className="hq-card flex flex-col gap-3 p-4">
                     <SectionHeader title="Your review" />
                     {run.reviewed_at ? (
                         <p className="text-sm">
@@ -317,7 +317,7 @@ export default function AgentRunShow({
                                         ? 'Optional: anything worth noting.'
                                         : 'What was wrong with it, or what you would have said instead.'
                                 }
-                                className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                                className="border-input hq-field w-full rounded-md border p-2 text-sm"
                             />
                             {verdict !== 'approved' && (
                                 <SuggestionBox>
@@ -328,7 +328,7 @@ export default function AgentRunShow({
                                         maxLength={2000}
                                         aria-label={t('What I would have sent')}
                                         placeholder={t('Optional: the answer as you would have written it.')}
-                                        className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                                        className="border-input hq-field w-full rounded-md border p-2 text-sm"
                                     />
                                 </SuggestionBox>
                             )}
@@ -349,9 +349,9 @@ export default function AgentRunShow({
                             title="Claims, and where each came from"
                             aside={`${claims.length} ${claims.length === 1 ? 'claim' : 'claims'}`}
                         />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">Statement</th>
                                         <th className="px-3 py-2 font-medium">Source</th>
@@ -379,9 +379,9 @@ export default function AgentRunShow({
                 {run.proposals.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title="What it wanted to do and could not" />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">Kind</th>
                                         <th className="px-3 py-2 font-medium">Tool</th>
@@ -416,7 +416,7 @@ export default function AgentRunShow({
                 <section className="grid gap-4 md:grid-cols-2">
                     <div className="flex flex-col gap-2">
                         <SectionHeader title="Tool calls" aside={reads.length > 0 ? `${reads.length} produced evidence` : undefined} />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {tool_calls.length === 0 && (
@@ -450,7 +450,7 @@ export default function AgentRunShow({
 
                     <div className="flex flex-col gap-2">
                         <SectionHeader title="Model calls" />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {model_calls.length === 0 && (
@@ -484,9 +484,9 @@ export default function AgentRunShow({
                         Labels and digests only. The text itself is never stored here: a provenance record that carried it would be a second copy of
                         everything a prompt ever held.
                     </p>
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Kind</th>
                                     <th className="px-3 py-2 font-medium">Source</th>

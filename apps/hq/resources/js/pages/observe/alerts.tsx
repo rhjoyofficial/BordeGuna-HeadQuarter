@@ -61,7 +61,7 @@ export default function Alerts({ open, resolved, rules }: Props) {
                 ) : (
                     <div className="flex flex-col gap-3">
                         {open.map((a) => (
-                            <div key={a.id} className="bg-card flex flex-col gap-2 rounded-xl border p-4">
+                            <div key={a.id} className="hq-card flex flex-col gap-2 p-4">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <StatusBadge tone={SEVERITY_TONE[a.severity] ?? 'neutral'}>{a.severity}</StatusBadge>
                                     <span className="font-medium">{a.subject}</span>

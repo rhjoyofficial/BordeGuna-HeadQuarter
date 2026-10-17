@@ -155,9 +155,9 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                     }
                 />
 
-                {errors.act && <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-xl border px-4 py-3 text-sm">{errors.act}</div>}
+                {errors.act && <div className="rounded-xl border px-4 py-3 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">{errors.act}</div>}
 
-                <section className="bg-card rounded-xl border p-4">
+                <section className="hq-card p-4">
                     <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
                         {facts.map((f) => (
                             <div key={f.label} className="flex flex-col">
@@ -171,7 +171,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                 {version.warnings.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Lines that read as instructions to the agent')} aside={t('Advice for the reviewer. Nothing is blocked, and nothing here can change what an agent may do.')} />
-                        <div className="bg-card rounded-xl border">
+                        <div className="hq-card">
                             <ul className="divide-y text-sm">
                                 {version.warnings.map((w) => (
                                     <li key={`${w.line}-${w.note}`} className="flex flex-col gap-0.5 px-4 py-2">
@@ -190,7 +190,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                     <SectionHeader title={t('Guidance')} aside={editable ? t('Editable while a draft') : t('Frozen; a change is a new draft')} />
                     {editable ? (
                         <form
-                            className="bg-card flex flex-col gap-4 rounded-xl border p-4"
+                            className="hq-card flex flex-col gap-4 p-4"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 edit.transform((d) => ({ ...d, summary: d.summary === '' ? null : d.summary, reason: d.reason === '' ? null : d.reason }));
@@ -228,7 +228,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                             </div>
                         </form>
                     ) : (
-                        <div className="bg-card rounded-xl border p-4">
+                        <div className="hq-card p-4">
                             {version.summary && <p className="text-muted-foreground mb-3 text-sm">{version.summary}</p>}
                             <pre className="font-sans text-sm whitespace-pre-wrap">{version.body}</pre>
                         </div>
@@ -237,7 +237,7 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Acts')} aside={t('Each act is recorded with the person, the time and the reason')} />
-                    <div className="bg-card grid grid-cols-1 gap-6 rounded-xl border p-4 md:grid-cols-2">
+                    <div className="hq-card grid grid-cols-1 gap-6 p-4 md:grid-cols-2">
                         {version.status === 'draft' && can.draft && (
                             <form
                                 className="flex flex-col gap-2"
@@ -282,9 +282,9 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('Events')} aside={t('{count} events', { count: events.length })} />
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">{t('When')}</th>
                                     <th className="px-3 py-2 font-medium">{t('Event')}</th>
@@ -313,9 +313,9 @@ export default function PlaybookShow({ version, events, history, kinds, limits, 
                     {history.length === 0 ? (
                         <EmptyState title={t('No other version')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Version')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Status')}</th>

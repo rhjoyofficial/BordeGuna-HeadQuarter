@@ -28,7 +28,7 @@ export default function BusinessesIndex({ businesses }: { businesses: Business[]
                 ) : (
                     <div className="grid gap-4 lg:grid-cols-2">
                         {businesses.map((b) => (
-                            <article key={b.id} className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                            <article key={b.id} className="hq-card flex flex-col gap-4 p-4">
                                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                                     <h2 className="text-lg font-semibold">{b.name}</h2>
                                     <span className="text-muted-foreground text-xs">

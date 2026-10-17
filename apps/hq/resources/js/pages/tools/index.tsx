@@ -146,7 +146,7 @@ export default function ToolsIndex({
                 </PageHeader>
 
                 {orphans.length > 0 && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                         <strong>Switch rows without a tool.</strong> These were switched off once and the code has since gone. They are kept, not
                         deleted, so the decision survives the code coming back: <span className="font-mono text-xs">{orphans.join(', ')}</span>
                     </div>
@@ -155,9 +155,9 @@ export default function ToolsIndex({
                 {tools.length === 0 ? (
                     <EmptyState icon={Wrench} title="No tools match" description="Clear the search or pick another filter." />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Tool</th>
                                     <th className="px-3 py-2 font-medium">Risk</th>
@@ -197,7 +197,7 @@ export default function ToolsIndex({
                                                             <span>needs {t.credentials.map((c) => c.provider).join(', ')}</span>
                                                         )}
                                                         {t.governing_policy && (
-                                                            <span className="text-amber-700 dark:text-amber-300">
+                                                            <span className="text-tone-pending">
                                                                 policy {t.governing_policy.key} v{t.governing_policy.version}
                                                             </span>
                                                         )}

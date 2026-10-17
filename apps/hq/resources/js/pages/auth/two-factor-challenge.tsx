@@ -48,7 +48,7 @@ export default function TwoFactorChallenge() {
                     </div>
                 )}
                 {(form.errors.code || form.errors.recovery_code) && (
-                    <div className="text-sm text-red-600">{form.errors.code ?? form.errors.recovery_code}</div>
+                    <div className="text-sm text-tone-danger">{form.errors.code ?? form.errors.recovery_code}</div>
                 )}
                 <Button type="submit" disabled={form.processing}>
                     Verify

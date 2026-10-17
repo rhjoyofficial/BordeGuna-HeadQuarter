@@ -225,7 +225,7 @@ function NewJobDialog({ tools, open, onOpenChange }: { tools: string[]; open: bo
                     </FormRow>
 
                     {Object.values(form.errors).length > 0 && (
-                        <div className="text-sm text-red-600 dark:text-red-400">{Object.values(form.errors).join(' ')}</div>
+                        <div className="text-sm text-tone-danger">{Object.values(form.errors).join(' ')}</div>
                     )}
 
                     <DialogFooter className="gap-2 sm:gap-0">
@@ -301,9 +301,9 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         }
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Job</th>
                                     <th className="px-3 py-2 font-medium">Schedule</th>

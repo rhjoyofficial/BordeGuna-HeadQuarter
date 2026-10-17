@@ -138,8 +138,8 @@ export default function Posture(props: Props) {
                 <div
                     className={
                         inert
-                            ? 'rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-                            : 'rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-200'
+                            ? 'rounded-xl border px-4 py-3 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok'
+                            : 'rounded-xl border px-4 py-3 text-sm bg-tone-warn-bg border-tone-warn-line text-tone-warn'
                     }
                 >
                     {inert
@@ -236,7 +236,7 @@ export default function Posture(props: Props) {
                 <Panel title="What stands between each agent and its shadow week">
                     <div className="flex flex-col gap-3">
                         {props.shadow.map((s) => (
-                            <div key={s.agent_key} className="bg-card rounded-xl border p-4 text-sm">
+                            <div key={s.agent_key} className="hq-card p-4 text-sm">
                                 <div className="mb-2 flex flex-wrap items-center gap-2">
                                     <span className="font-medium">{humanKey(s.agent_key)}</span>
                                     <StatusBadge tone={s.may_open ? 'ok' : 'pending'}>

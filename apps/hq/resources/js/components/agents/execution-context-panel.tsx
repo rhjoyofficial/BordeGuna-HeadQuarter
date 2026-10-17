@@ -69,7 +69,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function ExecutionContextPanel({ context }: { context: ExecutionContext }) {
     if (context.state === 'before_adr_047') {
         return (
-            <section className="bg-card flex flex-col gap-2 rounded-xl border p-4">
+            <section className="hq-card flex flex-col gap-2 p-4">
                 <SectionHeader title="Whose authority this run had" />
                 <p className="text-muted-foreground text-sm">
                     Recorded before execution contexts existed. This run was made before HQ wrote down who asked, who enabled the agent and what the
@@ -83,7 +83,7 @@ export function ExecutionContextPanel({ context }: { context: ExecutionContext }
     const narrowedCount = c.narrowed.length;
 
     return (
-        <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+        <section className="hq-card flex flex-col gap-4 p-4">
             <SectionHeader
                 title="Whose authority this run had"
                 aside={

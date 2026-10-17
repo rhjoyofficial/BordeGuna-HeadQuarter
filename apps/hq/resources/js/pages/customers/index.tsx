@@ -119,7 +119,7 @@ export default function CustomersIndex({
                 {candidates.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title="Are these the same person?" aside={`${candidates.length} to decide`} />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {candidates.map((c) => (
@@ -172,9 +172,9 @@ export default function CustomersIndex({
                         description={filters.q ? 'Try a shorter name or the phone number.' : 'Customers appear as orders arrive from the shops.'}
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Customer</th>
                                     <th className="px-3 py-2 font-medium">Phone</th>

@@ -298,7 +298,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                     }
                 />
 
-                {flashText && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{flashText}</div>}
+                {flashText && <div className="rounded-md border px-3 py-2 text-sm bg-tone-ok-bg border-tone-ok-line text-tone-ok">{flashText}</div>}
 
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {[
@@ -307,7 +307,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                         { label: t('Scheduled'), value: counts.scheduled },
                         { label: t('Interests awaiting a decision'), value: counts.opportunities_proposed },
                     ].map((c) => (
-                        <div key={c.label} className="bg-card rounded-xl border p-3">
+                        <div key={c.label} className="hq-card p-3">
                             <div className="text-muted-foreground text-xs">{c.label}</div>
                             <div className="text-2xl font-semibold tabular-nums">{c.value}</div>
                         </div>
@@ -317,7 +317,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                 {showForms && can.propose && (
                     <section className="grid gap-4 lg:grid-cols-2">
                         <form
-                            className="bg-card flex flex-col gap-3 rounded-xl border p-4"
+                            className="hq-card flex flex-col gap-3 p-4"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 followUpForm.transform((d) => ({
@@ -401,7 +401,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                         </form>
 
                         <form
-                            className="bg-card flex flex-col gap-3 rounded-xl border p-4"
+                            className="hq-card flex flex-col gap-3 p-4"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 opportunityForm.transform((d) => ({
@@ -474,9 +474,9 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                     {followUps.length === 0 ? (
                         <EmptyState title={t('No follow-ups')} description={t('Nothing here for this filter.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Customer')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Due')}</th>
@@ -498,7 +498,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                                                 <div className="text-muted-foreground">{[f.business, f.brand].filter(Boolean).join(' / ')}</div>
                                             </td>
                                             <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                                <div className={f.due ? 'font-semibold text-orange-700' : ''}>{formatDateTime(f.due_at)}</div>
+                                                <div className={f.due ? 'font-semibold text-tone-warn' : ''}>{formatDateTime(f.due_at)}</div>
                                                 {f.due && (
                                                     <StatusBadge tone="warn" dot={false}>
                                                         {t('Due now')}
@@ -592,9 +592,9 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                     {opportunities.length === 0 ? (
                         <EmptyState title={t('No opportunities')} description={t('Nothing here for this filter.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Customer')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Subject')}</th>

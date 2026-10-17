@@ -1,7 +1,8 @@
 import { SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { TableBox } from '@/components/ui/surface';
 import { useT, useTn } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
 import { type ReactNode } from 'react';
 
@@ -36,9 +37,9 @@ export function Stat({ label, value, detail, badge }: { label: string; value: Re
     const t = useT();
     const tn = useTn();
     return (
-        <div className="bg-card flex min-w-0 flex-col gap-1 rounded-xl border p-4">
-            <div className="text-muted-foreground text-xs tracking-wide uppercase">{t(label)}</div>
-            <div className="flex flex-wrap items-center gap-2 text-2xl font-semibold tabular-nums">
+        <div className="hq-card flex min-w-0 flex-col gap-1.5 p-4">
+            <div className="hq-eyebrow">{t(label)}</div>
+            <div className="flex flex-wrap items-center gap-2 text-[1.625rem] leading-tight font-semibold tabular-nums">
                 {value}
                 {badge}
             </div>
@@ -77,16 +78,20 @@ export function DataTable<T>({
     const t = useT();
     const tn = useTn();
     if (rows.length === 0) {
-        return <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{tn(empty)}</div>;
+        return (
+            <div className="text-muted-foreground border-glass-border bg-card/40 rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+                {tn(empty)}
+            </div>
+        );
     }
 
     return (
-        <div className="bg-card overflow-x-auto rounded-xl border">
+        <TableBox>
             <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                <thead>
                     <tr>
                         {columns.map((c) => (
-                            <th key={c.key} className={cn('px-3 py-2 font-medium whitespace-nowrap', c.align === 'right' && 'text-right')}>
+                            <th key={c.key} className={cn('px-3 py-2.5 whitespace-nowrap', c.align === 'right' && 'text-right')}>
                                 {t(c.label)}
                             </th>
                         ))}
@@ -94,9 +99,9 @@ export function DataTable<T>({
                 </thead>
                 <tbody>
                     {rows.map((row, i) => (
-                        <tr key={rowKey(row, i)} className="border-t align-top">
+                        <tr key={rowKey(row, i)} className="align-top">
                             {columns.map((c) => (
-                                <td key={c.key} className={cn('px-3 py-2', c.align === 'right' && 'text-right tabular-nums')}>
+                                <td key={c.key} className={cn('px-3 py-2.5', c.align === 'right' && 'text-right tabular-nums')}>
                                     {c.render(row)}
                                 </td>
                             ))}
@@ -104,7 +109,7 @@ export function DataTable<T>({
                     ))}
                 </tbody>
             </table>
-        </div>
+        </TableBox>
     );
 }
 
@@ -113,7 +118,7 @@ export function Bar({ value, max }: { value: number; max: number }) {
     const width = max > 0 ? Math.max(2, Math.round((100 * value) / max)) : 0;
     return (
         <div className="bg-muted h-1.5 w-24 overflow-hidden rounded-full" aria-hidden>
-            <div className="bg-primary h-full rounded-full" style={{ width: `${width}%` }} />
+            <div className="bg-hq-violet h-full rounded-full" style={{ width: `${width}%` }} />
         </div>
     );
 }

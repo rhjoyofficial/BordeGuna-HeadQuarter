@@ -77,7 +77,7 @@ export function FollowUpsBody({ data }: { data: CustomerFollowUps | null }) {
 
     if (data === null) {
         return (
-            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
                 {t('Follow-ups need the follow-ups permission (hq.followups.view).')}
             </div>
         );

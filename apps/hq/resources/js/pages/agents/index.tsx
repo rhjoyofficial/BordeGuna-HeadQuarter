@@ -85,7 +85,7 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                         />
                     )}
                     {agents.map((agent) => (
-                        <article key={agent.key} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                        <article key={agent.key} className="hq-card flex flex-col gap-3 p-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                     <h2 className="text-lg font-semibold">{agent.name}</h2>
@@ -138,7 +138,7 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                 </section>
 
                 {unreviewed > 0 && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                         <strong>
                             {unreviewed} shadow {unreviewed === 1 ? 'run is' : 'runs are'} waiting to be read.
                         </strong>{' '}
@@ -182,9 +182,9 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                             }
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">When</th>
                                         <th className="px-3 py-2 font-medium">Agent</th>

@@ -61,7 +61,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
     if (release.mode === 'development' || production === null || main === null) {
         return (
             <Panel title="Release state" aside={<StatusBadge tone="neutral">development checkout</StatusBadge>}>
-                <div className="bg-card rounded-xl border p-4 text-sm">{release.summary[0]}</div>
+                <div className="hq-card p-4 text-sm">{release.summary[0]}</div>
             </Panel>
         );
     }
@@ -80,7 +80,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                 )
             }
         >
-            <div className="bg-card flex flex-col gap-1 rounded-xl border p-4 text-sm">
+            <div className="hq-card flex flex-col gap-1 p-4 text-sm">
                 {release.summary.map((line) => (
                     <p key={line}>{line}</p>
                 ))}
@@ -145,7 +145,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
 
             {known && ahead !== null && ahead > 0 && (
                 <div className="grid gap-4 xl:grid-cols-2">
-                    <div className="bg-card min-w-0 rounded-xl border p-4">
+                    <div className="hq-card min-w-0 p-4">
                         <div className="text-muted-foreground mb-2 text-xs tracking-wide uppercase">Merged to main, not released ({ahead})</div>
                         <ul className="flex flex-col gap-1 text-sm">
                             {main.subjects.map((subject, i) => (
@@ -158,7 +158,7 @@ export function ReleaseStatePanel({ release }: { release: ReleaseState }) {
                             <p className="text-muted-foreground mt-2 text-xs">Only the newest {main.subjects.length} are listed.</p>
                         )}
                     </div>
-                    <div className="bg-card min-w-0 rounded-xl border p-4">
+                    <div className="hq-card min-w-0 p-4">
                         <div className="text-muted-foreground mb-2 text-xs tracking-wide uppercase">
                             Migrations on main that have not run here ({main.migrations.length})
                         </div>

@@ -140,7 +140,7 @@ export default function InboxIndex({
                 ) : (
                     <div className="flex flex-col gap-3">
                         {threads.map((t) => (
-                            <article key={t.id} className="bg-card rounded-xl border p-4">
+                            <article key={t.id} className="hq-card p-4">
                                 <div className="flex flex-wrap items-start justify-between gap-4">
                                     <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-2">

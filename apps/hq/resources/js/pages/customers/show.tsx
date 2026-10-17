@@ -227,7 +227,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
               d;
 
     return (
-        <div className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+        <div className="flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <strong>{t('Held for review: records that cross a business boundary')}</strong>
                 {canReview && (
@@ -272,7 +272,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
 function NeedsInbox() {
     const t = useT();
     return (
-        <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+        <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
             {t('Shown only to people who may read the inbox.')}
         </div>
     );
@@ -311,7 +311,7 @@ export default function CustomerShow(props: Props) {
                     }
                 />
 
-                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                <div className="rounded-xl border px-4 py-3 text-sm bg-tone-info-bg border-tone-info-line text-tone-info">
                     {t(
                         'Each section says what kind of information it holds. Observed facts, what HQ inferred, memory, consent records, promises, hand-overs and order copies are kept apart. The same phone in another business is a different customer and is not shown here.',
                     )}
@@ -321,7 +321,7 @@ export default function CustomerShow(props: Props) {
 
                 {/* Observed */}
                 <Section kind="observed" title="Identity" explain="What a channel, a shop or a person put on the record.">
-                    <section className="bg-card rounded-xl border p-4">
+                    <section className="hq-card p-4">
                         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                             <Fact label="Name">{orDash(observed.name)}</Fact>
                             <Fact label="Phone">{orDash(observed.phone)}</Fact>
@@ -381,7 +381,7 @@ export default function CustomerShow(props: Props) {
                     title="What HQ inferred or computed"
                     explain="HQ's own reading of the record, never a fact about the person. Nothing here is acted on automatically; merges are decided by a person on the customer list."
                 >
-                    <section className="bg-card rounded-xl border p-4">
+                    <section className="hq-card p-4">
                         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                             <Fact label="Order copies counted">{formatNumber(inferred.orders_count)}</Fact>
                             <Fact label="Lifetime value from copies">{taka(inferred.lifetime_value)}</Fact>
@@ -665,7 +665,7 @@ export default function CustomerShow(props: Props) {
                     title="Outcomes"
                     explain="Waits for the canonical outcome model (S3). Nothing is computed here until it is agreed."
                 >
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">{t('Not built yet.')}</div>
+                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">{t('Not built yet.')}</div>
                 </Section>
             </div>
         </AppLayout>

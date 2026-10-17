@@ -135,7 +135,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                     }
                 />
 
-                <section className="bg-card rounded-xl border p-4">
+                <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <Fact label="Next run">
                             {job.next_run_at ? (
@@ -195,9 +195,9 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                             description="The first run appears here when the schedule fires, or when you press Run now."
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">Slot</th>
                                         <th className="px-3 py-2 font-medium">Started by</th>
@@ -240,7 +240,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                             </td>
                                             <td className="max-w-md px-3 py-2 text-xs">
                                                 {r.error ? (
-                                                    <span className="text-red-700 dark:text-red-300">{r.error}</span>
+                                                    <span className="text-tone-danger">{r.error}</span>
                                                 ) : r.output?.output && Object.keys(r.output.output).length > 0 ? (
                                                     <TechnicalDetail summary="Output">
                                                         <JsonBlock value={r.output.output} />

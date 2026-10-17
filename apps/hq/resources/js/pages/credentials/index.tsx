@@ -290,9 +290,9 @@ export default function CredentialsIndex({
                             <StatusBadge tone="ok">no incidents</StatusBadge>
                         )}
                     </div>
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Target</th>
                                     <th className="px-3 py-2 font-medium">Provider</th>
@@ -349,9 +349,9 @@ export default function CredentialsIndex({
                         description="Connectors that need a key refuse to run until one is stored here."
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Provider</th>
                                     <th className="px-3 py-2 font-medium">Used for</th>

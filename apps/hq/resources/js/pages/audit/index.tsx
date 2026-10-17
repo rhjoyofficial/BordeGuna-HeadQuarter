@@ -76,9 +76,9 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                 {logs.data.length === 0 ? (
                     <EmptyState icon={ScrollText} title="Nothing recorded for that filter" description="Clear the action or pick another actor." />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">When</th>
                                     <th className="px-3 py-2 font-medium">What happened</th>

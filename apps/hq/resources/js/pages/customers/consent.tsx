@@ -212,9 +212,9 @@ export default function CustomerConsent({ customer, brands, identities, channels
 
                 <section className="flex flex-col gap-2">
                     <SectionHeader title={t('What a send would get now')} aside={customer.business ?? ''} />
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">{t('Brand')}</th>
                                     <th className="px-3 py-2 font-medium">{t('Purpose')}</th>
@@ -261,9 +261,9 @@ export default function CustomerConsent({ customer, brands, identities, channels
                     {identity_grid.length === 0 ? (
                         <EmptyState title={t('No identities linked yet')} description={t('A restriction on one identity is never defeated by a grant on another.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Identity')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Channel')}</th>
@@ -308,9 +308,9 @@ export default function CustomerConsent({ customer, brands, identities, channels
                 {pending_lifts.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Lifts waiting for a second person')} aside={t('{count} pending', { count: pending_lifts.length })} />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">#</th>
                                         <th className="px-3 py-2 font-medium">{t('Scope')}</th>
@@ -351,9 +351,9 @@ export default function CustomerConsent({ customer, brands, identities, channels
                     {position.length === 0 ? (
                         <EmptyState title={t('No consent recorded')} description={t('Nothing is allowed until something is recorded.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">{t('Brand')}</th>
                                         <th className="px-3 py-2 font-medium">{t('Identity')}</th>
@@ -402,7 +402,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
                 </section>
 
                 {allowedActs.length > 0 && (
-                    <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-4 p-4">
                         <SectionHeader title={t('Record a consent event')} />
                         <form
                             ref={formRef}
@@ -548,7 +548,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
                                     rows={2}
                                     maxLength={1000}
                                     required
-                                    className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
+                                    className="border-input hq-field focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                                 />
                             </Field>
                             <div>
@@ -565,9 +565,9 @@ export default function CustomerConsent({ customer, brands, identities, channels
                     {history.length === 0 ? (
                         <EmptyState title={t('No consent recorded')} description={t('Nothing is allowed until something is recorded.')} />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">#</th>
                                         <th className="px-3 py-2 font-medium">{t('State')}</th>

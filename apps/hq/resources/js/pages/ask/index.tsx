@@ -54,7 +54,7 @@ function Answer({ message }: { message: Message }) {
     return (
         <div className="flex flex-col gap-2">
             {run?.shadow && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <div className="rounded-md border px-3 py-2 text-xs bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                     <strong>Shadow.</strong> The agent runs at autonomy {run.autonomy_level?.toUpperCase() ?? 'A0'}, so what follows is not HQ&apos;s
                     answer. It is a proposal for a person to review, and nothing was done because of it.
                 </div>
@@ -71,9 +71,9 @@ function Answer({ message }: { message: Message }) {
                 </div>
             )}
             {run && run.tool_calls.length > 0 && (
-                <div className="overflow-x-auto rounded-md border">
+                <div className="hq-table-box">
                     <table className="w-full text-xs">
-                        <thead className="bg-muted/50 text-muted-foreground text-left">
+                        <thead className="text-left">
                             <tr>
                                 <th className="px-2 py-1 font-medium">Tool</th>
                                 <th className="px-2 py-1 font-medium">Policy</th>
@@ -211,14 +211,14 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                             </ol>
                         )}
 
-                        <form onSubmit={submit} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                        <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
                             <textarea
                                 value={form.data.question}
                                 onChange={(e) => form.setData('question', e.target.value)}
                                 rows={3}
                                 maxLength={max_question}
                                 placeholder="Your question, in Bangla or English"
-                                className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                                className="border-input hq-field w-full rounded-md border p-2 text-sm"
                                 aria-label="Your question"
                             />
                             <InputError message={form.errors.question} />
@@ -251,7 +251,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                     </NativeSelect>
                                 </Field>
                             </FormRow>
-                            {chosen?.refusal && <p className="text-sm text-amber-700 dark:text-amber-300">{chosen.refusal}</p>}
+                            {chosen?.refusal && <p className="text-sm text-tone-pending">{chosen.refusal}</p>}
                             <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing || form.data.question.trim() === '' || chosen?.refusal !== null}>
                                     Ask

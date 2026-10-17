@@ -294,7 +294,7 @@ function SourceBlock({ source }: { source: Source }) {
 
 function RowCard({ row }: { row: Row }) {
     return (
-        <div className="bg-card flex min-w-0 flex-col gap-3 rounded-xl border p-4">
+        <div className="hq-card flex min-w-0 flex-col gap-3 p-4">
             <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold">{capital(row.label)}</h3>
                 {row.eligible ? (
@@ -429,7 +429,7 @@ function PolicyPanel({ policy }: { policy: PolicySection }) {
                 </span>
             }
         >
-            <div className="bg-card flex min-w-0 flex-col gap-3 rounded-xl border p-4">
+            <div className="hq-card flex min-w-0 flex-col gap-3 p-4">
                 <p className="text-sm">{policy.statement}</p>
                 {policy.active && (
                     <>
@@ -467,7 +467,7 @@ function PolicyPanel({ policy }: { policy: PolicySection }) {
 
 function JudgementBlock({ judgement }: { judgement: Judgement }) {
     return (
-        <div className="bg-card flex min-w-0 flex-col gap-2 rounded-xl border p-4">
+        <div className="hq-card flex min-w-0 flex-col gap-2 p-4">
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 What policy version {judgement.policy.version} allows on this evidence
                 <StatusBadge tone={judgement.ceiling === 'a0' ? 'neutral' : 'warn'}>at most {judgement.ceiling.toUpperCase()}</StatusBadge>
@@ -534,7 +534,7 @@ function AgentPanel({ agent }: { agent: AgentEvidence }) {
                 </span>
             }
         >
-            <div className="bg-card flex min-w-0 flex-col gap-2 rounded-xl border p-4">
+            <div className="hq-card flex min-w-0 flex-col gap-2 p-4">
                 <div className="text-sm font-medium">What the agent may do without a person, right now</div>
                 <ul className="text-muted-foreground list-disc space-y-0.5 pl-5 text-sm">
                     {agent.ceiling.why.map((line) => (
@@ -633,7 +633,7 @@ export default function AutonomyEvidencePage(props: Props) {
                 <PolicyPanel policy={props.policy} />
 
                 {props.agents.length === 0 && (
-                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+                    <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm border-glass-border bg-card/40">
                         No agents are registered.
                     </div>
                 )}

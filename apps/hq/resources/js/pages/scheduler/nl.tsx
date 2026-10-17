@@ -76,14 +76,14 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                     actions={<StatusBadge tone={runtime_on ? 'warn' : 'neutral'}>{runtime_on ? 'AI runtime on' : 'AI runtime off'}</StatusBadge>}
                 />
 
-                <form onSubmit={submit} className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
                     <textarea
                         value={form.data.text}
                         onChange={(e) => form.setData('text', e.target.value)}
                         rows={3}
                         maxLength={max_text}
                         placeholder="For example: every morning at 8 check the order facts for LaLaDia"
-                        className="border-input bg-background w-full rounded-md border p-2 text-sm"
+                        className="border-input hq-field w-full rounded-md border p-2 text-sm"
                         aria-label="The job, in words"
                     />
                     <InputError message={form.errors.text ?? errors.text} />
@@ -111,7 +111,7 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                 </form>
 
                 {result && result.questions.length > 0 && (
-                    <section className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <section className="flex flex-col gap-2 rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                         <strong>HQ needs to know more before it can create anything:</strong>
                         <ul className="list-disc pl-5">
                             {result.questions.map((q) => (
@@ -123,7 +123,7 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                 )}
 
                 {preview && (
-                    <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader
                             title={preview.name}
                             aside={
@@ -149,7 +149,7 @@ export default function SchedulerNl({ runtime_on, result, text, businesses, max_
                         </dl>
                         <p className="text-muted-foreground text-xs">{preview.approval_note}</p>
                         {preview.degraded && (
-                            <p className="text-xs text-amber-700 dark:text-amber-300">Read on a lower model tier than asked for; check it closely.</p>
+                            <p className="text-xs text-tone-pending">Read on a lower model tier than asked for; check it closely.</p>
                         )}
                         <InputError message={errors.token} />
                         <div className="flex flex-wrap gap-2">

@@ -169,7 +169,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {approval.status === 'consumed' && approval.execution_status !== 'succeeded' && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-pending-bg border-tone-pending-line text-tone-pending">
                         <strong>This approval was spent without the action running.</strong> It was approved, but the gateway refused the call at
                         execution time{approval.execution_error ? `: ${approval.execution_error}` : '.'} An approval is single use, so a fresh request
                         is needed rather than a retry.
@@ -177,14 +177,14 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {!approval.payload_intact && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    <div className="rounded-xl border p-4 text-sm bg-tone-danger-bg border-tone-danger-line text-tone-danger">
                         <strong>Integrity failure.</strong> The stored payload no longer matches the hash recorded when this approval was created.
                         This cannot happen through the application, so the row was changed underneath it. Execution is refused and nothing will be
                         repaired.
                     </div>
                 )}
 
-                <section className="bg-card rounded-xl border p-4">
+                <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <Fact label="Business">
                             {approval.business ?? (approval.business_id ? `#${approval.business_id}` : 'not business-specific')}
@@ -192,7 +192,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         </Fact>
                         <Fact label={approval.agent_key ? 'Proposed by' : 'Asked by'}>
                             {approval.agent_key ? (
-                                <span className="text-amber-700 dark:text-amber-300">the {approval.agent_key} agent</span>
+                                <span className="text-tone-pending">the {approval.agent_key} agent</span>
                             ) : (
                                 (approval.requested_by ?? 'system')
                             )}
@@ -220,7 +220,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                         {approval.status === 'pending' && (
                             <Fact label="Decide by">
                                 {approval.sla_due_at ? (
-                                    <span className={overdue ? 'text-orange-700 dark:text-orange-300' : ''}>
+                                    <span className={overdue ? 'text-tone-warn' : ''}>
                                         {formatDateTime(approval.sla_due_at)} ({timeAgo(approval.sla_due_at)})
                                     </span>
                                 ) : (
@@ -257,7 +257,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     </dl>
                 </section>
 
-                <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                <section className="hq-card flex flex-col gap-3 p-4">
                     <SectionHeader
                         title="What will run"
                         aside={
@@ -269,12 +269,12 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     {editing ? (
                         <>
                             <textarea
-                                className="border-input bg-background h-56 w-full rounded-md border p-2 font-mono text-xs"
+                                className="border-input hq-field h-56 w-full rounded-md border p-2 font-mono text-xs"
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
                                 aria-label="Edited arguments as JSON"
                             />
-                            {draftError && <p className="text-sm text-red-600 dark:text-red-400">{draftError}</p>}
+                            {draftError && <p className="text-sm text-tone-danger">{draftError}</p>}
                             <p className="text-muted-foreground text-xs">
                                 The original stays on the record unchanged. Approving creates a new approval for what you edited, validated against
                                 the tool's own schema.
@@ -303,7 +303,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 </section>
 
                 {approval.preview && (
-                    <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title="What it would do" />
                         <PreviewList preview={approval.preview} />
                         {approval.preview.available && (
@@ -315,7 +315,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                 )}
 
                 {approval.evidence && (
-                    <section className="bg-card flex flex-col gap-3 rounded-xl border p-4">
+                    <section className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title="Evidence the request rests on" />
                         <JsonBlock value={approval.evidence} />
                     </section>
