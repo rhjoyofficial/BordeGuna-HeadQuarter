@@ -57,7 +57,8 @@ beforeEach(function () {
     aiModel('fixture', 'fixture-model-medium', ModelTier::Medium);
 
     $this->owner = User::factory()->create(['email' => 'joy@example.test']);
-    $this->owner->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view']);
+    // docs/138 ruling 13: opening or closing a shadow is a group-wide switch, so the opener holds hq.agents.manage.
+    $this->owner->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view', 'hq.agents.manage']);
     $this->seed(AgentSeeder::class);
 
     // The production posture: the runtime row exists and is off, every agent paused.
@@ -609,12 +610,21 @@ it('opens a production shadow under the named person: every audit row is theirs,
 it('resolves the probes of a production period from the named person, and never from the enabling user by default', function () {
     passingGate();
     $opener = User::factory()->create(['email' => 'opener@example.test']);
-    $opener->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view']);
+    $opener->givePermissionTo(['hq.tools.facts.read', 'hq.tools.erp.read', 'hq.tools.commerce.read', 'hq.approvals.view', 'hq.jobs.view', 'hq.agents.manage']);
     $laladia = Business::where('slug', 'laladia')->sole();
-    UserBusinessScope::create(['user_id' => $opener->id, 'business_id' => $laladia->id, 'access' => 'read']);
+    // docs/138 ruling 13: a shadow period switches ai.runtime for every business, so a person limited to
+    // some businesses cannot open one, even holding the permission. Before the ruling this test opened
+    // it under a LaLaDia-only person; now that person is refused and an unrestricted one opens it.
+    $restricted = User::factory()->create(['email' => 'restricted@example.test']);
+    $restricted->givePermissionTo(['hq.agents.manage']);
+    UserBusinessScope::create(['user_id' => $restricted->id, 'business_id' => $laladia->id, 'access' => 'read']);
     FixtureProvider::script('fixture', [shadowReply(), shadowReply(), shadowReply()]);
 
     asProduction(function () {
+        $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'restricted@example.test', '--reason' => 'Gate 11 attempt 2 passed.'])
+            ->expectsOutputToContain('limited to some businesses')->assertFailed();
+        expect(ShadowPeriod::count())->toBe(0)->and(runtimeOn())->toBeFalse();
+
         $this->artisan('hq:shadow:open', ['agent' => 'executive', '--apply' => true, '--by' => 'opener@example.test', '--reason' => 'Gate 11 attempt 2 passed.'])->assertSuccessful();
         $this->artisan('hq:shadow:tick', ['--slot' => 'morning'])->assertSuccessful();
     });
@@ -626,7 +636,8 @@ it('resolves the probes of a production period from the named person, and never 
             ->and($run->execution_context['requester']['user_id'])->toBe($opener->id)
             ->and($run->execution_context['requester']['as_enabled'])->toBeFalse()
             ->and($run->execution_context['environment'])->toBe('production')
-            ->and($run->execution_context['scope']['business_ids'])->toBe([$laladia->id])
+            // The opener is group-wide (ruling 13), so the probes run with no business restriction.
+            ->and($run->execution_context['scope']['business_ids'])->toBeNull()
             ->and($run->triggered_by_user_id)->toBe($opener->id);
     }
 });
