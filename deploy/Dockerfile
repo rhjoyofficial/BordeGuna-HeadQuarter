@@ -23,7 +23,7 @@ COPY apps/hq/composer.json apps/hq/composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --optimize-autoloader --no-scripts --ignore-platform-reqs
 
 # ---------- 3. Runtime ----------
-FROM php:8.3-fpm-alpine AS runtime
+FROM php:8.3.36-fpm-alpine AS runtime
 
 # ⭐ The commit this image was built from, stamped onto the image itself.
 #
