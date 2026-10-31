@@ -2371,5 +2371,17 @@
     "sent": "পাঠানো হয়েছে",
     "delivered": "পৌঁছেছে",
     "received": "পাওয়া গেছে",
-    "allowed": "অনুমোদিত"
+    "allowed": "অনুমোদিত",
+    "Courier tracking": "কুরিয়ার ট্র্যাকিং",
+    "A courier webhook secret per business and courier (kind courier_webhook_secret), and the webhook URL given to the courier.": "প্রতিটি ব্যবসা ও কুরিয়ারের জন্য একটি কুরিয়ার webhook secret (ধরন courier_webhook_secret), এবং কুরিয়ারকে দেওয়া webhook URL।",
+    "A browser that allows the microphone, when a person clicks to talk.": "এমন একটি ব্রাউজার, যা একজন মানুষ কথা বলতে ক্লিক করলে মাইক্রোফোন ব্যবহারের অনুমতি দেয়।",
+    "Photos, videos and files in chat": "চ্যাটে ছবি, ভিডিও ও ফাইল",
+    "Optional: a ClamAV scanner (hq.media.scanner = clamd).": "ঐচ্ছিক: একটি ClamAV স্ক্যানার (hq.media.scanner = clamd)।",
+    "Reel and video drafts": "রিল ও ভিডিওর খসড়া",
+    "A person approves each draft before anything is published.": "কিছু প্রকাশের আগে একজন মানুষ প্রতিটি খসড়া অনুমোদন করেন।",
+    "Supplier mailbox and bill drafts": "সরবরাহকারীর মেইলবক্স ও বিলের খসড়া",
+    "A read-only mailbox token per business.": "প্রতিটি ব্যবসার জন্য শুধু-পড়ার একটি মেইলবক্স টোকেন।",
+    "ERP draft supplier bill": "ERP-তে সরবরাহকারীর বিলের খসড়া",
+    "The ERP must offer the draft bill endpoint (docs/144-erp-write-contract.md), and a second person approves each request.": "ERP-কে খসড়া বিলের endpoint দিতে হবে (docs/144-erp-write-contract.md), এবং প্রতিটি অনুরোধ দ্বিতীয় একজন মানুষ অনুমোদন করবেন।",
+    "An ad account linked to the business, and a person switches each draft on in Ads Manager.": "ব্যবসার সঙ্গে যুক্ত একটি বিজ্ঞাপন অ্যাকাউন্ট, এবং Ads Manager-এ একজন মানুষ প্রতিটি খসড়া চালু করেন।"
 }
