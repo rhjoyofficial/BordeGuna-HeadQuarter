@@ -4,6 +4,7 @@ namespace App\Content;
 
 use App\Models\ContentBrief;
 use App\Models\ContentClaimsRule;
+use Illuminate\Support\Collection;
 
 /**
  * The claims policy a draft is checked against (docs/145-a): the brief's own policy, plus the owner's
@@ -47,7 +48,7 @@ final class ClaimsRulebook
         return new ClaimsPolicy($version, $lines, $base->bannedWords);
     }
 
-    /** @return \Illuminate\Support\Collection<int, ContentClaimsRule> */
+    /** @return Collection<int, ContentClaimsRule> */
     public function activeRules(int $businessId)
     {
         return ContentClaimsRule::query()->where('business_id', $businessId)->where('status', 'active')->orderBy('id')->get();

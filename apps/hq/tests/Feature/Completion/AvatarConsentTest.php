@@ -4,6 +4,7 @@ use App\Avatar\AvatarGenerations;
 use App\Avatar\AvatarProvider;
 use App\Avatar\FakeAvatarProvider;
 use App\Avatar\PhaseEightTools;
+use App\Models\Approval;
 use App\Models\AvatarConsent;
 use App\Models\AvatarGeneration;
 use App\Models\Brand;
@@ -158,7 +159,7 @@ it('when a release registers the tool, a clip waits for a person\'s approval and
     $this->actingAsHq($this->owner)->post('/avatar/generate', ['consent_uuid' => $consent->uuid, 'brand_id' => $this->lld->id, 'use' => 'product_promo', 'modality' => 'face', 'script' => 'হ্যালো'])
         ->assertSessionHasNoErrors()->assertSessionHas('status', 'avatar-generation-awaiting-approval');
 
-    $approval = \App\Models\Approval::query()->where('tool_key', GenerateAvatarTool::KEY)->sole();
+    $approval = Approval::query()->where('tool_key', GenerateAvatarTool::KEY)->sole();
     expect($approval->status->value)->toBe('pending')->and($provider->requests)->toBe([])->and(AvatarGeneration::query()->count())->toBe(0)
         // The person who asked may not decide it (requesterMayDecide: false).
         ->and($approval->separationOfDutiesReason($this->owner))->not->toBeNull();

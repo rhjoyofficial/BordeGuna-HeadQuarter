@@ -6,6 +6,7 @@ use App\Content\ContentDigest;
 use App\Content\ProductFact;
 use App\Content\Publishing\FakePostPublisher;
 use App\Content\Publishing\PublicationService;
+use App\Models\AuditLog;
 use App\Models\Brand;
 use App\Models\ContentCalendarEntry;
 use App\Models\ContentClaimsRule;
@@ -141,7 +142,7 @@ it('keeps the owner\'s rules: an allowed claim needs its proof, a rule is never 
 
     $this->actingAsHq($this->owner)->post("/content/claims-rules/{$rule->uuid}/retire", ['reason' => 'superseded'])->assertSessionHasNoErrors();
     expect($rule->fresh()->status)->toBe('retired')
-        ->and(\App\Models\AuditLog::query()->where('action', 'content.claims_rule.retired')->count())->toBe(1);
+        ->and(AuditLog::query()->where('action', 'content.claims_rule.retired')->count())->toBe(1);
 
     // The brand manager plans and drafts but never writes the owner's rules or reviews.
     $manager = $this->hqUser('brand_manager');

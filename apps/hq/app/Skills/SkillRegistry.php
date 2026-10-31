@@ -60,7 +60,7 @@ final class SkillRegistry
         $tools = $this->checkTools((array) ($data['required_tools'] ?? []));
 
         return DB::transaction(function () use ($by, $business, $key, $name, $purpose, $tools, $proposerType, $proposalRef): Skill {
-            $version = (int) Skill::query()->where('key', $key)->lockForUpdate()->max('version') + 1;
+            $version = (int) Skill::query()->where('key', $key)->lockForUpdate()->pluck('version')->max() + 1;
             $skill = Skill::query()->create([
                 'key' => $key,
                 'version' => $version,

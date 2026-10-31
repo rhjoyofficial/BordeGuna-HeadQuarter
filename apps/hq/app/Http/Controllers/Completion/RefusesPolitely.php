@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Completion;
 
 use App\Research\ResearchRefused;
+use App\Support\Authorization\BusinessScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +28,7 @@ trait RefusesPolitely
 
     protected function inScope(?Model $row, ?int $businessId): void
     {
-        if ($row === null || ! app(\App\Support\Authorization\BusinessScope::class)->allows(request()->user(), $businessId)) {
+        if ($row === null || ! app(BusinessScope::class)->allows(request()->user(), $businessId)) {
             abort(404);
         }
     }
