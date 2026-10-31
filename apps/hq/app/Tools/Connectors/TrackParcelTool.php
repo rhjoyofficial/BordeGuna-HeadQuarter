@@ -57,14 +57,14 @@ final class TrackParcelTool extends ConnectorTool
     protected function arguments(): array
     {
         return [
-            'provider' => ['type' => 'string', 'enum' => array_keys(\App\Connectors\Capabilities::COURIER_TRACK_BY_PROVIDER)],
-            'consignment_ref' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 96, 'pattern' => '^[A-Za-z0-9._\-]+$'],
+            'courier' => ['type' => 'string', 'enum' => array_keys(\App\Connectors\Capabilities::COURIER_TRACK_BY_PROVIDER)],
+            'consignment_ref' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 96],
         ];
     }
 
     protected function required(): array
     {
-        return ['provider', 'consignment_ref'];
+        return ['courier', 'consignment_ref'];
     }
 
     protected function idempotent(): bool
@@ -74,8 +74,11 @@ final class TrackParcelTool extends ConnectorTool
 
     protected function run(?Business $business, array $payload, ToolContext $context): ToolResult
     {
+        if (preg_match('/^[A-Za-z0-9._\-]+$/', (string) $payload['consignment_ref']) !== 1) {
+            return ToolResult::failed('A consignment number is letters, digits, dots, dashes and underscores.', [], OutcomeClass::InvalidArguments);
+        }
         try {
-            $parcel = app(CourierTracker::class)->track($business, (string) $payload['provider'], (string) $payload['consignment_ref']);
+            $parcel = app(CourierTracker::class)->track($business, (string) $payload['courier'], (string) $payload['consignment_ref']);
         } catch (CourierRefused $e) {
             return ToolResult::failed($e->getMessage(), ['connector_state' => 'refused'], OutcomeClass::ConnectorError);
         } catch (CourierUnavailable $e) {

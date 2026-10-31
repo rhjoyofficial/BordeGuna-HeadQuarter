@@ -18,7 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Where a courier's status webhooks arrive: `POST /webhooks/courier/{provider}/{business}` (docs/144-courier-connectors).
+ * Where a courier's status webhooks arrive: `POST /api/webhooks/courier/{provider}/{business}` (docs/144-courier-connectors).
  *
  * Fail closed at every step, and each step answers as little as possible:
  *  - the switch `connectors.courier` is off, the courier or the business is unknown, or no connector is registered and on

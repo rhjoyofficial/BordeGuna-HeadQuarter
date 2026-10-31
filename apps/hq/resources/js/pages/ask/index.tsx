@@ -8,11 +8,12 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { humanKey, humanMillis, timeAgo } from '@/lib/format';
+import { postForm } from '@/lib/post-form';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { MessageSquarePlus, Sparkles } from 'lucide-react';
-import { useEffect } from 'react';
+import { MessageSquarePlus, Mic, Paperclip, Sparkles } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 type ToolCallRow = { id: number; tool_key: string; status: string; policy_result: string | null; duration_ms: number | null };
 
@@ -23,6 +24,7 @@ type Message = {
     content: string;
     structured: Record<string, unknown> | null;
     created_at: string | null;
+    attachments?: { uuid: string; name: string; kind: string }[];
     run: {
         id: number;
         uuid: string;
@@ -41,6 +43,8 @@ type Props = {
     agents: { key: string; refusal: string | null }[];
     businesses: { id: number; name: string }[];
     runtime_on: boolean;
+    uploads_on?: boolean;
+    voice_on?: boolean;
     max_question: number;
 };
 
@@ -107,14 +111,52 @@ export default function AskIndex(props: Props) {
     return <AskPage key={props.conversation?.uuid ?? 'new'} {...props} />;
 }
 
-function AskPage({ conversation, messages, conversations, agents, businesses, runtime_on, max_question }: Props) {
+function AskPage({ conversation, messages, conversations, agents, businesses, runtime_on, uploads_on, voice_on, max_question }: Props) {
     const firstAskable = agents.find((a) => a.refusal === null)?.key ?? agents[0]?.key ?? 'executive';
     const form = useForm({
         question: '',
         agent_key: conversation?.agent_key ?? firstAskable,
         business_id: conversation?.business_id ? String(conversation.business_id) : '',
         conversation: conversation?.uuid ?? '',
+        attachment_uuids: [] as string[],
     });
+    const [files, setFiles] = useState<{ uuid: string; name: string }[]>([]);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const picker = useRef<HTMLInputElement>(null);
+
+    // A transcript from the voice screen lands in the question box, to be read and sent by the person (speech adds no authority).
+    useEffect(() => {
+        try {
+            const draft = sessionStorage.getItem('hq-voice-draft');
+            if (draft) {
+                sessionStorage.removeItem('hq-voice-draft');
+                form.setData('question', draft);
+            }
+        } catch {
+            /* no session storage: the box starts empty */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const attach = async (list: FileList | null) => {
+        if (!list) return;
+        setUploadError(null);
+        let uuids = form.data.attachment_uuids;
+        for (const file of Array.from(list)) {
+            const body = new FormData();
+            body.append('file', file);
+            if (form.data.business_id) body.append('business_id', form.data.business_id);
+            const r = await postForm<{ uuid: string; name: string }>('/ask/media', body);
+            if (r.ok) {
+                setFiles((f) => [...f, { uuid: r.data.uuid, name: r.data.name }]);
+                uuids = [...uuids, r.data.uuid];
+                form.setData('attachment_uuids', uuids);
+            } else {
+                setUploadError(r.error);
+            }
+        }
+        if (picker.current) picker.current.value = '';
+    };
     const chosen = agents.find((a) => a.key === form.data.agent_key);
     const waiting = messages.some((m) => m.status === 'pending');
 
@@ -130,7 +172,13 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
-        form.post('/ask', { preserveScroll: true, onSuccess: () => form.reset('question') });
+        form.post('/ask', {
+            preserveScroll: true,
+            onSuccess: () => {
+                form.reset('question', 'attachment_uuids');
+                setFiles([]);
+            },
+        });
     };
 
     return (
@@ -208,6 +256,17 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                             <span>{timeAgo(m.created_at)}</span>
                                         </div>
                                         {m.role === 'assistant' ? <Answer message={m} /> : <p className="text-sm whitespace-pre-line">{m.content}</p>}
+                                        {(m.attachments ?? []).length > 0 && (
+                                            <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+                                                {(m.attachments ?? []).map((a) => (
+                                                    <li key={a.uuid}>
+                                                        <a className="underline" href={`/media/${a.uuid}`} target="_blank" rel="noreferrer">
+                                                            {a.name}
+                                                        </a>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
                                     </li>
                                 ))}
                             </ol>
@@ -256,11 +315,48 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                 </Field>
                             </FormRow>
                             {chosen?.refusal && <Notice tone="pending">{chosen.refusal}</Notice>}
+                            {files.length > 0 && (
+                                <ul className="flex flex-wrap gap-2 text-xs" aria-label="Attached files">
+                                    {files.map((f) => (
+                                        <li key={f.uuid} className="border-glass-border rounded-full border px-2.5 py-1">
+                                            {f.name}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            {uploadError && <InputError message={uploadError} />}
                             <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing || form.data.question.trim() === '' || chosen?.refusal !== null}>
                                     Ask
                                 </Button>
+                                {uploads_on && (
+                                    <>
+                                        <input
+                                            ref={picker}
+                                            type="file"
+                                            multiple
+                                            hidden
+                                            onChange={(e) => void attach(e.target.files)}
+                                            accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,application/pdf,text/plain,text/csv"
+                                        />
+                                        <Button type="button" variant="outline" onClick={() => picker.current?.click()}>
+                                            <Paperclip className="size-4" aria-hidden /> Attach a photo, video or file
+                                        </Button>
+                                    </>
+                                )}
+                                {voice_on && (
+                                    <Button type="button" variant="outline" asChild>
+                                        <Link href="/voice">
+                                            <Mic className="size-4" aria-hidden /> Talk
+                                        </Link>
+                                    </Button>
+                                )}
                             </div>
+                            {uploads_on && (
+                                <p className="text-muted-foreground text-xs">
+                                    Attached files are kept for a limited time, for the people of this business. The agent does not read them: they are for people.
+                                </p>
+                            )}
                             {!runtime_on && (
                                 <InertNotice
                                     title="Answers from an agent"

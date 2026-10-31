@@ -105,18 +105,17 @@ function connectorTranscribe(?int $businessId = null, ?int $brandId = null): Con
 
 // ── The shipped state ────────────────────────────────────────────────────────────────────────────
 
-it('ships with nothing registered, so every capability resolves to the typed NoConnector', function () {
+it('ships every registered connector switched off, so no capability resolves to a connector (docs/144)', function () {
     $registry = app(ConnectorRegistry::class);
 
-    expect(config('hq-connectors.connectors'))->toBe([])
-        ->and($registry->all())->toBe([])
-        ->and(app(ConnectorRegistry::class))->toBe($registry);
+    expect(app(ConnectorRegistry::class))->toBe($registry);
 
     foreach (array_keys(Capabilities::CONTRACTS) as $capability) {
         $resolution = $registry->resolve(new ConnectorRequest($capability));
-        expect($resolution->outcome)->toBe(ConnectorOutcome::NoConnector)
-            ->and($resolution->connector)->toBeNull()
-            ->and($resolution->toArray()['reason'])->toContain('No connector is registered');
+        expect($resolution->resolvedOk())->toBeFalse()->and($resolution->connector)->toBeNull();
+        // A capability with no row says so; one with rows says every one of them is switched off.
+        $registered = $registry->for($capability) !== [];
+        expect(json_encode($resolution->toArray()))->toContain($registered ? 'switched off' : 'No connector is registered');
     }
 });
 
@@ -381,7 +380,8 @@ it('reports the legacy providers as legacy rows, read-only, naming the shape tha
         // The speech slots and the platform registry are empty, and report nothing.
         ->and($legacy->whereIn('capability', [Capabilities::VOICE_TRANSCRIBE, Capabilities::VOICE_SYNTHESIZE])->count())->toBe(0)
         ->and($legacy->every(fn (ConnectorReadinessRow $r) => $r->state === ConnectorReadinessRow::LEGACY))->toBeTrue()
-        ->and($rows->where('origin', ConnectorReadinessRow::ORIGIN_REGISTRY)->count())->toBe(0);
+        // The HQ-completion rows (docs/144) are registry rows, and every one of them is switched off.
+        ->and($rows->where('origin', ConnectorReadinessRow::ORIGIN_REGISTRY)->every(fn (ConnectorReadinessRow $r) => $r->state === 'disabled'))->toBeTrue();
 
     // Reporting changed nothing: the shapes are as empty as they shipped.
     expect(app(SpeechProviders::class)->isEmpty())->toBeTrue()

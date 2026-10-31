@@ -195,3 +195,42 @@ function metaPost($test, array $payload, ?string $secret = 'meta-app-secret', ar
 
     return $test->call('POST', '/api/webhooks/meta', [], [], [], array_merge(['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], $signed, $headers), $raw);
 }
+
+/**
+ * docs/144: register the SANDBOX (fake) connector rows beside the shipped ones and switch the named flags ON, for a test that
+ * needs a connector to serve. Production ships none of this: the rows are OFF and the sandbox is registered only under
+ * HQ_CONNECTORS_SANDBOX, which nothing sets. Rebuilds the registry so the new rows are seen.
+ *
+ * @param  list<string>  $flags
+ */
+function m3SandboxConnectors(array $flags): void
+{
+    $sandbox = [
+        ['courier.pathao.track', \App\Courier\Fake\FakePathaoCourier::class, 'connectors.courier'],
+        ['courier.carrybee.track', \App\Courier\Fake\FakeCarryBeeCourier::class, 'connectors.courier'],
+        ['courier.steadfast.track', \App\Courier\Fake\FakeSteadfastCourier::class, 'connectors.courier'],
+        ['courier.redx.track', \App\Courier\Fake\FakeRedxCourier::class, 'connectors.courier'],
+        ['voice.transcribe', \App\Voice\Fake\FakeSpeechToText::class, 'connectors.voice'],
+        ['voice.synthesize', \App\Voice\Fake\FakeTextToSpeech::class, 'connectors.voice'],
+        ['media.video.generate', \App\Media\Pipeline\FakeMediaPipeline::class, 'connectors.media_pipeline'],
+        ['mail.inbox.read', \App\Ingestion\Mailbox\FakeMailbox::class, 'connectors.mail_ingestion'],
+        ['erp.draft_bill.create', \App\Erp\Write\FakeErpDraftBillWriter::class, 'connectors.erp_draft_bill'],
+        ['ads.draft.create', \App\Ads\Draft\FakeAdsDraftPlatform::class, 'connectors.ads_draft'],
+    ];
+    $rows = array_map(static fn (array $s) => ['capability' => $s[0], 'provider' => 'sandbox', 'adapter' => $s[1], 'transport' => 'internal',
+        'credentials' => [], 'priority' => 900, 'enabled_by' => 'flag:'.$s[2]], $sandbox);
+
+    config(['hq-connectors.connectors' => array_merge(array_values(array_filter(config('hq-connectors.connectors'), static fn ($r) => $r['provider'] !== 'sandbox')), $rows)]);
+    foreach ($flags as $flag) {
+        \App\Models\FeatureFlag::query()->updateOrCreate(['key' => $flag, 'environment' => '*'], ['description' => 'test', 'enabled' => true]);
+    }
+    m3RebuildRegistries();
+}
+
+/** The connector registry and the tool registry are built once per process; rebuild both (and the gateway that holds the tool registry) after a flag or a row changed. */
+function m3RebuildRegistries(): void
+{
+    foreach ([\App\Connectors\ConnectorRegistry::class, \App\Tools\ToolRegistry::class, \App\Gateway\ToolGateway::class] as $class) {
+        app()->forgetInstance($class);
+    }
+}

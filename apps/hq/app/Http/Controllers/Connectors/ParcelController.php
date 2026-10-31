@@ -36,7 +36,7 @@ final class ParcelController extends ConnectorController
     {
         $data = $request->validate([
             'business_slug' => ['required', 'string', 'max:64'],
-            'provider' => ['required', 'string', Rule::in(array_keys(Capabilities::COURIER_TRACK_BY_PROVIDER))],
+            'courier' => ['required', 'string', Rule::in(array_keys(Capabilities::COURIER_TRACK_BY_PROVIDER))],
             'consignment_ref' => ['required', 'string', 'min:3', 'max:96', 'regex:/^[A-Za-z0-9._\-]+$/'],
         ]);
         $business = $this->scopedBusiness($request->user(), $data['business_slug']);

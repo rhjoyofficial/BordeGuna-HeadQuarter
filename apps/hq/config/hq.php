@@ -180,25 +180,21 @@ return [
         // `hq.customers.quarantine.repair`, PERMANENTLY human-only; executes only a batch the dry run proposed whose
         // every row a person reviewed (`needs_repair`, none disputed). The ONLY caller of `RepairApplier::applyRepair()`.
         QuarantineRepairTool::class,
-        // docs/144 (HQ-completion connectors): each is behind a feature flag that ships OFF (the `connectors.*` flags),
-        // needs its credential, is held by no agent, and is not agent-executable. Courier reads, voice, media drafts, the supplier
-        // mailbox, the ERP draft bill and paused ad drafts (the last two R4: approval, a second person for the ERP one).
-        CheckMetaTokenTool::class,
-        CheckReelDraftTool::class,
-        CreateAdsDraftTool::class,
-        CreateDraftBillTool::class,
-        DraftReelTool::class,
-        PollMailboxTool::class,
-        PollParcelsTool::class,
-        TrackParcelTool::class,
-        VoiceSynthesizeTool::class,
-        VoiceTranscribeTool::class,
-        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of ONE open identity
-        // conflict of one business: keep the owner, move to the claimant of the SAME business, or mark not resolvable.
-        // R3 write of HQ rows only (the identity, the conflict, the append-only resolution, audit), permission
-        // `hq.customers.identity_conflicts.resolve`, PERMANENTLY human-only, held by no agent. The ONLY caller of
-        // `ConflictResolver::resolveConflict()`. Never across a business, never a merge.
-        ResolveIdentityConflictTool::class,
+    ],
+
+    // docs/144 (HQ-completion connectors): tools that exist ONLY while their feature flag is ON. With the flag off (the shipped
+    // state, flags seeded OFF) a tool is not in the registry at all, so the gateway answers "unknown tool" for everyone, which is
+    // the same lock `tools` above is for the older ones, held per flag. Switching a flag on adds its tools on the next request
+    // (web) or the next worker restart (queues); switching it off removes them. None is agent-executable and no agent holds one.
+    // Each still checks its own flag, its permission, its business scope and its credential; R4 ones wait for approval.
+    'flagged_tools' => [
+        'connectors.courier' => [TrackParcelTool::class, PollParcelsTool::class],
+        'connectors.voice' => [VoiceTranscribeTool::class, VoiceSynthesizeTool::class],
+        'connectors.media_pipeline' => [DraftReelTool::class, CheckReelDraftTool::class],
+        'connectors.mail_ingestion' => [PollMailboxTool::class],
+        'connectors.erp_draft_bill' => [CreateDraftBillTool::class],
+        'connectors.ads_draft' => [CreateAdsDraftTool::class],
+        'connectors.meta_health' => [CheckMetaTokenTool::class],
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)

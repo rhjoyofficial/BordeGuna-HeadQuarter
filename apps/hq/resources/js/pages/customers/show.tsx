@@ -1,5 +1,6 @@
 import { FollowUpsBody, type CustomerFollowUps } from '@/components/customers/follow-ups-section';
 import { EmptyState } from '@/components/empty-state';
+import { ParcelStatusBadge, type Parcel } from '@/components/parcel-timeline';
 import { DataTable, Note, Panel, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ type Order = {
     delivered_at: string | null;
     cancelled_at: string | null;
     copy_updated_at: string | null;
+    parcels: Parcel[];
 };
 type Thread = {
     uuid: string;
@@ -485,6 +487,15 @@ export default function CustomerShow(props: Props) {
                                             </StatusBadge>
                                         )}
                                     </div>
+                                ),
+                            },
+                            {
+                                key: 'parcel',
+                                label: 'Parcel',
+                                render: (o) => (
+                                    <Link href={`/orders/${o.id}`} className="flex flex-wrap items-center gap-1 underline">
+                                        {o.parcels.length === 0 ? <span className="text-muted-foreground">{t('No parcel')}</span> : o.parcels.map((p) => <ParcelStatusBadge key={p.uuid} status={p.status} />)}
+                                    </Link>
                                 ),
                             },
                             { key: 'gross', label: 'Amount', align: 'right', render: (o) => taka(o.gross) },

@@ -53,7 +53,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
+        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry([...config('hq.tools', []), ...app(\App\Tools\FlaggedTools::class)->enabled()]));
         // docs/102: the workflow seam. Only listed definitions can start, and no listed definition has a
         // tool step (docs/120 item 17, ListedWorkflowDefinitionsStructureTest).
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
