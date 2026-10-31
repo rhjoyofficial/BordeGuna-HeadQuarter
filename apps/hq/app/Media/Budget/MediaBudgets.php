@@ -183,6 +183,10 @@ final class MediaBudgets
      */
     public function reconcile(MediaBudgetEntry $entry, MediaCost $actual, ?User $by): MediaBudgetEntry
     {
+        // A reconciled line counts at its actual, which can free headroom, so recording it is the owner's act, like the limit.
+        if ($by !== null && (! $by->hasRole('owner') || ! $by->can(self::PERMISSION_MANAGE))) {
+            throw new MediaBudgetRefused('Only the owner may record a provider\'s billed cost.');
+        }
         if ($by !== null && ! $this->scope->allows($by, (int) $entry->business_id)) {
             throw new MediaBudgetRefused('That business is outside what you may use.');
         }
@@ -231,6 +235,41 @@ final class MediaBudgets
 
             return $row;
         });
+    }
+
+    /**
+     * What the Connectors screen shows: every business this person may use, its limit, this month's use and the latest ledger
+     * lines (estimate beside actual).
+     *
+     * @return array<string, mixed>
+     */
+    public function overviewFor(User $user): array
+    {
+        $period = $this->period();
+        $businesses = [];
+        foreach (Business::query()->orderBy('name')->get(['id', 'slug', 'name']) as $business) {
+            if (! $this->scope->allows($user, (int) $business->id)) {
+                continue;
+            }
+            $businesses[] = ['slug' => $business->slug, 'name' => $business->name, 'limit_bdt' => $this->limitBdt((int) $business->id),
+                'used_bdt' => $this->usedBdt((int) $business->id, $period)];
+        }
+        $names = Business::query()->pluck('name', 'id');
+        $entries = MediaBudgetEntry::query()->visibleTo($user)->latest('id')->limit(30)->get()->map(fn (MediaBudgetEntry $e) => [
+            'uuid' => $e->uuid, 'business' => $names[$e->business_id] ?? null, 'period' => $e->period, 'kind' => $e->kind, 'provider' => $e->provider,
+            'tool_key' => $e->tool_key, 'estimate' => $e->estimate_amount.' '.$e->estimate_currency, 'estimate_bdt' => (string) $e->estimate_bdt,
+            'actual' => $e->actual_amount === null ? null : $e->actual_amount.' '.$e->actual_currency,
+            'actual_bdt' => $e->actual_bdt === null ? null : (string) $e->actual_bdt,
+            'state' => $e->state, 'created_at' => $e->created_at?->toIso8601String(),
+        ])->all();
+
+        return [
+            'period' => $period,
+            'timezone' => (string) config('hq.timezone', 'Asia/Dhaka'),
+            'businesses' => $businesses,
+            'entries' => $entries,
+            'can_manage' => $user->hasRole('owner') && $user->can(self::PERMISSION_MANAGE),
+        ];
     }
 
     public static function money(string $value): string

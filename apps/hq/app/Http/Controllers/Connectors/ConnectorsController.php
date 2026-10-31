@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Connectors;
 
 use App\Connectors\ConnectorHub;
+use App\Media\Budget\MediaBudgets;
 use App\Tools\Connectors\CheckMetaTokenTool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,8 @@ final class ConnectorsController extends ConnectorController
             'families' => $hub->families($request->user()),
             'meta' => $hub->meta($request->user()),
             'can' => ['check_tokens' => $request->user()->can('hq.tools.meta.health')],
+            // Ruling 31 Oct item 12: the per-business monthly media budget (owner-controlled, BDT 0 by default).
+            'media_budget' => app(MediaBudgets::class)->overviewFor($request->user()),
         ]);
     }
 

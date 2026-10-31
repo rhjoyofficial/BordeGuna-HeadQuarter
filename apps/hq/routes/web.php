@@ -10,6 +10,7 @@ use App\Http\Controllers\Connectors\AdsDraftController;
 use App\Http\Controllers\Connectors\ChatMediaController;
 use App\Http\Controllers\Connectors\ConnectorsController;
 use App\Http\Controllers\Connectors\IngestionController;
+use App\Http\Controllers\Connectors\MediaBudgetController;
 use App\Http\Controllers\Connectors\MediaDraftController;
 use App\Http\Controllers\Connectors\ParcelController;
 use App\Http\Controllers\Connectors\VoiceController;
@@ -66,6 +67,12 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // (permission, feature flag, approval, audit and business scope all apply); none takes a tool key from the browser.
     Route::get('connectors', [ConnectorsController::class, 'index'])->middleware('permission:hq.connectors.view')->name('connectors.index');
     Route::post('connectors/meta/check', [ConnectorsController::class, 'checkToken'])->middleware('permission:hq.tools.meta.health')->name('connectors.meta.check');
+    // Ruling 31 Oct item 12 (docs/147-r2): the owner sets a business's monthly media budget (BDT) and records a provider's billed
+    // cost. A person's acts behind `hq.media.budget.manage`; the service also requires the owner role and the business in scope.
+    Route::post('connectors/media-budget/entries/{entry}/reconcile', [MediaBudgetController::class, 'reconcile'])->whereUuid('entry')
+        ->middleware(['permission:hq.media.budget.manage', 'throttle:20,1'])->name('connectors.media_budget.reconcile');
+    Route::post('connectors/media-budget/{business}', [MediaBudgetController::class, 'setLimit'])
+        ->middleware(['permission:hq.media.budget.manage', 'throttle:20,1'])->name('connectors.media_budget.set');
 
     Route::get('parcels', [ParcelController::class, 'index'])->middleware('permission:hq.customers.view')->name('parcels.index');
     Route::post('parcels/track', [ParcelController::class, 'track'])->middleware(['permission:hq.tools.courier.read', 'throttle:30,1'])->name('parcels.track');
