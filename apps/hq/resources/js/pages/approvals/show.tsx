@@ -61,8 +61,9 @@ type Approval = {
 
 /** A flat payload as a two-column list. Nested values fall back to JSON on one line. */
 function PayloadList({ payload }: { payload: Record<string, unknown> | null }) {
+    const t = useT();
     const entries = Object.entries(payload ?? {});
-    if (entries.length === 0) return <p className="text-muted-foreground text-sm">No arguments.</p>;
+    if (entries.length === 0) return <p className="text-muted-foreground text-sm">{t('No arguments.')}</p>;
     return (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             {entries.map(([k, v]) => (
@@ -77,10 +78,12 @@ function PayloadList({ payload }: { payload: Record<string, unknown> | null }) {
     );
 }
 
+/** The label is English and translated here, like the shared building blocks do. */
 function Fact({ label, children }: { label: string; children: ReactNode }) {
+    const t = useT();
     return (
         <div className="min-w-0">
-            <dt className="hq-eyebrow">{label}</dt>
+            <dt className="hq-eyebrow">{t(label)}</dt>
             <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
@@ -118,6 +121,7 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
         flash: { status?: string | null; outcome?: Outcome | null };
         errors: Record<string, string>;
     }>().props;
+    const t = useT();
     const canDecide = auth.permissions.includes('hq.approvals.decide');
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(JSON.stringify(approval.payload ?? {}, null, 2));
@@ -151,16 +155,16 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
             setDraftError(null);
             setDialog('approve-edited');
         } catch {
-            setDraftError('That is not valid JSON. Fix it before approving.');
+            setDraftError(t('That is not valid JSON. Fix it before approving.'));
         }
     };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={`Approval ${approval.id}: ${title}`} />
+            <Head title={t('Approval {id}: {title}', { id: approval.id, title })} />
             <div className="flex max-w-4xl flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    eyebrow="Approvals"
+                    eyebrow={t('Approvals')}
                     title={
                         <span className="flex flex-wrap items-center gap-2">
                             {title}
@@ -170,7 +174,7 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                                     {approval.risk_label}
                                 </StatusBadge>
                             )}
-                            {overdue && <StatusBadge status="overdue">past deadline</StatusBadge>}
+                            {overdue && <StatusBadge status="overdue">{t('past deadline')}</StatusBadge>}
                         </span>
                     }
                     description={approval.reason ?? approval.tool_purpose ?? undefined}
@@ -178,13 +182,13 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                         approval.status === 'pending' && canDecide && approval.decidable && !editing ? (
                             <>
                                 <Button disabled={busy} onClick={() => setDialog('approve')}>
-                                    Approve and run
+                                    {t('Approve and run')}
                                 </Button>
                                 <Button variant="outline" disabled={busy} onClick={() => setEditing(true)}>
-                                    Edit, then approve
+                                    {t('Edit, then approve')}
                                 </Button>
                                 <Button variant="outline" disabled={busy} onClick={() => setDialog('reject')}>
-                                    Reject
+                                    {t('Reject')}
                                 </Button>
                             </>
                         ) : undefined
@@ -194,53 +198,59 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                 <QueueBar queue={queue} pending={approval.status === 'pending'} />
                 <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
                 {flash?.status === 'approval-executed' && flash.outcome?.status === 'succeeded' && flash.outcome.output && (
-                    <TechnicalDetail summary="What the action returned">
+                    <TechnicalDetail summary={t('What the action returned')}>
                         <JsonBlock value={flash.outcome.output} />
                     </TechnicalDetail>
                 )}
 
                 {approval.status === 'consumed' && approval.execution_status !== 'succeeded' && (
                     <Notice tone="pending">
-                        <strong>This approval was spent without the action running.</strong> It was approved, but the gateway refused the call at
-                        execution time{approval.execution_error ? `: ${approval.execution_error}` : '.'} An approval is single use, so a fresh request
-                        is needed rather than a retry.
+                        <strong>{t('This approval was spent without the action running.')}</strong>{' '}
+                        {approval.execution_error
+                            ? t('It was approved, but the gateway refused the call at execution time: {error}', { error: approval.execution_error })
+                            : t('It was approved, but the gateway refused the call at execution time.')}{' '}
+                        {t('An approval is single use, so a fresh request is needed rather than a retry.')}
                     </Notice>
                 )}
 
                 {!approval.payload_intact && (
                     <Notice tone="danger" alert>
-                        <strong>Integrity failure.</strong> The stored payload no longer matches the hash recorded when this approval was created.
-                        This cannot happen through the application, so the row was changed underneath it. Execution is refused and nothing will be
-                        repaired.
+                        <strong>{t('Integrity failure.')}</strong>{' '}
+                        {t(
+                            'The stored payload no longer matches the hash recorded when this approval was created. This cannot happen through the application, so the row was changed underneath it. Execution is refused and nothing will be repaired.',
+                        )}
                     </Notice>
                 )}
 
                 <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         <Fact label="Business">
-                            {approval.business ?? (approval.business_id ? `#${approval.business_id}` : 'not business-specific')}
+                            {approval.business ?? (approval.business_id ? `#${approval.business_id}` : t('not business-specific'))}
                             {approval.store ? ` · ${approval.store}` : ''}
                         </Fact>
                         <Fact label={approval.agent_key ? 'Proposed by' : 'Asked by'}>
                             {approval.agent_key ? (
-                                <span className="text-tone-pending">the {approval.agent_key} agent</span>
+                                <span className="text-tone-pending">{t('the {agent} agent', { agent: approval.agent_key })}</span>
                             ) : (
-                                (approval.requested_by ?? 'system')
+                                (approval.requested_by ?? t('system'))
                             )}
                         </Fact>
                         {approval.agent_key && (
                             <Fact label="Who asked the agent">
                                 {!approval.requester_recorded ? (
                                     <span className="text-muted-foreground">
-                                        Recorded before requester and enabler were kept apart, so the person who asked is not known.
+                                        {t('Recorded before requester and enabler were kept apart, so the person who asked is not known.')}
                                     </span>
                                 ) : approval.requested_by === approval.enabled_by ? (
-                                    <>{approval.requested_by ?? 'nobody recorded'}, who also enabled the agent</>
+                                    <>{t('{name}, who also enabled the agent', { name: approval.requested_by ?? t('nobody recorded') })}</>
                                 ) : (
                                     <>
-                                        {approval.requested_by ?? 'nobody recorded'}
-                                        {approval.requester_kind === 'on_behalf_of' ? ' (a scheduled or system run on their behalf)' : ''}
-                                        <span className="text-muted-foreground"> · agent enabled by {approval.enabled_by ?? 'nobody recorded'}</span>
+                                        {approval.requested_by ?? t('nobody recorded')}
+                                        {approval.requester_kind === 'on_behalf_of' ? ` ${t('(a scheduled or system run on their behalf)')}` : ''}
+                                        <span className="text-muted-foreground">
+                                            {' · '}
+                                            {t('agent enabled by {name}', { name: approval.enabled_by ?? t('nobody recorded') })}
+                                        </span>
                                     </>
                                 )}
                             </Fact>
@@ -255,12 +265,12 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                                         {formatDateTime(approval.sla_due_at)} ({timeAgo(approval.sla_due_at)})
                                     </span>
                                 ) : (
-                                    'no deadline'
+                                    t('no deadline')
                                 )}
                             </Fact>
                         )}
                         {approval.status === 'pending' && (
-                            <Fact label="Expires">{approval.expires_at ? formatDateTime(approval.expires_at) : 'never'}</Fact>
+                            <Fact label="Expires">{approval.expires_at ? formatDateTime(approval.expires_at) : t('never')}</Fact>
                         )}
                         {approval.delegated_to && <Fact label="Delegated to">{approval.delegated_to}</Fact>}
                         {approval.decided_by && (
@@ -273,15 +283,21 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                         {approval.consumed_at && <Fact label="Executed">{formatDateTime(approval.consumed_at)}</Fact>}
                         {approval.supersedes_id && (
                             <Fact label="Replaces">
-                                <a href={`/approvals/${approval.supersedes_id}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
-                                    approval #{approval.supersedes_id}
+                                <a
+                                    href={`/approvals/${approval.supersedes_id}`}
+                                    className="touch:min-h-11 inline-flex items-center underline underline-offset-4"
+                                >
+                                    {t('approval #{id}', { id: approval.supersedes_id })}
                                 </a>
                             </Fact>
                         )}
                         {approval.superseded_by && (
                             <Fact label="Replaced by">
-                                <a href={`/approvals/${approval.superseded_by}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
-                                    approval #{approval.superseded_by}
+                                <a
+                                    href={`/approvals/${approval.superseded_by}`}
+                                    className="touch:min-h-11 inline-flex items-center underline underline-offset-4"
+                                >
+                                    {t('approval #{id}', { id: approval.superseded_by })}
                                 </a>
                             </Fact>
                         )}
@@ -290,7 +306,7 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
 
                 <section className="hq-card flex flex-col gap-3 p-4">
                     <SectionHeader
-                        title="What will run"
+                        title={t('What will run')}
                         aside={
                             <span>
                                 {approval.tool_key} v{approval.tool_version} · {humanKey(approval.action_class)}
@@ -303,31 +319,37 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                                 className="h-56 font-mono text-xs md:text-xs"
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
-                                aria-label="Edited arguments as JSON"
+                                aria-label={t('Edited arguments as JSON')}
                             />
-                            {draftError && <Notice tone="danger" alert>{draftError}</Notice>}
+                            {draftError && (
+                                <Notice tone="danger" alert>
+                                    {draftError}
+                                </Notice>
+                            )}
                             <p className="text-muted-foreground text-xs">
-                                The original stays on the record unchanged. Approving creates a new approval for what you edited, validated against
-                                the tool's own schema.
+                                {t(
+                                    "The original stays on the record unchanged. Approving creates a new approval for what you edited, validated against the tool's own schema.",
+                                )}
                             </p>
                             <div className="flex flex-wrap gap-2">
                                 <Button disabled={busy} onClick={openEditedApproval}>
-                                    Approve the edited action
+                                    {t('Approve the edited action')}
                                 </Button>
                                 <Button variant="outline" disabled={busy} onClick={() => setEditing(false)}>
-                                    Cancel edit
+                                    {t('Cancel edit')}
                                 </Button>
                             </div>
                         </>
                     ) : (
                         <>
                             <PayloadList payload={approval.payload} />
-                            <TechnicalDetail summary="As JSON">
+                            <TechnicalDetail summary={t('As JSON')}>
                                 <JsonBlock value={approval.payload} />
                             </TechnicalDetail>
                             <p className="text-muted-foreground text-xs">
-                                These exact arguments are what executes. They are hashed, and the hash is checked again at execution time, so what you
-                                read here is what runs.
+                                {t(
+                                    'These exact arguments are what executes. They are hashed, and the hash is checked again at execution time, so what you read here is what runs.',
+                                )}
                             </p>
                         </>
                     )}
@@ -335,10 +357,10 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
 
                 {approval.preview && (
                     <section className="hq-card flex flex-col gap-3 p-4">
-                        <SectionHeader title="What it would do" />
+                        <SectionHeader title={t('What it would do')} />
                         <PreviewList preview={approval.preview} />
                         {approval.preview.available && (
-                            <TechnicalDetail summary="As JSON">
+                            <TechnicalDetail summary={t('As JSON')}>
                                 <JsonBlock value={approval.preview.result} />
                             </TechnicalDetail>
                         )}
@@ -347,19 +369,19 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
 
                 {approval.evidence && (
                     <section className="hq-card flex flex-col gap-3 p-4">
-                        <SectionHeader title="Evidence the request rests on" />
+                        <SectionHeader title={t('Evidence the request rests on')} />
                         <JsonBlock value={approval.evidence} />
                     </section>
                 )}
 
-                <TechnicalDetail summary="Identifiers and policy">
+                <TechnicalDetail summary={t('Identifiers and policy')}>
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
                         <dt className="text-muted-foreground">uuid</dt>
                         <dd className="break-all">{approval.uuid}</dd>
                         <dt className="text-muted-foreground">correlation</dt>
                         <dd className="break-all">{approval.correlation_id ?? '-'}</dd>
                         <dt className="text-muted-foreground">policy version</dt>
-                        <dd>{approval.policy_version ?? 'tier baseline'}</dd>
+                        <dd>{approval.policy_version ?? t('tier baseline')}</dd>
                         <dt className="text-muted-foreground">business / store id</dt>
                         <dd>
                             {approval.business_id ?? '-'} / {approval.store_id ?? '-'}
@@ -371,9 +393,9 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
             <ConfirmDialog
                 open={dialog === 'approve'}
                 onOpenChange={(o) => !o && setDialog(null)}
-                title={`Approve and run: ${title}`}
-                description={approval.reason ?? 'The action runs once, exactly as shown. Authority is checked again at execution time.'}
-                confirmLabel="Approve and run"
+                title={t('Approve and run: {action}', { action: title })}
+                description={approval.reason ?? t('The action runs once, exactly as shown. Authority is checked again at execution time.')}
+                confirmLabel={t('Approve and run')}
                 busy={busy}
                 onConfirm={() => post('approve', {})}
             >
@@ -387,9 +409,9 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
             <ConfirmDialog
                 open={dialog === 'approve-edited'}
                 onOpenChange={(o) => !o && setDialog(null)}
-                title="Approve the edited action?"
-                description="The original stays on the record unchanged. A new approval is created for what you edited and runs once."
-                confirmLabel="Approve edited action"
+                title={t('Approve the edited action?')}
+                description={t('The original stays on the record unchanged. A new approval is created for what you edited and runs once.')}
+                confirmLabel={t('Approve edited action')}
                 busy={busy}
                 onConfirm={() => post('approve', { edited_payload: JSON.parse(draft) })}
             />
@@ -397,12 +419,12 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
             <ConfirmDialog
                 open={dialog === 'reject'}
                 onOpenChange={(o) => !o && setDialog(null)}
-                title={`Reject: ${title}`}
-                description="Nothing runs. Whoever proposed this receives your reason as feedback."
-                confirmLabel="Reject"
+                title={t('Reject: {action}', { action: title })}
+                description={t('Nothing runs. Whoever proposed this receives your reason as feedback.')}
+                confirmLabel={t('Reject')}
                 destructive
                 busy={busy}
-                reason={{ label: 'Why', placeholder: 'What is wrong with it, or what should happen instead.', required: true }}
+                reason={{ label: t('Why'), placeholder: t('What is wrong with it, or what should happen instead.'), required: true }}
                 onConfirm={(reason) => post('reject', { reason })}
             />
         </AppLayout>
