@@ -143,7 +143,9 @@ it('never offers a disabled tool to an agent, even one that holds it, and the fl
 
     // A test agent that HOLDS an agent-executable flag-gated tool: while the flag is off it is not offered, and the
     // refusal names the flag, not "unknown".
-    $agent = Agent::query()->firstOrFail();
+    // orderBy('id'): the agent restored below from $before[0] must be the same row (an unordered first() on PostgreSQL
+    // can return another row after the bulk update above, which made this test flaky in the combined suite).
+    $agent = Agent::query()->orderBy('id')->firstOrFail();
     $agent->forceFill(['allowed_tools' => [...(array) $agent->allowed_tools, 'test.external_write']])->save();
     expect(app(AgentToolset::class)->keysFor(Contexts::for($agent->fresh())))->not->toContain('test.external_write')
         ->and((string) app(AgentToolset::class)->refusalFor($agent->fresh(), 'test.external_write'))->toContain('feature flag');
