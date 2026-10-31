@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * An auditable resolution requirement (docs/122, ruling docs/120 A2): an identity a lookup refused to move to
@@ -26,5 +27,11 @@ class CustomerIdentityConflict extends Model
     public function identity(): BelongsTo
     {
         return $this->belongsTo(CustomerIdentity::class, 'identity_id');
+    }
+
+    /** The person's append-only resolution (docs/140), when one was recorded; a repair closes a conflict without one. */
+    public function resolutionRecord(): HasOne
+    {
+        return $this->hasOne(CustomerIdentityConflictResolution::class, 'conflict_id');
     }
 }

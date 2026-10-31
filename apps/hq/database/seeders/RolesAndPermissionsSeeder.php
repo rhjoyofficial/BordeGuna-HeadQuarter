@@ -90,6 +90,15 @@ class RolesAndPermissionsSeeder extends Seeder
         // Do mode: propose a plan, and start one (starting approves no step). Telegram brief: the gateway tool's permission.
         // Event watches: propose one, and enable/disable/reject one (enabling grants no authority for its action).
         'hq.do.propose', 'hq.do.start', 'hq.briefing.deliver', 'hq.watches.propose', 'hq.watches.enable',
+
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an open identity conflict with evidence, through
+        // the human-only gateway tool `customers.identity_conflicts.resolve` only. Owner and operator hold it through
+        // '*'; no other role is given it.
+        'hq.customers.identity_conflicts.resolve',
+        // docs/138 ruling 7, docs/141: Pause All AI. `pause` can only turn AI execution off; `resume` is the
+        // distinct operation that turns it back on. Both also need group-wide authority (ruling 13). Owner and
+        // operator hold them through '*'; no other role is given either.
+        'hq.ai.pause', 'hq.ai.resume',
     ];
 
     public const ROLES = [

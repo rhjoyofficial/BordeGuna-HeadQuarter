@@ -63,6 +63,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'outcomes.attribute',
         // docs/126 (ruling docs/120 item 36): the reviewed cross-business repair, R3, permanently human-only, held by no agent.
         'customers.quarantine.repair',
+        // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, R3, permanently human-only, held by no agent.
+        'customers.identity_conflicts.resolve',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

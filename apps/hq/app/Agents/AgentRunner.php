@@ -2,10 +2,12 @@
 
 namespace App\Agents;
 
+use App\Ai\Exceptions\AiPaused;
 use App\Ai\Exceptions\OutputTruncated;
 use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\ModelRuntime;
 use App\Ai\OutputBudget;
+use App\Ai\Pause\AiPause;
 use App\Ai\RoutingContext;
 use App\Ai\ToolCalls\ProposedToolCall;
 use App\Autonomy\AutonomyDecision;
@@ -212,6 +214,13 @@ final class AgentRunner
      */
     public const STOP_PROVIDER_REFUSED = 'provider_refused';
 
+    /**
+     * docs/138 ruling 7, docs/141: Pause All AI was on (or unreadable) when the run reached a model call or a
+     * tool call it proposed, so nothing more was asked or run. Like a provider refusal, it measures nothing
+     * about the agent.
+     */
+    public const STOP_AI_PAUSED = 'ai_paused';
+
     /** docs/86: an outbound kind, as the runtime's refusal names it. */
     private const ROLE_ACTIONS = [
         RoleBoundary::OUTBOUND_MESSAGE => 'send a message to someone outside HQ',
@@ -273,6 +282,7 @@ final class AgentRunner
         private readonly Auditor $auditor,
         private readonly SupportWorkflow $supportWorkflow,
         private readonly GuardGatewayDisagreements $disagreements,
+        private readonly AiPause $pause,
     ) {}
 
     public function run(AgentRunRequest $request): AgentRun
@@ -381,6 +391,16 @@ final class AgentRunner
                 'stop_reason' => self::STOP_OUTPUT_TRUNCATED,
                 'error' => get_class($e).': '.mb_substr($e->getMessage(), 0, 900),
             ])->save();
+        } catch (AiPaused $e) {
+            // docs/141: a person paused all AI. Not a failure of the agent or the provider: the run stops where
+            // it was, with what it already holds on the row, and nothing more is asked or run.
+            Log::warning('agent run stopped: Pause All AI', ['agent' => $agent->key, 'run' => $run->id]);
+
+            $run->forceFill([
+                'status' => 'stopped',
+                'stop_reason' => self::STOP_AI_PAUSED,
+                'error' => mb_substr($e->getMessage(), 0, 900),
+            ])->save();
         } catch (ProviderRefused $e) {
             // The provider said no before the agent said anything (ADR-041): a quota or a limit,
             // its own stop reason, so that a gate counts the case as unmeasured and a reviewer does
@@ -420,6 +440,11 @@ final class AgentRunner
         AutonomyDecision $decision,
         string $correlationId,
     ): void {
+        // ⛔ docs/141: Pause All AI, read before anything the runtime decides for the agent (a hand-over, a
+        //    refusal before the model, the first turn). ModelRuntime reads it again before every provider
+        //    request, and `invoke()` before every tool call the model proposes.
+        $this->pause->assertRunning('the agent run');
+
         $messages = [['role' => 'user', 'content' => $bundle->render()."\n\n".$this->budgetLine(1, 0)]];
         $evidence = [];
         $proposals = [];
@@ -1018,6 +1043,10 @@ final class AgentRunner
     ): array {
         $key = (string) ($call['tool'] ?? '');
         $args = is_array($call['args'] ?? null) ? $call['args'] : [];
+
+        // ⛔ docs/141: a tool call an agent proposed is AI execution. A pause made while the model was
+        //    answering stops it here, before the runtime's guards or the gateway are asked anything.
+        $this->pause->assertRunning("the tool call [{$key}] the agent proposed");
 
         // The one request every gateway question of this call is asked with (docs/97 §6 D4), built before the
         // runtime's guards so a guard that refuses an EFFECTFUL call still puts it to the gateway (docs/105, S1).
