@@ -1,3 +1,4 @@
+import { AiPauseControl } from '@/components/ai-pause';
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
 import { Notice } from '@/components/ui/notice';
@@ -132,9 +133,13 @@ export default function Posture(props: Props) {
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Activation posture"
-                    description="Whether anything is switched on, what each role may never do, and what still stands between the agents and their next step. Read-only: nothing on this page changes anything."
+                    description="Whether anything is switched on, what each role may never do, and what still stands between the agents and their next step. Read-only, except the Pause All AI switch below, which can only pause."
                     actions={<StatusBadge tone={inert ? 'ok' : 'warn'}>{inert ? t('Inert') : t('Something is on')}</StatusBadge>}
                 />
+
+                <div className="hq-glass max-w-md rounded-2xl p-4">
+                    <AiPauseControl />
+                </div>
 
                 <Notice tone={inert ? 'ok' : 'warn'}>
                     {inert

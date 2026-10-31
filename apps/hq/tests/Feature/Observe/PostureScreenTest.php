@@ -175,6 +175,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, a gateway request for the human-only
         // tool customers.identity_conflicts.resolve (HQ rows only), behind hq.customers.identity_conflicts.resolve.
         'POST customers/identity-conflicts/{conflict}/resolve',
+        // docs/141 (ruling 7): Pause All AI. Pause can only turn AI off; resume is its own permission. Both need group-wide
+        // authority, write one state row and one audit row, and reach no provider.
+        'POST ai/pause', 'POST ai/resume',
         'POST flags', 'POST flags/{flag}/toggle',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.

@@ -1,3 +1,4 @@
+import { AiPauseControl } from '@/components/ai-pause';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -30,7 +31,7 @@ const SEVERITY_TONE = { critical: 'danger', warning: 'warn', info: 'info' } as c
 /**
  * The live panel (docs/135 (c)): the scheduler, signals, cost, the authority guard and the posture,
  * each read from the screen it summarises and shown only to people who may open that screen.
- * Read-only: nothing here starts, stops, pauses or re-tools anything.
+ * Read-only except the Pause All AI switch (docs/141), which can only pause, and turning AI back on is its own separate action.
  */
 export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleData['live']; generatedAt: string; permissions: string[] }) {
     const t = useT();
@@ -43,6 +44,8 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
                 <h2 className="font-semibold">{t('Live')}</h2>
                 <span className="text-muted-foreground text-xs">{t('read {age}', { age: ago(t, generatedAt) })}</span>
             </div>
+
+            <AiPauseControl />
 
             <Block title={t('Scheduler')} href={scheduler.jobs !== null ? '/scheduler' : undefined} linkLabel={t('Open')}>
                 <div className="flex flex-wrap items-center gap-2 text-sm">

@@ -91,7 +91,7 @@
     "closed": "বন্ধ",
     "named": "নাম দেওয়া আছে",
     "none": "নেই",
-    "Whether anything is switched on, what each role may never do, and what still stands between the agents and their next step. Read-only: nothing on this page changes anything.": "কিছু চালু আছে কি না, কোন ভূমিকা কখনো কী করতে পারবে না, আর এজেন্টদের পরের ধাপের আগে এখনো কী বাকি। শুধু দেখার জন্য: এই পাতা থেকে কিছুই বদলায় না।",
+    "Whether anything is switched on, what each role may never do, and what still stands between the agents and their next step. Read-only, except the Pause All AI switch below, which can only pause.": "কিছু চালু আছে কি না, কোন ভূমিকা কখনো কী করতে পারবে না, আর এজেন্টদের পরের ধাপের আগে এখনো কী বাকি। শুধু দেখার জন্য, নিচের 'সব এআই বিরতিতে রাখুন' সুইচ ছাড়া, যা শুধু বিরতিই দিতে পারে।",
     "Inert": "সব বন্ধ",
     "Something is on": "কিছু চালু আছে",
     "Production is inert: the AI runtime is off, every agent is paused, and nothing can reach a customer, spend money or take an order.": "প্রোডাকশন বন্ধ অবস্থায় আছে: AI রানটাইম বন্ধ, প্রতিটি এজেন্ট থামানো। কোনো গ্রাহকের কাছে কিছু যেতে পারে না, টাকা খরচ হতে পারে না, অর্ডারও নেওয়া যায় না।",
@@ -1644,5 +1644,16 @@
     "The rows do not support releasing this held identity": "রেকর্ডগুলো এই আটকে রাখা পরিচয় মুক্ত করা সমর্থন করে না",
     "You can see these conflicts. Resolving one needs the identity conflict permission, held by the owner and the operator.": "আপনি এই দ্বন্দ্বগুলো দেখতে পারেন। সমাধান করতে পরিচয়-দ্বন্দ্বের অনুমতি লাগে, যা মালিক ও অপারেটরের আছে।",
     "{count} latest": "সর্বশেষ {count}টি",
-    "{count} times": "{count} বার"
+    "{count} times": "{count} বার",
+    "Pause All AI is on": "সব এআই বিরতিতে আছে",
+    "No AI call is made for any business. People can still work, approve and read everything.": "কোনো ব্যবসার জন্য কোনো এআই কল হচ্ছে না। মানুষ আগের মতোই কাজ করতে, অনুমোদন দিতে ও সবকিছু পড়তে পারেন।",
+    "The pause state could not be read, so AI is treated as paused until a person turns it back on.": "বিরতির অবস্থা পড়া যায়নি, তাই একজন মানুষ আবার চালু না করা পর্যন্ত এআই বিরতিতে ধরা হচ্ছে।",
+    "Pause All AI": "সব এআই বিরতিতে রাখুন",
+    "AI paused": "এআই বিরতিতে",
+    "AI not paused": "এআই বিরতিতে নেই",
+    "Turn AI back on": "এআই আবার চালু করুন",
+    "Turn AI back on?": "এআই আবার চালু করবেন?",
+    "Pause All AI?": "সব এআই বিরতিতে রাখবেন?",
+    "AI calls may run again for every business, under the same approvals and consent as before. It does not change any permission or switch.": "আগের মতোই অনুমোদন ও সম্মতির নিয়মে সব ব্যবসার এআই কল আবার চলতে পারবে। এতে কোনো অনুমতি বা সুইচ বদলায় না।",
+    "Every AI call stops for every business at once. People can still work. Only a person with group-wide access can turn it back on.": "সব ব্যবসার প্রতিটি এআই কল একসঙ্গে থেমে যাবে। মানুষ কাজ চালিয়ে যেতে পারবেন। শুধু পুরো গ্রুপের অধিকারধারী একজন মানুষ আবার চালু করতে পারবেন।"
 }

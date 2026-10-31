@@ -1,3 +1,4 @@
+import { AiPauseBanner } from '@/components/ai-pause';
 import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -11,6 +12,7 @@ export default function AppSidebarLayout({ children, breadcrumbs = [] }: { child
             <AppSidebar />
             <AppContent variant="sidebar">
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
+                <AiPauseBanner />
                 {children}
                 {/* docs/135 W-UI5: the phone's bottom bar; nothing on a desktop. */}
                 <PhoneBar />
