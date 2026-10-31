@@ -104,7 +104,7 @@ function askAgent(): AgentRun
     ));
 }
 
-function modelCall(): mixed
+function pauseModelCall(): mixed
 {
     return app(ModelRuntime::class)->run(TaskType::OperatorQuestion, 'sys', [['role' => 'user', 'content' => 'hi']],
         new RoutingContext(correlationId: (string) Str::uuid(), inputRef: 'test:pause'));
@@ -116,11 +116,11 @@ it('ships not paused, and a model call runs until a person pauses', function () 
     expect(app(AiPause::class)->state())->toMatchArray(['paused' => false, 'readable' => true]);
 
     FixtureProvider::script('fixture', [FixtureProvider::reply('hello')]);
-    expect(modelCall()->text)->toBe('hello')->and(FixtureProvider::callsTo('fixture'))->toBe(1);
+    expect(pauseModelCall()->text)->toBe('hello')->and(FixtureProvider::callsTo('fixture'))->toBe(1);
 
     pauseAi();
 
-    expect(fn () => modelCall())->toThrow(AiPaused::class, 'Pause All AI is on');
+    expect(fn () => pauseModelCall())->toThrow(AiPaused::class, 'Pause All AI is on');
     expect(FixtureProvider::callsTo('fixture'))->toBe(1)
         // Refused before routing: not even an ai_runs row is opened.
         ->and(AiRun::count())->toBe(1);
@@ -130,7 +130,7 @@ it('treats a missing row as paused (fail closed)', function () {
     DB::table('ai_pause_state')->delete();
 
     expect(app(AiPause::class)->state())->toMatchArray(['paused' => true, 'readable' => false])
-        ->and(fn () => modelCall())->toThrow(AiPaused::class, 'could not be read');
+        ->and(fn () => pauseModelCall())->toThrow(AiPaused::class, 'could not be read');
     expect(FixtureProvider::callsTo('fixture'))->toBe(0);
 
     $this->artisan('hq:ai:pause', ['--show' => true])->expectsOutputToContain('treated as PAUSED')->assertSuccessful();
@@ -228,7 +228,7 @@ it('tries no fallback provider after a pause lands during a failing call', funct
     }]);
     FixtureProvider::script('fixture2', [FixtureProvider::reply('from the fallback')]);
 
-    expect(fn () => modelCall())->toThrow(AiPaused::class);
+    expect(fn () => pauseModelCall())->toThrow(AiPaused::class);
     expect(FixtureProvider::callsTo('fixture'))->toBe(1)
         ->and(SecondFixtureProvider::callsTo('fixture2'))->toBe(0);
 });
@@ -239,7 +239,7 @@ it('makes no truncation retry and no repair once paused mid-call', function () {
 
         return FixtureProvider::truncated('{"cut');
     }]);
-    expect(fn () => modelCall())->toThrow(AiPaused::class);
+    expect(fn () => pauseModelCall())->toThrow(AiPaused::class);
     expect(FixtureProvider::callsTo('fixture'))->toBe(1);
 
     // The run row says what happened instead of looking like a provider fault.
