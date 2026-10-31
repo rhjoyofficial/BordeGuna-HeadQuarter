@@ -49,7 +49,11 @@ it('keeps the voice screen behind the console\'s permission, and away from guest
 });
 
 it('gives voice one GET route, gated like the console, and no way to send it anything', function () {
-    $voice = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_contains($r->uri(), 'voice'))->values();
+    // The screen is one GET; docs/144 adds two POSTs behind their own permission, tested below.
+    $voice = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => $r->uri() === 'voice')->values();
+    $posts = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_starts_with($r->uri(), 'voice/'))->values();
+    expect($posts->map(fn ($r) => $r->uri())->sort()->values()->all())->toBe(['voice/speak', 'voice/transcribe'])
+        ->and($posts->every(fn ($r) => $r->methods() === ['POST'] && in_array('permission:hq.voice.use', $r->gatherMiddleware(), true)))->toBeTrue();
 
     expect($voice)->toHaveCount(1)
         ->and($voice[0]->uri())->toBe('voice')
@@ -62,36 +66,46 @@ it('gives voice one GET route, gated like the console, and no way to send it any
     }
 });
 
-it('renders the inert reason on the voice screen, with the microphone drawn disabled and nothing that sends', function () {
+it('says why voice is off when it is not connected, and keeps the microphone disabled and the page itself silent (docs/144)', function () {
     $page = file_get_contents(resource_path('js/pages/voice.tsx'));
 
-    expect($page)->toContain('Voice mode belongs to Phase 7 of the HQ plan. It needs a speech provider and a ChatGPT architecture ruling before it can be built.')
-        ->and($page)->toContain('This page does not use your microphone. Nothing is listened to, recorded or uploaded, and it sends nothing anywhere.')
-        ->and($page)->toContain('a spoken yes will put an approval card on the screen')
-        // Mute and show work are drawn and disabled with the reason; end and back are links to the console.
-        ->and(preg_match_all('/disabled\s+aria-disabled="true"/', $page))->toBe(2)
+    expect($page)->toContain('Not connected yet: voice is switched off.')
+        ->and($page)->toContain('The microphone is asked for only when you click to talk. This page does not listen or record on its own.')
+        // The disabled microphone is drawn when voice is not connected, with the reason as its title.
+        ->and(preg_match_all('/disabled\s+aria-disabled="true"/', $page))->toBe(1)
         ->and($page)->toContain('href="/dashboard"')
-        // No form, no request of its own, no prefetch.
-        ->and($page)->not->toMatch('/<form|useForm|router\.|fetch\(|axios|XMLHttpRequest|WebSocket|EventSource|sendBeacon|prefetch/')
-        // The orb's motion is wrapped in reduced motion.
+        // The only requests are the two the person's clicks make (transcribe, read aloud); no prefetch, socket or beacon.
+        ->and($page)->not->toMatch('/axios|XMLHttpRequest|WebSocket|EventSource|sendBeacon|prefetch/')
+        ->and(preg_match_all('/postForm/', $page))->toBe(3) // import + transcribe + speak
+        // A spoken request adds no authority: it goes to Ask HQ as text.
+        ->and($page)->toContain('A spoken request adds no authority')
         ->and($page)->toContain('@media (prefers-reduced-motion: no-preference)');
 });
 
-it('has no microphone, recording or speech API anywhere in the screens', function () {
+it('touches the microphone and speech APIs only inside the click handler of the voice screen (docs/144)', function () {
+    $pattern = '/getUserMedia|mediaDevices|MediaRecorder|SpeechRecognition|speechSynthesis|SpeechSynthesis|AudioContext|AudioWorklet|getDisplayMedia/';
     $offenders = [];
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(resource_path('js'), FilesystemIterator::SKIP_DOTS));
 
     foreach ($files as $file) {
-        if (! preg_match('/\.(ts|tsx|js|jsx)$/', $file->getFilename())) {
+        if (! preg_match('/\.(ts|tsx|js|jsx)$/', $file->getFilename()) || str_replace(chr(92), '/', $file->getPathname()) === str_replace(chr(92), '/', resource_path('js/pages/voice.tsx'))) {
             continue;
         }
-        $source = file_get_contents($file->getPathname());
-        if (preg_match('/getUserMedia|mediaDevices|MediaRecorder|SpeechRecognition|speechSynthesis|SpeechSynthesis|AudioContext|AudioWorklet|getDisplayMedia/', $source, $m)) {
+        if (preg_match($pattern, file_get_contents($file->getPathname()), $m)) {
             $offenders[] = $file->getFilename().' ('.$m[0].')';
         }
     }
-
     expect($offenders)->toBe([]);
+
+    // In the voice screen: the microphone is requested exactly once, inside `startRecording`, which only the talk button's
+    // onClick calls; there is no effect hook at all, so nothing can request it when the page loads.
+    $voice = file_get_contents(resource_path('js/pages/voice.tsx'));
+    expect(substr_count($voice, 'getUserMedia'))->toBe(1)
+        ->and($voice)->not->toContain('useEffect')
+        ->and($voice)->toContain('const startRecording = async () => {')
+        ->and($voice)->toContain('onClick={() => void startRecording()}')
+        ->and(substr_count($voice, 'startRecording'))->toBe(3)
+        ->and($voice)->not->toMatch('/speechSynthesis|SpeechRecognition|AudioContext/');
 });
 
 it('builds the phone bar from the sidebar\'s own entries, each behind the permission its route enforces', function () {

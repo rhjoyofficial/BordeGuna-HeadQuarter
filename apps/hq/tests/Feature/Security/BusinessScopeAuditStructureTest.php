@@ -42,6 +42,16 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Completion/RefusesPolitely.php' => 'scoped',
     'Completion/ResearchDigestController.php' => 'scoped',
     'Completion/SkillController.php' => 'scoped',
+    // docs/144: the connector screens. Each narrows by BusinessScope or visibleTo, directly or through the reader it names.
+    'Connectors/AdsDraftController.php' => 'scoped',
+    'Connectors/ChatMediaController.php' => 'scoped',
+    'Connectors/ConnectorController.php' => 'scoped',
+    'Connectors/ConnectorsController.php' => 'through:app/Connectors/ConnectorHub.php',
+    'Connectors/IngestionController.php' => 'scoped',
+    'Connectors/MediaDraftController.php' => 'scoped',
+    'Connectors/ParcelController.php' => 'scoped',
+    // A recording is the speaker's own, HQ-wide, never a business row (its file has no business and only its uploader opens it).
+    'Connectors/VoiceController.php' => 'no business rows',
     'Controller.php' => 'no business rows',
     'FollowUps/FollowUpController.php' => 'scoped',
     'Health/HealthController.php' => 'no business rows',
@@ -69,6 +79,8 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Settings/ProfileController.php' => 'no business rows',
     // docs/135 W-UI5: the inert voice screen; reads only whether a speech provider is registered.
     'Voice/VoiceModeController.php' => 'no business rows',
+    // docs/144: named by the URL and authenticated by that business's own secret; it writes only that business's parcels.
+    'Webhooks/CourierWebhookController.php' => 'no business rows',
     'Webhooks/MetaForwardController.php' => 'no business rows',
     'Webhooks/MetaWebhookController.php' => 'no business rows',
     'Webhooks/ShopWebhookController.php' => 'no business rows',

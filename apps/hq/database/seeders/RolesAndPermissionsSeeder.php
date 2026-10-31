@@ -110,6 +110,13 @@ class RolesAndPermissionsSeeder extends Seeder
         // Phase 10: the evidence ladder. `grant` sets thresholds and grants (also needs group-wide authority);
         // `revoke` only ever stops autonomy. Owner and operator hold all three through '*'; no other role.
         'hq.autonomy.view', 'hq.autonomy.grant', 'hq.autonomy.revoke',
+        // docs/144: the HQ-completion connectors. Owner and operator hold them through '*'; no other role is given any.
+        // `connectors.view` reads the connector status screen; `courier.read` tracks parcels; `voice.use` speaks and
+        // listens; `media.draft` asks for and reviews video drafts; `mail.ingest` polls the supplier mailbox and
+        // `ingestion.review` decides on its drafts; `erp.draft_bill` asks the ERP for a draft bill (a second person
+        // approves); `ads.draft` prepares a paused ad draft; `meta.health` checks a Meta token.
+        'hq.connectors.view', 'hq.tools.courier.read', 'hq.voice.use', 'hq.tools.media.draft', 'hq.tools.mail.ingest',
+        'hq.ingestion.review', 'hq.tools.erp.draft_bill', 'hq.tools.ads.draft', 'hq.tools.meta.health',
     ];
 
     public const ROLES = [

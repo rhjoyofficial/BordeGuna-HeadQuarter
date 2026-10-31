@@ -12,7 +12,9 @@ import {
     Building2,
     CalendarCheck,
     CalendarClock,
+    Clapperboard,
     Coins,
+    FileText,
     Fingerprint,
     Flag,
     Gauge,
@@ -25,6 +27,8 @@ import {
     Megaphone,
     MessageSquare,
     Newspaper,
+    Package,
+    Plug,
     Puzzle,
     Radar,
     Scale,
@@ -80,6 +84,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
         items: [
             { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
             // docs/117 and docs/126: the cross-business review was reachable only from the customer list; a screen nobody can navigate to is a screen nobody uses.
+            { title: 'Parcels', url: '/parcels', icon: Package, permission: 'hq.customers.view' },
             { title: 'Cross-business review', url: '/customers/quarantine', icon: ShieldAlert, permission: 'hq.customers.quarantine.review' },
             // docs/140: open identity conflicts per business and their human resolution (the action is behind its own permission).
             { title: 'Identity conflicts', url: '/customers/identity-conflicts', icon: Fingerprint, permission: 'hq.customers.quarantine.review' },
@@ -101,6 +106,10 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Briefings', url: '/observe/briefings', icon: Newspaper, permission: 'hq.tools.facts.read' },
             { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
             { title: 'Businesses', url: '/businesses', icon: Building2, permission: 'hq.businesses.view' },
+            // docs/144: the connector screens. Each is a draft or a read; none sends, publishes or switches anything on.
+            { title: 'Supplier documents', url: '/ingestion', icon: FileText, permission: 'hq.ingestion.review' },
+            { title: 'Reel drafts', url: '/media-drafts', icon: Clapperboard, permission: 'hq.tools.media.draft' },
+            { title: 'Paused ad drafts', url: '/ads-drafts', icon: Megaphone, permission: 'hq.tools.ads.draft' },
         ],
     },
     {
@@ -108,6 +117,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
         items: [
             { title: 'Tools', url: '/tools', icon: Wrench, permission: 'hq.tools.view' },
             { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
+            { title: 'Connectors', url: '/connectors', icon: Plug, permission: 'hq.connectors.view' },
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
             { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },

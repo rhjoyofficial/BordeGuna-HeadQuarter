@@ -6,6 +6,13 @@ use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
+use App\Http\Controllers\Connectors\AdsDraftController;
+use App\Http\Controllers\Connectors\ChatMediaController;
+use App\Http\Controllers\Connectors\ConnectorsController;
+use App\Http\Controllers\Connectors\IngestionController;
+use App\Http\Controllers\Connectors\MediaDraftController;
+use App\Http\Controllers\Connectors\ParcelController;
+use App\Http\Controllers\Connectors\VoiceController;
 use App\Http\Controllers\FollowUps\FollowUpController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
@@ -50,6 +57,43 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // docs/135 W-UI5: voice mode, drawn and INERT (Phase 7, needs a speech provider and a ruling). One GET, the
     // console's own permission; no microphone, no upload, no other method.
     Route::get('voice', VoiceModeController::class)->middleware('permission:hq.dashboard.view')->name('voice');
+    // docs/144-voice-provider: push to talk. Two POSTs behind `hq.voice.use`; each goes through the Tool Gateway as the person,
+    // and a recording is uploaded only because the person clicked to send it.
+    Route::post('voice/transcribe', [VoiceController::class, 'transcribe'])->middleware(['permission:hq.voice.use', 'throttle:20,1'])->name('voice.transcribe');
+    Route::post('voice/speak', [VoiceController::class, 'speak'])->middleware(['permission:hq.voice.use', 'throttle:20,1'])->name('voice.speak');
+
+    // docs/144-*: the HQ-completion connector screens. Each action is a request to the Tool Gateway as the signed-in person
+    // (permission, feature flag, approval, audit and business scope all apply); none takes a tool key from the browser.
+    Route::get('connectors', [ConnectorsController::class, 'index'])->middleware('permission:hq.connectors.view')->name('connectors.index');
+    Route::post('connectors/meta/check', [ConnectorsController::class, 'checkToken'])->middleware('permission:hq.tools.meta.health')->name('connectors.meta.check');
+
+    Route::get('parcels', [ParcelController::class, 'index'])->middleware('permission:hq.customers.view')->name('parcels.index');
+    Route::post('parcels/track', [ParcelController::class, 'track'])->middleware(['permission:hq.tools.courier.read', 'throttle:30,1'])->name('parcels.track');
+    Route::get('orders/{order}', [ParcelController::class, 'order'])->whereNumber('order')->middleware('permission:hq.customers.view')->name('orders.show');
+
+    Route::get('media/{uuid}', [ChatMediaController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.ask.use')->name('media.show');
+
+    Route::prefix('ingestion')->name('ingestion.')->group(function () {
+        Route::get('/', [IngestionController::class, 'index'])->middleware('permission:hq.ingestion.review')->name('index');
+        Route::post('poll', [IngestionController::class, 'poll'])->middleware(['permission:hq.tools.mail.ingest', 'throttle:10,1'])->name('poll');
+        Route::get('{uuid}', [IngestionController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.ingestion.review')->name('show');
+        Route::post('{uuid}/decide', [IngestionController::class, 'decide'])->whereUuid('uuid')->middleware('permission:hq.ingestion.review')->name('decide');
+        Route::post('{uuid}/send-to-erp', [IngestionController::class, 'sendToErp'])->whereUuid('uuid')->middleware('permission:hq.tools.erp.draft_bill')->name('send-to-erp');
+    });
+
+    Route::prefix('media-drafts')->name('media-drafts.')->middleware('permission:hq.tools.media.draft')->group(function () {
+        Route::get('/', [MediaDraftController::class, 'index'])->name('index');
+        Route::post('/', [MediaDraftController::class, 'store'])->middleware('throttle:10,1')->name('store');
+        Route::post('{uuid}/refresh', [MediaDraftController::class, 'refresh'])->whereUuid('uuid')->name('refresh');
+        Route::post('{uuid}/decide', [MediaDraftController::class, 'decide'])->whereUuid('uuid')->name('decide');
+        Route::get('{uuid}/video', [MediaDraftController::class, 'video'])->whereUuid('uuid')->name('video');
+    });
+
+    Route::prefix('ads-drafts')->name('ads-drafts.')->middleware('permission:hq.tools.ads.draft')->group(function () {
+        Route::get('/', [AdsDraftController::class, 'index'])->name('index');
+        Route::post('check', [AdsDraftController::class, 'check'])->middleware('throttle:60,1')->name('check');
+        Route::post('/', [AdsDraftController::class, 'store'])->middleware('throttle:10,1')->name('store');
+    });
 
     Route::get('settings/sessions', [SessionsController::class, 'index'])->name('sessions.index');
     Route::delete('settings/sessions/others', [SessionsController::class, 'destroyOthers'])->name('sessions.destroy-others');
@@ -111,6 +155,9 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::prefix('ask')->name('ask.')->middleware('permission:hq.ask.use')->group(function () {
         Route::get('/', [AskController::class, 'index'])->name('index');
         Route::post('/', [AskController::class, 'store'])->middleware('throttle:20,1')->name('store');
+        // docs/144-media-in-chat: attach a photo, video or file (flag `connectors.media_upload`, business-scoped, retained, scanned).
+        Route::post('media', [ChatMediaController::class, 'store'])->middleware('throttle:30,1')->name('media.store');
+        Route::post('{conversation:uuid}/attachments', [ChatMediaController::class, 'attach'])->middleware('throttle:30,1')->name('media.attach');
         Route::get('{conversation:uuid}', [AskController::class, 'show'])->name('show');
     });
 

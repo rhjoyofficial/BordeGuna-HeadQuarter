@@ -214,6 +214,12 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST security/two-factor/confirm', 'POST security/two-factor/enable', 'POST security/two-factor/recovery-codes',
         'POST tools/{key}/toggle',
         'POST two-factor/challenge',
+        // docs/144 (HQ-completion connectors): each is one person's click, answered through the Tool Gateway as that person
+        // (permission, flag, approval, audit, business scope) or a decision on an HQ-owned draft. None takes a tool key from the browser.
+        'POST ask/media', 'POST ask/{conversation}/attachments', 'POST voice/transcribe', 'POST voice/speak', 'POST connectors/meta/check', 'POST parcels/track',
+        'POST ingestion/poll', 'POST ingestion/{uuid}/decide', 'POST ingestion/{uuid}/send-to-erp',
+        'POST media-drafts', 'POST media-drafts/{uuid}/refresh', 'POST media-drafts/{uuid}/decide',
+        'POST ads-drafts/check', 'POST ads-drafts',
     ];
 
     $web = collect(Route::getRoutes()->getRoutes())
