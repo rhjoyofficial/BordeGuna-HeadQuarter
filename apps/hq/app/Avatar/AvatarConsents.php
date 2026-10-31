@@ -38,6 +38,16 @@ final class AvatarConsents
     /** `customer_reply` (docs/20) is deliberately absent: an avatar never speaks to a customer as a reply (docs/145-b). */
     public const USES = ['product_promo', 'brand_presenter', 'internal'];
 
+    /**
+     * ChatGPT ruling 14 (31 Oct 2026), a HARD rule: an avatar never answers a customer and never acts as a
+     * customer-support representative. These uses are refused before anything else is read, can never be
+     * recorded on a consent (a database CHECK holds it too), and no consent, flag or approval can lift them.
+     * Kept in step with the migration `2026_10_31_700000_...`.
+     */
+    public const CUSTOMER_FACING_USES = ['customer_reply', 'customer_support', 'support_reply', 'inbox_reply', 'conversation_reply'];
+
+    public const CUSTOMER_FACING_REFUSAL = 'An avatar never answers a customer or acts as customer support (ruling 14, 31 Oct 2026). Avatars are for approved content and presentation only.';
+
     public const MAX_MONTHS = 36;
 
     public function __construct(
@@ -62,6 +72,9 @@ final class AvatarConsents
             throw new ResearchRefused('Say whether this is a real person or a synthetic persona.');
         }
         $modalities = self::subset((array) ($data['modalities'] ?? []), self::MODALITIES, 'what may be used (face, voice)');
+        if (array_intersect(array_map('strval', (array) ($data['permitted_uses'] ?? [])), self::CUSTOMER_FACING_USES) !== []) {
+            throw new ResearchRefused(self::CUSTOMER_FACING_REFUSAL);
+        }
         $uses = self::subset((array) ($data['permitted_uses'] ?? []), self::USES, 'what it may be used for');
 
         $brandIds = array_values(array_unique(array_map('intval', (array) ($data['brand_ids'] ?? []))));
@@ -154,6 +167,10 @@ final class AvatarConsents
     public function refusal(?AvatarConsent $consent, int $businessId, ?int $brandId, string $use, string $modality, ?DateTimeInterface $at = null): ?string
     {
         $at = CarbonImmutable::instance($at ?? now());
+        // Ruling 14: first, and whatever any consent says.
+        if (self::isCustomerFacing($use)) {
+            return self::CUSTOMER_FACING_REFUSAL;
+        }
         if ($consent === null) {
             return 'No consent is recorded for this. No consent, no generation.';
         }
@@ -168,6 +185,12 @@ final class AvatarConsents
             $brandId === null || ! in_array($brandId, array_map('intval', (array) $consent->brand_ids), true) => 'The consent does not cover this brand.',
             default => null,
         };
+    }
+
+    /** Ruling 14: is this a use in which an avatar would face a customer? Anything not on the allowed list counts. */
+    public static function isCustomerFacing(string $use): bool
+    {
+        return in_array($use, self::CUSTOMER_FACING_USES, true) || ! in_array($use, self::USES, true);
     }
 
     /** One of: active, revoked, expired. */

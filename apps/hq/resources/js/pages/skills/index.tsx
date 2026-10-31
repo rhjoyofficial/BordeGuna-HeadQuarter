@@ -35,6 +35,7 @@ type Skill = {
     status: string;
     status_reason: string | null;
     self_decided: boolean;
+    own: boolean;
 };
 type Delegation = {
     uuid: string;
@@ -135,7 +136,12 @@ export default function SkillsIndex({ skills, delegations, delegationOn, options
                                             </td>
                                             <td className="px-3 py-2">
                                                 <div className="flex flex-wrap justify-end gap-2">
-                                                    {can.activate && s.status === 'proposed' && (
+                                                    {can.activate && s.own && ['proposed', 'approved', 'suspended'].includes(s.status) && (
+                                                        <span className="text-muted-foreground text-xs">
+                                                            {t('You wrote this skill: another reviewer approves and activates it.')}
+                                                        </span>
+                                                    )}
+                                                    {can.activate && !s.own && s.status === 'proposed' && (
                                                         <ReasonAction
                                                             url={`/skills/${s.uuid}/approve`}
                                                             label={t('Approve')}
@@ -143,7 +149,7 @@ export default function SkillsIndex({ skills, delegations, delegationOn, options
                                                             variant="default"
                                                         />
                                                     )}
-                                                    {can.activate && ['approved', 'suspended'].includes(s.status) && (
+                                                    {can.activate && !s.own && ['approved', 'suspended'].includes(s.status) && (
                                                         <ReasonAction
                                                             url={`/skills/${s.uuid}/activate`}
                                                             label={t('Activate')}

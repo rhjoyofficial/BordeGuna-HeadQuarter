@@ -26,6 +26,8 @@ class AutonomyGrant extends Model
         'version', 'supersedes_id', 'granted_by', 'granted_at', 'expires_at',
         // docs/145-d: the ladder threshold a grant rested on, and who revoked it, when and why.
         'ladder_threshold_id', 'revoked_by', 'revoked_at', 'revoke_reason',
+        // ChatGPT ruling 17 (31 Oct 2026): a one-way lapse.
+        'lapsed_at', 'lapse_code', 'lapse_reason',
     ];
 
     protected function casts(): array
@@ -38,6 +40,7 @@ class AutonomyGrant extends Model
             'granted_at' => 'datetime',
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
+            'lapsed_at' => 'datetime',
         ];
     }
 

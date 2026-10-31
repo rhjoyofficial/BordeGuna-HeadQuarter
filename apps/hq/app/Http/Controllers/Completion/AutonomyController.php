@@ -76,6 +76,8 @@ final class AutonomyController extends Controller
                 'uuid' => $g->uuid, 'name' => $g->name, 'business_id' => $g->business_id, 'tool_key' => $g->tool_key, 'agent_key' => $g->agent_key,
                 'level' => $g->max_level?->value, 'status' => $g->status, 'via_ladder' => $g->ladder_threshold_id !== null,
                 'granted_at' => $g->granted_at?->toIso8601String(), 'revoked_at' => $g->revoked_at?->toIso8601String(), 'revoke_reason' => $g->revoke_reason,
+                // Ruling 17 (31 Oct 2026): a one-way lapse, with the condition that failed.
+                'lapsed_at' => $g->lapsed_at?->toIso8601String(), 'lapse_code' => $g->lapse_code, 'lapse_reason' => $g->lapse_reason,
             ]);
 
         $thresholds = AutonomyLadderThreshold::query()->when($restricted, fn ($q) => $q->whereIn('business_id', $this->scope->all($user) ?? []))

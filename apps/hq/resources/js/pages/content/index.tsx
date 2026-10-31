@@ -19,6 +19,10 @@ import { useState } from 'react';
  * A plan is never a post. A draft is checked (figures against the ERP, the owner's claims rules, the floor
  * against unproven health claims and testimonials, banned words) and reviewed by a person. Publishing is a
  * separate approval of the exact post, and is off.
+ *
+ * Ruling 31 Oct 2026: a recorded, consented testimonial may be quoted by a person (item 13; the claims floor
+ * still runs on every word); the writer approves their own draft only as the sole eligible reviewer, with a
+ * reason, shown as self-decided (item 15).
  */
 
 type Checks = {
@@ -29,10 +33,21 @@ type Checks = {
     banned: string[];
     why: string | null;
 };
-type Draft = { uuid: string; text: string; status: string; text_provenance: string; checks: Checks };
+type Draft = {
+    uuid: string;
+    text: string;
+    status: string;
+    text_provenance: string;
+    content_digest: string;
+    self_decided: boolean;
+    self_decided_reason: string | null;
+    testimonial: { applies: boolean; edited: boolean; reasons: string[] } | null;
+    checks: Checks;
+};
 type Guidance = { persona: string | null; playbooks: { kind: string; title: string; body: string }[]; forbidden: string[] };
 type Entry = {
     uuid: string;
+    business_id: number;
     planned_for: string | null;
     brand: string | null;
     platform: string;
@@ -43,7 +58,21 @@ type Entry = {
     skip_reason: string | null;
     has_brief: boolean;
     draft: Draft | null;
+    review: { own: boolean; sole_reviewer: boolean } | null;
     guidance: Guidance | null;
+};
+type Testimonial = {
+    uuid: string;
+    business: string | null;
+    business_id: number;
+    customer_label: string;
+    original_statement: string;
+    modalities: string[];
+    channels: string[];
+    valid_from: string | null;
+    valid_until: string | null;
+    source_channel: string;
+    revoked_at: string | null;
 };
 type Rule = {
     uuid: string;
@@ -60,6 +89,7 @@ type Rule = {
 type Props = {
     entries: Entry[];
     claimsRules: Rule[];
+    testimonials: Testimonial[];
     floor: { id: string; phrases: string[]; reason: string; legal_ref: string }[];
     posture: { drafting: boolean; ai_drafting: boolean; drafter_connected: boolean; ai_paused: boolean; publishing: boolean };
     options: {
@@ -67,16 +97,19 @@ type Props = {
         occasions: string[];
         brands: { id: number; business_id: number; name: string }[];
         businesses: { id: number; name: string }[];
+        testimonial_modalities: string[];
+        testimonial_sources: string[];
     };
     can: { plan: boolean; review: boolean; claims: boolean };
 };
 
-export default function ContentIndex({ entries, claimsRules, floor, posture, options, can }: Props) {
+export default function ContentIndex({ entries, claimsRules, testimonials, floor, posture, options, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [planning, setPlanning] = useState(false);
     const [ruling, setRuling] = useState(false);
     const [writing, setWriting] = useState<Entry | null>(null);
+    const [quoting, setQuoting] = useState(false);
     const breadcrumbs: BreadcrumbItem[] = [{ title: 'Content', href: '/content' }];
 
     const plan = useForm({
@@ -96,7 +129,34 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
         legal_ref: '',
         proof_ref: '',
     });
-    const caption = useForm({ text: '' });
+    const caption = useForm({ text: '', testimonial_uuid: '', testimonial_edited: false as boolean });
+    const quote = useForm({
+        business_id: options.businesses[0] ? String(options.businesses[0].id) : '',
+        customer_label: '',
+        original_statement: '',
+        original_evidence_asset_id: '',
+        consent_document_asset_id: '',
+        consent_given_at: '',
+        permitted_modalities: ['text'] as string[],
+        brand_ids: [] as string[],
+        channels: ['facebook_page'] as string[],
+        valid_from: '',
+        valid_until: '',
+        source_channel: 'whatsapp',
+        source_ref: '',
+        captured_at: '',
+    });
+    const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+    const MODALITY: Record<string, string> = { text: t('Text'), image: t('Image'), video: t('Video'), voice: t('Voice') };
+    const SOURCE: Record<string, string> = {
+        whatsapp: t('WhatsApp'),
+        messenger: t('Messenger'),
+        instagram: t('Instagram'),
+        email: t('Email'),
+        phone: t('Phone call'),
+        in_person: t('In person'),
+        review_site: t('Review site'),
+    };
 
     const platformLabel = (p: string) => (p === 'instagram' ? t('Instagram') : t('Facebook Page'));
     const OCCASIONS: Record<string, string> = {
@@ -119,6 +179,8 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
         'content-skipped': t('The post is skipped.'),
         'claims-rule-written': t('The claims rule is active for every new check.'),
         'claims-rule-retired': t('The claims rule is retired.'),
+        'testimonial-recorded': t('The testimonial and its consent are recorded.'),
+        'testimonial-revoked': t("The customer's consent is withdrawn. No draft may quote it any more."),
     };
     const flashText = flash?.status ? FLASH[flash.status] : undefined;
     const formError = errors?.form;
@@ -142,6 +204,11 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                             {can.claims && (
                                 <Button size="sm" variant="outline" onClick={() => setRuling(true)}>
                                     {t('Write a claims rule')}
+                                </Button>
+                            )}
+                            {can.claims && (
+                                <Button size="sm" variant="outline" onClick={() => setQuoting(true)}>
+                                    {t('Record a testimonial')}
                                 </Button>
                             )}
                         </>
@@ -220,7 +287,31 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                                                                     ? t('Written by AI')
                                                                     : t('Written by a person')}
                                                             </StatusBadge>
+                                                            {e.draft.testimonial && (
+                                                                <StatusBadge tone={e.draft.testimonial.applies ? 'neutral' : 'danger'} dot={false}>
+                                                                    {e.draft.testimonial.edited
+                                                                        ? t('Quotes an edited testimonial')
+                                                                        : t('Quotes a testimonial')}
+                                                                </StatusBadge>
+                                                            )}
+                                                            {e.draft.self_decided && (
+                                                                <StatusBadge tone="warn" dot={false}>
+                                                                    {t('Self-decided')}
+                                                                </StatusBadge>
+                                                            )}
                                                         </div>
+                                                        {e.draft.self_decided_reason && (
+                                                            <div className="text-muted-foreground">
+                                                                {t('Approved by its writer as the only reviewer: {reason}', {
+                                                                    reason: e.draft.self_decided_reason,
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                        {e.draft.testimonial?.reasons.map((r, i) => (
+                                                            <div key={`t${i}`} className="text-tone-danger">
+                                                                {r}
+                                                            </div>
+                                                        ))}
                                                         {e.draft.checks.unsourced.length > 0 && (
                                                             <div className="text-tone-danger">
                                                                 {t('Figures with no ERP source: {list}', {
@@ -261,7 +352,7 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                                                                 size="sm"
                                                                 variant="outline"
                                                                 onClick={() => {
-                                                                    caption.setData('text', '');
+                                                                    caption.setData({ text: '', testimonial_uuid: '', testimonial_edited: false });
                                                                     setWriting(e);
                                                                 }}
                                                             >
@@ -287,18 +378,46 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                                                     )}
                                                     {can.review && e.status === 'drafted' && e.draft && (
                                                         <>
-                                                            <ReasonAction
-                                                                url={`/content/calendar/${e.uuid}/review`}
-                                                                field="note"
-                                                                extra={{ verdict: 'approved' }}
-                                                                label={t('Approve')}
-                                                                title={t('Approve this draft')}
-                                                                description={t(
-                                                                    'Approving the words is not publishing them. Publishing needs its own approval of the exact post.',
-                                                                )}
-                                                                variant="default"
-                                                                disabled={!e.draft.checks.passed}
-                                                            />
+                                                            {e.review?.own && !e.review.sole_reviewer ? (
+                                                                <span className="text-muted-foreground text-xs">
+                                                                    {t('You wrote this draft: another reviewer approves it.')}
+                                                                </span>
+                                                            ) : (
+                                                                <ReasonAction
+                                                                    url={`/content/calendar/${e.uuid}/review`}
+                                                                    field={e.review?.own ? 'self_reason' : 'note'}
+                                                                    extra={{
+                                                                        verdict: 'approved',
+                                                                        ...(e.draft.testimonial?.edited
+                                                                            ? { confirm_digest: e.draft.content_digest }
+                                                                            : {}),
+                                                                    }}
+                                                                    label={t('Approve')}
+                                                                    title={t('Approve this draft')}
+                                                                    description={[
+                                                                        t(
+                                                                            'Approving the words is not publishing them. Publishing needs its own approval of the exact post.',
+                                                                        ),
+                                                                        e.review?.own
+                                                                            ? t(
+                                                                                  'You wrote this draft and are the only eligible reviewer for this business. Say why you approve it yourself; it is recorded as self-decided.',
+                                                                              )
+                                                                            : '',
+                                                                        e.draft.testimonial?.edited
+                                                                            ? t(
+                                                                                  'It quotes an edited testimonial: you approve exactly these words: {text}',
+                                                                                  {
+                                                                                      text: e.draft.text,
+                                                                                  },
+                                                                              )
+                                                                            : '',
+                                                                    ]
+                                                                        .filter(Boolean)
+                                                                        .join(' ')}
+                                                                    variant="default"
+                                                                    disabled={!e.draft.checks.passed}
+                                                                />
+                                                            )}
                                                             <ReasonAction
                                                                 url={`/content/calendar/${e.uuid}/review`}
                                                                 field="note"
@@ -384,6 +503,72 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                                                         url={`/content/claims-rules/${r.uuid}/retire`}
                                                         label={t('Retire')}
                                                         title={t('Retire this claims rule')}
+                                                    />
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </section>
+
+                <section className="flex flex-col gap-3">
+                    <SectionHeader
+                        title={t('Customer testimonials')}
+                        aside={<span className="text-muted-foreground text-xs">{t('Only with recorded consent; never written by AI')}</span>}
+                    />
+                    <Notice tone="info">
+                        {t(
+                            "A real customer's words may be quoted only with their recorded consent for that exact use, evidence of what they said, and a person's review of the final post. Consent never makes a health or medical claim acceptable: the floor still applies to every quoted word.",
+                        )}
+                    </Notice>
+                    {testimonials.length === 0 ? (
+                        <EmptyState
+                            title={t('No testimonials recorded')}
+                            description={t('Until one is recorded with its consent, every draft that quotes a customer fails the floor.')}
+                        />
+                    ) : (
+                        <div className="hq-table-box">
+                            <table className="w-full text-sm">
+                                <thead className="text-left text-xs">
+                                    <tr>
+                                        <th className="px-3 py-2 font-medium">{t('Customer')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Original words')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Consent covers')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('State')}</th>
+                                        <th className="px-3 py-2" />
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {testimonials.map((q) => (
+                                        <tr key={q.uuid} className="border-t align-top">
+                                            <td className="px-3 py-2 text-xs">
+                                                <div className="font-medium">{q.customer_label}</div>
+                                                <div className="text-muted-foreground">{q.business}</div>
+                                                <div className="text-muted-foreground">{SOURCE[q.source_channel] ?? q.source_channel}</div>
+                                            </td>
+                                            <td className="max-w-sm px-3 py-2 text-xs whitespace-pre-wrap">{q.original_statement}</td>
+                                            <td className="px-3 py-2 text-xs">
+                                                <div>{q.modalities.map((m) => MODALITY[m] ?? m).join(', ')}</div>
+                                                <div className="text-muted-foreground">{q.channels.map(platformLabel).join(', ')}</div>
+                                                <div className="text-muted-foreground tabular-nums">
+                                                    {q.valid_from} - {q.valid_until}
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-2 text-xs">
+                                                <StatusBadge status={q.revoked_at ? 'revoked' : 'active'} />
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                {can.claims && !q.revoked_at && (
+                                                    <ReasonAction
+                                                        url={`/content/testimonials/${q.uuid}/revoke`}
+                                                        label={t('Withdraw')}
+                                                        title={t('Withdraw this consent')}
+                                                        description={t(
+                                                            'Final. No draft may quote it again, and a post waiting to publish is stopped.',
+                                                        )}
                                                     />
                                                 )}
                                             </td>
@@ -541,9 +726,237 @@ export default function ContentIndex({ entries, claimsRules, floor, posture, opt
                                     required
                                 />
                             </Field>
+                            <FormRow>
+                                <Field
+                                    label={t('Quote a testimonial')}
+                                    htmlFor="cw-quote"
+                                    size="lg"
+                                    hint={t("Copy the customer's words exactly. Only recorded, consented testimonials of this business are listed.")}
+                                    error={caption.errors.testimonial_uuid}
+                                >
+                                    <NativeSelect
+                                        id="cw-quote"
+                                        value={caption.data.testimonial_uuid}
+                                        onChange={(ev) => caption.setData('testimonial_uuid', ev.target.value)}
+                                    >
+                                        <option value="">{t('None')}</option>
+                                        {testimonials
+                                            .filter((q) => !q.revoked_at && q.business_id === writing?.business_id)
+                                            .map((q) => (
+                                                <option key={q.uuid} value={q.uuid}>
+                                                    {q.customer_label}: {q.original_statement.slice(0, 60)}
+                                                </option>
+                                            ))}
+                                    </NativeSelect>
+                                </Field>
+                                {caption.data.testimonial_uuid !== '' && (
+                                    <label className="flex items-center gap-2 text-xs">
+                                        <input
+                                            type="checkbox"
+                                            checked={caption.data.testimonial_edited}
+                                            onChange={(ev) => caption.setData('testimonial_edited', ev.target.checked)}
+                                        />
+                                        {t("I edited the customer's words (the exact final post must be approved as edited)")}
+                                    </label>
+                                )}
+                            </FormRow>
                             <div>
                                 <Button type="submit" disabled={caption.processing}>
                                     {t('Check and save the draft')}
+                                </Button>
+                            </div>
+                        </form>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog open={quoting} onOpenChange={setQuoting}>
+                    <DialogContent className="sm:max-w-2xl">
+                        <DialogHeader>
+                            <DialogTitle>{t('Record a testimonial')}</DialogTitle>
+                            <DialogDescription>
+                                {t(
+                                    "The customer's own words, the evidence of what they said and their recorded consent, both from the asset library. What it covers never changes; withdrawal is final.",
+                                )}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <form
+                            className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto"
+                            onSubmit={(ev) => {
+                                ev.preventDefault();
+                                quote.post('/content/testimonials', { preserveScroll: true, onSuccess: () => setQuoting(false) });
+                            }}
+                        >
+                            <FormRow>
+                                <Field label={t('Business')} htmlFor="ct-business" error={quote.errors.business_id}>
+                                    <NativeSelect
+                                        id="ct-business"
+                                        value={quote.data.business_id}
+                                        onChange={(ev) => quote.setData({ ...quote.data, business_id: ev.target.value, brand_ids: [] })}
+                                    >
+                                        {options.businesses.map((b) => (
+                                            <option key={b.id} value={b.id}>
+                                                {b.name}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                </Field>
+                                <Field
+                                    label={t('Customer name as shown')}
+                                    htmlFor="ct-label"
+                                    size="md"
+                                    hint={t('No phone number or address.')}
+                                    error={quote.errors.customer_label}
+                                >
+                                    <Input
+                                        id="ct-label"
+                                        value={quote.data.customer_label}
+                                        onChange={(ev) => quote.setData('customer_label', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                            </FormRow>
+                            <Field label={t('Original words, exactly')} htmlFor="ct-statement" error={quote.errors.original_statement}>
+                                <Textarea
+                                    id="ct-statement"
+                                    rows={3}
+                                    maxLength={2000}
+                                    value={quote.data.original_statement}
+                                    onChange={(ev) => quote.setData('original_statement', ev.target.value)}
+                                    required
+                                />
+                            </Field>
+                            <FormRow>
+                                <Field
+                                    label={t('Evidence asset number')}
+                                    htmlFor="ct-evidence"
+                                    hint={t('The screenshot, recording or note of what the customer said.')}
+                                    error={quote.errors.original_evidence_asset_id}
+                                >
+                                    <Input
+                                        id="ct-evidence"
+                                        inputMode="numeric"
+                                        value={quote.data.original_evidence_asset_id}
+                                        onChange={(ev) => quote.setData('original_evidence_asset_id', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                                <Field
+                                    label={t('Consent record asset number')}
+                                    htmlFor="ct-consent"
+                                    hint={t("The customer's recorded consent for this exact use.")}
+                                    error={quote.errors.consent_document_asset_id}
+                                >
+                                    <Input
+                                        id="ct-consent"
+                                        inputMode="numeric"
+                                        value={quote.data.consent_document_asset_id}
+                                        onChange={(ev) => quote.setData('consent_document_asset_id', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                            </FormRow>
+                            <FormRow>
+                                <Field label={t('Said on')} htmlFor="ct-captured" error={quote.errors.captured_at}>
+                                    <Input
+                                        id="ct-captured"
+                                        type="date"
+                                        value={quote.data.captured_at}
+                                        onChange={(ev) => quote.setData('captured_at', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                                <Field label={t('Where')} htmlFor="ct-source" error={quote.errors.source_channel}>
+                                    <NativeSelect
+                                        id="ct-source"
+                                        value={quote.data.source_channel}
+                                        onChange={(ev) => quote.setData('source_channel', ev.target.value)}
+                                    >
+                                        {options.testimonial_sources.map((src) => (
+                                            <option key={src} value={src}>
+                                                {SOURCE[src] ?? src}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                </Field>
+                                <Field label={t('Consent given on')} htmlFor="ct-given" error={quote.errors.consent_given_at}>
+                                    <Input
+                                        id="ct-given"
+                                        type="date"
+                                        value={quote.data.consent_given_at}
+                                        onChange={(ev) => quote.setData('consent_given_at', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                            </FormRow>
+                            <FormRow>
+                                <Field label={t('Valid from')} htmlFor="ct-from" error={quote.errors.valid_from}>
+                                    <Input
+                                        id="ct-from"
+                                        type="date"
+                                        value={quote.data.valid_from}
+                                        onChange={(ev) => quote.setData('valid_from', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                                <Field label={t('Valid until')} htmlFor="ct-until" error={quote.errors.valid_until}>
+                                    <Input
+                                        id="ct-until"
+                                        type="date"
+                                        value={quote.data.valid_until}
+                                        onChange={(ev) => quote.setData('valid_until', ev.target.value)}
+                                        required
+                                    />
+                                </Field>
+                            </FormRow>
+                            <fieldset className="flex flex-wrap gap-3 text-xs">
+                                <legend className="mb-1 font-medium">{t('Consent covers these uses')}</legend>
+                                {options.testimonial_modalities.map((m) => (
+                                    <label key={m} className="flex items-center gap-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={quote.data.permitted_modalities.includes(m)}
+                                            onChange={() => quote.setData('permitted_modalities', toggle(quote.data.permitted_modalities, m))}
+                                        />
+                                        {MODALITY[m] ?? m}
+                                    </label>
+                                ))}
+                            </fieldset>
+                            <fieldset className="flex flex-wrap gap-3 text-xs">
+                                <legend className="mb-1 font-medium">{t('Consent covers these channels')}</legend>
+                                {options.platforms.map((p) => (
+                                    <label key={p} className="flex items-center gap-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={quote.data.channels.includes(p)}
+                                            onChange={() => quote.setData('channels', toggle(quote.data.channels, p))}
+                                        />
+                                        {platformLabel(p)}
+                                    </label>
+                                ))}
+                            </fieldset>
+                            <fieldset className="flex flex-wrap gap-3 text-xs">
+                                <legend className="mb-1 font-medium">{t('Consent covers these brands')}</legend>
+                                {options.brands
+                                    .filter((b) => String(b.business_id) === quote.data.business_id)
+                                    .map((b) => (
+                                        <label key={b.id} className="flex items-center gap-1">
+                                            <input
+                                                type="checkbox"
+                                                checked={quote.data.brand_ids.includes(String(b.id))}
+                                                onChange={() => quote.setData('brand_ids', toggle(quote.data.brand_ids, String(b.id)))}
+                                            />
+                                            {b.name}
+                                        </label>
+                                    ))}
+                            </fieldset>
+                            {(quote.errors.permitted_modalities || quote.errors.channels || quote.errors.brand_ids) && (
+                                <div className="text-tone-danger text-xs">
+                                    {quote.errors.permitted_modalities ?? quote.errors.channels ?? quote.errors.brand_ids}
+                                </div>
+                            )}
+                            <div>
+                                <Button type="submit" disabled={quote.processing}>
+                                    {t('Record a testimonial')}
                                 </Button>
                             </div>
                         </form>

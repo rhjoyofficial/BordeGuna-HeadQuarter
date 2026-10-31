@@ -28,6 +28,8 @@ use Tests\Support\Execution\Contexts;
 beforeEach(function () {
     $this->seed(DomainSeeder::class);
     $this->owner = $this->hqUser('owner');
+    // Ruling 15 (31 Oct 2026): a skill's author never approves or activates it; a separate reviewer does.
+    $this->reviewer = $this->hqUser('operator');
     $this->seed(AgentSeeder::class);
     Agent::query()->whereIn('key', ['executive', 'analytics'])->update(['status' => 'active', 'enabling_user_id' => $this->owner->id]);
     $this->executive = Agent::where('key', 'executive')->sole();
@@ -40,9 +42,9 @@ function sdSkill(array $tools, ?Business $business = null, string $key = 'sales_
 {
     $registry = app(SkillCatalogue::class);
     $skill = $registry->propose(test()->owner, $business, ['key' => $key, 'name' => 'Sales snapshot', 'purpose' => 'Read orders and report.', 'required_tools' => $tools]);
-    $registry->approve(test()->owner, $skill, 'read it');
+    $registry->approve(test()->reviewer, $skill, 'read it');
 
-    return $registry->activate(test()->owner, $skill->fresh(), 'go');
+    return $registry->activate(test()->reviewer, $skill->fresh(), 'go');
 }
 
 it('registers the skill routes behind auth, 2FA and permissions, and shows the screen in Bangla-ready form', function () {
@@ -60,14 +62,14 @@ it('moves a skill only by people, refuses unknown and human-only tools, and keep
     $this->actingAsHq($this->owner)->post('/skills', ['key' => 'x_skill', 'name' => 'X', 'purpose' => 'p', 'required_tools' => ['facts.query_orders']])->assertSessionHasNoErrors();
     $v1 = Skill::query()->sole();
     expect($v1->status)->toBe('proposed');
-    $this->actingAsHq($this->owner)->post("/skills/{$v1->uuid}/activate", ['reason' => 'skip the review'])->assertSessionHasErrors('form');
-    $this->actingAsHq($this->owner)->post("/skills/{$v1->uuid}/approve", ['reason' => 'ok'])->assertSessionHasNoErrors();
-    $this->actingAsHq($this->owner)->post("/skills/{$v1->uuid}/activate", ['reason' => 'ok'])->assertSessionHasNoErrors();
+    $this->actingAsHq($this->reviewer)->post("/skills/{$v1->uuid}/activate", ['reason' => 'skip the review'])->assertSessionHasErrors('form');
+    $this->actingAsHq($this->reviewer)->post("/skills/{$v1->uuid}/approve", ['reason' => 'ok'])->assertSessionHasNoErrors();
+    $this->actingAsHq($this->reviewer)->post("/skills/{$v1->uuid}/activate", ['reason' => 'ok'])->assertSessionHasNoErrors();
 
     $this->actingAsHq($this->owner)->post('/skills', ['key' => 'x_skill', 'name' => 'X2', 'purpose' => 'p', 'required_tools' => ['facts.query_orders']])->assertSessionHasNoErrors();
     $v2 = Skill::query()->where('version', 2)->sole();
-    $this->actingAsHq($this->owner)->post("/skills/{$v2->uuid}/approve", ['reason' => 'ok'])->assertSessionHasNoErrors();
-    $this->actingAsHq($this->owner)->post("/skills/{$v2->uuid}/activate", ['reason' => 'ok'])->assertSessionHasNoErrors();
+    $this->actingAsHq($this->reviewer)->post("/skills/{$v2->uuid}/approve", ['reason' => 'ok'])->assertSessionHasNoErrors();
+    $this->actingAsHq($this->reviewer)->post("/skills/{$v2->uuid}/activate", ['reason' => 'ok'])->assertSessionHasNoErrors();
     expect($v1->fresh()->status)->toBe('retired')->and($v2->fresh()->status)->toBe('active');
 
     // The brand manager may not move skills at all; nothing is deleted.

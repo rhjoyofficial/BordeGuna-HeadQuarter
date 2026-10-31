@@ -29,9 +29,12 @@ use Throwable;
  * - **Revoke is instant.** One update of the grant row; the resolver reads grants fresh on every decision,
  *   so the next action is A0. Revoking needs only `hq.autonomy.revoke` and the business in scope: stopping
  *   is the safe direction.
- * - **Retiring a threshold revokes every grant that rested on it**, in the same transaction.
- * - Pause All AI overrides everything: the policy engine refuses every agent call while paused, and the
- *   resolver treats a ladder grant as absent while paused.
+ * - **Retiring a threshold lapses every grant that rested on it**, in the same transaction.
+ * - Pause All AI overrides everything: the policy engine refuses every agent call while paused.
+ * - **Lapse is one-way** (ChatGPT ruling 17, 31 Oct 2026): `LadderGrantLapse` lapses a grant persistently the
+ *   moment any governing condition fails (evidence, pause, unreadable pause, retired threshold, any other
+ *   safety condition). Nothing reactivates it; a person makes a NEW grant here, after every condition is
+ *   verified again.
  */
 final class LadderGrants
 {
@@ -47,6 +50,7 @@ final class LadderGrants
         private readonly AiPause $pause,
         private readonly ToolRegistry $tools,
         private readonly GroupWideAuthority $authority,
+        private readonly LadderGrantLapse $lapse,
     ) {}
 
     /** @param  array{tool_key: string, max_level: string, min_approved_succeeded: int, max_error_permille: int, max_rejection_permille: int, window_days: int, reason: string}  $data */
@@ -177,11 +181,12 @@ final class LadderGrants
     private function retireLocked(User $by, AutonomyLadderThreshold $threshold, string $reason): AutonomyLadderThreshold
     {
         $threshold->forceFill(['status' => 'retired', 'retired_by' => $by->getKey(), 'retired_at' => now()])->save();
+        // Ruling 17: the grants that rested on it lapse, one-way, each with its own audit row.
         $revoked = AutonomyGrant::query()->where('ladder_threshold_id', $threshold->getKey())->where('status', 'active')->lockForUpdate()->get();
         foreach ($revoked as $grant) {
-            $grant->forceFill(['status' => 'revoked', 'revoked_by' => $by->getKey(), 'revoked_at' => now(), 'revoke_reason' => 'Its ladder threshold was retired: '.$reason])->save();
+            $this->lapse->lapse($grant, 'threshold_retired', 'Its ladder threshold was retired: '.$reason);
         }
-        $this->auditor->record('autonomy.ladder.threshold_retired', $threshold, before: ['status' => 'active'], after: ['status' => 'retired', 'revoked_grants' => $revoked->pluck('uuid')->all()],
+        $this->auditor->record('autonomy.ladder.threshold_retired', $threshold, before: ['status' => 'active'], after: ['status' => 'retired', 'lapsed_grants' => $revoked->pluck('uuid')->all()],
             reason: $reason, actorUserId: $by->getKey());
 
         return $threshold;

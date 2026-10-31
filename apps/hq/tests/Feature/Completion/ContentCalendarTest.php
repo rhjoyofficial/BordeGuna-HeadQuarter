@@ -82,8 +82,11 @@ it('plans a post, and a person\'s caption becomes a checked draft that a reviewe
     $entry->refresh();
     expect($entry->status)->toBe('drafted')->and($entry->draft->status)->toBe('checked')->and($entry->draft->text_provenance)->toBe('business');
 
-    $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/review", ['verdict' => 'approved'])->assertSessionHasNoErrors();
+    // The owner wrote it and is the only eligible reviewer: a self-approval needs a reason and is recorded (ruling 15).
+    $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/review", ['verdict' => 'approved'])->assertSessionHasErrors('form');
+    $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/review", ['verdict' => 'approved', 'self_reason' => 'only reviewer this week'])->assertSessionHasNoErrors();
     expect($entry->fresh()->status)->toBe('approved')->and($entry->fresh()->draft->status)->toBe('approved')
+        ->and($entry->fresh()->draft->self_decided)->toBeTrue()
         ->and(ContentPublication::query()->count())->toBe(0);
 });
 
@@ -199,7 +202,7 @@ it('publishes through the sandbox publisher only after approval, the digest and 
     expect($draft->status)->toBe('failed_checks');
 
     $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/draft", ['text' => 'সরিষার তেল, শীতের রান্নায়।'])->assertSessionHasNoErrors();
-    $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/review", ['verdict' => 'approved'])->assertSessionHasNoErrors();
+    $this->actingAsHq($this->owner)->post("/content/calendar/{$entry->uuid}/review", ['verdict' => 'approved', 'self_reason' => 'sole reviewer'])->assertSessionHasNoErrors();
     $draft = $entry->fresh()->draft;
 
     $account = PlatformAccount::create(['brand_id' => $this->lld->id, 'platform' => 'facebook_page', 'account_ref' => 'SANDBOX-PAGE', 'name' => 'LaLaDia',

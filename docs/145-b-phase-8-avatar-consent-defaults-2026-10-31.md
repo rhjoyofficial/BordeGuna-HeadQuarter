@@ -10,6 +10,8 @@ Agent M4. docs/20 designed the consent record; docs/95 item 26 leaves the writte
 
 **Default built:** `product_promo`, `brand_presenter`, `internal`. docs/20 also listed `customer_reply`; it is **left out**: an avatar never answers a customer. Adding it later is a code change.
 
+**Applied ruling 31 Oct (item 14):** this is now a hard rule, not a default. `customer_reply`, `customer_support`, `support_reply`, `inbox_reply` and `conversation_reply` (and any use not on the allowed list) are refused first, whatever the consent, flag, approval or provider; the database refuses them on a consent and on any generation that is not a refused record. A structural test keeps every customer-reply tool, conversation and agent path free of avatar code.
+
 ## Q3. How long can consent last?
 
 **Default built:** every consent has an end date, at most 36 months ahead. There is no open-ended consent.

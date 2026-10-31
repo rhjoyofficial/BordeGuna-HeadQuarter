@@ -20,6 +20,10 @@ Agent M4. ADR-048 made the evaluation evidence policy a ceiling; ADR-020 the res
 
 ## Q5. Does a ladder grant keep standing on its own?
 
+**Applied ruling 31 Oct (item 17):** the answer below is superseded. A ladder grant no longer comes back by itself: the first time any governing condition fails (evidence below the threshold, Pause All AI on, pause state unreadable, threshold retired, or any other safety condition such as a level above the threshold or the tool becoming human-only), `LadderGrantLapse` lapses it persistently (status `lapsed`, when, which condition, why, one audit row). It happens at the next decision, at the moment of pausing, when the threshold is retired, and in the sweep `hq:autonomy:lapse-sweep`. Restoring the condition never reactivates it (a database trigger refuses that too); only a new grant by a person, after every condition is verified again, gives autonomy. Retiring a threshold now lapses its grants instead of revoking them.
+
+Previous default, kept for the record:
+
 **Default built:** no. The resolver honours a grant made through the ladder only while Pause All AI is off (an unreadable pause state counts as paused), its threshold is still active, and the evidence still meets it at that moment. Otherwise the grant is absent, which is A0. Grants not made through the ladder are unaffected (so every existing resolver test is unchanged). Pause All AI also still refuses every agent call in the policy engine, before any autonomy is consulted.
 
 ## Q6. What the screen shows
