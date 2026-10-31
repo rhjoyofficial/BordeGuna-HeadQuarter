@@ -1,13 +1,14 @@
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingReason, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
 import { useT, type Translator } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 
 type FreshnessInfo = { state: string; budget_minutes: number | null; age_minutes: number | null; in_future: boolean };
 
@@ -72,7 +73,8 @@ type Detail = BriefingSummary & {
     bundle_intact: boolean | null;
 };
 
-type Props = { briefing: Detail; bundle: Bundle | null };
+type Telegram = { enabled: boolean; can: boolean; deliveries: { state: string; at: string | null; error: string | null }[] };
+type Props = { briefing: Detail; bundle: Bundle | null; telegram?: Telegram };
 
 const FRESHNESS_TONE: Record<string, Tone> = { fresh: 'ok', live: 'ok', stale: 'warn', missing: 'danger', not_connected: 'neutral' };
 
@@ -140,8 +142,9 @@ function LineageCell({ item }: { item: Item }) {
     );
 }
 
-export default function BriefingPage({ briefing, bundle }: Props) {
+export default function BriefingPage({ briefing, bundle, telegram }: Props) {
     const t = useT();
+    const { flash } = usePage<{ flash?: { status?: string } }>().props;
     const narration = (state: string): string => (NARRATION_LABEL[state] ? t(NARRATION_LABEL[state]) : state);
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Briefings', href: '/observe/briefings' },
@@ -159,8 +162,29 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                         '{scope}. Composed {when}. The evidence below is not business truth: it is what a narrator may speak from, each value with its source, its as_of, its freshness and how it was obtained.',
                         { scope: briefing.business ?? t(scopeLabel(briefing)), when: formatDateTime(briefing.generated_at) },
                     )}
-                    actions={<StatusBadge tone={STATE_TONE[briefing.state] ?? 'neutral'}>{briefing.state}</StatusBadge>}
+                    actions={
+                        <>
+                            <StatusBadge tone={STATE_TONE[briefing.state] ?? 'neutral'}>{briefing.state}</StatusBadge>
+                            {telegram?.enabled && telegram.can && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => router.post(`/observe/briefings/${briefing.uuid}/send-telegram`, {}, { preserveScroll: true })}
+                                >
+                                    {t('Ask to send to my Telegram')}
+                                </Button>
+                            )}
+                        </>
+                    }
                 />
+                {flash?.status === 'briefing-send-awaiting-approval' && (
+                    <Notice tone="pending">{t('The send is waiting in Approvals. Nothing has been sent to your Telegram yet.')}</Notice>
+                )}
+                {telegram?.enabled && telegram.deliveries.length > 0 && (
+                    <Notice tone="neutral">
+                        {t('Telegram deliveries')}: {telegram.deliveries.map((d) => `${d.state} ${formatDateTime(d.at)}`).join(', ')}
+                    </Notice>
+                )}
 
                 {/* Freshness first, before any number (docs/48 M.3). */}
                 {attention.length > 0 && (

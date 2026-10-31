@@ -8,6 +8,8 @@ use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Http\Controllers\Controller;
 use App\Models\Briefing;
+use App\Models\OwnerBriefDelivery;
+use App\OwnerConsole\Flag;
 use App\Support\Authorization\BusinessScope;
 use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use Illuminate\Database\Eloquent\Builder;
@@ -57,6 +59,13 @@ final class BriefingController extends Controller
                 'bundle_intact' => $briefing->bundle === null ? null : EvidenceBundle::digestOf($briefing->bundle) === $briefing->bundle_digest,
             ],
             'bundle' => $briefing->bundle,
+            // docs/143 D: the owner-Telegram brief. Shown only with the flag on; a briefing of a business only (the tool needs one).
+            'telegram' => [
+                'enabled' => Flag::on(Flag::TELEGRAM_BRIEF),
+                'can' => $request->user()->can('hq.briefing.deliver') && $briefing->business_id !== null,
+                'deliveries' => OwnerBriefDelivery::query()->where('briefing_id', $briefing->id)->latest('id')->limit(5)->get()
+                    ->map(fn ($d) => ['state' => $d->state, 'at' => ($d->sent_at ?? $d->created_at)?->toIso8601String(), 'error' => $d->error])->all(),
+            ],
         ]);
     }
 

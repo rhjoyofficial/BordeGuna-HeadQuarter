@@ -92,6 +92,12 @@ const BANGLA_SCREENS = [
     'js/pages/observe/alerts.tsx',
     'js/pages/scheduler/index.tsx',
     'js/pages/scheduler/show.tsx',
+    // docs/143 (owner console, every one behind a flag seeded OFF): plans, batch review, watches, reply options.
+    'js/pages/do-plans/index.tsx',
+    'js/pages/do-plans/show.tsx',
+    'js/pages/approvals/batch.tsx',
+    'js/pages/watches/index.tsx',
+    'js/components/inbox/reply-options.tsx',
     'js/pages/auth/login.tsx',
     'js/pages/auth/two-factor-challenge.tsx',
     'js/pages/auth/forgot-password.tsx',

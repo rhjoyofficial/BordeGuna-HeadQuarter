@@ -10,6 +10,7 @@ import {
     BookOpen,
     Bot,
     Building2,
+    CalendarCheck,
     CalendarClock,
     Coins,
     Fingerprint,
@@ -18,9 +19,12 @@ import {
     GitCompareArrows,
     HeartPulse,
     KeyRound,
+    Layers,
     LayoutGrid,
+    ListChecks,
     MessageSquare,
     Newspaper,
+    Radar,
     Scale,
     ScrollText,
     Server,
@@ -31,7 +35,6 @@ import {
     Stamp,
     Users,
     Wrench,
-    CalendarCheck,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -61,6 +64,10 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view', badge: 'approvals' },
             { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
             { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
+            // docs/143: each appears only while its flag is on, and behind its own permission.
+            { title: 'Do plans', url: '/do-plans', icon: ListChecks, permission: 'hq.do.propose', feature: 'console_do_mode' },
+            { title: 'Batch review', url: '/approvals/batch', icon: Layers, permission: 'hq.approvals.decide', feature: 'console_batch_approval' },
+            { title: 'Event watches', url: '/watches', icon: Radar, permission: 'hq.watches.propose', feature: 'console_event_watches' },
         ],
     },
     {

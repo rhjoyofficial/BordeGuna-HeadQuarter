@@ -63,6 +63,8 @@ export type DecisionCardData = {
     expires_at: string | null;
     decidable: boolean;
     href: string;
+    /** docs/143 C: present only when one-click approval is on, below R5, for a person who may decide it. */
+    quick?: { hash: string; payload: string } | null;
 };
 
 export type Receipt = {

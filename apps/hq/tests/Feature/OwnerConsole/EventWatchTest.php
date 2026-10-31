@@ -145,8 +145,10 @@ it('validates conditions: an unknown operator or a non-scalar value is refused',
 });
 
 it('is reached by the real event drain, once, and a watch that throws cannot cost the drain its event', function () {
-    ocEnabled($this->lld, null);
-    $event = ocEvent($this->lld);
+    // A type no handler is registered for, so the drain reaches the watches without a shop payload.
+    $watch = $this->watches->propose($this->owner, $this->lld, 'Drain', 'watch.test', [], null);
+    $this->watches->enable($watch, $this->owner);
+    $event = ocEvent($this->lld, ['total' => 1], 'watch.test');
 
     $this->artisan('hq:events:process')->assertSuccessful();
     expect(WatchFiring::count())->toBe(1)->and($event->fresh()->status)->toBe('processed');

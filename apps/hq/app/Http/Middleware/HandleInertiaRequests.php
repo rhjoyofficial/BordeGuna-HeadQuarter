@@ -66,6 +66,10 @@ class HandleInertiaRequests extends Middleware
                 'features' => [
                     'ask_hq' => app(Features::class)->enabled('ask_hq'),
                     'scheduler_nl' => app(Features::class)->enabled('scheduler.nl'),
+                    // docs/143: the three owner-console screens exist in the sidebar only while their flag is on.
+                    'console_do_mode' => app(Features::class)->enabled('console.do_mode'),
+                    'console_batch_approval' => app(Features::class)->enabled('console.batch_approval'),
+                    'console_event_watches' => app(Features::class)->enabled('console.event_watches'),
                 ],
             ],
         ]);
