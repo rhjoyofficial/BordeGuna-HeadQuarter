@@ -1,12 +1,13 @@
 import { ExecutionContextPanel, type ExecutionContext } from '@/components/agents/execution-context-panel';
 import { runStatus } from '@/components/agents/run-status';
+import { AiCost } from '@/components/ai-cost';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo } from '@/lib/format';
+import { formatDateTime, humanKey, humanMillis, timeAgo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
@@ -194,10 +195,12 @@ export default function AgentRunShow({
                             ) : run.task ? (
                                 <p className="mt-1 text-sm">{run.task}</p>
                             ) : (
-                                <p className="text-muted-foreground mt-1 text-sm italic">{t('No task named in the message, so nothing was gathered.')}</p>
+                                <p className="text-muted-foreground mt-1 text-sm italic">
+                                    {t('No task named in the message, so nothing was gathered.')}
+                                </p>
                             )}
                             {run.authority_request === 'refused' && (
-                                <p className="mt-1 text-sm text-tone-pending">
+                                <p className="text-tone-pending mt-1 text-sm">
                                     {t(
                                         'The message asked the agent to act outside its authority. It refused, and nothing that depended on that was done in its place.',
                                     )}
@@ -212,13 +215,15 @@ export default function AgentRunShow({
                                             classes: run.security_intent?.classes?.length
                                                 ? `: ${run.security_intent.classes.map((c) => c.replace(/_/g, ' ')).join(', ')}`
                                                 : '',
-                                            said: run.security_intent?.error ? t('nothing usable (the detector failed and failed closed)') : t('what it read'),
+                                            said: run.security_intent?.error
+                                                ? t('nothing usable (the detector failed and failed closed)')
+                                                : t('what it read'),
                                         },
                                     )}
                                 </p>
                             )}
                             {(run.prohibited_capability?.kinds?.length || run.prohibited_capability?.error) && (
-                                <p className="mt-1 text-sm text-tone-pending">
+                                <p className="text-tone-pending mt-1 text-sm">
                                     {t(
                                         run.prohibited_capability?.error
                                             ? "The message asked for something HQ does not have{kinds}. HQ's own detector{version} refused it whole on the first turn, and nothing was run in its place; the detector failed and failed closed."
@@ -267,7 +272,9 @@ export default function AgentRunShow({
                         </div>
                         <div>
                             <dt className="inline">{t('Cost:')} </dt>
-                            <dd className="text-foreground inline">{humanUsd(run.cost_usd)}</dd>
+                            <dd className="text-foreground inline">
+                                <AiCost usd={run.cost_usd} />
+                            </dd>
                         </div>
                         <div>
                             <dt className="inline">{t('Model:')} </dt>
@@ -490,7 +497,7 @@ export default function AgentRunShow({
                                                 {t('{in} in, {out} out', { in: m.input_tokens ?? 0, out: m.output_tokens ?? 0 })}
                                             </td>
                                             <td className="px-3 py-2 text-right text-xs whitespace-nowrap tabular-nums">
-                                                {humanUsd(m.estimated_cost_usd)}
+                                                <AiCost usd={m.estimated_cost_usd} />
                                             </td>
                                         </tr>
                                     ))}

@@ -1,11 +1,12 @@
 import { runStatus } from '@/components/agents/run-status';
+import { AiCost } from '@/components/ai-cost';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, SectionHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, humanKey, humanMillis, humanUsd, timeAgo, truncate } from '@/lib/format';
+import { formatDateTime, humanKey, humanMillis, timeAgo, truncate } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { Bot } from 'lucide-react';
@@ -229,7 +230,7 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                                                     {run.duration_ms !== null && <div>{humanMillis(run.duration_ms)}</div>}
                                                 </td>
                                                 <td className="px-3 py-2 text-right text-xs whitespace-nowrap tabular-nums">
-                                                    {humanUsd(run.cost_usd)}
+                                                    <AiCost usd={run.cost_usd} />
                                                 </td>
                                                 <td className="px-3 py-2 text-xs whitespace-nowrap">
                                                     {run.reviewed_at ? (

@@ -1,8 +1,9 @@
+import { AiCost } from '@/components/ai-cost';
 import { Bar, DataTable, Note, Panel, Stat, StatGrid, WindowPicker, orDash, type DashboardWindow } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, humanUsd } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
@@ -43,7 +44,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Cost', href: '/observe/cost' }]
 function spendColumns<T extends Spend>(max: number) {
     return [
         { key: 'runs', label: 'Calls', align: 'right' as const, render: (r: T) => r.runs },
-        { key: 'usd', label: 'Spend', align: 'right' as const, render: (r: T) => humanUsd(r.usd) },
+        { key: 'usd', label: 'Spend', align: 'right' as const, render: (r: T) => <AiCost usd={r.usd} /> },
         { key: 'bar', label: '', render: (r: T) => <Bar value={r.usd} max={max} /> },
     ];
 }
@@ -68,18 +69,18 @@ export default function Cost(props: Props) {
                 <StatGrid>
                     <Stat
                         label="Spend in this period"
-                        value={humanUsd(totals.usd)}
+                        value={<AiCost usd={totals.usd} />}
                         detail={t('{n} model calls since {when}', { n: totals.runs, when: formatDateTime(period.since) })}
                     />
-                    <Stat label="Per model call" value={orDash(totals.per_run_usd === null ? null : humanUsd(totals.per_run_usd))} />
+                    <Stat label="Per model call" value={orDash(totals.per_run_usd === null ? null : <AiCost usd={totals.per_run_usd} />)} />
                     <Stat
                         label="Per agent run"
-                        value={orDash(unit.per_agent_run_usd === null ? null : humanUsd(unit.per_agent_run_usd))}
+                        value={orDash(unit.per_agent_run_usd === null ? null : <AiCost usd={unit.per_agent_run_usd} />)}
                         detail={t('{n} agent runs', { n: unit.agent_runs })}
                     />
                     <Stat
                         label="Per conversation"
-                        value={orDash(unit.per_conversation_usd === null ? null : humanUsd(unit.per_conversation_usd))}
+                        value={orDash(unit.per_conversation_usd === null ? null : <AiCost usd={unit.per_conversation_usd} />)}
                         detail={t('{n} conversations with model work', { n: unit.conversations })}
                     />
                 </StatGrid>
@@ -89,16 +90,16 @@ export default function Cost(props: Props) {
                     aside={<StatusBadge tone={budgetTone}>{t('{n}% of the cap', { n: budget.share_percent })}</StatusBadge>}
                 >
                     <StatGrid>
-                        <Stat label={t('Spent this month ({scope})', { scope: budget.scope })} value={humanUsd(budget.spent_usd)} />
+                        <Stat label={t('Spent this month ({scope})', { scope: budget.scope })} value={<AiCost usd={budget.spent_usd} />} />
                         <Stat
                             label="Cap"
-                            value={budget.cap_usd === null ? t('none') : humanUsd(budget.cap_usd)}
+                            value={budget.cap_usd === null ? t('none') : <AiCost usd={budget.cap_usd} />}
                             detail="A soft cap: at 100% HQ uses a cheaper tier."
                         />
-                        <Stat label="Month at this pace" value={humanUsd(budget.projected_month_usd)} />
+                        <Stat label="Month at this pace" value={<AiCost usd={budget.projected_month_usd} />} />
                         <Stat
                             label="Per daily briefing"
-                            value={orDash(unit.per_briefing_usd === null ? null : humanUsd(unit.per_briefing_usd))}
+                            value={orDash(unit.per_briefing_usd === null ? null : <AiCost usd={unit.per_briefing_usd} />)}
                             detail={
                                 unit.briefings === 0
                                     ? 'No briefing has been composed yet; it needs the model and comes after the gates.'

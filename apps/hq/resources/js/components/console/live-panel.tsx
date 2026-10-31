@@ -1,3 +1,4 @@
+import { AiCost } from '@/components/ai-cost';
 import { AiPauseControl } from '@/components/ai-pause';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
@@ -22,9 +23,6 @@ function Block({ title, href, linkLabel, children }: { title: string; href?: str
         </section>
     );
 }
-
-/** Dollars with cents, so nothing spent reads $0.00 and never "free". */
-const usd = (n: number) => `$${n.toFixed(2)}`;
 
 const SEVERITY_TONE = { critical: 'danger', warning: 'warn', info: 'info' } as const;
 
@@ -123,8 +121,14 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
             {cost !== null && (
                 <Block title={t('AI cost this month')} href="/observe/cost" linkLabel={t('Open')}>
                     <div className="font-mono text-lg font-semibold tabular-nums">
-                        {usd(cost.spent_usd)}
-                        {cost.cap_usd !== null && <span className="text-muted-foreground text-sm font-normal"> / {usd(cost.cap_usd)}</span>}
+                        {/* BDT first, USD small; nothing spent reads BDT 0.00, never "free". */}
+                        <AiCost usd={cost.spent_usd} free={false} />
+                        {cost.cap_usd !== null && (
+                            <span className="text-muted-foreground text-sm font-normal">
+                                {' / '}
+                                <AiCost usd={cost.cap_usd} free={false} />
+                            </span>
+                        )}
                     </div>
                     <div className="text-muted-foreground text-xs">
                         {cost.cap_usd === null ? t('No monthly cap is set.') : t('{percent}% of the monthly cap', { percent: cost.share_percent })}

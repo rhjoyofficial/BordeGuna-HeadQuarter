@@ -91,6 +91,7 @@
     "closed": "বন্ধ",
     "named": "নাম দেওয়া আছে",
     "none": "নেই",
+    "free": "বিনা খরচে",
     "Whether anything is switched on, what each role may never do, and what still stands between the agents and their next step. Read-only, except the Pause All AI switch below, which can only pause.": "কিছু চালু আছে কি না, কোন ভূমিকা কখনো কী করতে পারবে না, আর এজেন্টদের পরের ধাপের আগে এখনো কী বাকি। শুধু দেখার জন্য, নিচের 'সব এআই বিরতিতে রাখুন' সুইচ ছাড়া, যা শুধু বিরতিই দিতে পারে।",
     "Inert": "সব বন্ধ",
     "Something is on": "কিছু চালু আছে",
