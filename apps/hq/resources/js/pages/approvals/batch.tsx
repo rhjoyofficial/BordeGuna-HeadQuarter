@@ -1,5 +1,6 @@
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -29,7 +30,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Batch review', href: '/approvals/batch' },
 ];
 
-export default function ApprovalBatch({ enabled, messages }: { enabled: boolean; messages: Message[] }) {
+export default function ApprovalBatch({ enabled, messages, pagination }: { enabled: boolean; messages: Message[]; pagination: ListMeta | null }) {
     const t = useT();
     const first = messages.find((m) => m.decidable) ?? messages[0];
 
@@ -71,7 +72,7 @@ export default function ApprovalBatch({ enabled, messages }: { enabled: boolean;
                     {messages.map((m, i) => (
                         <li key={m.id} className="hq-glass flex flex-col gap-2 rounded-2xl p-4">
                             <span className="text-muted-foreground text-xs">
-                                {[`${i + 1}.`, m.business, m.agent_key, formatDateTime(m.created_at)].filter(Boolean).join(' ')}
+                                {[`${(pagination?.from ?? 1) + i}.`, m.business, m.agent_key, formatDateTime(m.created_at)].filter(Boolean).join(' ')}
                             </span>
                             <span className="text-sm whitespace-pre-wrap">
                                 {typeof m.payload?.text === 'string' ? m.payload.text : JSON.stringify(m.payload)}
@@ -87,6 +88,7 @@ export default function ApprovalBatch({ enabled, messages }: { enabled: boolean;
                         </li>
                     ))}
                 </ol>
+                {pagination && <Pagination meta={pagination} />}
             </div>
         </AppLayout>
     );

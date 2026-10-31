@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Models\IngestedDocument;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -26,9 +27,12 @@ final class IngestionController extends ConnectorController
         $user = $request->user();
         $documents = IngestedDocument::query()->visibleTo($user)->with('business:id,name,slug')->with('message:id,from_address,subject,received_at')
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->latest('id')->limit(100)->get();
+            ->latest('id');
+        $page = ListPage::paginate($documents, $request);
+        $documents = $page->getCollection();
 
         return Inertia::render('ingestion/index', [
+            'pagination' => $page->meta(),
             'documents' => $documents->map(fn (IngestedDocument $d) => [
                 'uuid' => $d->uuid, 'status' => $d->status, 'business' => $d->business?->name, 'from' => $d->message?->from_address, 'subject' => $d->message?->subject,
                 'received_at' => $d->message?->received_at?->toIso8601String(), 'supplier' => $d->extracted['supplier']['value'] ?? null,

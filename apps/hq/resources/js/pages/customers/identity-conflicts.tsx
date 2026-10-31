@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Notice } from '@/components/ui/notice';
@@ -55,7 +56,7 @@ type Resolved = {
     by: string | null;
     at: string | null;
 };
-type Props = { conflicts: Conflict[]; resolved: Resolved[]; can_resolve: boolean };
+type Props = { conflicts: Conflict[]; pagination: ListMeta; resolved: Resolved[]; can_resolve: boolean };
 
 const RESOLUTION_TONES: Record<string, Tone> = { kept_owner: 'ok', moved_to_claimant: 'info', not_resolvable: 'warn' };
 
@@ -64,7 +65,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Identity conflicts', href: '/customers/identity-conflicts' },
 ];
 
-export default function IdentityConflicts({ conflicts, resolved, can_resolve }: Props) {
+export default function IdentityConflicts({ conflicts, pagination, resolved, can_resolve }: Props) {
     const t = useT();
     const [open, setOpen] = useState<Conflict | null>(null);
     const form = useForm({ resolution: '', evidence: '', reason: '' });
@@ -114,7 +115,7 @@ export default function IdentityConflicts({ conflicts, resolved, can_resolve }: 
                 )}
 
                 <section className="flex flex-col gap-2">
-                    <SectionHeader title={t('Open conflicts')} aside={t('{count} open', { count: conflicts.length })} />
+                    <SectionHeader title={t('Open conflicts')} aside={t('{count} open', { count: pagination.total })} />
                     {conflicts.length === 0 ? (
                         <EmptyState title={t('No open conflict')} description={t('No identity of a business you may read is waiting for a person.')} />
                     ) : (
@@ -188,6 +189,7 @@ export default function IdentityConflicts({ conflicts, resolved, can_resolve }: 
                             </table>
                         </div>
                     )}
+                    <Pagination meta={pagination} />
                 </section>
 
                 {resolved.length > 0 && (

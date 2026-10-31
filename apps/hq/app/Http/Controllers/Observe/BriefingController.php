@@ -11,6 +11,7 @@ use App\Models\Briefing;
 use App\Models\OwnerBriefDelivery;
 use App\OwnerConsole\Flag;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -34,10 +35,12 @@ final class BriefingController extends Controller
     public function index(Request $request, BusinessScope $scope): Response
     {
         $briefings = $this->visible(Briefing::query()->with('business:id,slug,name'), $scope->all($request->user()))
-            ->latest('id')->limit(60)->get();
+            ->latest('id');
+        $page = ListPage::paginate($briefings, $request);
 
         return Inertia::render('observe/briefings', [
-            'briefings' => $briefings->map(fn (Briefing $b) => $this->summary($b))->all(),
+            'briefings' => $page->getCollection()->map(fn (Briefing $b) => $this->summary($b))->all(),
+            'pagination' => $page->meta(),
             'contract' => app(ExecutiveBriefingContract::class)->toArray(),
         ]);
     }

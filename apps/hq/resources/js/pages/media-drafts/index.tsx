@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
@@ -25,6 +26,7 @@ type Draft = {
 };
 type Props = {
     drafts: Draft[];
+    pagination: ListMeta;
     businesses: { slug: string; name: string }[];
     aspects: string[];
     max_seconds: number;
@@ -38,7 +40,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Reel drafts', href: '/media-dra
  * Reel and video drafts (docs/144-media-pipeline). A draft is a video a provider made from a brief; a person watches it
  * and approves or rejects it. Approving publishes nothing: posting is a separate gate with its own approval.
  */
-export default function MediaDrafts({ drafts, businesses, aspects, max_seconds, can }: Props) {
+export default function MediaDrafts({ drafts, pagination, businesses, aspects, max_seconds, can }: Props) {
     const t = useT();
     const form = useForm({ business_slug: businesses[0]?.slug ?? '', brief: '', seconds: '8', aspect: aspects[0] ?? '9:16' });
     const label = (s: string) =>
@@ -186,6 +188,7 @@ export default function MediaDrafts({ drafts, businesses, aspects, max_seconds, 
                         ))}
                     </ul>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

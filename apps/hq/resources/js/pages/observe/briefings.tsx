@@ -2,6 +2,7 @@ import { EmptyState } from '@/components/empty-state';
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Pagination, type ListMeta } from '@/components/pagination';
 import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -11,11 +12,11 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import { Newspaper } from 'lucide-react';
 
-type Props = { briefings: BriefingSummary[]; contract: Record<string, unknown> };
+type Props = { briefings: BriefingSummary[]; pagination: ListMeta; contract: Record<string, unknown> };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Briefings', href: '/observe/briefings' }];
 
-export default function Briefings({ briefings, contract }: Props) {
+export default function Briefings({ briefings, pagination, contract }: Props) {
     const t = useT();
 
     return (
@@ -74,6 +75,7 @@ export default function Briefings({ briefings, contract }: Props) {
                         />
                     </Panel>
                 )}
+                <Pagination meta={pagination} />
 
                 <Panel title="The capability contract">
                     <Note>

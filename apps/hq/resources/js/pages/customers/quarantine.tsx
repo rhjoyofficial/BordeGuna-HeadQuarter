@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
@@ -69,6 +70,7 @@ type HeldMemory = {
 type Repair = { id: number; key: string; business: string | null; status: string; started_at: string | null; verified_at: string | null; splits: number };
 type Props = {
     flags: Flag[];
+    pagination: ListMeta;
     decisions: string[];
     can_repair: boolean;
     batches: Batch[];
@@ -84,7 +86,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Cross-business review', href: '/customers/quarantine' },
 ];
 
-export default function CustomerQuarantine({ flags, decisions, can_repair, batches, ambiguous, held_memories, repairs }: Props) {
+export default function CustomerQuarantine({ flags, pagination, decisions, can_repair, batches, ambiguous, held_memories, repairs }: Props) {
     const t = useT();
     const [open, setOpen] = useState<number | null>(null);
     const form = useForm({ decision: decisions[0] ?? '', note: '' });
@@ -124,7 +126,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 />
 
                 <section className="flex flex-col gap-2">
-                    <SectionHeader title={t('Flags')} aside={t('{count} flags', { count: flags.length })} />
+                    <SectionHeader title={t('Flags')} aside={t('{count} flags', { count: pagination.total })} />
                     {flags.length === 0 ? (
                         <EmptyState
                             title={t('Nothing is flagged')}
@@ -205,6 +207,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                             </table>
                         </div>
                     )}
+                    <Pagination meta={pagination} />
                 </section>
 
                 <section className="flex flex-col gap-2">

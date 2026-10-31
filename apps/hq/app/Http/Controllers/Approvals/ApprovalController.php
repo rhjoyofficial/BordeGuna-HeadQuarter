@@ -12,6 +12,7 @@ use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
 use App\OwnerConsole\Flag;
+use App\Support\Http\ListPage;
 use App\Support\Notifications\Notifier;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
@@ -56,7 +57,8 @@ final class ApprovalController extends Controller
             $query->where('status', $status);
         }
 
-        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + $this->people($a) + [
+        $page = ListPage::paginate($query->latest('id'), $request);
+        $approvals = $page->getCollection()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + $this->people($a) + [
             'decided_by' => $a->decidedBy?->email,
             'delegated_to' => $a->delegatedTo?->email,
             'decidable' => $request->user() !== null && $a->status->isOpen() && $a->isDecidableBy($request->user()),
@@ -64,6 +66,7 @@ final class ApprovalController extends Controller
 
         return Inertia::render('approvals/index', [
             'approvals' => $approvals,
+            'pagination' => $page->meta(),
             'filters' => ['status' => $status],
             'counts' => [
                 'pending' => Approval::pending()->visibleTo($request->user())->count(),

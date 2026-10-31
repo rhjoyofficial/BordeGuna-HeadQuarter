@@ -10,6 +10,7 @@ use App\Skills\Delegations;
 use App\Skills\SkillCatalogue;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
+use App\Support\Http\ListPage;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,9 +39,10 @@ final class SkillController extends Controller
         $user = $request->user();
         $restricted = $this->scope->isRestricted($user);
 
-        $skills = Skill::query()->when($restricted, fn ($q) => $q->visibleTo($user))->with('business:id,name')
+        $skillsPage = ListPage::paginate(Skill::query()->when($restricted, fn ($q) => $q->visibleTo($user))->with('business:id,name')
             ->orderByRaw("CASE status WHEN 'proposed' THEN 0 WHEN 'approved' THEN 1 WHEN 'active' THEN 2 WHEN 'suspended' THEN 3 ELSE 4 END")
-            ->orderBy('key')->orderByDesc('version')->limit(200)->get()
+            ->orderBy('key')->orderByDesc('version'), $request);
+        $skills = $skillsPage->getCollection()
             ->map(fn (Skill $s) => [
                 'uuid' => $s->uuid, 'key' => $s->key, 'version' => $s->version, 'name' => $s->name, 'purpose' => $s->purpose,
                 'required_tools' => array_values((array) $s->required_tools), 'business' => $s->business?->name ?? null, 'group_wide' => $s->business_id === null,
@@ -50,7 +52,8 @@ final class SkillController extends Controller
                 'own' => SkillCatalogue::isAuthor((int) $user->getKey(), $s),
             ]);
 
-        $delegations = AgentDelegation::query()->when($restricted, fn ($q) => $q->visibleTo($user))->orderByDesc('id')->limit(100)->get()
+        $delegationsPage = ListPage::paginate(AgentDelegation::query()->when($restricted, fn ($q) => $q->visibleTo($user))->orderByDesc('id'), $request, 'delegations_page');
+        $delegations = $delegationsPage->getCollection()
             ->map(fn (AgentDelegation $d) => [
                 'uuid' => $d->uuid, 'from' => $d->from_agent_key, 'to' => $d->to_agent_key, 'status' => $d->status, 'reason' => $d->refusal_reason,
                 'tools' => array_values((array) ($d->effective['tools'] ?? [])), 'business_ids' => $d->effective['business_ids'] ?? null,
@@ -71,6 +74,8 @@ final class SkillController extends Controller
         return Inertia::render('skills/index', [
             'skills' => $skills,
             'delegations' => $delegations,
+            'skillsPagination' => $skillsPage->meta(),
+            'delegationsPagination' => $delegationsPage->meta(),
             'delegationOn' => $this->features->enabled(Delegations::FLAG),
             'options' => [
                 'tools' => $toolKeys,

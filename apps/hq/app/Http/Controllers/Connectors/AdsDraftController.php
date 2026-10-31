@@ -8,6 +8,7 @@ use App\Models\AdsDraft;
 use App\Models\Business;
 use App\Models\PlatformAccount;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,8 +28,11 @@ final class AdsDraftController extends ConnectorController
         $user = $request->user();
         $businesses = Business::query()->when($scope->all($user) !== null, fn ($q) => $q->whereIn('id', (array) $scope->all($user)))->orderBy('name')->get(['id', 'slug', 'name']);
 
+        $page = ListPage::paginate(AdsDraft::query()->visibleTo($user)->latest('id'), $request);
+
         return Inertia::render('ads-drafts/index', [
-            'drafts' => AdsDraft::query()->visibleTo($user)->latest('id')->limit(50)->get()->map(fn (AdsDraft $d) => [
+            'pagination' => $page->meta(),
+            'drafts' => $page->getCollection()->map(fn (AdsDraft $d) => [
                 'uuid' => $d->uuid, 'name' => $d->name, 'status' => $d->status, 'error' => $d->error, 'ad_account_ref' => $d->ad_account_ref,
                 'daily_budget' => $d->spec['daily_budget'] ?? null, 'currency' => $d->spec['currency'] ?? null, 'platform_refs' => $d->platform_refs, 'created_at' => $d->created_at?->toIso8601String(),
             ])->all(),

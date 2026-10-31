@@ -8,6 +8,7 @@ use App\Models\JobRun;
 use App\Models\ScheduledJob;
 use App\Scheduling\ScheduledJobService;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -29,7 +30,8 @@ final class ScheduledJobController extends Controller
         // docs/136: only the businesses this person may see; a job with no business only for a group-wide person.
         $jobs = ScheduledJob::query()->visibleTo($request->user())->with(['business:id,name', 'brand:id,name'])
             ->when($request->string('state')->isNotEmpty(), fn ($q) => $q->where('state', $request->string('state')))
-            ->orderByRaw('next_run_at nulls last')->orderByDesc('id')->paginate(25)->withQueryString();
+            ->orderByRaw('next_run_at nulls last')->orderByDesc('id');
+        $jobs = ListPage::paginate($jobs, $request);
 
         return Inertia::render('scheduler/index', [
             'jobs' => $jobs,
@@ -44,7 +46,7 @@ final class ScheduledJobController extends Controller
 
         return Inertia::render('scheduler/show', [
             'job' => $job->load(['business:id,name', 'brand:id,name', 'owner:id,name,email']),
-            'runs' => $job->runs()->paginate(25),
+            'runs' => ListPage::paginate($job->runs(), $request),
         ]);
     }
 

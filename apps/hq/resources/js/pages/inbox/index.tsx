@@ -1,5 +1,6 @@
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, Toolbar } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
@@ -98,11 +99,13 @@ export function AgentNotice({ agent }: { agent: AgentStatus }) {
 
 export default function InboxIndex({
     threads,
+    pagination,
     filter,
     counts,
     agent,
 }: {
     threads: ThreadCard[];
+    pagination: ListMeta;
     filter: string;
     counts: { needs_person: number; open: number };
     agent: AgentStatus;
@@ -203,6 +206,7 @@ export default function InboxIndex({
                         ))}
                     </div>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

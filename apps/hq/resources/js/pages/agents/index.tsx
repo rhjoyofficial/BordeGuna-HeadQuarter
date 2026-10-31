@@ -2,6 +2,7 @@ import { runStatus } from '@/components/agents/run-status';
 import { AiCost } from '@/components/ai-cost';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, SectionHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -57,7 +58,18 @@ const AUTONOMY: Record<string, string> = {
     a4: 'A4, may act',
 };
 
-export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCard[]; runs: RunCard[]; filter: string; can: { review: boolean } }) {
+export default function AgentsIndex({
+    agents,
+    runs,
+    filter,
+    pagination,
+}: {
+    agents: AgentCard[];
+    runs: RunCard[];
+    filter: string;
+    can: { review: boolean };
+    pagination: ListMeta;
+}) {
     const unreviewed = agents.reduce((total, a) => total + a.awaiting_review, 0);
     const agentName = (key: string) => agents.find((a) => a.key === key)?.name ?? humanKey(key);
 
@@ -250,6 +262,7 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                             </table>
                         </div>
                     )}
+                    <Pagination meta={pagination} />
                 </section>
             </div>
         </AppLayout>

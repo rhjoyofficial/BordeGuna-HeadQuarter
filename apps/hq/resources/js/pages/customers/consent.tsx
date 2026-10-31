@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -85,6 +86,7 @@ type Props = {
     identity_grid: IdentityGridRow[];
     position: Position[];
     history: HistoryRow[];
+    historyPagination: ListMeta;
     pending_lifts: PendingLift[];
     can: { restrict: boolean; grant: boolean; lift_restriction: boolean };
 };
@@ -110,7 +112,7 @@ const ACTS: { key: string; group: 'restrict' | 'grant' }[] = [
     { key: 'lift', group: 'grant' },
 ];
 
-export default function CustomerConsent({ customer, brands, identities, channels, purposes, grid, identity_grid, position, history, pending_lifts, can }: Props) {
+export default function CustomerConsent({ customer, brands, identities, channels, purposes, grid, identity_grid, position, history, historyPagination, pending_lifts, can }: Props) {
     const t = useT();
     const formRef = useRef<HTMLFormElement>(null);
     // Joy's rule: adding happens in a dialog, never in a form above a list. Same form, same request.
@@ -582,7 +584,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
                 )}
 
                 <section className="flex flex-col gap-2">
-                    <SectionHeader title={t('History')} aside={t('{count} events', { count: history.length })} />
+                    <SectionHeader title={t('History')} aside={t('{count} events', { count: historyPagination.total })} />
                     {history.length === 0 ? (
                         <EmptyState title={t('No consent recorded')} description={t('Nothing is allowed until something is recorded.')} />
                     ) : (
@@ -636,6 +638,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
                             </table>
                         </div>
                     )}
+                    <Pagination meta={historyPagination} />
                 </section>
             </div>
         </AppLayout>

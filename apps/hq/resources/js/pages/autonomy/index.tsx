@@ -2,6 +2,7 @@ import { ReasonAction } from '@/components/completion/reason-action';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -70,12 +71,14 @@ type Props = {
     rows: Row[];
     grants: Grant[];
     thresholds: ThresholdRow[];
+    grantsPagination: ListMeta;
+    thresholdsPagination: ListMeta;
     paused: boolean;
     options: { levels: string[]; businesses: { id: number; name: string }[]; tools: string[] };
     can: { grant: boolean; revoke: boolean };
 };
 
-export default function AutonomyIndex({ rows, grants, thresholds, paused, options, can }: Props) {
+export default function AutonomyIndex({ rows, grants, thresholds, grantsPagination, thresholdsPagination, paused, options, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [showAll, setShowAll] = useState(false);
@@ -276,6 +279,7 @@ export default function AutonomyIndex({ rows, grants, thresholds, paused, option
                             </table>
                         </div>
                     )}
+                    <Pagination meta={grantsPagination} />
                 </section>
 
                 <section className="flex flex-col gap-3">
@@ -332,6 +336,7 @@ export default function AutonomyIndex({ rows, grants, thresholds, paused, option
                             </table>
                         </div>
                     )}
+                    <Pagination meta={thresholdsPagination} />
                 </section>
 
                 <Dialog open={setting} onOpenChange={setSetting}>

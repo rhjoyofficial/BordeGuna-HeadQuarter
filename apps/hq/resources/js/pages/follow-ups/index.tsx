@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader, Toolbar } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -68,6 +69,8 @@ type OpportunityRow = {
 type Props = {
     followUps: FollowUpRow[];
     opportunities: OpportunityRow[];
+    followUpsPagination: ListMeta;
+    opportunitiesPagination: ListMeta;
     filters: { state: string; opportunity_state: string };
     counts: { proposed: number; due: number; scheduled: number; opportunities_proposed: number };
     options: {
@@ -109,7 +112,17 @@ const CHANNEL_NAMES: Record<string, string> = {
 
 type Pending = { uuid: string; action: string } | null;
 
-export default function FollowUpsIndex({ followUps, opportunities, filters, counts, options, prefill, can }: Props) {
+export default function FollowUpsIndex({
+    followUps,
+    opportunities,
+    followUpsPagination,
+    opportunitiesPagination,
+    filters,
+    counts,
+    options,
+    prefill,
+    can,
+}: Props) {
     const t = useT();
     const { flash } = usePage<{ flash?: { status?: string } }>().props;
     const breadcrumbs: BreadcrumbItem[] = [{ title: 'Follow-ups', href: '/follow-ups' }];
@@ -730,6 +743,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                             </table>
                         </div>
                     )}
+                    <Pagination meta={followUpsPagination} />
                 </section>
 
                 <section className="flex flex-col gap-2">
@@ -842,6 +856,7 @@ export default function FollowUpsIndex({ followUps, opportunities, filters, coun
                             </table>
                         </div>
                     )}
+                    <Pagination meta={opportunitiesPagination} />
                 </section>
             </div>
         </AppLayout>

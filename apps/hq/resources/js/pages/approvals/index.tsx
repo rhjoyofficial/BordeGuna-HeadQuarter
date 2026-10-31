@@ -3,6 +3,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Field, NativeSelect } from '@/components/form/field';
 import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -69,12 +70,14 @@ const STATUS_FILTERS: { key: string; label: string }[] = [
 
 export default function ApprovalsIndex({
     approvals,
+    pagination,
     filters,
     counts,
     channels,
     approvers,
 }: {
     approvals: Approval[];
+    pagination: ListMeta;
     filters: { status: string };
     counts: { pending: number; overdue: number };
     channels: Record<string, boolean>;
@@ -290,6 +293,7 @@ export default function ApprovalsIndex({
                         })}
                     </div>
                 )}
+                <Pagination meta={pagination} />
             </div>
 
             <ConfirmDialog

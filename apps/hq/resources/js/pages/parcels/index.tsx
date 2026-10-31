@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { Pagination, type ListMeta } from '@/components/pagination';
 import { ParcelTimeline, type Parcel } from '@/components/parcel-timeline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,13 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, useForm } from '@inertiajs/react';
 
 type Row = Parcel & { business: string | null };
-type Props = { parcels: Row[]; businesses: { slug: string; name: string }[]; providers: string[]; filters: { status: string | null } };
+type Props = {
+    parcels: Row[];
+    pagination: ListMeta;
+    businesses: { slug: string; name: string }[];
+    providers: string[];
+    filters: { status: string | null };
+};
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Parcels', href: '/parcels' }];
 
@@ -19,7 +26,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Parcels', href: '/parcels' }];
  * Where parcels are, from the couriers (docs/144-courier-connectors). HQ reads and listens; it books nothing and writes
  * nothing to the ERP. A parcel with no order is shown as unlinked, never guessed onto one.
  */
-export default function Parcels({ parcels, businesses, providers }: Props) {
+export default function Parcels({ parcels, pagination, businesses, providers }: Props) {
     const t = useT();
     const form = useForm({ business_slug: businesses[0]?.slug ?? '', courier: providers[0] ?? 'pathao', consignment_ref: '' });
 
@@ -96,6 +103,7 @@ export default function Parcels({ parcels, businesses, providers }: Props) {
                         ))}
                     </ul>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

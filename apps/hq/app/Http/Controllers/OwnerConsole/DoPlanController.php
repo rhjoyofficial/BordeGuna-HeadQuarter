@@ -10,6 +10,7 @@ use App\OwnerConsole\Do\DoModeActivation;
 use App\OwnerConsole\Do\DoPlanService;
 use App\OwnerConsole\Refused;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,11 +31,13 @@ final class DoPlanController extends Controller
     public function index(Request $request): Response
     {
         $plans = $this->scope->restrict(DoPlan::query(), $request->user())->with(['business:id,name', 'startedBy:id,email', 'proposedBy:id,email'])
-            ->latest('id')->limit(50)->get();
+            ->latest('id');
+        $page = ListPage::paginate($plans, $request);
 
         return Inertia::render('do-plans/index', [
             'enabled' => $this->activation->active(),
-            'plans' => $plans->map(fn (DoPlan $p) => $this->card($p))->all(),
+            'plans' => $page->getCollection()->map(fn (DoPlan $p) => $this->card($p))->all(),
+            'pagination' => $page->meta(),
             'businesses' => $this->scope->restrict(Business::query(), $request->user(), 'id')->orderBy('name')->get(['id', 'name']),
             'tools' => $this->eligibleTools(),
             'max_steps' => DoPlanService::MAX_STEPS,

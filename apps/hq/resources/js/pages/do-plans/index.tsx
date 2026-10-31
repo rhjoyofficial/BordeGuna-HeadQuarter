@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,7 @@ type Plan = {
 type Props = {
     enabled: boolean;
     plans: Plan[];
+    pagination: ListMeta;
     businesses: { id: number; name: string }[];
     tools: { key: string; title: string; tier: string; effectful: boolean }[];
     max_steps: number;
@@ -51,7 +53,7 @@ export function usePlanStateLabel() {
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Do plans', href: '/do-plans' }];
 
-export default function DoPlansIndex({ enabled, plans, businesses, tools, max_steps, can }: Props) {
+export default function DoPlansIndex({ enabled, plans, pagination, businesses, tools, max_steps, can }: Props) {
     const t = useT();
     const stateLabel = usePlanStateLabel();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
@@ -123,6 +125,7 @@ export default function DoPlansIndex({ enabled, plans, businesses, tools, max_st
                         </li>
                     ))}
                 </ul>
+                <Pagination meta={pagination} />
             </div>
 
             <Dialog open={open} onOpenChange={setOpen}>

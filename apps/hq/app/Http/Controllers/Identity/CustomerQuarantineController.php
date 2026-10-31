@@ -16,6 +16,7 @@ use App\Models\CrossBusinessQuarantine;
 use App\Models\CustomerIdentityRepair;
 use App\Models\User;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\Identity\QuarantineRepairTool;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -69,9 +70,9 @@ final class CustomerQuarantineController extends Controller
         $flags = $this->readable($user)
             ->with(['latestReview.reviewer:id,email'])
             ->withCount('reviews')
-            ->orderBy('id')
-            ->limit(500)
-            ->get();
+            ->orderBy('id');
+        $page = ListPage::paginate($flags, $request);
+        $flags = $page->getCollection();
         $businesses = Business::query()->pluck('name', 'id');
         $allowed = $this->businessScope->all($user);
         $plan = $this->planner->plan();
@@ -95,6 +96,7 @@ final class CustomerQuarantineController extends Controller
                     'at' => $f->latestReview->reviewed_at?->toIso8601String(),
                 ],
             ])->values()->all(),
+            'pagination' => $page->meta(),
             'decisions' => array_map(fn (QuarantineDecision $d) => $d->value, QuarantineDecision::cases()),
             'can_repair' => $user->can(QuarantineRepairTool::PERMISSION),
             'batches' => $this->batches($plan, $allowed, $businesses->all()),

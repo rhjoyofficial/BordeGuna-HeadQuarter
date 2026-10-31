@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
@@ -28,6 +29,7 @@ type Draft = {
 type Account = { ref: string; business_id: number | null; business_slug: string | null };
 type Props = {
     drafts: Draft[];
+    pagination: ListMeta;
     businesses: { slug: string; name: string }[];
     accounts: Account[];
     objectives: string[];
@@ -49,7 +51,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Paused ad drafts', href: '/ads-
  * budget cap, Bangla-only copy, and health claims (CRPA 2009 section 44). The request waits for approval and creates
  * PAUSED objects only. There is no switch-on button here; that is done in Ads Manager, by a person.
  */
-export default function AdsDrafts({ drafts, businesses, accounts, objectives, cap_usd, can }: Props) {
+export default function AdsDrafts({ drafts, pagination, businesses, accounts, objectives, cap_usd, can }: Props) {
     const t = useT();
     const first = businesses[0]?.slug ?? '';
     const form = useForm({
@@ -255,6 +257,7 @@ export default function AdsDrafts({ drafts, businesses, accounts, objectives, ca
                         ))}
                     </ul>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

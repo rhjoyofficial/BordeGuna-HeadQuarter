@@ -1,7 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, Toolbar } from '@/components/page-header';
-import { Pagination, type PageLink } from '@/components/pagination';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -35,7 +35,7 @@ type Job = {
     business?: { name: string } | null;
     brand?: { name: string } | null;
 };
-type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Scheduler', href: '/scheduler' }];
 
@@ -389,7 +389,7 @@ export default function SchedulerIndex({ jobs, tools, filters }: { jobs: Paginat
                         </table>
                     </div>
                 )}
-                <Pagination links={jobs.links} total={jobs.total} noun={t('jobs')} />
+                <Pagination meta={jobs} />
             </div>
 
             {canManage && <NewJobDialog tools={tools} open={creating} onOpenChange={setCreating} />}
