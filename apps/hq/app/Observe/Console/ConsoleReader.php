@@ -10,6 +10,7 @@ use App\Briefing\ExecutiveBriefingContract;
 use App\Briefing\Sections\SourceReader;
 use App\Briefing\Sections\YesterdayOrders;
 use App\Briefing\SourceFreshness;
+use App\Gateway\Descriptor\RiskTier;
 use App\Models\Agent;
 use App\Models\Alert;
 use App\Models\Approval;
@@ -21,6 +22,7 @@ use App\Models\Store;
 use App\Models\User;
 use App\Observe\Dashboards\ControlPlaneDashboard;
 use App\Observe\Dashboards\DashboardWindow;
+use App\OwnerConsole\Flag;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
@@ -209,6 +211,7 @@ final class ConsoleReader
         $total = (clone $pending)->count();
         $overdue = Approval::pastSla()->visibleTo($user)->count();
 
+        $oneClick = Flag::on(Flag::ONE_CLICK_APPROVE);
         $cards = (clone $pending)->with(['resultingToolCall:id,status,error'])
             ->orderByRaw('sla_due_at nulls last')->orderBy('id')
             ->limit(self::MAX_CARDS)->get()
@@ -228,9 +231,22 @@ final class ConsoleReader
                 'expires_at' => $a->expires_at?->toIso8601String(),
                 'decidable' => $a->isDecidableBy($user),
                 'href' => "/approvals/{$a->id}",
+                // docs/143 C: only with the flag on, below tier R5 and for a person who may decide it. The card shows the
+                // payload and its hash; the click posts the hash back, and the server re-reads everything.
+                'quick' => $oneClick ? $this->quick($a, $user) : null,
             ])->values()->all();
 
         return ['total' => $total, 'overdue' => $overdue, 'cards' => $cards];
+    }
+
+    /** @return array{hash: string, payload: string}|null */
+    private function quick(Approval $a, User $user): ?array
+    {
+        if ($a->risk_tier === null || $a->risk_tier->atLeast(RiskTier::R5) || ! $a->isDecidableBy($user)) {
+            return null;
+        }
+
+        return ['hash' => (string) $a->payload_hash, 'payload' => mb_substr((string) json_encode($a->payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0, 800)];
     }
 
     /** Approvals decided in the last day, with the outcome the approvals screen states for them. */

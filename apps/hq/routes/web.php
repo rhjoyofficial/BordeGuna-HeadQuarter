@@ -13,6 +13,10 @@ use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
 use App\Http\Controllers\Observe\DecisionCorpusController;
 use App\Http\Controllers\Observe\ObserveController;
+use App\Http\Controllers\OwnerConsole\BatchApprovalController;
+use App\Http\Controllers\OwnerConsole\DoPlanController;
+use App\Http\Controllers\OwnerConsole\EventWatchController;
+use App\Http\Controllers\OwnerConsole\ReplyOptionController;
 use App\Http\Controllers\Playbooks\PlaybookController;
 use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
@@ -77,7 +81,12 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // the stored, hashed payload a human read.
     Route::prefix('approvals')->name('approvals.')->group(function () {
         Route::get('/', [ApprovalController::class, 'index'])->middleware('permission:hq.approvals.view')->name('index');
+        // docs/143 B and C (flags console.batch_approval and console.one_click_approve, both OFF): the browser supplies approval ids
+        // and the payload hash it was shown; each is decided through the ONE approval path. Registered before {approval}.
+        Route::get('batch', [BatchApprovalController::class, 'index'])->middleware('permission:hq.approvals.decide')->name('batch');
+        Route::post('batch', [BatchApprovalController::class, 'store'])->middleware(['permission:hq.approvals.decide', 'throttle:20,1'])->name('batch.store');
         Route::get('{approval}', [ApprovalController::class, 'show'])->middleware('permission:hq.approvals.view')->name('show');
+        Route::post('{approval}/quick-approve', [BatchApprovalController::class, 'quick'])->whereNumber('approval')->middleware(['permission:hq.approvals.decide', 'throttle:30,1'])->name('quick');
         Route::post('{approval}/approve', [ApprovalController::class, 'approve'])->middleware('permission:hq.approvals.decide')->name('approve');
         Route::post('{approval}/reject', [ApprovalController::class, 'reject'])->middleware('permission:hq.approvals.decide')->name('reject');
         Route::post('{approval}/cancel', [ApprovalController::class, 'cancel'])->middleware('permission:hq.approvals.view')->name('cancel');
@@ -120,6 +129,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         // docs/78 B.1: a person remembers a fact about the customer, or closes one. Never the agent.
         Route::post('{conversation:uuid}/remember', [InboxController::class, 'remember'])->middleware('permission:hq.inbox.manage')->name('remember');
         Route::post('{conversation:uuid}/memory/{memory}/forget', [InboxController::class, 'forget'])->middleware('permission:hq.inbox.manage')->name('forget');
+        // docs/143 E (flag support.reply_options, OFF): Support's A/B/C drafts; a person picks and edits one, only that one is sent.
+        Route::post('{conversation:uuid}/reply-options', [ReplyOptionController::class, 'store'])->middleware('permission:hq.inbox.manage')->name('reply-options.store');
+        Route::post('{conversation:uuid}/reply-options/{set:uuid}/choose', [ReplyOptionController::class, 'choose'])->middleware('permission:hq.inbox.manage')->name('reply-options.choose');
+        Route::post('{conversation:uuid}/reply-options/{set:uuid}/discard', [ReplyOptionController::class, 'discard'])->middleware('permission:hq.inbox.manage')->name('reply-options.discard');
         // P3-G3 pairing (docs/78 B.1): a person's verdict on a proposal beside what was actually sent.
         Route::post('{conversation:uuid}/comparisons/{comparison}/verdict', [InboxController::class, 'verdict'])->middleware('permission:hq.inbox.manage')->name('verdict');
     });
@@ -142,6 +155,8 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         // tool `briefing.compose` through the gateway; nothing on these pages composes or narrates.
         Route::get('briefings', [BriefingController::class, 'index'])->middleware('permission:hq.tools.facts.read')->name('briefings');
         Route::get('briefings/{uuid}', [BriefingController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.tools.facts.read')->name('briefings.show');
+        // docs/143 D (flag console.telegram_brief, OFF): asks the gateway to PARK the owner-Telegram send on an approval. Sends nothing itself.
+        Route::post('briefings/{uuid}/send-telegram', [BriefingController::class, 'sendTelegram'])->whereUuid('uuid')->middleware(['permission:hq.tools.facts.read', 'permission:hq.briefing.deliver', 'throttle:10,1'])->name('briefings.send-telegram');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
@@ -186,6 +201,27 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{version:uuid}/review', [PlaybookController::class, 'review'])->middleware('permission:hq.playbooks.review')->name('review');
         Route::post('{version:uuid}/activate', [PlaybookController::class, 'activate'])->middleware('permission:hq.playbooks.activate')->name('activate');
         Route::post('{version:uuid}/retire', [PlaybookController::class, 'retire'])->middleware('permission:hq.playbooks.activate')->name('retire');
+    });
+
+    // docs/143 A (flag console.do_mode, OFF; docs/138 ruling 1 says not now): plans of gateway steps. Starting a plan approves
+    // nothing; every effectful step waits for its own approval in the Approval Center. A plan of another business is a 404.
+    Route::prefix('do-plans')->name('do-plans.')->middleware('permission:hq.do.propose|hq.do.start')->group(function () {
+        Route::get('/', [DoPlanController::class, 'index'])->name('index');
+        Route::post('/', [DoPlanController::class, 'store'])->middleware(['permission:hq.do.propose', 'throttle:20,1'])->name('store');
+        Route::get('{plan:uuid}', [DoPlanController::class, 'show'])->name('show');
+        Route::post('{plan:uuid}/start', [DoPlanController::class, 'start'])->middleware('permission:hq.do.start')->name('start');
+        Route::post('{plan:uuid}/advance', [DoPlanController::class, 'advance'])->middleware('permission:hq.do.start')->name('advance');
+        Route::post('{plan:uuid}/cancel', [DoPlanController::class, 'cancel'])->middleware('permission:hq.do.start')->name('cancel');
+    });
+
+    // docs/143 F (flag console.event_watches, OFF; docs/138 ruling 12: proposals only). A watch is proposed, enabled by a named person,
+    // and can only ever PROPOSE an action. Per-business; a watch of another business is a 404.
+    Route::prefix('watches')->name('watches.')->middleware('permission:hq.watches.propose|hq.watches.enable')->group(function () {
+        Route::get('/', [EventWatchController::class, 'index'])->name('index');
+        Route::post('/', [EventWatchController::class, 'store'])->middleware(['permission:hq.watches.propose', 'throttle:20,1'])->name('store');
+        Route::post('{watch:uuid}/enable', [EventWatchController::class, 'enable'])->middleware('permission:hq.watches.enable')->name('enable');
+        Route::post('{watch:uuid}/disable', [EventWatchController::class, 'disable'])->middleware('permission:hq.watches.enable')->name('disable');
+        Route::post('{watch:uuid}/reject', [EventWatchController::class, 'reject'])->middleware('permission:hq.watches.enable')->name('reject');
     });
 
     // docs/113 (S4 part 1): follow-ups and opportunities, proposal-only. Every POST is a state transition

@@ -48,3 +48,6 @@ Schedule::command('horizon:snapshot')->everyFiveMinutes();
 // Housekeeping.
 Schedule::command('model:prune')->daily();
 Schedule::command('queue:prune-failed --hours=168')->daily();
+
+// docs/143 A: running Do plans read back decided approvals. Inert (a no-op) while the flag console.do_mode is OFF.
+Schedule::command('hq:do-plans:advance')->everyMinute()->withoutOverlapping(5)->runInBackground();
