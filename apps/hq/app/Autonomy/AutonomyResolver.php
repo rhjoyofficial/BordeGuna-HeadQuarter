@@ -2,8 +2,11 @@
 
 namespace App\Autonomy;
 
+use App\Ai\Pause\AiPause;
+use App\Autonomy\Ladder\ToolEvidenceLadder;
 use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\AutonomyGrant;
+use App\Models\AutonomyLadderThreshold;
 use Illuminate\Support\Carbon;
 
 /**
@@ -167,10 +170,39 @@ final class AutonomyResolver
             if (! $this->hasEvaluationEvidence($grant, $request)) {
                 continue;
             }
+            if (! $this->ladderStillStands($grant)) {
+                continue;
+            }
             $matching[] = $grant;
         }
 
         return $matching;
+    }
+
+    /**
+     * docs/145-d: a grant made through the evidence ladder stands only while Pause All AI is off, its
+     * threshold is still active and the evidence still meets it NOW, read fresh on every decision. Any of
+     * those failing makes the grant absent, which is A0. A grant not made through the ladder is unaffected.
+     *
+     * The readers are taken from the container here, not the constructor, so this class still holds
+     * nothing that could execute (a test asserts the constructor stays empty).
+     */
+    private function ladderStillStands(AutonomyGrant $grant): bool
+    {
+        if ($grant->ladder_threshold_id === null) {
+            return true;
+        }
+        if (app(AiPause::class)->isPaused()) {
+            return false;
+        }
+        $threshold = AutonomyLadderThreshold::query()->find($grant->ladder_threshold_id);
+        if ($threshold === null || $threshold->status !== 'active' || $grant->business_id === null || $grant->tool_key === null
+            || (int) $threshold->business_id !== (int) $grant->business_id || $threshold->tool_key !== $grant->tool_key) {
+            return false;
+        }
+        $judged = app(ToolEvidenceLadder::class)->judge((int) $grant->business_id, (string) $grant->tool_key);
+
+        return $judged['met'] && $grant->max_level->rank() <= AutonomyLevel::from((string) $threshold->max_level)->rank();
     }
 
     /** A grant covering up to "low" does not apply to a call that moves a "high" amount. */
