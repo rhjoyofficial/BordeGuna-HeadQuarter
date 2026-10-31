@@ -61,6 +61,9 @@ type Grant = {
     granted_at: string | null;
     revoked_at: string | null;
     revoke_reason: string | null;
+    lapsed_at: string | null;
+    lapse_code: string | null;
+    lapse_reason: string | null;
 };
 type ThresholdRow = Threshold & { uuid: string; business_id: number; tool_key: string; status: string; reason: string };
 type Props = {
@@ -245,6 +248,16 @@ export default function AutonomyIndex({ rows, grants, thresholds, paused, option
                                                     tone={g.status === 'active' ? (paused ? 'neutral' : 'warn') : 'neutral'}
                                                 />
                                                 {g.revoke_reason && <div className="text-muted-foreground mt-1">{g.revoke_reason}</div>}
+                                                {g.lapse_reason && (
+                                                    <div className="text-tone-warn mt-1">
+                                                        {t('Lapsed {when}: {reason}', { when: formatDateTime(g.lapsed_at), reason: g.lapse_reason })}
+                                                    </div>
+                                                )}
+                                                {g.status === 'lapsed' && (
+                                                    <div className="text-muted-foreground mt-1">
+                                                        {t('A lapsed grant never comes back by itself. A person grants anew after checking again.')}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                                 {can.revoke && g.status === 'active' && (
@@ -309,7 +322,7 @@ export default function AutonomyIndex({ rows, grants, thresholds, paused, option
                                                         url={`/autonomy/thresholds/${th.uuid}/retire`}
                                                         label={t('Retire')}
                                                         title={t('Retire this threshold')}
-                                                        description={t('Every grant that rested on it is revoked at the same moment.')}
+                                                        description={t('Every grant that rested on it lapses at the same moment, for good.')}
                                                     />
                                                 )}
                                             </td>
@@ -326,7 +339,7 @@ export default function AutonomyIndex({ rows, grants, thresholds, paused, option
                         <DialogHeader>
                             <DialogTitle>{t('Set a threshold')}</DialogTitle>
                             <DialogDescription>
-                                {t('Your numbers. A threshold is never edited: setting a new one retires the old one and revokes its grants.')}
+                                {t('Your numbers. A threshold is never edited: setting a new one retires the old one and its grants lapse for good.')}
                             </DialogDescription>
                         </DialogHeader>
                         <form
