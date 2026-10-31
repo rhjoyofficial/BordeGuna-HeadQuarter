@@ -35,6 +35,11 @@ use Illuminate\Support\Str;
  * may not act for BEFORE anything is parked (an approval runs under the approver's authority, so the requester's scope
  * must be enforced at request time). The group-wide briefing has no tool in v1. One delivery per briefing: a second call replays the
  * recorded result and sends nothing.
+ *
+ * ChatGPT ruling 31 Oct 2026, item 5 (business-scoped v1 only): `business_slug` is mandatory and non-empty in the schema
+ * AND in `execute()`, so even a group-wide person cannot send a group brief through this tool; the destination is the
+ * owner's previously verified, allowlisted private chat from configuration (`TelegramOwnerChannel::destinationRefusal`),
+ * never an argument, never chosen by a model. Held by tests/Feature/OwnerConsole/OwnerTelegramBriefTest.php.
  */
 final class SendOwnerTelegramBriefTool implements Tool
 {
@@ -77,7 +82,8 @@ final class SendOwnerTelegramBriefTool implements Tool
         return [
             'type' => 'object',
             'properties' => [
-                'business_slug' => ['type' => 'string', 'maxLength' => 64],
+                // Ruling 31 Oct item 5: mandatory and non-empty. There is no group-wide brief in v1.
+                'business_slug' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 64],
                 'date' => ['type' => 'string', 'maxLength' => 10],
             ],
             'required' => ['business_slug'],
@@ -96,22 +102,18 @@ final class SendOwnerTelegramBriefTool implements Tool
             return ToolResult::failed('The Telegram brief is switched off (console.telegram_brief).');
         }
 
-        $business = null;
-        if (! empty($payload['business_slug'])) {
-            $business = Business::query()->where('slug', (string) $payload['business_slug'])->first();
-            if ($business === null) {
-                return ToolResult::failed('HQ holds no such business.');
-            }
+        // Ruling 31 Oct item 5: business-scoped v1 only. No business, no brief: a group-wide brief has no tool, for anyone.
+        $slug = (string) ($payload['business_slug'] ?? '');
+        $business = $slug === '' ? null : Business::query()->where('slug', $slug)->first();
+        if ($business === null) {
+            return ToolResult::failed('HQ holds no such business; the owner brief is sent for one named business only.');
         }
-        // A group-wide briefing (no business) is for a group-wide caller only; a restricted caller names a permitted business.
-        if ($context->permittedBusinessIds !== null && ($business === null || ! in_array($business->id, $context->permittedBusinessIds, true))) {
+        if ($context->permittedBusinessIds !== null && ! in_array($business->id, $context->permittedBusinessIds, true)) {
             return ToolResult::failed('HQ holds no such briefing for you.');
         }
 
         $date = (string) ($payload['date'] ?? now((string) config('hq.timezone', 'Asia/Dhaka'))->toDateString());
-        $briefing = Briefing::query()->whereDate('briefing_date', $date)
-            ->when($business !== null, fn ($q) => $q->where('business_id', $business->id), fn ($q) => $q->whereNull('business_id'))
-            ->latest('id')->first();
+        $briefing = Briefing::query()->whereDate('briefing_date', $date)->where('business_id', $business->id)->latest('id')->first();
         if ($briefing === null) {
             return ToolResult::failed('No stored briefing for that business and date; compose it first (briefing.compose).');
         }
@@ -122,12 +124,12 @@ final class SendOwnerTelegramBriefTool implements Tool
             return ToolResult::succeeded(['delivery_uuid' => $existing->uuid, 'channel' => $this->channel->name(), 'replayed' => true]);
         }
 
-        $text = BriefMessage::build($briefing, $business?->name);
+        $text = BriefMessage::build($briefing, $business->name);
         $result = $this->channel->send($text);
 
         $row = $existing ?? new OwnerBriefDelivery(['uuid' => (string) Str::uuid(), 'briefing_id' => $briefing->id, 'idempotency_key' => $key]);
         $row->forceFill([
-            'business_id' => $business?->id, 'destination' => 'owner_chat', 'requested_by_user_id' => $context->actorUserId,
+            'business_id' => $business->id, 'destination' => 'owner_chat', 'requested_by_user_id' => $context->actorUserId,
             'state' => $result->ok ? 'sent' : ($result->uncertain ? 'uncertain' : 'failed'), 'message_digest' => hash('sha256', $text),
             'provider_ref' => $result->ref, 'error' => $result->error, 'sent_at' => $result->ok ? now() : null,
         ])->save();

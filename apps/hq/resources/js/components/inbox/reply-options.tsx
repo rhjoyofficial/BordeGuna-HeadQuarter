@@ -8,11 +8,23 @@ import { useState } from 'react';
 /**
  * Support's reply options A, B and C for one thread (docs/143 E). A person reads them, picks one and may edit it; only that
  * final text is sent, once, as that person. The other options can never be sent. Rendered only when the flag is on.
+ * Ruling 31 Oct item 4: the complete final text and the recipient are on screen beside the send button.
  */
 
 export type ReplyOptionSet = { uuid: string; options: { label: string; text: string }[] };
 
-export function ReplyOptions({ sets, conversation, canManage }: { sets: ReplyOptionSet[]; conversation: string; canManage: boolean }) {
+export function ReplyOptions({
+    sets,
+    conversation,
+    canManage,
+    recipient,
+}: {
+    sets: ReplyOptionSet[];
+    conversation: string;
+    canManage: boolean;
+    /** Ruling 31 Oct item 4: the person sees who receives the message beside the exact text, before sending. */
+    recipient: string;
+}) {
     const t = useT();
     const { errors } = usePage<{ errors: Record<string, string> }>().props;
     const [texts, setTexts] = useState<Record<string, string>>({});
@@ -38,6 +50,10 @@ export function ReplyOptions({ sets, conversation, canManage }: { sets: ReplyOpt
             {sets.map((set) => (
                 <article key={set.uuid} className="hq-card flex flex-col gap-3 p-4">
                     <p className="text-muted-foreground text-xs">{t('Pick one, edit it if you like. Only the one you send goes to the customer.')}</p>
+                    <p className="text-sm">
+                        <span className="text-muted-foreground">{t('To')}: </span>
+                        <span className="font-medium">{recipient}</span>
+                    </p>
                     {set.options.map((o) => {
                         const key = `${set.uuid}:${o.label}`;
                         return (
@@ -52,6 +68,11 @@ export function ReplyOptions({ sets, conversation, canManage }: { sets: ReplyOpt
                                     />
                                 ) : (
                                     <p className="text-sm whitespace-pre-wrap">{o.text}</p>
+                                )}
+                                {canManage && (
+                                    <p className="text-muted-foreground text-xs">
+                                        {t('The exact text in the box above is what is sent, to {recipient}, as you.', { recipient })}
+                                    </p>
                                 )}
                                 {canManage && (
                                     <Button

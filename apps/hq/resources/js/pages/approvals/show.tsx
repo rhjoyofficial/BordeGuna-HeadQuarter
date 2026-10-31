@@ -7,8 +7,9 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { type ReactNode, useState } from 'react';
 
 type Approval = {
@@ -85,7 +86,33 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
-export default function ApprovalShow({ approval }: { approval: Approval }) {
+/** Ruling 31 Oct item 2: the message queue is navigation only; the next message is offered after this one is decided. */
+type Queue = { enabled: boolean; remaining: number; next_href: string | null; overview_href: string } | null;
+
+function QueueBar({ queue, pending }: { queue: Queue; pending: boolean }) {
+    const t = useT();
+    if (!queue) return null;
+
+    return (
+        <nav aria-label={t('Message queue')} className="hq-glass flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm">
+            <span className="text-muted-foreground">{t('{count} more customer messages waiting', { count: queue.remaining })}</span>
+            <span className="flex flex-wrap items-center gap-3">
+                <Link href={queue.overview_href} className="text-hq-violet hover:underline">
+                    {t('Back to the overview')}
+                </Link>
+                {queue.next_href ? (
+                    <Link href={queue.next_href} className="text-hq-violet font-medium hover:underline">
+                        {t('Next message')}
+                    </Link>
+                ) : pending && queue.remaining > 0 ? (
+                    <span className="text-muted-foreground">{t('Decide this message first, then the next one opens.')}</span>
+                ) : null}
+            </span>
+        </nav>
+    );
+}
+
+export default function ApprovalShow({ approval, queue = null }: { approval: Approval; queue?: Queue }) {
     const { auth, flash, errors } = usePage<{
         auth: { permissions: string[] };
         flash: { status?: string | null; outcome?: Outcome | null };
@@ -164,6 +191,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                     }
                 />
 
+                <QueueBar queue={queue} pending={approval.status === 'pending'} />
                 <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
                 {flash?.status === 'approval-executed' && flash.outcome?.status === 'succeeded' && flash.outcome.output && (
                     <TechnicalDetail summary="What the action returned">

@@ -2116,5 +2116,15 @@
     "On hold": "স্থগিত",
     "Returned": "ফেরত এসেছে",
     "Unknown": "অজানা",
-    "Attached files": "সংযুক্ত ফাইল"
+    "Attached files": "সংযুক্ত ফাইল",
+    "Read the waiting customer messages here. Each one is opened and approved on its own page, then you move to the next. Nothing is approved together.": "অপেক্ষমাণ গ্রাহক বার্তাগুলো এখানে পড়ুন। প্রতিটি বার্তা আলাদা পেজে খুলে আলাদাভাবে অনুমোদন করতে হয়, তারপর পরেরটিতে যান। একসাথে কিছুই অনুমোদন হয় না।",
+    "Start with the first message": "প্রথম বার্তা দিয়ে শুরু করুন",
+    "Message queue": "বার্তার সারি",
+    "{count} more customer messages waiting": "আরও {count}টি গ্রাহক বার্তা অপেক্ষায় আছে",
+    "Back to the overview": "সারসংক্ষেপে ফিরে যান",
+    "Next message": "পরের বার্তা",
+    "Decide this message first, then the next one opens.": "আগে এই বার্তার সিদ্ধান্ত নিন, তারপর পরেরটি খুলবে।",
+    "Continue to the next step": "পরের ধাপে এগিয়ে যান",
+    "To": "প্রাপক",
+    "The exact text in the box above is what is sent, to {recipient}, as you.": "উপরের বক্সের লেখাটি হুবহু আপনার নামে {recipient}-কে পাঠানো হবে।"
 }

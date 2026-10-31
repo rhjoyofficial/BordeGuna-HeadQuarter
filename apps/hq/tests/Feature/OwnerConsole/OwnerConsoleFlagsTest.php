@@ -6,7 +6,6 @@ use App\Models\Brand;
 use App\Models\FeatureFlag;
 use App\Models\ReplyOptionSet;
 use App\Models\UserBusinessScope;
-use App\OwnerConsole\Batch\ApprovalActs;
 use App\OwnerConsole\Do\DoPlanService;
 use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
@@ -16,8 +15,9 @@ use Database\Seeders\DomainSeeder;
 use Illuminate\Support\Facades\Route;
 
 /*
- | docs/143: the six owner-console switches ship OFF; with one off nothing behind it can run; and changing any of them
- | is a global switch that needs group-wide authority (docs/138 ruling 13, item g).
+ | docs/143: the owner-console switches ship OFF; with one off nothing behind it can run; and changing any of them
+ | is a global switch that needs group-wide authority (docs/138 ruling 13, item g). Five since the 31 Oct ruling removed
+ | the one-click switch with its action (ruling 3).
  */
 
 beforeEach(function () {
@@ -25,7 +25,8 @@ beforeEach(function () {
     $this->owner = $this->hqUser('owner');
 });
 
-it('seeds all six flags OFF and treats a missing row as OFF', function () {
+it('seeds all five flags OFF, has no one-click switch, and treats a missing row as OFF', function () {
+    expect(Flag::all())->toHaveCount(5)->and(FeatureFlag::query()->where('key', 'console.one_click_approve')->exists())->toBeFalse();
     foreach (Flag::all() as $key) {
         $row = FeatureFlag::query()->where('key', $key)->where('environment', '*')->first();
         expect($row)->not->toBeNull("{$key} is seeded")->and((bool) $row->enabled)->toBeFalse("{$key} is OFF");
@@ -40,9 +41,7 @@ it('seeds all six flags OFF and treats a missing row as OFF', function () {
 it('refuses every owner-console action while its flag is off', function () {
     $lld = Brand::where('code', 'LLD')->sole()->business_id;
 
-    expect(fn () => app(DoPlanService::class)->propose($lld, 'x', [['tool_key' => 'demo.request_approval', 'args' => ['note' => 'a'], 'summary' => 's']], $this->owner))->toThrow(Refused::class, 'switched off');
-    expect(fn () => app(ApprovalActs::class)->batch($this->owner, [['id' => 1, 'payload_hash' => 'x']]))->toThrow(Refused::class, 'switched off');
-    expect(fn () => app(ApprovalActs::class)->oneClick($this->owner, 1, 'x'))->toThrow(Refused::class, 'switched off');
+    expect(fn () => app(DoPlanService::class)->propose($lld, 'x', [['tool_key' => 'demo.request_approval', 'args' => ['note' => 'a'], 'summary' => 's']], $this->owner))->toThrow(Refused::class);
     expect(fn () => app(EventWatchService::class)->propose($this->owner, $lld, 'w', 'order.created', []))->toThrow(Refused::class, 'switched off');
     expect(fn () => app(ReplyOptionService::class)->discard(new ReplyOptionSet, $this->owner))->toThrow(Refused::class, 'switched off');
 
@@ -54,7 +53,7 @@ it('registers every new route behind auth, both 2FA gates and its permission', f
     $expected = [
         'do-plans.store' => 'permission:hq.do.propose', 'do-plans.start' => 'permission:hq.do.start', 'do-plans.cancel' => 'permission:hq.do.start',
         'watches.store' => 'permission:hq.watches.propose', 'watches.enable' => 'permission:hq.watches.enable', 'watches.disable' => 'permission:hq.watches.enable',
-        'approvals.batch' => 'permission:hq.approvals.decide', 'approvals.batch.store' => 'permission:hq.approvals.decide', 'approvals.quick' => 'permission:hq.approvals.decide',
+        'approvals.batch' => 'permission:hq.approvals.decide',
         'inbox.reply-options.choose' => 'permission:hq.inbox.manage', 'observe.briefings.send-telegram' => 'permission:hq.briefing.deliver',
     ];
     foreach ($expected as $name => $permission) {
@@ -62,7 +61,7 @@ it('registers every new route behind auth, both 2FA gates and its permission', f
     }
 });
 
-it('lets only a group-wide person change any of the six switches, and records scope, before and after (ruling 13)', function () {
+it('lets only a group-wide person change any of the five switches, and records scope, before and after (ruling 13)', function () {
     $restricted = $this->hqUser('operator');
     UserBusinessScope::create(['user_id' => $restricted->id, 'business_id' => Brand::where('code', 'LLD')->sole()->business_id]);
 

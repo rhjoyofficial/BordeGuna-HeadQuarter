@@ -169,6 +169,9 @@ class Approval extends Model
      */
     public function separationOfDutiesReason(User $user): ?string
     {
+        if (($doPlan = $this->doPlanSelfApprovalReason($user)) !== null) {
+            return $doPlan;
+        }
         if ($this->requested_by_user_id !== null && (int) $this->requested_by_user_id === (int) $user->getKey()
             && ! $this->toolLetsRequesterDecide()) {
             return 'You asked for this, and this action must be decided by somebody other than the person who asked. You may still withdraw it.';
@@ -185,6 +188,31 @@ class Approval extends Model
         }
 
         return 'You asked for this through an agent that acts under another person\'s authority, so the decision belongs to somebody else. You may still withdraw it.';
+    }
+
+    /**
+     * ChatGPT ruling 31 Oct 2026, item 1 (Do mode): no approval of a plan step may be decided by the person who started
+     * the plan, nor, when an agent proposed the plan, by the person the agent acted under. Starting a plan approves
+     * nothing, so the step approval always needs a second person, whatever the tool's `requesterMayDecide` says.
+     */
+    private function doPlanSelfApprovalReason(User $user): ?string
+    {
+        if ($this->getKey() === null) {
+            return null;
+        }
+        $plan = DoPlan::query()->whereIn('id', DoPlanStep::query()->where('approval_id', $this->getKey())->select('do_plan_id'))
+            ->first(['id', 'proposer_kind', 'proposed_by_user_id', 'started_by_user_id']);
+        if ($plan === null) {
+            return null;
+        }
+        $barred = array_filter([
+            $plan->started_by_user_id,
+            $plan->proposer_kind === 'agent' ? $plan->proposed_by_user_id : null,
+        ], fn ($id) => $id !== null);
+
+        return in_array((int) $user->getKey(), array_map('intval', $barred), true)
+            ? 'This is a step of a Do plan you started or that an agent proposed under your authority, so somebody else decides it. You may still withdraw it.'
+            : null;
     }
 
     /**

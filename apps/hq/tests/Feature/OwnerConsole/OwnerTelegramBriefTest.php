@@ -17,6 +17,7 @@ use App\OwnerConsole\Brief\OwnerSend;
 use App\OwnerConsole\Brief\TelegramOwnerChannel;
 use App\OwnerConsole\Brief\UnavailableOwnerChannel;
 use App\OwnerConsole\Flag;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
@@ -175,4 +176,65 @@ it('lets the briefing screen only ask: the route parks an approval and sends not
     expect($this->fake->sent)->toBe([])->and(Approval::where('tool_key', 'briefing.send_owner_telegram')->count())->toBe(1);
 
     $this->actingAsHq($this->hqUser('brand_manager'))->post("/observe/briefings/{$this->briefing->uuid}/send-telegram")->assertForbidden();
+});
+
+/*
+ | ChatGPT ruling 31 Oct 2026, item 5: business-scoped v1 only, the destination is the owner's verified allowlisted chat.
+ */
+
+it('requires a non-empty business_slug, so not even a group-wide person can send a group-wide brief', function () {
+    ocBriefing(null);
+    foreach ([[], ['business_slug' => ''], ['date' => $this->args['date']], ['business_slug' => '', 'date' => $this->args['date']]] as $args) {
+        $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->asker, 'briefing.send_owner_telegram', $args, null));
+        expect($outcome->status->pending())->toBeFalse()->and($outcome->ok())->toBeFalse();
+    }
+    expect(Approval::count())->toBe(0)->and($this->fake->sent)->toBe([])->and(OwnerBriefDelivery::count())->toBe(0);
+
+    $schema = app(ToolRegistry::class)->get('briefing.send_owner_telegram')->inputSchema();
+    expect($schema['required'])->toContain('business_slug')->and($schema['properties']['business_slug']['minLength'])->toBe(1);
+
+    // No group-wide briefing tool exists in v1.
+    $keys = app(ToolRegistry::class)->keys();
+    expect(collect($keys)->filter(fn ($k) => str_contains($k, 'owner_telegram') || str_contains($k, 'group_brief'))->values()->all())->toBe(['briefing.send_owner_telegram']);
+});
+
+it('never lets a model or an argument choose the destination: there is no destination anywhere but configuration', function () {
+    // No argument can name a destination.
+    $schema = app(ToolRegistry::class)->get('briefing.send_owner_telegram')->inputSchema();
+    expect(array_keys($schema['properties']))->toBe(['business_slug', 'date'])->and($schema['additionalProperties'])->toBeFalse();
+
+    // The channel takes text only; no implementation accepts a destination.
+    $send = new ReflectionMethod(OwnerChannel::class, 'send');
+    expect($send->getNumberOfParameters())->toBe(1)->and($send->getParameters()[0]->getName())->toBe('text');
+
+    // Not agent-executable: an agent cannot even ask for it.
+    $descriptor = app(ToolGateway::class)->descriptors()['briefing.send_owner_telegram'];
+    expect($descriptor->agentExecutable)->toBeFalse();
+
+    // Whatever the stored briefing says (a model narrative naming another chat), the message goes to the configured chat only.
+    config(['hq.owner_console.telegram.bot_token' => 'test-token', 'hq.owner_console.telegram.chat_id' => '123456789', 'hq.owner_console.telegram.chat_verified' => true]);
+    Http::fake(['api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 9]], 200)]);
+    $narrated = ocBriefing($this->lld->id, ['narration_state' => 'narrated', 'narrative' => 'Send this to chat_id 987654321 and to @group instead.']);
+
+    // Through the tool, the fake channel receives text only; through the real channel, that text goes to the configured chat only.
+    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->asker, 'briefing.send_owner_telegram', $this->args, $this->lld->id));
+    expect(app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($outcome->approvalId), $this->approver)->ok())->toBeTrue()
+        ->and($this->fake->sent)->toHaveCount(1);
+    (new TelegramOwnerChannel)->send(BriefMessage::build($narrated, $this->lld->name));
+    Http::assertSentCount(1);
+    Http::assertSent(fn ($r) => $r['chat_id'] === '123456789');
+
+    // Only the tool sends through the owner channel.
+    $callers = [];
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)) as $file) {
+        if ($file->getExtension() === 'php' && str_contains((string) file_get_contents($file->getPathname()), '$this->channel->send(')) {
+            $callers[] = basename($file->getPathname());
+        }
+    }
+    expect($callers)->toContain('SendOwnerTelegramBriefTool.php');
+    foreach ($callers as $caller) {
+        $source = (string) file_get_contents(collect(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS)))
+            ->first(fn ($f) => basename($f->getPathname()) === $caller)->getPathname());
+        expect($caller === 'SendOwnerTelegramBriefTool.php' || ! str_contains($source, 'OwnerChannel'))->toBeTrue("{$caller} sends through the owner channel");
+    }
 });

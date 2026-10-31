@@ -7,6 +7,7 @@ use App\Models\Business;
 use App\Models\EventWatch;
 use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
+use App\OwnerConsole\Watches\EventWatchDefinitions;
 use App\OwnerConsole\Watches\EventWatchService;
 use App\Support\Authorization\BusinessScope;
 use Illuminate\Http\RedirectResponse;
@@ -38,6 +39,7 @@ final class EventWatchController extends Controller
             ])->all(),
             'businesses' => $this->scope->restrict(Business::query(), $user, 'id')->orderBy('name')->get(['id', 'name']),
             'ops' => EventWatchService::OPS,
+            'events' => collect(EventWatchDefinitions::DEFINITIONS)->map(fn ($d, $type) => ['type' => $type, 'version' => $d['version'], 'paths' => $d['paths']])->values()->all(),
             'limits' => ['per_hour' => EventWatchService::MAX_PER_HOUR, 'per_day' => EventWatchService::MAX_PER_DAY, 'conditions' => EventWatchService::MAX_CONDITIONS],
             'can' => ['propose' => $user->can(EventWatchService::PERMISSION_PROPOSE), 'enable' => $user->can(EventWatchService::PERMISSION_ENABLE)],
         ]);
@@ -53,8 +55,6 @@ final class EventWatchController extends Controller
             'conditions.*.path' => ['required', 'string', 'max:64'],
             'conditions.*.op' => ['required', 'string', 'max:16'],
             'conditions.*.value' => ['required'],
-            'action_tool_key' => ['nullable', 'string', 'max:96'],
-            'action_args' => ['nullable', 'array'],
             'max_per_hour' => ['nullable', 'integer'],
             'max_per_day' => ['nullable', 'integer'],
         ]);
@@ -62,7 +62,9 @@ final class EventWatchController extends Controller
         try {
             $this->watches->propose(
                 $request->user(), (int) $data['business_id'], $data['name'], $data['event_type'], $data['conditions'] ?? [],
-                empty($data['action_tool_key']) ? null : ['tool_key' => $data['action_tool_key'], 'args' => $data['action_args'] ?? []],
+                // Ruling 31 Oct item 6: the screen creates NOTIFY-ONLY watches. An action watch is proposed only through the
+                // service with fixed, validated arguments; a posted action is ignored, never stored.
+                null,
                 (int) ($data['max_per_hour'] ?? 5), (int) ($data['max_per_day'] ?? 20),
             );
         } catch (Refused $e) {

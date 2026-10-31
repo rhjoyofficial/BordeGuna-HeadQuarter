@@ -9,14 +9,17 @@ use App\Models\DoPlan;
 use App\Models\FeatureFlag;
 use App\Models\UserBusinessScope;
 use App\Models\WorkflowInstance;
+use App\OwnerConsole\Do\DoModeActivation;
 use App\OwnerConsole\Do\DoPlanService;
 use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
 use Database\Seeders\DomainSeeder;
+use Tests\Support\OwnerConsole\TestDoModeActivation;
 
 /*
  | docs/143 A: Do mode. A plan is walked one step at a time through the gateway; nothing effectful runs until a person
- | approves THAT step; a refusal halts the rest. Flag OFF in production.
+ | approves THAT step; a refusal halts the rest. Flag OFF in production, and (ruling 31 Oct item 1) no activation record:
+ | these tests stand one in (TestDoModeActivation) to exercise the dark mechanism; DoModeGateTest proves production refuses.
  */
 
 function ocDemoRuns(): int
@@ -32,6 +35,7 @@ function ocStep(string $note = 'one'): array
 beforeEach(function () {
     $this->seed(DomainSeeder::class);
     FeatureFlag::query()->where('key', Flag::DO_MODE)->update(['enabled' => true]);
+    app()->instance(DoModeActivation::class, new TestDoModeActivation);
     $this->owner = $this->hqUser('owner');
     $this->approver = $this->hqUser('owner');
     $this->lld = Brand::where('code', 'LLD')->sole()->business_id;
@@ -69,8 +73,12 @@ it('walks the plan only as people approve each step, then completes', function (
     $plan = $this->plans->start($this->plans->propose($this->lld, 'Two steps', [ocStep('a'), ocStep('b')], $this->owner), $this->owner);
 
     app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($plan->steps[0]->approval_id), $this->approver);
+    // The scheduler reads the decision back but does not continue into the next effectful step (ruling 31 Oct item 1).
     $plan = $this->plans->advance($plan);
-    expect($plan->steps[0]->state)->toBe('succeeded')->and($plan->steps[1]->state)->toBe('awaiting_approval')->and($plan->state)->toBe('running')->and(ocDemoRuns())->toBe(1);
+    expect($plan->steps[0]->state)->toBe('succeeded')->and($plan->steps[1]->state)->toBe('pending')->and($plan->state)->toBe('running')->and(ocDemoRuns())->toBe(1);
+    // A named person continues it.
+    $plan = $this->plans->advance($plan, $this->owner);
+    expect($plan->steps[1]->state)->toBe('awaiting_approval');
 
     app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($plan->steps[1]->approval_id), $this->approver);
     $plan = $this->plans->advance($plan);
