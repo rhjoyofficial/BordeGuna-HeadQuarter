@@ -114,6 +114,10 @@ it('exposes no endpoint that executes an arbitrary tool from the browser', funct
 
     expect($routes)->toEqualCanonicalizing([
         'approvals',
+        // docs/143 B and C (flags OFF): the browser supplies ids and the payload hash it was shown, never a tool key.
+        'approvals/batch',
+        'approvals/batch',
+        'approvals/{approval}/quick-approve',
         'approvals/{approval}',
         'approvals/{approval}/approve',
         'approvals/{approval}/reject',

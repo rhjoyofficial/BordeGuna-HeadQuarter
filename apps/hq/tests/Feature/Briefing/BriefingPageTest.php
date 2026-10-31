@@ -77,8 +77,9 @@ it('is behind hq.tools.facts.read, and has no route that writes', function () {
     $this->actingAsHq(pageViewer(['hq.tools.facts.read']))->get('/observe/briefings')->assertOk();
 
     $routes = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_starts_with($r->uri(), 'observe/briefings'));
-    expect($routes)->toHaveCount(2)
-        ->and($routes->flatMap(fn ($r) => $r->methods())->unique()->values()->all())->toEqualCanonicalizing(['GET', 'HEAD']);
+    // docs/143 D adds ONE write: send-telegram, which only asks the gateway to park the send on an approval (R4).
+    expect($routes)->toHaveCount(3)
+        ->and($routes->filter(fn ($r) => in_array('POST', $r->methods(), true))->map(fn ($r) => $r->uri())->values()->all())->toBe(['observe/briefings/{uuid}/send-telegram']);
 });
 
 it('shows a person limited to some businesses only the briefings inside them', function () {
