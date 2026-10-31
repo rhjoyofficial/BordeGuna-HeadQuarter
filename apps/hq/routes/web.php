@@ -148,6 +148,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('/', [AskController::class, 'store'])->middleware('throttle:20,1')->name('store');
         // docs/144-media-in-chat: attach a photo, video or file (flag `connectors.media_upload`, business-scoped, retained, scanned).
         Route::post('media', [ChatMediaController::class, 'store'])->middleware('throttle:30,1')->name('media.store');
+        Route::post('{conversation:uuid}/attachments', [ChatMediaController::class, 'attach'])->middleware('throttle:30,1')->name('media.attach');
         Route::get('{conversation:uuid}', [AskController::class, 'show'])->name('show');
     });
 

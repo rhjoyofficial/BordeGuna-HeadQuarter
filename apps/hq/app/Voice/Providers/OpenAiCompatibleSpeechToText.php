@@ -53,8 +53,12 @@ final class OpenAiCompatibleSpeechToText implements SpeechToText
         }
 
         $token = $this->vault->secret(self::CREDENTIAL, self::ACCOUNT_REF);
-        $base = rtrim((string) config('hq.voice.openai_compatible.base_url', 'https://api.openai.com/v1'), '/');
-        $model = (string) config('hq.voice.openai_compatible.stt_model', 'gpt-4o-transcribe');
+        // Both come from configuration only: HQ names no provider endpoint or model id outside the driver layer (ADR-019).
+        $base = rtrim((string) config('hq.voice.openai_compatible.base_url', ''), '/');
+        $model = (string) config('hq.voice.openai_compatible.stt_model', '');
+        if ($base === '' || $model === '') {
+            throw new SpeechProviderRefused('openai_compatible_stt: the base URL and the model are not configured (hq.voice.openai_compatible).');
+        }
         $language = $languageCode === null ? null : strtolower(substr($languageCode, 0, 2));
 
         try {

@@ -118,7 +118,6 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
         agent_key: conversation?.agent_key ?? firstAskable,
         business_id: conversation?.business_id ? String(conversation.business_id) : '',
         conversation: conversation?.uuid ?? '',
-        attachment_uuids: [] as string[],
     });
     const [files, setFiles] = useState<{ uuid: string; name: string }[]>([]);
     const [uploadError, setUploadError] = useState<string | null>(null);
@@ -141,7 +140,6 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
     const attach = async (list: FileList | null) => {
         if (!list) return;
         setUploadError(null);
-        let uuids = form.data.attachment_uuids;
         for (const file of Array.from(list)) {
             const body = new FormData();
             body.append('file', file);
@@ -149,8 +147,6 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
             const r = await postForm<{ uuid: string; name: string }>('/ask/media', body);
             if (r.ok) {
                 setFiles((f) => [...f, { uuid: r.data.uuid, name: r.data.name }]);
-                uuids = [...uuids, r.data.uuid];
-                form.setData('attachment_uuids', uuids);
             } else {
                 setUploadError(r.error);
             }
@@ -172,11 +168,17 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
+        const uuids = files.map((f) => f.uuid);
         form.post('/ask', {
             preserveScroll: true,
-            onSuccess: () => {
-                form.reset('question', 'attachment_uuids');
+            onSuccess: (page) => {
+                form.reset('question');
                 setFiles([]);
+                // The question is its own request; the files are linked to it afterwards, through their own endpoint.
+                const thread = (page.props as { conversation?: { uuid: string } | null }).conversation;
+                if (uuids.length > 0 && thread) {
+                    void postForm(`/ask/${thread.uuid}/attachments`, { attachment_uuids: uuids }).then(() => router.reload({ only: ['messages'] }));
+                }
             },
         });
     };

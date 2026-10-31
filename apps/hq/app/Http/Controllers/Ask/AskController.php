@@ -51,9 +51,6 @@ final class AskController extends Controller
             'agent_key' => ['required', 'string', Rule::in($this->ask->askableAgents())],
             'business_id' => ['nullable', 'integer', 'exists:businesses,id'],
             'conversation' => ['nullable', 'uuid'],
-            // docs/144-media-in-chat: files the person attached, their own uploads only. HQ's model does not read them.
-            'attachment_uuids' => ['nullable', 'array', 'max:6'],
-            'attachment_uuids.*' => ['uuid'],
         ]);
 
         $conversation = null;
@@ -68,24 +65,8 @@ final class AskController extends Controller
             throw ValidationException::withMessages(['question' => $e->getMessage()]);
         }
 
-        $this->attach($request, $result['conversation'], (array) ($data['attachment_uuids'] ?? []));
-
         return redirect()->route('ask.show', $result['conversation'])
             ->with('status', $result['reply']->status === AskMessage::REFUSED ? 'ask-refused' : 'ask-submitted');
-    }
-
-    /** Link the person's own stored uploads to the question they asked; an upload that is not theirs is silently left out. */
-    private function attach(Request $request, AskConversation $conversation, array $uuids): void
-    {
-        if ($uuids === []) {
-            return;
-        }
-        $message = $conversation->messages()->where('role', 'user')->latest('id')->first();
-        if ($message === null) {
-            return;
-        }
-        ChatAttachment::query()->whereIn('uuid', $uuids)->where('user_id', $request->user()->getKey())->where('status', 'stored')
-            ->update(['ask_message_id' => $message->id, 'status' => 'attached']);
     }
 
     private function page(Request $request, ?AskConversation $conversation): Response

@@ -239,3 +239,11 @@ health command or to a screen.
 - **Q6 `erp.read` contract.** The catalogue names the final class `ErpConnector` because no interface exists; a
   second ERP adapter needs one extracted first (§5.5). **RULED 4 Oct (`docs/101` §11, 9.2): extract now. Done in
   stream W6 (§5.5a).**
+
+## 8. Addendum, 31 October 2026 (docs/144): the first rows
+
+The registry is no longer empty. `config/hq-connectors.php` now carries the HQ-completion rows, every one behind a feature flag seeded OFF and needing its credential:
+`courier.<provider>.track` x4 (the reserved `courier.track` is retired: one capability per courier, as for `messaging.*`), `voice.transcribe` and `voice.synthesize`
+(the OpenAI-compatible adapters plus the legacy Google, Azure and ElevenLabs adapters as alternatives), `media.video.generate` (moved from reserved), `mail.inbox.read`,
+`erp.draft_bill.create` and `ads.draft.create`. `media.image.generate` and `voice.call` stay reserved. Fake adapters register only under `HQ_CONNECTORS_SANDBOX=true`.
+The connector tools are registered only while their flag is on (`hq.flagged_tools`). See `docs/144-connectors-overview.md`.

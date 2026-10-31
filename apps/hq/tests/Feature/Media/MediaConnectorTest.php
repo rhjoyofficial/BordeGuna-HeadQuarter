@@ -5,7 +5,6 @@ use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
-use App\Http\Controllers\Ask\AskController;
 use App\Media\MediaAssetService;
 use App\Media\Pipeline\Exceptions\MediaPipelineRefused;
 use App\Media\Pipeline\Exceptions\MediaPipelineUnavailable;
@@ -33,7 +32,6 @@ use App\Tools\Connectors\DraftReelTool;
 use App\Tools\ToolContext;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
-use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -155,11 +153,9 @@ it('links a question to the person\'s own uploads only', function () {
     $conversation = AskConversation::forceCreate(['uuid' => (string) Str::uuid(), 'user_id' => $this->owner->id, 'title' => 't', 'agent_key' => 'executive', 'last_activity_at' => now()]);
     AskMessage::forceCreate(['ask_conversation_id' => $conversation->id, 'role' => 'user', 'status' => 'done', 'content' => 'q']);
 
-    $method = new ReflectionMethod(AskController::class, 'attach');
-    $request = Request::create('/ask', 'POST');
-    $request->setUserResolver(fn () => $this->owner);
-    $method->invoke(app(AskController::class), $request, $conversation, [$mine->uuid, $theirs->uuid]);
-
+    $this->actingAsHq($this->owner)->postJson("/ask/{$conversation->uuid}/attachments", ['attachment_uuids' => [$mine->uuid, $theirs->uuid]])->assertOk()->assertJson(['linked' => 1]);
+    // Another person's conversation does not exist for me.
+    $this->actingAsHq($other)->postJson("/ask/{$conversation->uuid}/attachments", ['attachment_uuids' => [$theirs->uuid]])->assertNotFound();
     expect($mine->fresh()->status)->toBe('attached')->and($mine->fresh()->ask_message_id)->not->toBeNull()
         ->and($theirs->fresh()->status)->toBe('stored')->and($theirs->fresh()->ask_message_id)->toBeNull();
 });

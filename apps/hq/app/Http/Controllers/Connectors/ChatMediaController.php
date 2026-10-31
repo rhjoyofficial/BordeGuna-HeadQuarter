@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Media\MediaAssetService;
 use App\Media\Upload\AttachmentRejected;
 use App\Media\Upload\ChatMediaUploader;
+use App\Models\AskConversation;
 use App\Models\ChatAttachment;
 use App\Support\Features\Features;
 use Illuminate\Http\JsonResponse;
@@ -41,6 +42,23 @@ final class ChatMediaController extends Controller
             'uuid' => $attachment->uuid, 'name' => $attachment->original_name, 'kind' => $attachment->kind, 'business_id' => $attachment->business_id,
             'expires_at' => $attachment->expires_at?->toIso8601String(),
         ], 201);
+    }
+
+    /**
+     * Link the person's own stored uploads to the question they just asked: the latest of their own question messages in one of their
+     * own conversations. An upload that is not theirs, or is already attached, is left out; the question itself is untouched.
+     */
+    public function attach(Request $request, AskConversation $conversation): JsonResponse
+    {
+        abort_unless((int) $conversation->user_id === (int) $request->user()->getKey(), 404);
+        $data = $request->validate(['attachment_uuids' => ['required', 'array', 'max:6'], 'attachment_uuids.*' => ['uuid']]);
+
+        $message = $conversation->messages()->where('role', 'user')->latest('id')->first();
+        abort_if($message === null, 404);
+        $linked = ChatAttachment::query()->whereIn('uuid', $data['attachment_uuids'])->where('user_id', $request->user()->getKey())->where('status', 'stored')
+            ->update(['ask_message_id' => $message->id, 'status' => 'attached']);
+
+        return response()->json(['linked' => $linked]);
     }
 
     public function show(Request $request, string $uuid, MediaAssetService $assets): Response

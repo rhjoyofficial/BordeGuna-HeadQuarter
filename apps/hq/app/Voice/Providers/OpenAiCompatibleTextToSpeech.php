@@ -37,8 +37,11 @@ final class OpenAiCompatibleTextToSpeech implements TextToSpeech
     public function synthesize(SpeechSynthesisRequest $request): SynthesizedSpeech
     {
         $token = $this->vault->secret(OpenAiCompatibleSpeechToText::CREDENTIAL, OpenAiCompatibleSpeechToText::ACCOUNT_REF);
-        $base = rtrim((string) config('hq.voice.openai_compatible.base_url', 'https://api.openai.com/v1'), '/');
-        $model = (string) config('hq.voice.openai_compatible.tts_model', 'gpt-4o-mini-tts');
+        $base = rtrim((string) config('hq.voice.openai_compatible.base_url', ''), '/');
+        $model = (string) config('hq.voice.openai_compatible.tts_model', '');
+        if ($base === '' || $model === '') {
+            throw new SpeechProviderRefused('openai_compatible_tts: the base URL and the model are not configured (hq.voice.openai_compatible).');
+        }
 
         try {
             $response = Http::withToken($token)->timeout((int) config('hq.voice.openai_compatible.timeout', 60))
