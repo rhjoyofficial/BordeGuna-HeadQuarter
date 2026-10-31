@@ -10,6 +10,7 @@ import {
     BookOpen,
     Bot,
     Building2,
+    CalendarCheck,
     CalendarClock,
     Coins,
     Fingerprint,
@@ -19,9 +20,12 @@ import {
     HeartPulse,
     KeyRound,
     LayoutGrid,
+    Megaphone,
     MessageSquare,
     Newspaper,
+    Puzzle,
     Scale,
+    ScanFace,
     ScrollText,
     Server,
     ShieldAlert,
@@ -29,9 +33,10 @@ import {
     SlidersHorizontal,
     Sparkles,
     Stamp,
+    Telescope,
+    TrendingUp,
     Users,
     Wrench,
-    CalendarCheck,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -74,6 +79,15 @@ const sections: { label: string; items: GatedItem[] }[] = [
         ],
     },
     {
+        // docs/145 (HQ completion, M4): Phase 6 content and research, Phase 8 avatar consent.
+        label: 'Growth',
+        items: [
+            { title: 'Content', url: '/content', icon: Megaphone, permission: 'hq.content.view' },
+            { title: 'Research digests', url: '/research/digests', icon: Telescope, permission: 'hq.research.view' },
+            { title: 'Avatar consent', url: '/avatar', icon: ScanFace, permission: 'hq.avatar.view' },
+        ],
+    },
+    {
         label: 'Operations',
         items: [
             { title: 'Scheduler', url: '/scheduler', icon: CalendarClock, permission: 'hq.jobs.view', badge: 'scheduler' },
@@ -90,6 +104,9 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
             { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
+            // docs/145-c and 145-d: the skill registry and the evidence ladder.
+            { title: 'Skills', url: '/skills', icon: Puzzle, permission: 'hq.skills.view' },
+            { title: 'Autonomy ladder', url: '/autonomy', icon: TrendingUp, permission: 'hq.autonomy.view' },
         ],
     },
     {
