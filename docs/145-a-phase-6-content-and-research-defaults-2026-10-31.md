@@ -14,6 +14,8 @@ Agent M4 of the HQ completion programme. No ChatGPT ruling covers these points y
 
 **Open for Joy:** the floor will block a real, consented testimonial too. Quoting a real customer is a person's act outside AI drafting until a "recorded source" design exists.
 
+**Applied ruling 31 Oct (item 13):** the floor stays absolute for prohibited claims. A narrow testimonial exception now exists: a person records the testimonial (`content_testimonials`: the customer's words verbatim, an evidence asset of the original statement, a recorded consent asset, when consent was given, source and capture date, modalities, brands, channels and period; never deleted, never widened, withdrawal final). A draft written by a person may name it; only then, and only when consent covers the exact modality, brand, channel and date and the quote is verbatim (or declared edited), is the floor's `floor.testimonial` phrase rule waived for that draft. The health floor, the owner's rules, banned words and the number check still run on every word, quote included. Model output never carries a testimonial. An edited quote is approved only by confirming the exact final post (its digest). Publication judges the testimonial again.
+
 ## Q3. How are captions drafted "from playbooks"?
 
 **Default built:** the calendar gives a person the brand's active playbooks (product claims, product information, communication standards, campaign information), the persona and the full list of forbidden phrases beside the caption box. AI drafting is a `CaptionDrafter` interface: **no implementation is bound**, the flag `content.ai_drafting` has no row, and Pause All AI refuses it. `FakeCaptionDrafter` is the sandbox. Whatever a drafter writes is labelled `generated` and checked exactly like a person's words, then reviewed by a person.
@@ -35,3 +37,5 @@ Agent M4 of the HQ completion programme. No ChatGPT ruling covers these points y
 ## Q7. Who may plan, draft and review?
 
 **Default built:** `hq.content.view` and `hq.content.plan` for brand managers (plus owner and operator); `hq.content.review` and `hq.content.claims.manage` for owner and operator only. A self-review is allowed and recorded (`self_reviewed` in the audit row), the same rule follow-ups use (docs/120 item 11). All reads and writes are business-scoped; a person limited to one business gets 404 for another's entries.
+
+**Applied ruling 31 Oct (item 15):** the writer may approve their own draft only while they are the sole eligible reviewer for that business (active, two-factor confirmed, holding `hq.content.review`, business in scope), with a reason; the draft records `self_decided`, the reason and the time. Once a second eligible reviewer exists, independent review is required. Approving a draft never authorises publication. Testimonials are recorded and withdrawn under `hq.content.claims.manage`.
