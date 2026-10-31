@@ -25,20 +25,29 @@ final class MediaRetention
         $attachments = $assets = 0;
 
         ChatAttachment::query()->where('status', '!=', 'purged')->where('expires_at', '<', now())->orderBy('id')->each(function (ChatAttachment $a) use (&$attachments, &$assets) {
-            DB::transaction(function () use ($a, &$attachments, &$assets) {
-                $a->forceFill(['status' => 'purged'])->save();
-                $attachments++;
-                $asset = $a->asset;
-                if ($asset !== null && $this->unreferenced($asset)) {
-                    $this->storage->delete($asset->storage_key);
-                    $asset->delete();
-                    $assets++;
-                }
-                $this->auditor->recordSystem('chat_attachment.purged', $a, null, ['asset_deleted' => $asset === null || ! MediaAsset::query()->whereKey($asset->id)->exists()]);
-            });
+            $attachments++;
+            $this->discard($a) && $assets++;
         });
 
         return ['attachments' => $attachments, 'assets' => $assets];
+    }
+
+    /** Mark one attachment purged and remove its bytes when nothing else refers to them. True when the bytes went. */
+    public function discard(ChatAttachment $a): bool
+    {
+        return DB::transaction(function () use ($a): bool {
+            $a->forceFill(['status' => 'purged'])->save();
+            $asset = $a->asset;
+            $deleted = false;
+            if ($asset !== null && $this->unreferenced($asset)) {
+                $this->storage->delete($asset->storage_key);
+                $asset->delete();
+                $deleted = true;
+            }
+            $this->auditor->recordSystem('chat_attachment.purged', null, null, ['attachment_uuid' => $a->uuid, 'asset_deleted' => $deleted]);
+
+            return $deleted;
+        });
     }
 
     private function unreferenced(MediaAsset $asset): bool

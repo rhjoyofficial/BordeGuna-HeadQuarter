@@ -19,6 +19,7 @@ return new class extends Migration
         'connectors.media_pipeline' => 'Reel and video drafts from the media pipeline provider. Drafts only; a person approves before anything is published.',
         'connectors.mail_ingestion' => 'Read the inbound supplier mailbox and turn bill attachments into DRAFTS for human review.',
         'connectors.erp_draft_bill' => 'Ask the ERP to create a DRAFT supplier bill from a reviewed document. Needs an ERP write token and a second person\'s approval.',
+        'connectors.meta_health' => 'Ask Meta whether a stored Meta token is valid, when it expires and what it may do. Read-only at Meta.',
         'connectors.ads_draft' => 'Create PAUSED ad campaign drafts at the platform. Never activates; capped at the per-campaign daily budget in code.',
     ];
 

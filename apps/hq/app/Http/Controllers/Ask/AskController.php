@@ -49,6 +49,9 @@ final class AskController extends Controller
             'agent_key' => ['required', 'string', Rule::in($this->ask->askableAgents())],
             'business_id' => ['nullable', 'integer', 'exists:businesses,id'],
             'conversation' => ['nullable', 'uuid'],
+            // docs/144-media-in-chat: files the person attached, their own uploads only. HQ's model does not read them.
+            'attachment_uuids' => ['nullable', 'array', 'max:6'],
+            'attachment_uuids.*' => ['uuid'],
         ]);
 
         $conversation = null;
@@ -63,8 +66,24 @@ final class AskController extends Controller
             throw ValidationException::withMessages(['question' => $e->getMessage()]);
         }
 
+        $this->attach($request, $result['conversation'], (array) ($data['attachment_uuids'] ?? []));
+
         return redirect()->route('ask.show', $result['conversation'])
             ->with('status', $result['reply']->status === AskMessage::REFUSED ? 'ask-refused' : 'ask-submitted');
+    }
+
+    /** Link the person's own stored uploads to the question they asked; an upload that is not theirs is silently left out. */
+    private function attach(Request $request, AskConversation $conversation, array $uuids): void
+    {
+        if ($uuids === []) {
+            return;
+        }
+        $message = $conversation->messages()->where('role', 'user')->latest('id')->first();
+        if ($message === null) {
+            return;
+        }
+        \App\Models\ChatAttachment::query()->whereIn('uuid', $uuids)->where('user_id', $request->user()->getKey())->where('status', 'stored')
+            ->update(['ask_message_id' => $message->id, 'status' => 'attached']);
     }
 
     private function page(Request $request, ?AskConversation $conversation): Response
@@ -81,6 +100,8 @@ final class AskController extends Controller
                 'content' => $m->content,
                 'structured' => $m->structured,
                 'created_at' => $m->created_at?->toIso8601String(),
+                'attachments' => \App\Models\ChatAttachment::query()->visibleTo($user)->where('ask_message_id', $m->id)->get(['uuid', 'original_name', 'kind'])
+                    ->map(fn ($a) => ['uuid' => $a->uuid, 'name' => $a->original_name, 'kind' => $a->kind])->all(),
                 'run' => $m->agentRun === null ? null : [
                     'uuid' => $m->agentRun->uuid,
                     'id' => $m->agentRun->id,
@@ -120,6 +141,8 @@ final class AskController extends Controller
                 ->when($businessScope !== null, fn ($q) => $q->whereIn('id', $businessScope))
                 ->orderBy('name')->get(['id', 'name'])->map(fn (Business $b) => ['id' => $b->id, 'name' => $b->name])->all(),
             'runtime_on' => $this->ask->runtimeOn(),
+            'uploads_on' => app(\App\Support\Features\Features::class)->enabled('connectors.media_upload'),
+            'voice_on' => app(\App\Support\Features\Features::class)->enabled('connectors.voice'),
             'max_question' => AskHq::MAX_QUESTION,
         ]);
     }

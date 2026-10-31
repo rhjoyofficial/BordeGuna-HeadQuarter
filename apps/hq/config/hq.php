@@ -34,6 +34,16 @@ use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\QuoteOrderTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Commerce\TakeOrderTool;
+use App\Tools\Connectors\CheckMetaTokenTool;
+use App\Tools\Connectors\CheckReelDraftTool;
+use App\Tools\Connectors\CreateAdsDraftTool;
+use App\Tools\Connectors\CreateDraftBillTool;
+use App\Tools\Connectors\DraftReelTool;
+use App\Tools\Connectors\PollMailboxTool;
+use App\Tools\Connectors\PollParcelsTool;
+use App\Tools\Connectors\TrackParcelTool;
+use App\Tools\Connectors\VoiceSynthesizeTool;
+use App\Tools\Connectors\VoiceTranscribeTool;
 use App\Tools\Consent\LiftRestrictionTool;
 use App\Tools\Conversation\ReadThreadTool;
 use App\Tools\Conversation\SendReplyTool;
@@ -170,6 +180,19 @@ return [
         // `hq.customers.quarantine.repair`, PERMANENTLY human-only; executes only a batch the dry run proposed whose
         // every row a person reviewed (`needs_repair`, none disputed). The ONLY caller of `RepairApplier::applyRepair()`.
         QuarantineRepairTool::class,
+        // docs/144 (HQ-completion connectors): each is behind a feature flag that ships OFF (the `connectors.*` flags),
+        // needs its credential, is held by no agent, and is not agent-executable. Courier reads, voice, media drafts, the supplier
+        // mailbox, the ERP draft bill and paused ad drafts (the last two R4: approval, a second person for the ERP one).
+        CheckMetaTokenTool::class,
+        CheckReelDraftTool::class,
+        CreateAdsDraftTool::class,
+        CreateDraftBillTool::class,
+        DraftReelTool::class,
+        PollMailboxTool::class,
+        PollParcelsTool::class,
+        TrackParcelTool::class,
+        VoiceSynthesizeTool::class,
+        VoiceTranscribeTool::class,
         // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of ONE open identity
         // conflict of one business: keep the owner, move to the claimant of the SAME business, or mark not resolvable.
         // R3 write of HQ rows only (the identity, the conflict, the append-only resolution, audit), permission
@@ -191,6 +214,16 @@ return [
     // so none of this is read on production until gate P5-G1. The API version is configuration, never a
     // literal in code (docs/84 C.4): v26.0 is the newest (29 July 2026, sunset not announced).
     'ads' => [
+        // docs/144-meta-ads-drafts: the checks every ad DRAFT passes in code before the platform is called.
+        'draft' => [
+            // Joy's rule: every campaign is USD 5 a day at most.
+            'max_daily_usd' => '5.00',
+            // BDT per USD, for the cap on a BDT account. Empty = a BDT draft is refused (no rate is guessed).
+            'usd_bdt_rate' => '130.00',
+            'age_min' => 22,
+            // Latin-script brand names an otherwise Bangla-only ad may contain.
+            'allowed_latin' => ['LaLaDia', 'Bionic', 'Bionic Garden', 'Bor de Guna'],
+        ],
         'meta' => [
             'base_url' => 'https://graph.facebook.com',
             'graph_version' => 'v26.0',
@@ -269,6 +302,12 @@ return [
     'erp' => [
         'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.bordeguna.com'),
         'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
+
+        // docs/144-erp-write-contract: the endpoint HQ expects for a DRAFT supplier bill. The ERP builds it; the
+        // write token (`erp_write_token`) is a different credential from the read token.
+        'write' => [
+            'draft_bill_path' => '/api/hq/v1/businesses/{business}/purchase-bills/drafts',
+        ],
 
         // M5: the report keys `erp.run_report` may run. NOT free-form, and deliberately not "every
         // report the ERP offers": an open key space handed to a model is an interface whose reach
@@ -451,6 +490,41 @@ return [
         'quiet_hours' => ['start' => 23, 'end' => 8],
     ],
 
+    // docs/144-meta-readiness: the Meta app whose app token (app id and secret) inspects stored tokens. Not a secret.
+    'meta_health' => ['app_id' => env('HQ_META_APP_ID', ''), 'expiring_within_days' => 14],
+
+    // docs/144-courier-connectors: parcel tracking. Hosts and paths are configuration so a courier-side change is
+    // a config change. PROVEN only against a live or sandbox merchant account (the first step when keys arrive).
+    'courier' => [
+        'timeout_seconds' => 15,
+        'pathao' => ['base_url' => 'https://api-hermes.pathao.com', 'token_path' => '/aladdin/api/v1/issue-token', 'track_path' => '/aladdin/api/v1/orders/{ref}/info'],
+        'steadfast' => ['base_url' => 'https://portal.packzy.com/api/v1', 'track_path' => '/status_by_cid/{ref}'],
+        'redx' => ['base_url' => 'https://openapi.redx.com.bd/v1.0.0-beta', 'track_path' => '/parcel/track/{ref}'],
+        // CarryBee documents its merchant API to merchants only: set the base URL when the account is opened.
+        'carrybee' => ['base_url' => '', 'track_path' => '/api/v2/orders/{ref}/details'],
+    ],
+
+    // docs/144-media-in-chat and docs/144-media-pipeline.
+    'media' => [
+        'retention_days' => 90,
+        // `clamd` to scan every upload with ClamAV; empty = no scanner (recorded as not_scanned, never as clean).
+        'scanner' => '',
+        'clamd' => ['host' => '127.0.0.1', 'port' => 3310, 'timeout' => 5],
+        // When true, a file that could not be scanned is refused.
+        'scan_required' => false,
+        'limits' => ['image_mb' => 10, 'video_mb' => 60, 'document_mb' => 15, 'text_mb' => 2, 'audio_mb' => 10],
+        'veo' => ['base_url' => 'https://generativelanguage.googleapis.com/v1beta', 'model' => 'veo-3.1-fast-generate-preview', 'timeout' => 30, 'download_timeout' => 120],
+    ],
+
+    // docs/144-email-ingestion.
+    'ingestion' => [
+        'timeout' => 30,
+        'retention_days' => 365,
+        'gmail' => ['base_url' => 'https://gmail.googleapis.com/gmail/v1'],
+        // The mailbox for an application token (`users/{upn}`); empty means `me` (a delegated token).
+        'graph' => ['base_url' => 'https://graph.microsoft.com/v1.0', 'user' => ''],
+    ],
+
     // Phase 7 (docs/88 A point 6, stream U): speech. ⛔ Nothing here switches anything on: the providers
     // are registered nowhere (`SpeechProviders` ships empty) and hold no credential. These are the
     // settings an adapter reads once a person registers it at gate P7-G2. No env() on purpose: a value
@@ -478,6 +552,18 @@ return [
             'language_code' => null,
             'timeout' => 60,
         ],
+        // docs/144-voice-provider: the default speech provider is any OpenAI-compatible audio API.
+        'openai_compatible' => [
+            'base_url' => 'https://api.openai.com/v1',
+            'stt_model' => 'gpt-4o-transcribe',
+            'tts_model' => 'gpt-4o-mini-tts',
+            'max_bytes' => 10 * 1024 * 1024,
+            'timeout' => 60,
+        ],
+        // The stock voice used when a request names none, by speech provider key.
+        'default_voice' => ['openai_compatible_tts' => 'alloy', 'azure_speech' => 'bn-BD-NabanitaNeural'],
+        // A transcript a person agreed to keep is deleted after this many days.
+        'transcript_retention_days' => 30,
         'azure' => [
             'region' => 'southeastasia',
             'voice' => 'bn-BD-NabanitaNeural',

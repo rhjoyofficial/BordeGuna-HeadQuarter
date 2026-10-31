@@ -3,6 +3,17 @@
 namespace App\Support\Credentials;
 
 use App\Ads\AdsCredential;
+use App\Ads\Draft\MetaAdsDraftPlatform;
+use App\Courier\Drivers\CarryBeeCourier;
+use App\Courier\Drivers\PathaoCourier;
+use App\Courier\Drivers\RedxCourier;
+use App\Courier\Drivers\SteadfastCourier;
+use App\Erp\Write\HttpErpDraftBillWriter;
+use App\Http\Controllers\Webhooks\CourierWebhookController;
+use App\Ingestion\Mailbox\GmailMailbox;
+use App\Ingestion\Mailbox\GraphMailbox;
+use App\Media\Pipeline\VeoMediaPipeline;
+use App\Voice\Providers\OpenAiCompatibleSpeechToText;
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\OpenAiProvider;
 use App\Commerce\Support\CommerceRegistry;
@@ -45,6 +56,8 @@ final class CredentialKinds
 
     public const ACCOUNT_WHATSAPP = 'WhatsApp phone_number_id';
 
+    public const ACCOUNT_COURIER_WEBHOOK = 'business slug.courier key (for example laladia.pathao)';
+
     /**
      * @return array<string, array{account_ref: string, purpose: string}> kind => its account reference rule and purpose
      */
@@ -71,6 +84,18 @@ final class CredentialKinds
             GoogleSpeechToText::CREDENTIAL_PROVIDER => ['account_ref' => GoogleSpeechToText::ACCOUNT_REF, 'purpose' => 'The Google Speech-to-Text access token for voice notes.'],
             ElevenLabsTextToSpeech::CREDENTIAL_PROVIDER => ['account_ref' => ElevenLabsTextToSpeech::ACCOUNT_REF, 'purpose' => 'The ElevenLabs API key for text to speech.'],
             AzureTextToSpeech::CREDENTIAL_PROVIDER => ['account_ref' => AzureTextToSpeech::ACCOUNT_REF, 'purpose' => 'The Azure Speech key for text to speech.'],
+            // docs/144-*: the HQ-completion connectors. Each is OFF until its feature flag is switched on.
+            PathaoCourier::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'Pathao merchant login as JSON (client_id, client_secret, username, password): parcel tracking.'],
+            CarryBeeCourier::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'CarryBee merchant keys as JSON (client_id, client_secret, client_context): parcel tracking.'],
+            SteadfastCourier::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'Steadfast keys as JSON (api_key, secret_key): parcel tracking.'],
+            RedxCourier::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'The RedX API token: parcel tracking.'],
+            CourierWebhookController::SECRET_PROVIDER => ['account_ref' => self::ACCOUNT_COURIER_WEBHOOK, 'purpose' => 'The secret a courier sends with its webhooks to HQ (one per business and courier).'],
+            OpenAiCompatibleSpeechToText::CREDENTIAL => ['account_ref' => OpenAiCompatibleSpeechToText::ACCOUNT_REF, 'purpose' => 'The key of an OpenAI-compatible speech service: speech to text and text to speech.'],
+            VeoMediaPipeline::CREDENTIAL => ['account_ref' => VeoMediaPipeline::ACCOUNT_REF, 'purpose' => 'The Gemini API key for reel and video drafts (Veo).'],
+            GmailMailbox::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'A read-only Gmail access token for the supplier mailbox of one business.'],
+            GraphMailbox::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'A read-only Microsoft Graph (Mail.Read) token for the supplier mailbox of one business.'],
+            HttpErpDraftBillWriter::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'The ERP write token that may create DRAFT supplier bills for one business (not the read token).'],
+            MetaAdsDraftPlatform::CREDENTIAL => ['account_ref' => self::ACCOUNT_BUSINESS, 'purpose' => 'A Meta system-user token with ads_management that may create PAUSED ad drafts for one business.'],
         ];
     }
 

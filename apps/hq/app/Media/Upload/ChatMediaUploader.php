@@ -32,12 +32,13 @@ final class ChatMediaUploader
 
     /**
      * @param  list<string>  $kinds
+     * @param  bool  $personal  a file with no business that only its uploader may open (a voice recording); never a way around the business rule for a business file
      *
      * @throws AttachmentRejected
      */
-    public function store(User $user, string $bytes, string $originalName, ?int $businessId, array $kinds = ['image', 'video', 'document']): ChatAttachment
+    public function store(User $user, string $bytes, string $originalName, ?int $businessId, array $kinds = ['image', 'video', 'document'], bool $personal = false, ?int $retentionDays = null): ChatAttachment
     {
-        if ($this->scope->isRestricted($user) && $businessId === null) {
+        if (! $personal && $this->scope->isRestricted($user) && $businessId === null) {
             throw new AttachmentRejected('Choose which of your businesses this file belongs to.');
         }
         if (! $this->scope->allows($user, $businessId)) {
@@ -58,7 +59,7 @@ final class ChatMediaUploader
             throw new AttachmentRejected('This file could not be virus-scanned, so it was not stored.');
         }
 
-        $days = max(1, (int) config('hq.media.retention_days', 90));
+        $days = max(1, $retentionDays ?? (int) config('hq.media.retention_days', 90));
         $expires = now()->addDays($days);
         $asset = $this->assets->store($bytes, $mime, $kind, Provenance::ThirdParty, [
             'business_id' => $businessId, 'source_ref' => 'chat_upload', 'retention_days' => $days,
