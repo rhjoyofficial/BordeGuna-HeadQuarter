@@ -11,6 +11,7 @@ use App\Models\AutonomyLadderThreshold;
 use App\Models\Business;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Authorization\GroupWideAuthority;
+use App\Support\Http\ListPage;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -70,8 +71,9 @@ final class AutonomyController extends Controller
         }
 
         $restricted = $this->scope->isRestricted($user);
-        $grants = AutonomyGrant::query()->when($restricted, fn ($q) => $q->whereIn('business_id', $this->scope->all($user) ?? []))
-            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")->orderByDesc('id')->limit(100)->get()
+        $grantsPage = ListPage::paginate(AutonomyGrant::query()->when($restricted, fn ($q) => $q->whereIn('business_id', $this->scope->all($user) ?? []))
+            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")->orderByDesc('id'), $request);
+        $grants = $grantsPage->getCollection()
             ->map(fn (AutonomyGrant $g) => [
                 'uuid' => $g->uuid, 'name' => $g->name, 'business_id' => $g->business_id, 'tool_key' => $g->tool_key, 'agent_key' => $g->agent_key,
                 'level' => $g->max_level?->value, 'status' => $g->status, 'via_ladder' => $g->ladder_threshold_id !== null,
@@ -80,8 +82,9 @@ final class AutonomyController extends Controller
                 'lapsed_at' => $g->lapsed_at?->toIso8601String(), 'lapse_code' => $g->lapse_code, 'lapse_reason' => $g->lapse_reason,
             ]);
 
-        $thresholds = AutonomyLadderThreshold::query()->when($restricted, fn ($q) => $q->whereIn('business_id', $this->scope->all($user) ?? []))
-            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")->orderByDesc('id')->limit(100)->get()
+        $thresholdsPage = ListPage::paginate(AutonomyLadderThreshold::query()->when($restricted, fn ($q) => $q->whereIn('business_id', $this->scope->all($user) ?? []))
+            ->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")->orderByDesc('id'), $request, 'thresholds_page');
+        $thresholds = $thresholdsPage->getCollection()
             ->map(fn (AutonomyLadderThreshold $t) => [
                 'uuid' => $t->uuid, 'business_id' => $t->business_id, 'tool_key' => $t->tool_key, 'max_level' => $t->max_level,
                 'min_approved_succeeded' => $t->min_approved_succeeded, 'max_error_permille' => $t->max_error_permille,
@@ -92,6 +95,8 @@ final class AutonomyController extends Controller
             'rows' => $rows,
             'grants' => $grants,
             'thresholds' => $thresholds,
+            'grantsPagination' => $grantsPage->meta(),
+            'thresholdsPagination' => $thresholdsPage->meta(),
             'paused' => $this->pause->isPaused(),
             'options' => ['levels' => LadderGrants::LEVELS, 'businesses' => $businesses->map(fn ($b) => ['id' => $b->id, 'name' => $b->name])->values(), 'tools' => array_keys($toolKeys)],
             'can' => [

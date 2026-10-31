@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
@@ -24,6 +25,7 @@ type Doc = {
 };
 type Props = {
     documents: Doc[];
+    pagination: ListMeta;
     businesses: { slug: string; name: string }[];
     filters: { status: string | null };
     can: { review: boolean; poll: boolean };
@@ -36,7 +38,7 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Supplier documents', href: '/in
  * Bill drafts HQ read from the supplier mailbox (docs/144-email-ingestion). Every row is a DRAFT: nothing here has
  * reached the ERP, and nothing was sent, deleted or marked in the mailbox.
  */
-export default function IngestionIndex({ documents, businesses, can }: Props) {
+export default function IngestionIndex({ documents, pagination, businesses, can }: Props) {
     const t = useT();
     const poll = useForm({ business_slug: businesses[0]?.slug ?? '' });
     const statusLabel = (s: string) =>
@@ -127,6 +129,7 @@ export default function IngestionIndex({ documents, businesses, can }: Props) {
                         ))}
                     </ul>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

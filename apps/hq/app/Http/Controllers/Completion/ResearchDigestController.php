@@ -11,6 +11,7 @@ use App\Models\ResearchTask;
 use App\Research\Digest\ResearchDigestBuilder;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -37,7 +38,8 @@ final class ResearchDigestController extends Controller
     {
         $user = $request->user();
 
-        $digests = ResearchDigest::query()->visibleTo($user)->with(['business:id,name', 'brand:id,name'])->orderByDesc('id')->limit(100)->get()
+        $digestsPage = ListPage::paginate(ResearchDigest::query()->visibleTo($user)->with(['business:id,name', 'brand:id,name'])->orderByDesc('id'), $request);
+        $digests = $digestsPage->getCollection()
             ->map(fn (ResearchDigest $d) => [
                 'uuid' => $d->uuid, 'kind' => $d->kind, 'title' => $d->title, 'business' => $d->business?->name, 'brand' => $d->brand?->name,
                 'entries' => array_values((array) $d->entries), 'note' => $d->note, 'digest' => $d->digest, 'created_at' => $d->created_at?->toIso8601String(),
@@ -55,6 +57,7 @@ final class ResearchDigestController extends Controller
 
         return Inertia::render('research/digests', [
             'digests' => $digests,
+            'pagination' => $digestsPage->meta(),
             'artifacts' => $artifacts,
             'engineOn' => $this->features->enabled('research.engine'),
             'options' => [

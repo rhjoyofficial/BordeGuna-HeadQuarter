@@ -2,6 +2,7 @@ import { ReasonAction } from '@/components/completion/reason-action';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -52,6 +53,8 @@ type Generation = {
 type Props = {
     consents: Consent[];
     generations: Generation[];
+    consentsPagination: ListMeta;
+    generationsPagination: ListMeta;
     posture: { generation_flag: boolean; provider_connected: boolean; tool_registered: boolean };
     options: {
         kinds: string[];
@@ -65,7 +68,7 @@ type Props = {
     can: { manage: boolean; generate: boolean };
 };
 
-export default function AvatarIndex({ consents, generations, posture, options, can }: Props) {
+export default function AvatarIndex({ consents, generations, consentsPagination, generationsPagination, posture, options, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [recording, setRecording] = useState(false);
@@ -232,6 +235,7 @@ export default function AvatarIndex({ consents, generations, posture, options, c
                             </table>
                         </div>
                     )}
+                    <Pagination meta={consentsPagination} />
                 </section>
 
                 <section className="flex flex-col gap-3">
@@ -272,6 +276,7 @@ export default function AvatarIndex({ consents, generations, posture, options, c
                             </table>
                         </div>
                     )}
+                    <Pagination meta={generationsPagination} />
                 </section>
 
                 <Dialog open={recording} onOpenChange={setRecording}>

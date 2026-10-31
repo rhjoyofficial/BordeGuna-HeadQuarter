@@ -8,6 +8,7 @@ use App\Models\Business;
 use App\Models\CourierParcel;
 use App\Models\FactsOrder;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -22,9 +23,12 @@ final class ParcelController extends ConnectorController
         $user = $request->user();
         $parcels = $scope->restrict(CourierParcel::query(), $user)->with('events')->with('business:id,name,slug')
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->orderByDesc('last_event_at')->orderByDesc('id')->limit(100)->get();
+            ->orderByDesc('last_event_at')->orderByDesc('id');
+        $page = ListPage::paginate($parcels, $request);
+        $parcels = $page->getCollection();
 
         return Inertia::render('parcels/index', [
+            'pagination' => $page->meta(),
             'parcels' => $parcels->map(fn (CourierParcel $p) => ParcelTimeline::row($p) + ['business' => $p->business?->name])->all(),
             'businesses' => Business::query()->when($scope->all($user) !== null, fn ($q) => $q->whereIn('id', (array) $scope->all($user)))->orderBy('name')->get(['slug', 'name'])->all(),
             'providers' => array_keys(Capabilities::COURIER_TRACK_BY_PROVIDER),

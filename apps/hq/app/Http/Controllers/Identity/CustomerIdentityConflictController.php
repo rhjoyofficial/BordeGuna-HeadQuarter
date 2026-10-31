@@ -11,6 +11,7 @@ use App\Models\Business;
 use App\Models\CustomerIdentityConflict;
 use App\Models\CustomerIdentityConflictResolution as Resolution;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\Identity\ResolveIdentityConflictTool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -50,9 +51,9 @@ final class CustomerIdentityConflictController extends Controller
             ->whereNull('resolved_at')
             ->when($allowed !== null, fn ($q) => $q->whereIn('business_id', $allowed))
             ->with('identity')
-            ->orderBy('business_id')->orderBy('id')
-            ->limit(500)
-            ->get();
+            ->orderBy('business_id')->orderBy('id');
+        $page = ListPage::paginate($open, $request);
+        $open = $page->getCollection();
 
         $resolved = Resolution::query()
             ->when($allowed !== null, fn ($q) => $q->whereIn('business_id', $allowed))
@@ -63,6 +64,7 @@ final class CustomerIdentityConflictController extends Controller
 
         return Inertia::render('customers/identity-conflicts', [
             'conflicts' => $open->map(fn (CustomerIdentityConflict $c) => $this->row($c, $businesses->all()))->values()->all(),
+            'pagination' => $page->meta(),
             'resolved' => $resolved->map(fn (Resolution $r) => [
                 'id' => $r->id,
                 'conflict_id' => $r->conflict_id,

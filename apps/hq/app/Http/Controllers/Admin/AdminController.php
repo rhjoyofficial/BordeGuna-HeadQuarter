@@ -33,6 +33,7 @@ use App\Support\Authorization\GroupWideAuthority;
 use App\Support\Credentials\CredentialKinds;
 use App\Support\Credentials\CredentialWriter;
 use App\Support\Features\Features;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -209,7 +210,8 @@ final class AdminController extends Controller
         $logs = AuditLog::query()
             ->when($request->filled('action'), fn ($q) => $q->where('action', 'like', $request->string('action').'%'))
             ->when($request->filled('actor_type'), fn ($q) => $q->where('actor_type', $request->string('actor_type')))
-            ->latest('occurred_at')->paginate(50)->withQueryString();
+            ->latest('occurred_at');
+        $logs = ListPage::paginate($logs, $request);
 
         return Inertia::render('audit/index', ['logs' => $logs, 'filters' => $request->only('action', 'actor_type')]);
     }

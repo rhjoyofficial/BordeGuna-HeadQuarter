@@ -774,4 +774,11 @@ return [
             'chat_verified' => (bool) env('HQ_OWNER_TELEGRAM_CHAT_VERIFIED', false),
         ],
     ],
+    /*
+    | Every HQ list screen pages through App\Support\Http\ListPage. A person picks 20 (default), 100, 200,
+    | 500 or All; "All" never returns more than this ceiling and the screen says so.
+    */
+    'lists' => [
+        'all_ceiling' => (int) env('HQ_LISTS_ALL_CEILING', 5000),
+    ],
 ];

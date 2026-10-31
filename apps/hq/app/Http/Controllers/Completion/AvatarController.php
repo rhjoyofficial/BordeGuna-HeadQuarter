@@ -17,6 +17,7 @@ use App\Models\Business;
 use App\Models\MediaAsset;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
+use App\Support\Http\ListPage;
 use App\Tools\Avatar\GenerateAvatarTool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,7 +47,8 @@ final class AvatarController extends Controller
         $user = $request->user();
         $brandNames = Brand::query()->pluck('name', 'id')->all();
 
-        $consents = AvatarConsent::query()->visibleTo($user)->with('business:id,name')->orderByDesc('id')->limit(200)->get()
+        $consentsPage = ListPage::paginate(AvatarConsent::query()->visibleTo($user)->with('business:id,name')->orderByDesc('id'), $request, 'consents_page');
+        $consents = $consentsPage->getCollection()
             ->map(fn (AvatarConsent $c) => [
                 'uuid' => $c->uuid, 'business' => $c->business?->name, 'business_id' => $c->business_id, 'person_label' => $c->person_label, 'kind' => $c->kind,
                 'modalities' => array_values((array) $c->modalities), 'permitted_uses' => array_values((array) $c->permitted_uses),
@@ -56,7 +58,8 @@ final class AvatarController extends Controller
                 'revoked_at' => $c->revoked_at?->toIso8601String(), 'revocation_reason' => $c->revocation_reason,
             ]);
 
-        $generations = AvatarGeneration::query()->visibleTo($user)->with('consent:id,uuid,person_label')->orderByDesc('id')->limit(100)->get()
+        $generationsPage = ListPage::paginate(AvatarGeneration::query()->visibleTo($user)->with('consent:id,uuid,person_label')->orderByDesc('id'), $request);
+        $generations = $generationsPage->getCollection()
             ->map(fn (AvatarGeneration $g) => [
                 'uuid' => $g->uuid, 'consent' => $g->consent?->person_label, 'brand' => $brandNames[(int) $g->brand_id] ?? null, 'use' => $g->use, 'modality' => $g->modality,
                 'status' => $g->status, 'reason' => $g->refusal_reason, 'provider' => $g->provider, 'created_at' => $g->created_at?->toIso8601String(),
@@ -70,6 +73,8 @@ final class AvatarController extends Controller
         return Inertia::render('avatar/index', [
             'consents' => $consents,
             'generations' => $generations,
+            'consentsPagination' => $consentsPage->meta(),
+            'generationsPagination' => $generationsPage->meta(),
             'posture' => [
                 'generation_flag' => $this->features->enabled(AvatarGenerations::FLAG),
                 'provider_connected' => app()->bound(AvatarProvider::class),

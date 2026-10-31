@@ -6,6 +6,7 @@ use App\Gateway\Approval\ApprovalStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Approval;
 use App\OwnerConsole\Flag;
+use App\Support\Http\ListPage;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -28,9 +29,16 @@ final class BatchApprovalController extends Controller
     public function index(Request $request): Response
     {
         $messages = [];
+        $pagination = null;
         if (Flag::on(Flag::BATCH_APPROVAL)) {
-            $messages = Approval::query()->visibleTo($request->user())->where('status', ApprovalStatus::Pending->value)
-                ->with('business:id,name')->orderBy('id')->limit(100)->get()
+            // Paged in the same oldest-first order, one by one (ruling 2): the customer-facing tools are picked in SQL
+            // so the count and the pages hold only the messages this overview shows.
+            $customerFacing = array_values(array_filter($this->tools->keys(), fn (string $key) => $this->tools->get($key)->descriptor()->customerFacing));
+            $page = ListPage::paginate(Approval::query()->visibleTo($request->user())->where('status', ApprovalStatus::Pending->value)
+                ->whereIn('tool_key', $customerFacing)
+                ->with('business:id,name')->orderBy('id'), $request);
+            $pagination = $page->meta();
+            $messages = $page->getCollection()
                 ->filter(fn (Approval $a) => $this->tools->has($a->tool_key) && $this->tools->get($a->tool_key)->descriptor()->customerFacing)
                 ->map(fn (Approval $a) => [
                     'id' => $a->id, 'tool_key' => $a->tool_key, 'business' => $a->business?->name, 'agent_key' => $a->agent_key,
@@ -39,6 +47,6 @@ final class BatchApprovalController extends Controller
                 ])->values()->all();
         }
 
-        return Inertia::render('approvals/batch', ['enabled' => Flag::on(Flag::BATCH_APPROVAL), 'messages' => $messages]);
+        return Inertia::render('approvals/batch', ['enabled' => Flag::on(Flag::BATCH_APPROVAL), 'messages' => $messages, 'pagination' => $pagination]);
     }
 }

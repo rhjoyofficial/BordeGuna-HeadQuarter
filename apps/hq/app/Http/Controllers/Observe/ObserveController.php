@@ -13,6 +13,7 @@ use App\Observe\Dashboards\DashboardWindow;
 use App\Observe\Dashboards\PlatformDashboard;
 use App\Observe\Dashboards\PostureDashboard;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -90,17 +91,18 @@ final class ObserveController extends Controller
             'resolved_at' => $a->resolved_at?->toIso8601String(),
         ];
 
+        $resolved = ListPage::paginate(Alert::query()
+            ->whereNotNull('resolved_at')
+            ->where('resolved_at', '>=', now()->subDays(7))
+            ->latest('resolved_at'), $request, 'resolved_page');
+
         return Inertia::render('observe/alerts', [
             'open' => Alert::open()
                 ->orderByRaw("case severity when 'critical' then 0 when 'warning' then 1 else 2 end")
                 ->orderBy('first_seen_at')
                 ->get()->map($row)->all(),
-            'resolved' => Alert::query()
-                ->whereNotNull('resolved_at')
-                ->where('resolved_at', '>=', now()->subDays(7))
-                ->latest('resolved_at')
-                ->limit(50)
-                ->get()->map($row)->all(),
+            'resolved' => $resolved->getCollection()->map($row)->all(),
+            'resolvedPagination' => $resolved->meta(),
             'rules' => array_map(fn ($rule) => ['key' => $rule->key(), 'paged_by' => $rule->pagedBy()], $engine->rules()),
         ]);
     }

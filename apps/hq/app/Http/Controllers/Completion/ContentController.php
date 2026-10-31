@@ -20,6 +20,7 @@ use App\Models\ContentTestimonial;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Authorization\EligibleReviewers;
 use App\Support\Features\Features;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -51,9 +52,10 @@ final class ContentController extends Controller
     {
         $user = $request->user();
 
-        $entries = ContentCalendarEntry::query()->visibleTo($user)->with(['brand:id,name,business_id', 'draft'])
+        $entriesPage = ListPage::paginate(ContentCalendarEntry::query()->visibleTo($user)->with(['brand:id,name,business_id', 'draft'])
             ->where('planned_for', '>=', now()->subDays(30)->toDateString())
-            ->orderBy('planned_for')->orderBy('id')->limit(200)->get();
+            ->orderBy('planned_for')->orderBy('id'), $request);
+        $entries = $entriesPage->getCollection();
         $published = ContentPublication::query()->whereIn('draft_id', $entries->pluck('draft_id')->filter()->all())->where('status', 'published')->pluck('draft_id')->all();
 
         $soleReviewer = [];
@@ -87,23 +89,28 @@ final class ContentController extends Controller
             ];
         });
 
-        $claims = ContentClaimsRule::query()->visibleTo($user)->with('business:id,name')->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
-            ->orderBy('product_line')->orderByDesc('id')->limit(300)->get()
+        $claimsPage = ListPage::paginate(ContentClaimsRule::query()->visibleTo($user)->with('business:id,name')->orderByRaw("CASE WHEN status = 'active' THEN 0 ELSE 1 END")
+            ->orderBy('product_line')->orderByDesc('id'), $request, 'claims_page');
+        $claims = $claimsPage->getCollection()
             ->map(fn (ContentClaimsRule $r) => [
                 'uuid' => $r->uuid, 'business' => $r->business?->name, 'product_line' => $r->product_line, 'kind' => $r->kind,
                 'phrases' => array_values((array) $r->phrases), 'reason' => $r->reason, 'legal_ref' => $r->legal_ref, 'proof_ref' => $r->proof_ref,
                 'status' => $r->status, 'retire_reason' => $r->retire_reason, 'created_at' => $r->created_at?->toIso8601String(),
             ]);
 
-        $testimonials = ContentTestimonial::query()->visibleTo($user)->with('business:id,name')->orderByRaw('CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END')
-            ->orderByDesc('id')->limit(200)->get()
-            ->map(fn (ContentTestimonial $t) => [
-                'uuid' => $t->uuid, 'business' => $t->business?->name, 'business_id' => $t->business_id, 'customer_label' => $t->customer_label,
-                'original_statement' => $t->original_statement, 'modalities' => array_values((array) $t->permitted_modalities),
-                'channels' => array_values((array) $t->channels), 'brand_ids' => array_values((array) $t->brand_ids),
-                'valid_from' => $t->valid_from?->toDateString(), 'valid_until' => $t->valid_until?->toDateString(),
-                'source_channel' => $t->source_channel, 'revoked_at' => $t->revoked_at?->toIso8601String(),
-            ]);
+        $testimonialRow = fn (ContentTestimonial $t) => [
+            'uuid' => $t->uuid, 'business' => $t->business?->name, 'business_id' => $t->business_id, 'customer_label' => $t->customer_label,
+            'original_statement' => $t->original_statement, 'modalities' => array_values((array) $t->permitted_modalities),
+            'channels' => array_values((array) $t->channels), 'brand_ids' => array_values((array) $t->brand_ids),
+            'valid_from' => $t->valid_from?->toDateString(), 'valid_until' => $t->valid_until?->toDateString(),
+            'source_channel' => $t->source_channel, 'revoked_at' => $t->revoked_at?->toIso8601String(),
+        ];
+        $testimonialsPage = ListPage::paginate(ContentTestimonial::query()->visibleTo($user)->with('business:id,name')->orderByRaw('CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END')
+            ->orderByDesc('id'), $request, 'testimonials_page');
+        $testimonials = $testimonialsPage->getCollection()->map($testimonialRow);
+        // The caption form's "Quote a testimonial" picker offers every live testimonial, not only the page on screen.
+        $testimonialOptions = ContentTestimonial::query()->visibleTo($user)->with('business:id,name')->whereNull('revoked_at')
+            ->orderByDesc('id')->limit(ListPage::ceiling())->get()->map($testimonialRow);
 
         $brands = Brand::query()->orderBy('name')->get(['id', 'business_id', 'name'])
             ->filter(fn (Brand $b) => $this->scope->allows($user, (int) $b->business_id))
@@ -116,6 +123,10 @@ final class ContentController extends Controller
             'entries' => $rows,
             'claimsRules' => $claims,
             'testimonials' => $testimonials,
+            'testimonialOptions' => $testimonialOptions,
+            'entriesPagination' => $entriesPage->meta(),
+            'claimsPagination' => $claimsPage->meta(),
+            'testimonialsPagination' => $testimonialsPage->meta(),
             'floor' => array_map(fn (array $r) => ['id' => $r['id'], 'phrases' => $r['phrases'], 'reason' => $r['reason'], 'legal_ref' => $r['legal_ref']], ClaimsFloor::RULES),
             'posture' => [
                 'drafting' => $this->features->enabled(ContentDraftService::FLAG),

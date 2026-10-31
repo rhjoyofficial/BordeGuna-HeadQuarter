@@ -1,6 +1,7 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
@@ -49,7 +50,7 @@ type Run = {
     output: { output?: Record<string, unknown> } | null;
     attempts: { attempt: number; status: string; error: string | null; duration_ms: number }[] | null;
 };
-type Paginated<T> = { data: T[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const MISSED: Record<string, string> = {
     skip: 'skip it',
@@ -286,6 +287,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                             </table>
                         </div>
                     )}
+                    <Pagination meta={runs} />
                 </section>
             </div>
 

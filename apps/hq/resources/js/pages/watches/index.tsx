@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -36,6 +37,7 @@ type Watch = {
 type Props = {
     enabled: boolean;
     watches: Watch[];
+    pagination: ListMeta;
     businesses: { id: number; name: string }[];
     ops: string[];
     limits: { per_hour: number; per_day: number; conditions: number };
@@ -45,7 +47,7 @@ type Props = {
 const TONES: Record<string, Tone> = { proposed: 'pending', enabled: 'ok', disabled: 'neutral', rejected: 'warn' };
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Event watches', href: '/watches' }];
 
-export default function WatchesIndex({ enabled, watches, businesses, ops, limits, can }: Props) {
+export default function WatchesIndex({ enabled, watches, pagination, businesses, ops, limits, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [open, setOpen] = useState(false);
@@ -167,6 +169,7 @@ export default function WatchesIndex({ enabled, watches, businesses, ops, limits
                         </li>
                     ))}
                 </ul>
+                <Pagination meta={pagination} />
             </div>
 
             <Dialog open={open} onOpenChange={setOpen}>

@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -57,13 +58,14 @@ type Artifact = {
 };
 type Props = {
     digests: Digest[];
+    pagination: ListMeta;
     artifacts: Artifact[];
     engineOn: boolean;
     options: { kinds: string[]; businesses: { id: number; name: string }[]; brands: { id: number; business_id: number; name: string }[] };
     can: { build: boolean };
 };
 
-export default function ResearchDigests({ digests, artifacts, engineOn, options, can }: Props) {
+export default function ResearchDigests({ digests, pagination, artifacts, engineOn, options, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [open, setOpen] = useState(false);
@@ -150,6 +152,7 @@ export default function ResearchDigests({ digests, artifacts, engineOn, options,
                             </article>
                         ))
                     )}
+                    <Pagination meta={pagination} />
                 </section>
 
                 <Dialog open={open} onOpenChange={setOpen}>

@@ -1,7 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field } from '@/components/form/field';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
-import { Pagination, type PageLink } from '@/components/pagination';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/app-layout';
@@ -24,7 +24,7 @@ type Log = {
     before: unknown;
     after: unknown;
 };
-type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Audit log', href: '/audit' }];
 
@@ -131,7 +131,7 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                         </table>
                     </div>
                 )}
-                <Pagination links={logs.links} total={logs.total} noun="entries" />
+                <Pagination meta={logs} />
             </div>
         </AppLayout>
     );

@@ -2,6 +2,7 @@ import { ReasonAction } from '@/components/completion/reason-action';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -90,6 +91,10 @@ type Props = {
     entries: Entry[];
     claimsRules: Rule[];
     testimonials: Testimonial[];
+    testimonialOptions: Testimonial[];
+    entriesPagination: ListMeta;
+    claimsPagination: ListMeta;
+    testimonialsPagination: ListMeta;
     floor: { id: string; phrases: string[]; reason: string; legal_ref: string }[];
     posture: { drafting: boolean; ai_drafting: boolean; drafter_connected: boolean; ai_paused: boolean; publishing: boolean };
     options: {
@@ -103,7 +108,19 @@ type Props = {
     can: { plan: boolean; review: boolean; claims: boolean };
 };
 
-export default function ContentIndex({ entries, claimsRules, testimonials, floor, posture, options, can }: Props) {
+export default function ContentIndex({
+    entries,
+    claimsRules,
+    testimonials,
+    testimonialOptions,
+    entriesPagination,
+    claimsPagination,
+    testimonialsPagination,
+    floor,
+    posture,
+    options,
+    can,
+}: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [planning, setPlanning] = useState(false);
@@ -435,6 +452,7 @@ export default function ContentIndex({ entries, claimsRules, testimonials, floor
                             </table>
                         </div>
                     )}
+                    <Pagination meta={entriesPagination} />
                 </section>
 
                 <section className="flex flex-col gap-3">
@@ -512,6 +530,7 @@ export default function ContentIndex({ entries, claimsRules, testimonials, floor
                             </table>
                         </div>
                     )}
+                    <Pagination meta={claimsPagination} />
                 </section>
 
                 <section className="flex flex-col gap-3">
@@ -578,6 +597,7 @@ export default function ContentIndex({ entries, claimsRules, testimonials, floor
                             </table>
                         </div>
                     )}
+                    <Pagination meta={testimonialsPagination} />
                 </section>
 
                 <Dialog open={planning} onOpenChange={setPlanning}>
@@ -740,7 +760,7 @@ export default function ContentIndex({ entries, claimsRules, testimonials, floor
                                         onChange={(ev) => caption.setData('testimonial_uuid', ev.target.value)}
                                     >
                                         <option value="">{t('None')}</option>
-                                        {testimonials
+                                        {testimonialOptions
                                             .filter((q) => !q.revoked_at && q.business_id === writing?.business_id)
                                             .map((q) => (
                                                 <option key={q.uuid} value={q.uuid}>

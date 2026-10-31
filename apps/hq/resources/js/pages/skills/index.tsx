@@ -2,6 +2,7 @@ import { ReasonAction } from '@/components/completion/reason-action';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -51,12 +52,14 @@ type Delegation = {
 type Props = {
     skills: Skill[];
     delegations: Delegation[];
+    skillsPagination: ListMeta;
+    delegationsPagination: ListMeta;
     delegationOn: boolean;
     options: { tools: string[]; businesses: { id: number; name: string }[]; group_wide: boolean };
     can: { propose: boolean; activate: boolean };
 };
 
-export default function SkillsIndex({ skills, delegations, delegationOn, options, can }: Props) {
+export default function SkillsIndex({ skills, delegations, skillsPagination, delegationsPagination, delegationOn, options, can }: Props) {
     const t = useT();
     const { flash, errors } = usePage<{ flash?: { status?: string }; errors: Record<string, string> }>().props;
     const [open, setOpen] = useState(false);
@@ -183,6 +186,7 @@ export default function SkillsIndex({ skills, delegations, delegationOn, options
                             </table>
                         </div>
                     )}
+                    <Pagination meta={skillsPagination} />
                 </section>
 
                 <section className="flex flex-col gap-3">
@@ -225,6 +229,7 @@ export default function SkillsIndex({ skills, delegations, delegationOn, options
                             </table>
                         </div>
                     )}
+                    <Pagination meta={delegationsPagination} />
                 </section>
 
                 <Dialog open={open} onOpenChange={setOpen}>

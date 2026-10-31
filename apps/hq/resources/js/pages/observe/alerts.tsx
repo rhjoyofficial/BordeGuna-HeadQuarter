@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note, Panel } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
@@ -29,6 +30,7 @@ type AlertRow = {
 type Props = {
     open: AlertRow[];
     resolved: AlertRow[];
+    resolvedPagination: ListMeta;
     rules: { key: string; paged_by: string | null }[];
 };
 
@@ -48,7 +50,7 @@ function Delivery({ alert }: { alert: AlertRow }) {
     );
 }
 
-export default function Alerts({ open, resolved, rules }: Props) {
+export default function Alerts({ open, resolved, resolvedPagination, rules }: Props) {
     const t = useT();
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -113,6 +115,7 @@ export default function Alerts({ open, resolved, rules }: Props) {
                             { key: 'delivery', label: 'Delivery', render: (a) => <Delivery alert={a} /> },
                         ]}
                     />
+                    <Pagination meta={resolvedPagination} />
                 </Panel>
 
                 <Panel title="What HQ checks">
@@ -129,8 +132,8 @@ export default function Alerts({ open, resolved, rules }: Props) {
                 </Panel>
 
                 <Note>
-                    Checks run on the scheduler. While the scheduler is stopped no check runs and no alert opens or clears; the Platform screen shows its
-                    last tick.
+                    Checks run on the scheduler. While the scheduler is stopped no check runs and no alert opens or clears; the Platform screen shows
+                    its last tick.
                 </Note>
 
                 <Note>

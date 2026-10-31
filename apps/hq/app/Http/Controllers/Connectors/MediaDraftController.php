@@ -8,6 +8,7 @@ use App\Models\Business;
 use App\Models\MediaDraft;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -26,8 +27,11 @@ final class MediaDraftController extends ConnectorController
     {
         $user = $request->user();
 
+        $page = ListPage::paginate(MediaDraft::query()->visibleTo($user)->with('business:id,name')->latest('id'), $request);
+
         return Inertia::render('media-drafts/index', [
-            'drafts' => MediaDraft::query()->visibleTo($user)->with('business:id,name')->latest('id')->limit(50)->get()->map(fn (MediaDraft $d) => [
+            'pagination' => $page->meta(),
+            'drafts' => $page->getCollection()->map(fn (MediaDraft $d) => [
                 'uuid' => $d->uuid, 'business' => $d->business?->name, 'brief' => $d->brief, 'status' => $d->status, 'provider' => $d->provider, 'error' => $d->error,
                 'review_note' => $d->review_note, 'has_video' => $d->result_media_asset_id !== null, 'created_at' => $d->created_at?->toIso8601String(),
             ])->all(),

@@ -10,6 +10,7 @@ use App\OwnerConsole\Refused;
 use App\OwnerConsole\Watches\EventWatchDefinitions;
 use App\OwnerConsole\Watches\EventWatchService;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -27,11 +28,12 @@ final class EventWatchController extends Controller
     public function index(Request $request): Response
     {
         $user = $request->user();
-        $watches = $this->scope->restrict(EventWatch::query(), $user)->with('business:id,name')->latest('id')->limit(100)->get();
+        $page = ListPage::paginate($this->scope->restrict(EventWatch::query(), $user)->with('business:id,name')->latest('id'), $request);
 
         return Inertia::render('watches/index', [
             'enabled' => Flag::on(Flag::EVENT_WATCHES),
-            'watches' => $watches->map(fn (EventWatch $w) => [
+            'pagination' => $page->meta(),
+            'watches' => $page->getCollection()->map(fn (EventWatch $w) => [
                 'uuid' => $w->uuid, 'name' => $w->name, 'business' => $w->business?->name, 'event_type' => $w->event_type, 'conditions' => $w->conditions,
                 'action' => $w->action === null ? null : ['tool_key' => $w->action['tool_key']], 'state' => $w->state, 'max_per_hour' => $w->max_per_hour,
                 'max_per_day' => $w->max_per_day, 'fire_count' => $w->fire_count, 'last_fired_at' => $w->last_fired_at?->toIso8601String(),

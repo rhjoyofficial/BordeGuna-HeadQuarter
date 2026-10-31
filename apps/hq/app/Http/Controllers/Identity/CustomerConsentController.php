@@ -17,6 +17,7 @@ use App\Models\ConsentProjection;
 use App\Models\Customer;
 use App\Models\CustomerIdentity;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use App\Tools\Consent\LiftRestrictionTool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -129,11 +130,10 @@ final class CustomerConsentController extends Controller
                 'two_person' => $p->state === ConsentState::DoNotContact,
             ]);
 
-        $history = ConsentEvent::query()->with('brand:id,code,name')
+        $historyPage = ListPage::paginate(ConsentEvent::query()->with('brand:id,code,name')
             ->where('customer_id', $customer->id)->where('business_id', $customer->business_id)
-            ->orderByDesc('occurred_at')->orderByDesc('id')
-            ->limit(200)
-            ->get()
+            ->orderByDesc('occurred_at')->orderByDesc('id'), $request, 'history_page');
+        $history = $historyPage->getCollection()
             ->map(fn (ConsentEvent $e) => [
                 'id' => $e->id,
                 'brand' => $e->brand?->name,
@@ -188,6 +188,7 @@ final class CustomerConsentController extends Controller
             'identity_grid' => $identityGrid,
             'position' => $position,
             'history' => $history,
+            'historyPagination' => $historyPage->meta(),
             'pending_lifts' => $pendingLifts,
             'can' => [
                 'restrict' => $user->can('hq.consent.restrict'),
