@@ -31,6 +31,11 @@ enum OutcomeClass: string
     case InvalidArguments = 'invalid_arguments';
     case CapabilityUnavailable = 'capability_unavailable';
     /**
+     * Ruling 31 Oct item 7: the tool is registered (its descriptor is in the catalogue) and its feature flag is OFF, read live
+     * for this call. Distinct from an unknown tool. A control-plane refusal: nothing left HQ.
+     */
+    case FeatureDisabled = 'feature_disabled';
+    /**
      * docs/97 §6 D4: authorized, and refused BEFORE execution by a content check the tool opts into (the
      * reply's script, docs/92). Not a permission or policy denial: the caller may do this, and this
      * content may not go. The runtime may repair it once (docs/92 A.5).
@@ -62,7 +67,7 @@ enum OutcomeClass: string
     {
         return match ($this) {
             self::PolicyDenied, self::PermissionDenied, self::ConsentDenied, self::AutonomyDenied, self::ScopeDenied,
-            self::ApprovalRequired, self::InvalidArguments, self::CapabilityUnavailable, self::ContentPolicyRejected => self::SIDE_CONTROL_PLANE,
+            self::ApprovalRequired, self::InvalidArguments, self::CapabilityUnavailable, self::FeatureDisabled, self::ContentPolicyRejected => self::SIDE_CONTROL_PLANE,
             self::CredentialMissing, self::CredentialInvalid, self::ProviderUnauthorized, self::ProviderUnavailable,
             self::ProviderBlockedByCredit, self::ConnectorError, self::NetworkError, self::Timeout => self::SIDE_EXTERNAL,
             self::InternalError, self::Uncertain => self::SIDE_HQ,
@@ -93,6 +98,7 @@ enum OutcomeClass: string
             self::ApprovalRequired => 'waiting for approval',
             self::InvalidArguments => 'refused: invalid arguments',
             self::CapabilityUnavailable => 'not available: no tool, switch or adapter',
+            self::FeatureDisabled => 'not available: its feature flag is off',
             self::ContentPolicyRejected => 'refused before execution: the content does not meet a content policy',
             self::CredentialMissing => 'no credential stored',
             self::CredentialInvalid => 'credential known to be rejected',

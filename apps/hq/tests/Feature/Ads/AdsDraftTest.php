@@ -11,6 +11,7 @@ use App\Ads\Draft\MetaAdsDraftPlatform;
 use App\Commerce\Exceptions\Unsupported;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
+use App\Gateway\OutcomeClass;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\AdsDraft;
@@ -331,11 +332,11 @@ it('marks a token Meta says is invalid, and says what is missing when it cannot 
     expect($missing->ok())->toBeFalse();
 });
 
-it('is not a tool at all while its switch is off', function () {
+it('is refused feature_disabled while its switch is off (always registered, ruling 31 Oct item 7)', function () {
     m3SandboxConnectors([]);
 
     $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'meta.check_token_health', ['kind' => 'meta_page_token', 'account_ref' => '1']));
-    expect($outcome->ok())->toBeFalse()->and((string) $outcome->error)->toContain('Unknown tool');
+    expect($outcome->ok())->toBeFalse()->and($outcome->class)->toBe(OutcomeClass::FeatureDisabled)->and((string) $outcome->error)->not->toContain('Unknown tool');
 });
 
 // ── the Connectors screen ───────────────────────────────────────────────────────────────────────

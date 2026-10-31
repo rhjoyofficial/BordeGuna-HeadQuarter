@@ -151,7 +151,7 @@ abstract class ConnectorTool implements Tool
         }
 
         if (! app(Features::class)->enabled($this->flag(), $business?->id)) {
-            return ToolResult::failed('Not connected yet: the switch ['.$this->flag().'] is off.', ['connector_state' => 'disabled'], OutcomeClass::CapabilityUnavailable);
+            return ToolResult::failed('Not connected yet: the switch ['.$this->flag().'] is off.', ['connector_state' => 'disabled'], OutcomeClass::FeatureDisabled);
         }
 
         return $this->run($business, $payload, $context);

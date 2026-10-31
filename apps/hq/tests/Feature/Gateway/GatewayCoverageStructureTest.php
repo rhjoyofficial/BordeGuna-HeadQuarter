@@ -190,7 +190,13 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => $registry->get($key)->descriptor()->hasEffect()));
     sort($effectful);
 
+    // R2 pin edit (ruling 31 Oct item 7): the flag-gated tools are always registered now, so the effectful ones are listed
+    // here, each marked. Every one ships with its flag OFF and is refused `feature_disabled` while off.
     expect($effectful)->toBe([
+        // docs/144: Meta ad DRAFT (paused), R4, flag connectors.ads_draft.
+        'ads.create_draft',
+        // docs/145-b: avatar clip on recorded consent, R4, permanently human-only, flag avatar.generation, media budget.
+        'avatar.generate',
         'briefing.compose',
         // docs/143 D: the owner-only Telegram brief. R4, approval-required, not agent-executable, flag OFF.
         'briefing.send_owner_telegram',
@@ -199,6 +205,9 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
         'commerce.take_order',
         // docs/114 §3 (S7 follow-up): the two-person lift of a do-not-contact, docs/105 §1.2 row 9.
         'consent.lift_restriction',
+        // docs/144: courier tracking reads (HQ rows written), flag connectors.courier.
+        'courier.poll_parcels',
+        'courier.track_parcel',
         // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of one identity conflict.
         // R3 write of HQ rows only, permanently human-only, permission hq.customers.identity_conflicts.resolve. docs/105 §1.2 row 12.
         'customers.identity_conflicts.resolve',
@@ -206,13 +215,23 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
         // permanently human-only, permission hq.customers.quarantine.repair. docs/105 §1.2 row 11.
         'customers.quarantine.repair',
         'demo.request_approval',
+        // docs/144-erp-write-contract: ERP DRAFT bill, R4, second approval, flag connectors.erp_draft_bill.
+        'erp.create_draft_bill',
         'erp.poll_low_stock',
         'erp.poll_overview',
+        // docs/144: supplier mailbox read into DRAFTS, flag connectors.mail_ingestion.
+        'mail.poll_inbox',
+        // docs/144-media-pipeline: reel draft (R4) and its status check, flag connectors.media_pipeline.
+        'media.check_draft',
+        'media.draft_reel',
         'messaging.send_reply',
         'messaging.send_whatsapp_reply',
         // docs/115 §4 (ruling Q11): the operator-asserted attribution. R3 write of one HQ ledger row through
         // OutcomeRecorder, permanently human-only, held by no agent. Added here deliberately, with docs/105 §1.2 row 9.
         'outcomes.attribute',
+        // docs/144-voice-provider: TTS and STT, flag connectors.voice (inert; STT has no production default, ruling item 8).
+        'voice.synthesize',
+        'voice.transcribe',
     ]);
 
     // Every concrete tool class in app/Tools has a readable descriptor, so the effect rule applies to it the day it

@@ -1,6 +1,8 @@
 <?php
 
 use App\Gateway\Approval\ApprovalExecutor;
+use App\Gateway\Approval\ApprovalStatus;
+use App\Gateway\OutcomeClass;
 use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
@@ -97,11 +99,19 @@ it('is refused for a person without hq.briefing.deliver, and is neither agent-ex
 });
 
 it('fails before reading anything while the flag is off', function () {
+    // R2 pin edit (ruling 31 Oct item 7): the tool is always registered and its flag is read by the gateway on every call. Parked
+    // while ON, then switched OFF: the approval no longer executes it. Asked while OFF: refused `feature_disabled`, nothing parked.
+    $parked = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->asker, 'briefing.send_owner_telegram', $this->args, $this->lld->id));
     FeatureFlag::query()->where('key', Flag::TELEGRAM_BRIEF)->update(['enabled' => false]);
-    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->asker, 'briefing.send_owner_telegram', $this->args, $this->lld->id));
-    $done = app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($outcome->approvalId), $this->approver);
+    $done = app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($parked->approvalId), $this->approver);
 
-    expect($done->ok())->toBeFalse()->and($this->fake->sent)->toBe([])->and(OwnerBriefDelivery::count())->toBe(0);
+    // The approval guard reads the same live availability and refuses before claiming: the approval stays pending, nothing runs.
+    expect($done->ok())->toBeFalse()->and((string) $done->error)->toContain("feature flag [console.telegram_brief] is off")
+        ->and(Approval::findOrFail($parked->approvalId)->status)->toBe(ApprovalStatus::Pending)
+        ->and($this->fake->sent)->toBe([])->and(OwnerBriefDelivery::count())->toBe(0);
+
+    $off = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->asker, 'briefing.send_owner_telegram', $this->args, $this->lld->id));
+    expect($off->ok())->toBeFalse()->and($off->class)->toBe(OutcomeClass::FeatureDisabled)->and(Approval::count())->toBe(1);
 });
 
 it('refuses at request time a business the person may not act for, and has no group briefing tool in v1', function () {

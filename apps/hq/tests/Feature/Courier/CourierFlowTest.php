@@ -2,6 +2,7 @@
 
 use App\Courier\CourierTracker;
 use App\Courier\ParcelTimeline;
+use App\Gateway\OutcomeClass;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Business;
@@ -132,11 +133,11 @@ it('echoes the Pathao pairing secret in the reply of an authentic call only', fu
 it('tracks a parcel through the gateway, refuses while the switch is off, and says what is missing when no connector is ready', function () {
     $args = ['business_slug' => $this->mine->slug, 'courier' => 'pathao', 'consignment_ref' => 'FAKE-DELIVERED-9'];
 
-    // Switch off: the tool is not in the registry at all, so the gateway refuses it as unknown, for everyone; and the tool
-    // itself refuses too, if it is ever called directly.
+    // Switch off (ruling 31 Oct item 7): the tool stays registered and the gateway refuses it with the typed `feature_disabled`,
+    // for everyone; and the tool itself refuses too, if it is ever called directly.
     m3SandboxConnectors([]);
     $off = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'courier.track_parcel', $args, $this->mine->id));
-    expect($off->ok())->toBeFalse()->and((string) $off->error)->toContain('Unknown tool');
+    expect($off->ok())->toBeFalse()->and($off->class)->toBe(OutcomeClass::FeatureDisabled);
     $direct = app(TrackParcelTool::class)->execute($args, new ToolContext('k', 'c', $this->mine->id));
     expect($direct->ok())->toBeFalse()->and((string) $direct->error)->toContain('Not connected yet');
 

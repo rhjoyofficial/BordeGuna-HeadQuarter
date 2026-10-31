@@ -27,6 +27,7 @@ use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Support\Events\Handlers\SupportWakeUpHandler;
+use App\Tools\Avatar\GenerateAvatarTool;
 use App\Tools\Briefing\ComposeBriefingTool;
 use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use App\Tools\Commerce\CancelSalesOrderTool;
@@ -135,8 +136,8 @@ return [
         // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
         // model while narration is off, which is the shipped state. No scheduled job runs it.
         ComposeBriefingTool::class,
-        // docs/143 D: the owner-only Telegram brief. R4 (approval), not agent-executable, flag console.telegram_brief OFF.
-        SendOwnerTelegramBriefTool::class,
+        // docs/143 D: the owner-only Telegram brief moved to `flagged_tools` below (ruling 31 Oct item 7): always registered,
+        // available only while `console.telegram_brief` is ON.
 
         // Phase 4 read side (docs/81 C.5, docs/79): what HQ must know before it could ever take an
         // order, read live from the ERP. Every one is R2 and read-only. ⛔ NO agent holds any of them
@@ -192,11 +193,13 @@ return [
         ResolveIdentityConflictTool::class,
     ],
 
-    // docs/144 (HQ-completion connectors): tools that exist ONLY while their feature flag is ON. With the flag off (the shipped
-    // state, flags seeded OFF) a tool is not in the registry at all, so the gateway answers "unknown tool" for everyone, which is
-    // the same lock `tools` above is for the older ones, held per flag. Switching a flag on adds its tools on the next request
-    // (web) or the next worker restart (queues); switching it off removes them. None is agent-executable and no agent holds one.
-    // Each still checks its own flag, its permission, its business scope and its credential; R4 ones wait for approval.
+    // Applied ruling 31 Oct item 7 (docs/144-connectors-overview "Applied ruling 31 Oct"): ALWAYS-REGISTERED descriptors with
+    // FLAG-GATED availability. Every class below is in the ToolRegistry whatever its flag says, so its descriptor is in the
+    // canonical catalogue. Its AVAILABILITY is the flag, read live on every call by ToolAvailability and again by the gateway for
+    // the resolved business: with the flag off the call is refused with the typed outcome `feature_disabled` (not "unknown
+    // tool"), and AgentToolset never lists it to an agent. A queue worker started while a flag was on reads the flag afresh on
+    // each call, so it never runs a tool whose flag has since gone off. A flag ON is ONE more AND: it grants no permission, no
+    // agent tool, no autonomy grant and no approval; R4 tools still wait for a person. None is agent-executable; no agent holds one.
     'flagged_tools' => [
         'connectors.courier' => [TrackParcelTool::class, PollParcelsTool::class],
         'connectors.voice' => [VoiceTranscribeTool::class, VoiceSynthesizeTool::class],
@@ -205,6 +208,11 @@ return [
         'connectors.erp_draft_bill' => [CreateDraftBillTool::class],
         'connectors.ads_draft' => [CreateAdsDraftTool::class],
         'connectors.meta_health' => [CheckMetaTokenTool::class],
+        // docs/143 D (M2): the owner-only Telegram brief. R4, approval, flag OFF.
+        'console.telegram_brief' => [SendOwnerTelegramBriefTool::class],
+        // docs/145-b (M4): avatar generation on a recorded consent. R4, permanently human-only, flag `avatar.generation` OFF
+        // (no row), no provider bound, and the media budget (default BDT 0) refuses it before any provider call.
+        'avatar.generation' => [GenerateAvatarTool::class],
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)
