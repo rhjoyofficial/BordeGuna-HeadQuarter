@@ -182,7 +182,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // Pause All AI) drafts its words, reviews them, skips it; the owner writes or retires a claims rule; a person builds
         // a research digest from filed research. None publishes, searches, fetches or reaches a customer.
         'POST content/calendar', 'POST content/calendar/{entry}/draft', 'POST content/calendar/{entry}/ai-draft', 'POST content/calendar/{entry}/review',
-        'POST content/calendar/{entry}/skip', 'POST content/claims-rules', 'POST content/claims-rules/{rule}/retire', 'POST research/digests',
+        'POST content/calendar/{entry}/skip', 'POST content/claims-rules', 'POST content/claims-rules/{rule}/retire',
+        // Ruling 13 (31 Oct 2026): recorded testimonials, behind hq.content.claims.manage.
+        'POST content/testimonials', 'POST content/testimonials/{testimonial}/revoke', 'POST research/digests',
         // Phase 8: record or revoke a written consent; a clip request is a gateway request for avatar.generate (R4, approval,
         // permanently human-only, registered nowhere).
         'POST avatar/consents', 'POST avatar/consents/{consent}/revoke', 'POST avatar/generate',

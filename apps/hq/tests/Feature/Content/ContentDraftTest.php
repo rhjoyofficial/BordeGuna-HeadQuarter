@@ -7,6 +7,7 @@ use App\Models\ContentBrief;
 use App\Models\ContentDraft;
 use App\Models\FeatureFlag;
 use App\Models\MediaAsset;
+use App\Models\User;
 use App\Research\ArtifactFiler;
 use App\Research\ResearchRefused;
 use App\Research\ResearchService;
@@ -156,7 +157,8 @@ it('approves only a checked draft', function () {
     $good = cdDraft($this->w, $this->brief, 'Mustard oil, 450 taka.');
 
     expect(fn () => app(ContentDraftService::class)->review($bad, 'approved', $this->w['user']))->toThrow(ResearchRefused::class, 'cannot be approved');
-    expect(app(ContentDraftService::class)->review($good, 'approved', $this->w['user'])->status)->toBe('approved');
+    // Ruling 15 (31 Oct 2026): a person other than the writer reviews.
+    expect(app(ContentDraftService::class)->review($good, 'approved', User::factory()->create())->status)->toBe('approved');
 });
 
 it('digests the exact words, assets, platform and variant', function () {

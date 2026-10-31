@@ -12,6 +12,7 @@ use App\Models\Agent;
 use App\Models\ContentDraft;
 use App\Models\PlatformAccount;
 use App\Models\ResearchTask;
+use App\Models\User;
 use App\Platform\PlatformRegistry;
 use App\Scheduling\ScheduledJobService;
 use App\Support\Features\Features;
@@ -135,7 +136,7 @@ it('refuses publication even with every flag on, because the live re-read is not
         'capabilities' => ['publish_post'], 'approval_status' => 'approved', 'is_active' => true]);
     $draft = app(ContentDraftService::class)->create(['brief_id' => $brief->id, 'text' => 'দাম ৪৫০ টাকা।', 'text_provenance' => 'business',
         'platform' => 'facebook_page', 'product_lines' => ['mustard_oil'], 'product_facts' => [PhaseSix::erpPrice('MO-1L', '450')]]);
-    app(ContentDraftService::class)->review($draft, 'approved', $w['user']);
+    app(ContentDraftService::class)->review($draft, 'approved', User::factory()->create()); // ruling 15: an independent reviewer
 
     $result = app(PublishPostTool::class)->execute([
         'business_slug' => $w['business']->slug, 'draft_uuid' => $draft->uuid, 'platform_account_id' => $account->id,
