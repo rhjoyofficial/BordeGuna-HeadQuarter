@@ -1,18 +1,17 @@
 import { approvalStatus, riskTone } from '@/components/approvals/shared';
-import { Button } from '@/components/ui/button';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
-import { Link, router } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 import { ArrowRight } from 'lucide-react';
-import { useState } from 'react';
 import { ago } from './age';
 import { type DecisionCardData, type Receipt } from './types';
 
 /**
  * A decision card (docs/135 (f) decision 5). It says what is waiting and opens the approval; it never
  * approves, rejects or edits. ADR-018 binds an approval to the exact payload a person read, and that
- * payload is on the approval's own page, not on this card.
+ * payload is on the approval's own page, not on this card. 31 Oct ruling 3: the approve-in-place action
+ * was removed; tests/Feature/Observe/ConsoleTest and OwnerConsole/ApprovalPathStructureTest hold it.
  */
 export function DecisionCard({ card }: { card: DecisionCardData }) {
     const t = useT();
@@ -27,17 +26,6 @@ export function DecisionCard({ card }: { card: DecisionCardData }) {
               ? t('Requester not recorded')
               : t('Requested from the console or an evaluation');
     const where = [card.business, card.store].filter(Boolean).join(', ');
-    const [busy, setBusy] = useState(false);
-    // docs/143 C: one click, but only after the payload is on screen; the click sends the hash that was shown.
-    const approveHere = () => {
-        if (!card.quick) return;
-        setBusy(true);
-        router.post(
-            `/approvals/${card.id}/quick-approve`,
-            { payload_hash: card.quick.hash },
-            { preserveScroll: true, onFinish: () => setBusy(false) },
-        );
-    };
 
     return (
         <li className="hq-glass flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -58,15 +46,6 @@ export function DecisionCard({ card }: { card: DecisionCardData }) {
                     {t('asked {age}', { age: ago(t, card.created_at) })}
                 </div>
                 {!card.decidable && <div className="text-muted-foreground text-xs">{t('You can read this one; someone else decides it.')}</div>}
-                {card.quick && (
-                    <details className="text-sm">
-                        <summary className="text-hq-violet cursor-pointer text-xs">{t('Show what will run')}</summary>
-                        <code className="bg-muted/60 mt-1 block rounded-md px-2 py-1 text-xs break-all">{card.quick.payload}</code>
-                        <Button size="sm" className="mt-2" disabled={busy} onClick={approveHere}>
-                            {t('Approve this now')}
-                        </Button>
-                    </details>
-                )}
             </div>
             <Link
                 href={card.href}

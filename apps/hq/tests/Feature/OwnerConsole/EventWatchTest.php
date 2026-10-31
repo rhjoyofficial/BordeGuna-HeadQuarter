@@ -1,5 +1,6 @@
 <?php
 
+use App\Gateway\Approval\ApprovalExecutor;
 use App\Models\Approval;
 use App\Models\AuditLog;
 use App\Models\Brand;
@@ -10,7 +11,9 @@ use App\Models\UserBusinessScope;
 use App\Models\WatchFiring;
 use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
+use App\OwnerConsole\Watches\EventWatchDefinitions;
 use App\OwnerConsole\Watches\EventWatchService;
+use App\Tools\ToolRegistry;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Support\Str;
 
@@ -31,6 +34,8 @@ beforeEach(function () {
     $this->seed(DomainSeeder::class);
     FeatureFlag::query()->where('key', Flag::EVENT_WATCHES)->update(['enabled' => true]);
     $this->owner = $this->hqUser('owner');
+    // Ruling 31 Oct item 6: an action watch is enabled by somebody other than the person who proposed it.
+    $this->enabler = $this->hqUser('owner');
     $this->lld = Brand::where('code', 'LLD')->sole()->business_id;
     $this->bnc = Brand::where('code', 'BNC')->sole()->business_id;
     $this->watches = app(EventWatchService::class);
@@ -41,15 +46,16 @@ function ocEnabled(int $business, ?array $action, array $over = []): EventWatch
 {
     $watch = test()->watches->propose(test()->owner, $business, 'Big orders', 'order.created', [['path' => 'total', 'op' => 'gte', 'value' => 500]], $action, $over['hour'] ?? 5, $over['day'] ?? 20);
 
-    return test()->watches->enable($watch, test()->owner);
+    return test()->watches->enable($watch, test()->enabler);
 }
 
 it('is born proposed and matches nothing until a named person enables it', function () {
     $watch = $this->watches->propose($this->owner, $this->lld, 'Big orders', 'order.created', [['path' => 'total', 'op' => 'gte', 'value' => 500]], $this->action);
     expect($watch->state)->toBe('proposed')->and($this->watches->deliver(ocEvent($this->lld)))->toBe(0)->and(WatchFiring::count())->toBe(0);
 
-    $watch = $this->watches->enable($watch, $this->owner);
-    expect($watch->state)->toBe('enabled')->and($watch->enabled_by_user_id)->toBe($this->owner->id)
+    expect(fn () => $this->watches->enable($watch, $this->owner))->toThrow(Refused::class, 'somebody else enables it');
+    $watch = $this->watches->enable($watch->fresh(), $this->enabler);
+    expect($watch->state)->toBe('enabled')->and($watch->enabled_by_user_id)->toBe($this->enabler->id)
         ->and(AuditLog::where('action', 'event_watch.enabled')->exists())->toBeTrue();
 });
 
@@ -145,11 +151,138 @@ it('validates conditions: an unknown operator or a non-scalar value is refused',
 });
 
 it('is reached by the real event drain, once, and a watch that throws cannot cost the drain its event', function () {
-    // A type no handler is registered for, so the drain reaches the watches without a shop payload.
-    $watch = $this->watches->propose($this->owner, $this->lld, 'Drain', 'watch.test', [], null);
+    // A watchable type whose handler is set aside here, so the drain reaches the watches without a shop payload.
+    $handlers = config('hq.events.handlers');
+    $handlers['customer.registered'] = [];
+    config(['hq.events.handlers' => $handlers]);
+    $watch = $this->watches->propose($this->owner, $this->lld, 'Drain', 'customer.registered', [], null);
     $this->watches->enable($watch, $this->owner);
-    $event = ocEvent($this->lld, ['total' => 1], 'watch.test');
+    $event = ocEvent($this->lld, ['_store' => 'x'], 'customer.registered');
 
     $this->artisan('hq:events:process')->assertSuccessful();
     expect(WatchFiring::count())->toBe(1)->and($event->fresh()->status)->toBe('processed');
+});
+
+/*
+ | ChatGPT ruling 31 Oct 2026, item 6 (approved with conditions).
+ */
+
+it('enforces the 20/hour ceiling per BUSINESS across all its watches, server-side, whatever each watch allows', function () {
+    foreach (range(1, 2) as $i) {
+        $w = $this->watches->propose($this->owner, $this->lld, "Business watch {$i}", 'order.created', [], null, EventWatchService::MAX_PER_HOUR, EventWatchService::MAX_PER_DAY);
+        $this->watches->enable($w, $i === 1 ? $this->owner : $this->enabler);
+    }
+    foreach (range(1, 12) as $i) {
+        $this->watches->deliver(ocEvent($this->lld));
+    }
+
+    // 24 matches, two watches each allowing 20: the business as a whole stops at 20.
+    expect(WatchFiring::where('outcome', 'notified')->count())->toBe(EventWatchService::MAX_PER_HOUR)
+        ->and(WatchFiring::where('outcome', 'rate_limited')->count())->toBe(4)
+        ->and(WatchFiring::where('outcome', 'rate_limited')->pluck('detail')->unique()->values()->all())->toBe(['The business reached its watch limit (20 an hour, 100 a day); nothing was proposed.']);
+
+    // Another business is not charged for it.
+    $other = $this->watches->propose($this->owner, $this->bnc, 'Other business', 'order.created', [], null);
+    $this->watches->enable($other, $this->owner);
+    expect($this->watches->deliver(ocEvent($this->bnc)))->toBe(1)->and(WatchFiring::where('event_watch_id', $other->id)->value('outcome'))->toBe('notified');
+});
+
+it('enforces the 20/hour ceiling per RESPONSIBLE ACTOR across businesses', function () {
+    foreach ([$this->lld, $this->bnc] as $business) {
+        $w = $this->watches->propose($this->owner, $business, 'Actor watch', 'order.created', [], null, EventWatchService::MAX_PER_HOUR, EventWatchService::MAX_PER_DAY);
+        $this->watches->enable($w, $this->enabler);
+    }
+    foreach (range(1, 11) as $i) {
+        $this->watches->deliver(ocEvent($this->lld));
+        $this->watches->deliver(ocEvent($this->bnc));
+    }
+
+    // 22 matches over two businesses (11 each, under each business ceiling), one responsible person: 20, then limited.
+    expect(WatchFiring::where('outcome', 'notified')->count())->toBe(EventWatchService::MAX_PER_HOUR)
+        ->and(WatchFiring::where('outcome', 'rate_limited')->pluck('detail')->unique()->values()->all())
+        ->toBe(['The person responsible for these watches reached the limit (20 an hour, 100 a day); nothing was proposed.']);
+});
+
+it('enforces the 100/day ceiling per business, counting the last day and not only the last hour', function () {
+    $w = $this->watches->propose($this->owner, $this->lld, 'Day watch', 'order.created', [], null, EventWatchService::MAX_PER_HOUR, EventWatchService::MAX_PER_DAY);
+    $this->watches->enable($w, $this->owner);
+    $rows = [];
+    foreach (range(1, EventWatchService::MAX_PER_DAY) as $i) {
+        $rows[] = ['event_watch_id' => $w->id, 'event_id' => (string) Str::uuid(), 'outcome' => 'notified', 'created_at' => now()->subHours(3), 'updated_at' => now()->subHours(3)];
+    }
+    WatchFiring::query()->insert($rows);
+
+    $this->watches->deliver(ocEvent($this->lld));
+    expect(WatchFiring::latest('id')->first()->outcome)->toBe('rate_limited');
+});
+
+it('only watches bounded, versioned event definitions and only their listed fields', function () {
+    expect(fn () => $this->watches->propose($this->owner, $this->lld, 'x', 'watch.anything', [], null))->toThrow(Refused::class, 'no watchable event');
+    expect(fn () => $this->watches->propose($this->owner, $this->lld, 'x', 'conversation.message_received', [], null))->toThrow(Refused::class, 'no watchable event');
+    expect(fn () => $this->watches->propose($this->owner, $this->lld, 'x', 'order.created', [['path' => 'customer.phone', 'op' => 'eq', 'value' => '1']], null))->toThrow(Refused::class, 'no field');
+
+    $watch = ocEnabled($this->lld, null);
+    expect($watch->event_version)->toBe(EventWatchDefinitions::version('order.created'));
+    foreach (EventWatchDefinitions::types() as $type) {
+        expect($type)->not->toStartWith('conversation.');
+    }
+
+    // A watch proposed against another version of the definition no longer fires and cannot be re-enabled.
+    EventWatch::query()->whereKey($watch->id)->update(['event_version' => 99]);
+    $this->watches->deliver(ocEvent($this->lld));
+    expect(WatchFiring::first()->outcome)->toBe('definition_changed')->and(Approval::count())->toBe(0);
+    $this->watches->disable($watch->fresh(), $this->owner);
+    expect(fn () => $this->watches->enable($watch->fresh(), $this->owner))->toThrow(Refused::class, 'has changed');
+});
+
+it('never lets the action be rewritten after the watch is proposed, by a person or a model', function () {
+    $watch = ocEnabled($this->lld, $this->action);
+
+    expect(fn () => $watch->fresh()->update(['action' => ['tool_key' => 'demo.request_approval', 'args' => ['note' => 'rewritten']]]))->toThrow(LogicException::class);
+    expect(fn () => $watch->fresh()->update(['conditions' => []]))->toThrow(LogicException::class);
+    expect(fn () => $watch->fresh()->update(['business_id' => $this->bnc]))->toThrow(LogicException::class);
+    expect($watch->fresh()->action)->toEqualCanonicalizing($this->action);
+
+    // The service has no update path; enabling and disabling touch state only.
+    $source = file_get_contents(app_path('OwnerConsole/Watches/EventWatchService.php'));
+    expect(substr_count($source, "'action' => \$stored,"))->toBe(1)
+        ->and($source)->not->toMatch("/->update\([^;]*'action'/")
+        ->and(preg_match_all('/EventWatch::query\(\)->create\(/', $source))->toBe(1);
+});
+
+it('creates notify-only watches from the screen: an action posted to the route is never stored', function () {
+    $this->actingAsHq($this->owner)->post('/watches', [
+        'business_id' => $this->lld, 'name' => 'Screen watch', 'event_type' => 'order.created',
+        'action_tool_key' => 'demo.request_approval', 'action_args' => ['note' => 'sneaky'],
+    ])->assertRedirect();
+
+    expect(EventWatch::sole()->action)->toBeNull();
+});
+
+it('never proposes a customer-facing action: no autonomous customer messaging', function () {
+    $customerFacing = collect(app(ToolRegistry::class)->keys())
+        ->first(fn ($key) => EventWatchService::messagesCustomers(app(ToolRegistry::class)->get($key)->descriptor()));
+    expect($customerFacing)->not->toBeNull();
+
+    expect(fn () => $this->watches->propose($this->owner, $this->lld, 'x', 'order.created', [], ['tool_key' => $customerFacing, 'args' => []]))
+        ->toThrow(Refused::class);
+    expect(EventWatch::count())->toBe(0);
+});
+
+it('executes nothing on a trigger: the approval it parks stays pending, and only a person approving it runs the action through the gateway', function () {
+    ocEnabled($this->lld, $this->action);
+    $this->watches->deliver(ocEvent($this->lld));
+
+    $approval = Approval::sole();
+    expect($approval->status->value)->toBe('pending')->and($approval->requested_by_user_id)->toBe($this->enabler->id)
+        ->and(AuditLog::where('action', 'demo.approved_action_executed')->count())->toBe(0);
+
+    // Its own authorization: a person other than the one who enabled the watch decides it, through the one approval path.
+    app(ApprovalExecutor::class)->approveAndExecute($approval, $this->owner);
+    expect(AuditLog::where('action', 'demo.approved_action_executed')->count())->toBe(1);
+
+    // The trigger path itself holds no executor and no approval decision.
+    $source = file_get_contents(app_path('OwnerConsole/Watches/EventWatchService.php'));
+    expect($source)->not->toContain('ApprovalExecutor')->and($source)->not->toContain('approveAndExecute')
+        ->and($source)->not->toContain('->approve(');
 });

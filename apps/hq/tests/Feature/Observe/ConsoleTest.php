@@ -237,10 +237,6 @@ it('adds no route: the console is the one GET it always was, and its only form p
     foreach ($files as $file) {
         $source = file_get_contents($file);
         // Every post, put, patch or delete on the console goes to /ask and nowhere else; nothing approves.
-        // The one exception is docs/143 C, in decisions.tsx only: the flag-gated one-click card, which posts the hash of the payload it
-        // has just shown to /approvals/{id}/quick-approve (same executor, same guards, tier below R5, flag OFF). Nothing rejects.
-        $oneClick = basename($file) === 'decisions.tsx';
-        $source = $oneClick ? preg_replace('/router\.post\(\s*`\/approvals\/\$\{card\.id\}\/quick-approve`/', 'ONE_CLICK(`/approvals/QUICK`', $source) : $source;
         preg_match_all('/\.(post|put|patch|delete)\(\s*[\'"`]([^\'"`]+)/', $source, $m);
         expect(array_unique($m[2]))->each->toBe('/ask');
         expect($source)->not->toContain('/approve')

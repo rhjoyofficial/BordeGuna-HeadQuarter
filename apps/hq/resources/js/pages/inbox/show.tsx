@@ -327,7 +327,12 @@ export default function InboxShow({
                             </div>
                         </section>
 
-                        <ReplyOptions sets={reply_options} conversation={thread.uuid} canManage={can.manage} />
+                        <ReplyOptions
+                            sets={reply_options}
+                            conversation={thread.uuid}
+                            canManage={can.manage}
+                            recipient={[customerLabel(thread), thread.channel, thread.business].filter(Boolean).join(', ')}
+                        />
 
                         {proposals.length > 0 && (
                             <section>

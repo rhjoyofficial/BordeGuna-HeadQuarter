@@ -93,7 +93,7 @@ export default function DoPlanShow({ enabled, plan, can }: { enabled: boolean; p
                             )}
                             {can.start && plan.state === 'running' && (
                                 <Button size="sm" variant="outline" onClick={() => post('advance')}>
-                                    {t('Check progress')}
+                                    {t('Continue to the next step')}
                                 </Button>
                             )}
                             {can.start && ['proposed', 'running'].includes(plan.state) && (

@@ -6,8 +6,8 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Http\Controllers\Controller;
 use App\Models\Business;
 use App\Models\DoPlan;
+use App\OwnerConsole\Do\DoModeActivation;
 use App\OwnerConsole\Do\DoPlanService;
-use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
 use App\Support\Authorization\BusinessScope;
 use App\Tools\ToolRegistry;
@@ -25,7 +25,7 @@ use Inertia\Response;
  */
 final class DoPlanController extends Controller
 {
-    public function __construct(private readonly DoPlanService $plans, private readonly BusinessScope $scope, private readonly ToolRegistry $tools) {}
+    public function __construct(private readonly DoPlanService $plans, private readonly BusinessScope $scope, private readonly ToolRegistry $tools, private readonly DoModeActivation $activation) {}
 
     public function index(Request $request): Response
     {
@@ -33,7 +33,7 @@ final class DoPlanController extends Controller
             ->latest('id')->limit(50)->get();
 
         return Inertia::render('do-plans/index', [
-            'enabled' => Flag::on(Flag::DO_MODE),
+            'enabled' => $this->activation->active(),
             'plans' => $plans->map(fn (DoPlan $p) => $this->card($p))->all(),
             'businesses' => $this->scope->restrict(Business::query(), $request->user(), 'id')->orderBy('name')->get(['id', 'name']),
             'tools' => $this->eligibleTools(),
@@ -48,7 +48,7 @@ final class DoPlanController extends Controller
         $plan->load(['business:id,name', 'startedBy:id,email', 'proposedBy:id,email', 'steps.approval:id,status,tool_key']);
 
         return Inertia::render('do-plans/show', [
-            'enabled' => Flag::on(Flag::DO_MODE),
+            'enabled' => $this->activation->active(),
             'plan' => $this->card($plan) + [
                 'halt_reason' => $plan->halt_reason,
                 'steps' => $plan->steps->map(fn ($s) => [
@@ -92,7 +92,8 @@ final class DoPlanController extends Controller
     {
         $this->assertVisible($request, $plan);
 
-        return $this->act(fn () => $this->plans->advance($plan), 'do-plan-refreshed');
+        // A named person continues the plan: the only way the next effectful step is put to the gateway (ruling 31 Oct item 1).
+        return $this->act(fn () => $this->plans->advance($plan, $request->user()), 'do-plan-refreshed');
     }
 
     public function cancel(Request $request, DoPlan $plan): RedirectResponse

@@ -16,7 +16,6 @@ use App\Models\Approval;
 use App\Models\DoPlan;
 use App\Models\DoPlanStep;
 use App\Models\User;
-use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -31,8 +30,9 @@ use Throwable;
  * steps; nothing runs until a NAMED PERSON starts it, and then each effectful step still waits for its own
  * approval by a person. The plan, its steps, the approvals and the outcomes are rows a person can read.
  *
- * Inert twice over: the flag `console.do_mode` is OFF (docs/138 ruling 1 says NOT NOW; this ships the
- * mechanism, not the activation), and the gateway still decides every step.
+ * DARK (ChatGPT ruling 31 Oct 2026, item 1): available only through `DoModeActivation`, which needs a separate
+ * activation record in code (none exists) as well as the flag `console.do_mode` (OFF). Turning the flag row on alone
+ * changes nothing: every entry point below refuses, and a running plan stands still.
  *
  * Held by tests:
  *  - it has no execute path of its own: every step is `ToolGateway::execute()` as the person who started
@@ -45,6 +45,19 @@ use Throwable;
  *    this class never decides an approval and never imports the executor;
  *  - steps run strictly in order; a rejected, expired, cancelled or failed step HALTS the plan and the
  *    remaining steps are marked skipped, never run.
+ *
+ * Ruling 31 Oct item 1, held by tests/Feature/OwnerConsole/DoModeGateTest.php:
+ *  - every effectful step gets its OWN approval, bound to that step's exact payload, tool, business and scope; the
+ *    approval read back must be for the same tool and business and its payload intact, or the plan halts;
+ *  - a previous step's approval never authorizes a later one (one approval id per step, never reused);
+ *  - NO AUTOMATIC CONTINUATION into another effectful step: the scheduler only reads decided approvals back and
+ *    runs reads; the next effectful step is put to the gateway only by a named person's explicit act (start or
+ *    continue), at most ONE effectful step per act;
+ *  - before each effectful step: the activation gate, the acting person's permission and business scope, the
+ *    starter's standing, and the gateway's read-only `authorize()` (scope, permission, consent, policy, execution
+ *    context) are all re-read; then the step goes through `ToolGateway::execute()` and nowhere else;
+ *  - no self-approval: the approval of a step can never be decided by the person who started the plan, nor, for a
+ *    plan an agent proposed, by the person the agent acted under (`Approval::separationOfDutiesReason`).
  */
 final class DoPlanService
 {
@@ -62,6 +75,7 @@ final class DoPlanService
         private readonly WorkflowEngine $workflows,
         private readonly ApprovalService $approvals,
         private readonly Auditor $auditor,
+        private readonly DoModeActivation $activation,
     ) {}
 
     /** Which tools a plan may name: reads that run on their own, and effects that need approval. R3 writes would run unasked. */
@@ -155,27 +169,43 @@ final class DoPlanService
         $this->workflows->start(DoPlanWorkflow::TYPE, $key, ['plan_uuid' => $plan->uuid], $by, $plan->business_id);
         $this->audit('do_plan.started', $plan, $by, ['steps' => $plan->steps()->count()]);
 
-        return $this->advance($plan);
+        return $this->advance($plan, $by);
     }
 
-    /** Moves a running plan as far as it can go without a person: reads run, an effect is put up for approval, a decided approval is read back. */
-    public function advance(DoPlan $plan): DoPlan
+    /**
+     * Moves a running plan on. Without a person (`$by` null: the scheduler) it only reads decided approvals back and
+     * runs read steps; it never puts an effectful step to the gateway. With a named person (start, or "continue") it
+     * may also submit the NEXT effectful step, and at most one per call, after re-checking that person's standing.
+     */
+    public function advance(DoPlan $plan, ?User $by = null): DoPlan
     {
-        if (! Flag::on(Flag::DO_MODE)) {
-            return $plan; // switched off: a running plan stands still, nothing more is put to the gateway
+        if (! $this->activation->active()) {
+            return $plan; // not activated, or switched off: a running plan stands still, nothing more is put to the gateway
+        }
+        if ($by !== null) {
+            $this->assertMayAct($plan, $by, self::PERMISSION_START);
         }
 
+        $effectfulSubmitted = false;
         for ($guard = 0; $guard <= self::MAX_STEPS + 1; $guard++) {
             $plan->refresh();
             if ($plan->state !== 'running') {
                 return $plan;
             }
-            $step = $plan->steps()->whereIn('state', ['pending', 'awaiting_approval'])->first();
+            $step = $plan->steps()->whereIn('state', ['pending', 'awaiting_approval'])->orderBy('seq')->first();
             if ($step === null) {
                 return $this->finish($plan, 'completed', null);
             }
 
-            $moved = $step->state === 'awaiting_approval' ? $this->settle($plan, $step) : $this->submit($plan, $step);
+            if ($step->state === 'awaiting_approval') {
+                $moved = $this->settle($plan, $step);
+            } elseif ($step->effectful && ($by === null || $effectfulSubmitted)) {
+                // No automatic continuation into another effectful step: a named person continues the plan.
+                return $plan->refresh();
+            } else {
+                $effectfulSubmitted = $effectfulSubmitted || $step->effectful;
+                $moved = $this->submit($plan, $step, $by);
+            }
             if (! $moved) {
                 return $plan->refresh();
             }
@@ -202,8 +232,16 @@ final class DoPlanService
     // ------------------------------------------------------------------ internals
 
     /** @return bool true when the plan can go on to the next step */
-    private function submit(DoPlan $plan, DoPlanStep $step): bool
+    private function submit(DoPlan $plan, DoPlanStep $step, ?User $by): bool
     {
+        if (! $this->activation->active()) {
+            return false;
+        }
+        if ($by !== null && (! $by->is_active || ! $by->can(self::PERMISSION_START) || ! $this->scope->allows($by, $plan->business_id))) {
+            $this->halt($plan, $step, 'failed', 'The person continuing the plan may no longer act for this business.');
+
+            return false;
+        }
         $starter = User::query()->find($plan->started_by_user_id);
         if ($starter === null || ! $starter->is_active || ! $this->scope->allows($starter, $plan->business_id)) {
             $this->halt($plan, $step, 'failed', 'The person who started the plan is no longer allowed to act for this business.');
@@ -218,6 +256,12 @@ final class DoPlanService
         );
 
         if ($step->effectful) {
+            if ($step->approval_id !== null) {
+                // An approval belongs to one step, once. A step that already had one is never put up again.
+                $this->halt($plan, $step, 'failed', 'This step already had its approval; a plan never reuses one.');
+
+                return false;
+            }
             // Read-only: the same authorization steps the gateway runs, nothing recorded and nothing run.
             $auth = $this->gateway->authorize($request);
             if (! $auth->awaitsApproval) {
@@ -238,8 +282,14 @@ final class DoPlanService
         }
 
         if ($outcome->status->pending()) {
+            if ($outcome->approvalId === null || DoPlanStep::query()->where('approval_id', $outcome->approvalId)->exists()) {
+                // A replayed or shared approval would let one decision cover two steps: refuse it.
+                $this->halt($plan, $step, 'failed', 'The gateway did not give this step an approval of its own; the plan stops.');
+
+                return false;
+            }
             $step->forceFill(['state' => 'awaiting_approval', 'approval_id' => $outcome->approvalId, 'tool_call_id' => $outcome->toolCallId])->save();
-            $this->audit('do_plan.step_awaiting_approval', $plan, null, ['seq' => $step->seq, 'tool_key' => $step->tool_key, 'approval_id' => $outcome->approvalId]);
+            $this->audit('do_plan.step_awaiting_approval', $plan, $by, ['seq' => $step->seq, 'tool_key' => $step->tool_key, 'approval_id' => $outcome->approvalId]);
 
             return false;
         }
@@ -267,6 +317,13 @@ final class DoPlanService
         $approval = Approval::query()->with('resultingToolCall')->find($step->approval_id);
         if ($approval === null) {
             $this->halt($plan, $step, 'failed', 'The approval for this step is gone.');
+
+            return false;
+        }
+
+        // The approval must be the one this step asked for: same tool, same business, payload unchanged since it was read.
+        if ($approval->tool_key !== $step->tool_key || (int) $approval->business_id !== (int) $plan->business_id || ! $approval->payloadIntact()) {
+            $this->halt($plan, $step, 'failed', 'The approval does not match this step (tool, business or payload); the plan stops.');
 
             return false;
         }
@@ -332,8 +389,8 @@ final class DoPlanService
 
     private function assertOn(): void
     {
-        if (! Flag::on(Flag::DO_MODE)) {
-            throw new Refused('Do mode is switched off.');
+        if (($why = $this->activation->refusal()) !== null) {
+            throw new Refused($why);
         }
     }
 

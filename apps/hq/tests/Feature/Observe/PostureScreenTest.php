@@ -191,11 +191,11 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // Phase 10: thresholds and grants need hq.autonomy.grant and group-wide authority; revoking only ever stops autonomy.
         'POST autonomy/thresholds', 'POST autonomy/thresholds/{threshold}/retire', 'POST autonomy/grants', 'POST autonomy/grants/{grant}/revoke',
         'POST flags', 'POST flags/{flag}/toggle',
-        // docs/143 (owner console, every one behind a flag seeded OFF): plans, batch and one-click approval, reply options, event watches
-        // and the Telegram brief request. Each supplies ids, a hash or a proposal; each goes through the gateway or the one approval path.
+        // docs/143 (owner console, every one behind a flag seeded OFF): plans, reply options, event watches and the Telegram brief
+        // request. Each supplies ids or a proposal; each goes through the gateway or the one approval path. The batch and one-click
+        // approval writes were removed by the 31 Oct ruling (items 2 and 3).
         'POST do-plans', 'POST do-plans/{plan}/advance', 'POST do-plans/{plan}/cancel', 'POST do-plans/{plan}/start',
         'POST watches', 'POST watches/{watch}/disable', 'POST watches/{watch}/enable', 'POST watches/{watch}/reject',
-        'POST approvals/batch', 'POST approvals/{approval}/quick-approve',
         'POST inbox/{conversation}/reply-options', 'POST inbox/{conversation}/reply-options/{optionSet}/choose', 'POST inbox/{conversation}/reply-options/{optionSet}/discard',
         'POST observe/briefings/{uuid}/send-telegram',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state

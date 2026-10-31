@@ -11,6 +11,7 @@ use App\Models\Approval;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
+use App\OwnerConsole\Flag;
 use App\Support\Notifications\Notifier;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
@@ -89,7 +90,36 @@ final class ApprovalController extends Controller
                 'payload_intact' => $approval->payloadIntact(),
                 'superseded_by' => Approval::where('supersedes_id', $approval->id)->value('id'),
             ],
+            'queue' => $request->query('queue') === 'messages' ? $this->messageQueue($request, $approval) : null,
         ]);
+    }
+
+    /**
+     * docs/143 B as ruled 31 Oct (ruling 2): the batch overview is a SEQUENCE, never a shared authorization. Opened from
+     * `/approvals/batch`, this page shows where the message sits in the queue of waiting customer messages the person may
+     * see, and offers the next one only AFTER this one is no longer pending. Navigation only: it decides nothing, and the
+     * one way to approve stays the single `approve` action below (one approval, one hash, one gateway pre-check, one
+     * executor call, one audit result).
+     *
+     * @return array{enabled: bool, remaining: int, next_href: string|null, overview_href: string}|null
+     */
+    private function messageQueue(Request $request, Approval $approval): ?array
+    {
+        if (! Flag::on(Flag::BATCH_APPROVAL)) {
+            return null;
+        }
+        $waiting = Approval::query()->visibleTo($request->user())->where('status', ApprovalStatus::Pending->value)
+            ->whereKeyNot($approval->getKey())->orderBy('id')->limit(200)->get(['id', 'tool_key'])
+            ->filter(fn (Approval $a) => $this->registry->has($a->tool_key) && $this->registry->get($a->tool_key)->descriptor()->customerFacing)
+            ->values();
+        $next = $approval->status === ApprovalStatus::Pending ? null : $waiting->first();
+
+        return [
+            'enabled' => true,
+            'remaining' => $waiting->count(),
+            'next_href' => $next === null ? null : "/approvals/{$next->id}?queue=messages",
+            'overview_href' => '/approvals/batch',
+        ];
     }
 
     /**

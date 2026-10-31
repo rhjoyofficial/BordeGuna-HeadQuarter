@@ -7,10 +7,15 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * docs/143: the owner-console items of docs/137 section 6 that are pure HQ logic. Every one ships INERT:
- * the six feature flags are seeded OFF below and no behaviour exists while its flag is off.
+ * the five feature flags are seeded OFF below and no behaviour exists while its flag is off.
+ *
+ * Edited in place on 31 Oct 2026 (ChatGPT ruling, docs/143 "Applied ruling 31 Oct"), before this migration ever
+ * ran outside a test database: the `approval_batches` table and the `console.one_click_approve` flag were removed
+ * with the multi-approval executor and the approve-in-place action (rulings 2 and 3); `event_watches` gained
+ * `event_version` (ruling 6: bounded, versioned event definitions); `do_plan_steps.approval_id` is indexed
+ * (ruling 1: the separation rule looks a step up by its approval).
  *
  *   do_plans, do_plan_steps       "Do" mode: a plan of gateway tool steps, walked one at a time (Q1)
- *   approval_batches              the record of one batch review act over several approvals (Q8)
  *   owner_brief_deliveries        one row per owner-only Telegram brief delivery (Q10)
  *   reply_option_sets             Support's A/B/C drafts and the one a person chose (Q11)
  *   event_watches, watch_firings  watches created from the chat, proposal-only (Q12)
@@ -21,9 +26,8 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     public const FLAGS = [
-        'console.do_mode' => '"Do" mode: plans of approved steps from the console (docs/143 A). OFF until the Phase 9 activation ruling.',
-        'console.batch_approval' => 'Batch review of customer-message approvals, one decision and one audit row per message (docs/143 B). OFF.',
-        'console.one_click_approve' => 'Approve from a console card after the full payload is shown, same guards as the approval page (docs/143 C). OFF.',
+        'console.do_mode' => '"Do" mode: plans of approved steps from the console (docs/143 A). OFF; even ON it stays unavailable until a separate activation ruling is recorded in code (ruling 1).',
+        'console.batch_approval' => 'Read-only overview of waiting customer messages, each opened and approved on its own page, then the next (docs/143 B, ruling 2). OFF.',
         'console.telegram_brief' => 'Owner-only morning brief on Telegram, an approval-gated tool (docs/143 D). OFF.',
         'support.reply_options' => 'Support proposes up to three reply drafts; a person picks and edits one (docs/143 E). OFF.',
         'console.event_watches' => 'Event watches proposed from the chat; a person enables each; proposals only (docs/143 F). OFF.',
@@ -60,24 +64,12 @@ return new class extends Migration
             // pending -> awaiting_approval | succeeded | failed | rejected | skipped
             $table->string('state', 20);
             $table->boolean('effectful');
-            $table->foreignId('approval_id')->nullable()->constrained('approvals')->nullOnDelete();
+            $table->foreignId('approval_id')->nullable()->index()->constrained('approvals')->nullOnDelete();
             $table->foreignId('tool_call_id')->nullable()->constrained('tool_calls')->nullOnDelete();
             $table->jsonb('outcome')->nullable();
             $table->timestampTz('finished_at')->nullable();
             $table->timestamps();
             $table->unique(['do_plan_id', 'seq']);
-        });
-
-        Schema::create('approval_batches', function (Blueprint $table) {
-            $table->id();
-            $table->uuid('uuid')->unique();
-            $table->foreignId('decided_by_user_id')->constrained('users')->cascadeOnDelete();
-            $table->unsignedSmallInteger('requested_count');
-            $table->unsignedSmallInteger('executed_count');
-            $table->unsignedSmallInteger('refused_count');
-            // One entry per message: approval id, payload hash shown, result, reason. Never the message text.
-            $table->jsonb('results');
-            $table->timestamps();
         });
 
         Schema::create('owner_brief_deliveries', function (Blueprint $table) {
@@ -119,6 +111,9 @@ return new class extends Migration
             $table->foreignId('business_id')->constrained('businesses')->cascadeOnDelete();
             $table->string('name', 160);
             $table->string('event_type', 96)->index();
+            // The version of the bounded event definition (EventWatchDefinitions) the watch was proposed against. A watch
+            // whose definition changed or was withdrawn no longer fires.
+            $table->unsignedSmallInteger('event_version');
             $table->jsonb('conditions'); // [{path, op, value}]
             // null = notify only; otherwise {tool_key, args}: the watch can only PROPOSE it (an approval).
             $table->jsonb('action')->nullable();
@@ -160,7 +155,7 @@ return new class extends Migration
     public function down(): void
     {
         DB::table('feature_flags')->whereIn('key', array_keys(self::FLAGS))->delete();
-        foreach (['watch_firings', 'event_watches', 'reply_option_sets', 'owner_brief_deliveries', 'approval_batches', 'do_plan_steps', 'do_plans'] as $table) {
+        foreach (['watch_firings', 'event_watches', 'reply_option_sets', 'owner_brief_deliveries', 'do_plan_steps', 'do_plans'] as $table) {
             Schema::dropIfExists($table);
         }
     }

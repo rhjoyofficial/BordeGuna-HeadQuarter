@@ -3,8 +3,12 @@
 namespace App\OwnerConsole\Replies;
 
 use App\Conversation\ConversationService;
+use App\Conversation\Language\LanguagePolicies;
+use App\Conversation\Language\LanguageRequirement;
 use App\Conversation\OutboundPolicy;
 use App\Decisions\DecisionVocabulary;
+use App\Gateway\CallerKind;
+use App\Gateway\Identity\ActingIdentity;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\AgentRun;
@@ -31,6 +35,17 @@ use Illuminate\Support\Str;
  *    clicks send once; the other labels can never be sent; a failed send puts the set back to open.
  *  - Every pick is a decision record with the label chosen and whether the person edited it, and an audit row.
  *
+ * ChatGPT ruling 31 Oct 2026, item 4 (approved with conditions), held by tests/Feature/OwnerConsole/ReplyOptionsTest.php:
+ *  - only the selected FINAL text is sent, and the person's edit IS the payload (never the original option);
+ *  - the screen shows the complete final text and the recipient (customer, channel, business) beside the send button;
+ *  - the reply script is still validated: the request carries the thread's language requirement, resolved by HQ from
+ *    the conversation and the active language policy (never from the model), so the gateway's `reply_script`
+ *    pre-execution check refuses a reply in the wrong script, edited or not;
+ *  - consent, business scope and messaging permission are the gateway's (`messaging.send_reply`, as that person);
+ *  - the audit row carries the actor, the SHA-256 of the exact text sent, the time and the result;
+ *  - nothing here ever sends without a person's explicit choose: proposing sends nothing, and no agent, job, event
+ *    handler or tool calls `choose` (structural test).
+ *
  * Inert: flag `support.reply_options` OFF. The Support agent's prompts and evaluation corpora are untouched:
  * options are read from the proposals a Support run already records.
  */
@@ -45,6 +60,7 @@ final class ReplyOptionService
         private readonly ToolGateway $gateway,
         private readonly BusinessScope $scope,
         private readonly Auditor $auditor,
+        private readonly LanguagePolicies $languages,
     ) {}
 
     /** @param  list<string>  $texts */
@@ -121,8 +137,17 @@ final class ReplyOptionService
             throw new Refused('This set was already decided.');
         }
 
-        $outcome = $this->gateway->execute(ToolRequest::forOperator($by, 'messaging.send_reply',
-            ['business_slug' => $conversation->business?->slug, 'conversation_uuid' => $conversation->uuid, 'text' => $final], $conversation->business_id));
+        // The person's final text is the payload; the thread's required script travels with it so the gateway checks it.
+        $requirement = $this->languages->requirementFor($conversation->language, $this->languages->active());
+        $outcome = $this->gateway->execute(new ToolRequest(
+            toolKey: 'messaging.send_reply',
+            args: ['business_slug' => $conversation->business?->slug, 'conversation_uuid' => $conversation->uuid, 'text' => $final],
+            caller: CallerKind::HumanUi,
+            identity: ActingIdentity::human($by),
+            correlationId: (string) Str::uuid(),
+            businessId: $conversation->business_id,
+            languageRequirement: $requirement instanceof LanguageRequirement ? $requirement->toArray() : null,
+        ));
 
         $edited = $final !== (string) $option['text'];
         DecisionRecord::query()->create([
@@ -144,8 +169,10 @@ final class ReplyOptionService
             ReplyOptionSet::query()->whereKey($set->getKey())->update(['state' => 'open', 'chosen_label' => null, 'final_text' => null,
                 'decided_by_user_id' => null, 'decided_at' => null, 'send_status' => $outcome->status->value, 'updated_at' => now()]);
         }
+        // Actor (actorUserId), the hash of the exact text that went to the gateway, the time and the result; never the text.
         $this->auditor->record('reply_options.chosen', $set, after: ['set' => $set->uuid, 'label' => $label, 'edited' => $edited,
-            'business_id' => $set->business_id, 'outcome' => $outcome->status->value], actorUserId: $by->getKey());
+            'business_id' => $set->business_id, 'conversation' => $conversation->uuid, 'text_sha256' => hash('sha256', $final),
+            'sent_at' => now()->toIso8601String(), 'outcome' => $outcome->status->value, 'tool_call_id' => $outcome->toolCallId], actorUserId: $by->getKey());
 
         return $set->refresh();
     }

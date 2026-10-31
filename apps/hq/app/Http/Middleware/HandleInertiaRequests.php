@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Ai\Pause\AiPauseScreen;
+use App\OwnerConsole\Do\DoModeActivation;
 use App\Support\Features\Features;
 use App\Support\Navigation\NavBadges;
 use Illuminate\Http\Request;
@@ -67,7 +68,8 @@ class HandleInertiaRequests extends Middleware
                     'ask_hq' => app(Features::class)->enabled('ask_hq'),
                     'scheduler_nl' => app(Features::class)->enabled('scheduler.nl'),
                     // docs/143: the three owner-console screens exist in the sidebar only while their flag is on.
-                    'console_do_mode' => app(Features::class)->enabled('console.do_mode'),
+                    // Ruling 31 Oct item 1: the activation gate, not the flag alone. Without an activation record this is false.
+                    'console_do_mode' => app(DoModeActivation::class)->active(),
                     'console_batch_approval' => app(Features::class)->enabled('console.batch_approval'),
                     'console_event_watches' => app(Features::class)->enabled('console.event_watches'),
                 ],

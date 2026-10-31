@@ -33,6 +33,7 @@ use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
 use App\Http\Controllers\Security\TwoFactorController;
 use App\Http\Controllers\Voice\VoiceModeController;
+use App\Http\Middleware\EnsureDoModeActive;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'))->name('home');
@@ -127,12 +128,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // the stored, hashed payload a human read.
     Route::prefix('approvals')->name('approvals.')->group(function () {
         Route::get('/', [ApprovalController::class, 'index'])->middleware('permission:hq.approvals.view')->name('index');
-        // docs/143 B and C (flags console.batch_approval and console.one_click_approve, both OFF): the browser supplies approval ids
-        // and the payload hash it was shown; each is decided through the ONE approval path. Registered before {approval}.
+        // docs/143 B as ruled 31 Oct (ruling 2, flag console.batch_approval OFF): a READ-ONLY overview of waiting customer
+        // messages. Each is opened and decided on its own page through the one approve route below, then "next". There is
+        // no multi-approval route and no approve-in-place route (ruling 3); tests/Feature/OwnerConsole/ApprovalPathStructureTest.
         Route::get('batch', [BatchApprovalController::class, 'index'])->middleware('permission:hq.approvals.decide')->name('batch');
-        Route::post('batch', [BatchApprovalController::class, 'store'])->middleware(['permission:hq.approvals.decide', 'throttle:20,1'])->name('batch.store');
         Route::get('{approval}', [ApprovalController::class, 'show'])->middleware('permission:hq.approvals.view')->name('show');
-        Route::post('{approval}/quick-approve', [BatchApprovalController::class, 'quick'])->whereNumber('approval')->middleware(['permission:hq.approvals.decide', 'throttle:30,1'])->name('quick');
         Route::post('{approval}/approve', [ApprovalController::class, 'approve'])->middleware('permission:hq.approvals.decide')->name('approve');
         Route::post('{approval}/reject', [ApprovalController::class, 'reject'])->middleware('permission:hq.approvals.decide')->name('reject');
         Route::post('{approval}/cancel', [ApprovalController::class, 'cancel'])->middleware('permission:hq.approvals.view')->name('cancel');
@@ -263,7 +263,9 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
 
     // docs/143 A (flag console.do_mode, OFF; docs/138 ruling 1 says not now): plans of gateway steps. Starting a plan approves
     // nothing; every effectful step waits for its own approval in the Approval Center. A plan of another business is a 404.
-    Route::prefix('do-plans')->name('do-plans.')->middleware('permission:hq.do.propose|hq.do.start')->group(function () {
+    // Ruling 31 Oct item 1: Do mode stays DARK. `EnsureDoModeActive` makes every one of these a 404 until a separate activation
+    // record exists in code (DoModeActivation::ACTIVATION_RULING, null), whatever the console.do_mode flag row says.
+    Route::prefix('do-plans')->name('do-plans.')->middleware([EnsureDoModeActive::class, 'permission:hq.do.propose|hq.do.start'])->group(function () {
         Route::get('/', [DoPlanController::class, 'index'])->name('index');
         Route::post('/', [DoPlanController::class, 'store'])->middleware(['permission:hq.do.propose', 'throttle:20,1'])->name('store');
         Route::get('{plan:uuid}', [DoPlanController::class, 'show'])->name('show');

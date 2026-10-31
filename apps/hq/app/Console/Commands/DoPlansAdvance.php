@@ -3,25 +3,25 @@
 namespace App\Console\Commands;
 
 use App\Models\DoPlan;
+use App\OwnerConsole\Do\DoModeActivation;
 use App\OwnerConsole\Do\DoPlanService;
-use App\OwnerConsole\Flag;
 use Illuminate\Console\Command;
 use Throwable;
 
 /**
- * docs/143 A: reads decided approvals back into running Do plans and puts the next step to the gateway.
- * Does nothing while the flag `console.do_mode` is OFF (the shipped state). It decides no approval: a step
- * that needs one stays waiting for a person.
+ * docs/143 A: reads decided approvals back into running Do plans and runs read steps. It never puts an
+ * effectful step to the gateway (ruling 31 Oct item 1: no automatic continuation; a named person continues).
+ * Does nothing while Do mode is not activated (`DoModeActivation`, the shipped state). It decides no approval.
  */
 final class DoPlansAdvance extends Command
 {
     protected $signature = 'hq:do-plans:advance';
 
-    protected $description = 'Advance running Do plans (reads decided approvals back, submits the next step). Inert while console.do_mode is off.';
+    protected $description = 'Read decided approvals back into running Do plans; never submits an effectful step. Inert while Do mode is not activated.';
 
-    public function handle(DoPlanService $plans): int
+    public function handle(DoPlanService $plans, DoModeActivation $activation): int
     {
-        if (! Flag::on(Flag::DO_MODE)) {
+        if (! $activation->active()) {
             return self::SUCCESS;
         }
 
