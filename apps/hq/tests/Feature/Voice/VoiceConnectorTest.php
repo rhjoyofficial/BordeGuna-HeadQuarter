@@ -3,12 +3,18 @@
 use App\Ai\Pause\AiPauseSwitch;
 use App\Commerce\Exceptions\Unsupported;
 use App\Gateway\Credentials\CredentialVault;
+use App\Gateway\ToolGateway;
+use App\Gateway\ToolRequest;
+use App\Media\Upload\ChatMediaUploader;
+use App\Models\Business;
 use App\Models\ChatAttachment;
 use App\Models\IntegrationCredential;
 use App\Models\MediaAsset;
+use App\Models\UserBusinessScope;
 use App\Models\VoiceTranscript;
 use App\Voice\Exceptions\SpeechProviderRefused;
 use App\Voice\Exceptions\SpeechProviderUnavailable;
+use App\Voice\Exceptions\SyntheticIdentityRefused;
 use App\Voice\Fake\FakeSpeechToText;
 use App\Voice\Fake\FakeTextToSpeech;
 use App\Voice\Providers\OpenAiCompatibleSpeechToText;
@@ -16,6 +22,7 @@ use App\Voice\Providers\OpenAiCompatibleTextToSpeech;
 use App\Voice\SpeechSynthesisRequest;
 use App\Voice\SpeechToText;
 use App\Voice\TextToSpeech;
+use App\Voice\VoiceKind;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\UploadedFile;
@@ -49,7 +56,9 @@ dataset('speech to text', [
 it('transcribes audio into an untrusted transcript, refuses empty and non-audio input, and reports a failing provider', function (Closure $make, bool $real) {
     $stt = $make();
     $answer = Http::response(['text' => 'আজকের অর্ডার কয়টি', 'language' => 'bn'], 200);
-    Http::fake(['*audio/transcriptions' => function () use (&$answer) { return $answer; }]);
+    Http::fake(['*audio/transcriptions' => function () use (&$answer) {
+        return $answer;
+    }]);
 
     $run = fn (string $audio, string $mime) => $real ? m3WithSpeechKey(fn () => $stt->transcribe($audio, $mime, 'bn')) : $stt->transcribe($audio, $mime, 'bn');
 
@@ -88,7 +97,7 @@ it('speaks a stock voice and refuses a cloned one before the adapter sees it', f
     Http::assertSent(fn ($r) => $r->hasHeader('Authorization', 'Bearer '.M3_SPEECH_KEY) && $r['input'] === 'আসসালামু আলাইকুম');
 
     expect(new FakeTextToSpeech)->toBeInstanceOf(TextToSpeech::class)
-        ->and(fn () => new SpeechSynthesisRequest('hello', 'my-voice', 'en-US', \App\Voice\VoiceKind::Cloned))->toThrow(\App\Voice\Exceptions\SyntheticIdentityRefused::class);
+        ->and(fn () => new SpeechSynthesisRequest('hello', 'my-voice', 'en-US', VoiceKind::Cloned))->toThrow(SyntheticIdentityRefused::class);
     expect(app(FakeSpeechToText::class))->toBeInstanceOf(SpeechToText::class);
 });
 
@@ -152,9 +161,9 @@ it('is refused while Pause All AI is on, and the recording does not outlive the 
 it('lets a person name only their own recording', function () {
     m3SandboxConnectors(['connectors.voice']);
     $other = $this->hqUser('operator');
-    $theirs = app(\App\Media\Upload\ChatMediaUploader::class)->store($other, m3WebmBytes(), 'rec', null, ['audio'], personal: true, retentionDays: 1);
+    $theirs = app(ChatMediaUploader::class)->store($other, m3WebmBytes(), 'rec', null, ['audio'], personal: true, retentionDays: 1);
 
-    $outcome = app(\App\Gateway\ToolGateway::class)->execute(\App\Gateway\ToolRequest::forOperator($this->owner, 'voice.transcribe', ['attachment_uuid' => $theirs->uuid]));
+    $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'voice.transcribe', ['attachment_uuid' => $theirs->uuid]));
 
     expect($outcome->ok())->toBeFalse()->and($theirs->fresh()->status)->toBe('stored');
 });
@@ -170,6 +179,6 @@ it('reads an answer aloud for the person alone, as a day-long file only they can
     $this->actingAsHq($this->owner)->get("/media/{$uuid}")->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
     // A restricted person with the ask permission cannot open another person's no-business file.
     $other = $this->hqUser('operator');
-    \App\Models\UserBusinessScope::create(['user_id' => $other->id, 'business_id' => \App\Models\Business::value('id')]);
+    UserBusinessScope::create(['user_id' => $other->id, 'business_id' => Business::value('id')]);
     $this->actingAsHq($other)->get("/media/{$uuid}")->assertNotFound();
 });

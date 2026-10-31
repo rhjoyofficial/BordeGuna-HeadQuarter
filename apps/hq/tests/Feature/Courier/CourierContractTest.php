@@ -1,5 +1,6 @@
 <?php
 
+use App\Commerce\Exceptions\Unsupported;
 use App\Courier\CourierConnector;
 use App\Courier\Drivers\CarryBeeCourier;
 use App\Courier\Drivers\PathaoCourier;
@@ -161,7 +162,7 @@ it('refuses before any request leaves HQ when no credential scope is open', func
     }
     Http::fake();
 
-    expect(fn () => app($case['class'])->track('laladia', $case['ref']))->toThrow(\App\Commerce\Exceptions\Unsupported::class);
+    expect(fn () => app($case['class'])->track('laladia', $case['ref']))->toThrow(Unsupported::class);
     Http::assertNothingSent();
 })->with('couriers');
 

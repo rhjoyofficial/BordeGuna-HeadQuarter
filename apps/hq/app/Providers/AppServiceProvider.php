@@ -32,6 +32,7 @@ use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
+use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 use App\Voice\SpeechProviders;
 use App\Workflow\HqWorkflowEngine;
@@ -53,7 +54,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry([...config('hq.tools', []), ...app(\App\Tools\FlaggedTools::class)->enabled()]));
+        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry([...config('hq.tools', []), ...app(FlaggedTools::class)->enabled()]));
         // docs/102: the workflow seam. Only listed definitions can start, and no listed definition has a
         // tool step (docs/120 item 17, ListedWorkflowDefinitionsStructureTest).
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));

@@ -49,7 +49,9 @@ export function ParcelTimeline({ parcel, showRef = true }: { parcel: Parcel; sho
                 {showRef && <span className="font-mono text-xs">{parcel.consignment_ref}</span>}
                 <ParcelStatusBadge status={parcel.status} />
                 {parcel.poll_failures > 0 && !parcel.terminal && (
-                    <span className="text-tone-warn text-xs">{t('The courier could not be reached {count} times; this may be out of date.', { count: parcel.poll_failures })}</span>
+                    <span className="text-tone-warn text-xs">
+                        {t('The courier could not be reached {count} times; this may be out of date.', { count: parcel.poll_failures })}
+                    </span>
                 )}
             </div>
             {parcel.events.length === 0 ? (
@@ -62,7 +64,9 @@ export function ParcelTimeline({ parcel, showRef = true }: { parcel: Parcel; sho
                             <div className="flex flex-wrap items-center gap-2">
                                 <ParcelStatusBadge status={e.status} />
                                 <span className="text-muted-foreground text-xs">{formatDateTime(e.at)}</span>
-                                <span className="text-muted-foreground text-xs">{e.source === 'webhook' ? t('pushed by the courier') : t('asked of the courier')}</span>
+                                <span className="text-muted-foreground text-xs">
+                                    {e.source === 'webhook' ? t('pushed by the courier') : t('asked of the courier')}
+                                </span>
                             </div>
                             <div className="text-muted-foreground mt-0.5 text-xs">
                                 {e.raw_status}

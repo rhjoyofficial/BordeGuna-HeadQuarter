@@ -8,9 +8,12 @@ use App\Models\Business;
 use App\Models\CourierParcel;
 use App\Models\CourierParcelEvent;
 use App\Models\FactsOrder;
+use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
 use App\Models\Store;
 use App\Models\UserBusinessScope;
+use App\Tools\Connectors\TrackParcelTool;
+use App\Tools\ToolContext;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Str;
@@ -115,7 +118,7 @@ it('never shows a parcel beside an order of another business, even if the row sa
 });
 
 it('echoes the Pathao pairing secret in the reply of an authentic call only', function () {
-    \App\Models\FeatureFlag::query()->updateOrCreate(['key' => 'connectors.courier', 'environment' => '*'], ['description' => 't', 'enabled' => true]);
+    FeatureFlag::query()->updateOrCreate(['key' => 'connectors.courier', 'environment' => '*'], ['description' => 't', 'enabled' => true]);
     m3WebhookSecret($this->mine, 'pathao');
 
     $ok = $this->postJson("/api/webhooks/courier/pathao/{$this->mine->slug}", ['event' => 'webhook_integration'], ['X-PATHAO-Signature' => 'sekret-1']);
@@ -134,7 +137,7 @@ it('tracks a parcel through the gateway, refuses while the switch is off, and sa
     m3SandboxConnectors([]);
     $off = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'courier.track_parcel', $args, $this->mine->id));
     expect($off->ok())->toBeFalse()->and((string) $off->error)->toContain('Unknown tool');
-    $direct = app(\App\Tools\Connectors\TrackParcelTool::class)->execute($args, new \App\Tools\ToolContext('k', 'c', $this->mine->id));
+    $direct = app(TrackParcelTool::class)->execute($args, new ToolContext('k', 'c', $this->mine->id));
     expect($direct->ok())->toBeFalse()->and((string) $direct->error)->toContain('Not connected yet');
 
     // Switch on with the sandbox: served by the fake, recorded for this business.

@@ -4,29 +4,29 @@ namespace App\Support\Credentials;
 
 use App\Ads\AdsCredential;
 use App\Ads\Draft\MetaAdsDraftPlatform;
-use App\Courier\Drivers\CarryBeeCourier;
-use App\Courier\Drivers\PathaoCourier;
-use App\Courier\Drivers\RedxCourier;
-use App\Courier\Drivers\SteadfastCourier;
-use App\Erp\Write\HttpErpDraftBillWriter;
-use App\Http\Controllers\Webhooks\CourierWebhookController;
-use App\Ingestion\Mailbox\GmailMailbox;
-use App\Ingestion\Mailbox\GraphMailbox;
-use App\Media\Pipeline\VeoMediaPipeline;
-use App\Voice\Providers\OpenAiCompatibleSpeechToText;
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\OpenAiProvider;
 use App\Commerce\Support\CommerceRegistry;
 use App\Content\Publishing\FacebookPagePublisher;
 use App\Content\Publishing\InstagramPublisher;
+use App\Courier\Drivers\CarryBeeCourier;
+use App\Courier\Drivers\PathaoCourier;
+use App\Courier\Drivers\RedxCourier;
+use App\Courier\Drivers\SteadfastCourier;
 use App\Erp\ErpRegistry;
+use App\Erp\Write\HttpErpDraftBillWriter;
+use App\Http\Controllers\Webhooks\CourierWebhookController;
 use App\Http\Controllers\Webhooks\MetaForwardController;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
+use App\Ingestion\Mailbox\GmailMailbox;
+use App\Ingestion\Mailbox\GraphMailbox;
+use App\Media\Pipeline\VeoMediaPipeline;
 use App\Research\Providers\BraveSearch;
 use App\Research\Providers\TavilySearch;
 use App\Voice\Providers\AzureTextToSpeech;
 use App\Voice\Providers\ElevenLabsTextToSpeech;
 use App\Voice\Providers\GoogleSpeechToText;
+use App\Voice\Providers\OpenAiCompatibleSpeechToText;
 
 /**
  * Every credential kind (`integration_credentials.provider`) the code reads, and nothing else

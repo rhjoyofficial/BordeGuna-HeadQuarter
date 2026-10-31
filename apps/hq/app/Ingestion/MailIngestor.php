@@ -12,7 +12,6 @@ use App\Ingestion\Extraction\ExtractionVerifier;
 use App\Ingestion\Extraction\RuleBasedBillExtractor;
 use App\Ingestion\Mailbox\Exceptions\MailboxRefused;
 use App\Ingestion\Mailbox\InboundAttachment;
-use App\Ingestion\Mailbox\InboundMail;
 use App\Ingestion\Mailbox\MailboxConnector;
 use App\Media\MediaAssetService;
 use App\Media\Upload\AttachmentGuard;

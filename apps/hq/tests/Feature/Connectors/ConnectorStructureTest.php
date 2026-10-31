@@ -1,6 +1,7 @@
 <?php
 
 use App\Connectors\Capabilities;
+use App\Models\FeatureFlag;
 use App\Platform\Contracts\PlatformProvider;
 
 /*
@@ -269,7 +270,7 @@ it('ships config/hq-connectors.php with every row behind a flag that is OFF and 
     foreach ($config['connectors'] as $row) {
         expect($row['provider'])->not->toBe('sandbox')
             ->and($row['enabled_by'])->toStartWith('flag:');
-        $flag = \App\Models\FeatureFlag::query()->where('key', substr($row['enabled_by'], 5))->first();
+        $flag = FeatureFlag::query()->where('key', substr($row['enabled_by'], 5))->first();
         expect($flag)->not->toBeNull("{$row['enabled_by']} is not seeded")->and($flag->enabled)->toBeFalse();
     }
 });

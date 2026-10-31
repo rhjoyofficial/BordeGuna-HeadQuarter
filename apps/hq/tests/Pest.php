@@ -1,12 +1,25 @@
 <?php
 
+use App\Ads\Draft\FakeAdsDraftPlatform;
 use App\Ai\ModelTier;
 use App\Ai\Providers\ProviderRegistry;
+use App\Connectors\ConnectorRegistry;
+use App\Courier\Fake\FakeCarryBeeCourier;
+use App\Courier\Fake\FakePathaoCourier;
+use App\Courier\Fake\FakeRedxCourier;
+use App\Courier\Fake\FakeSteadfastCourier;
+use App\Erp\Write\FakeErpDraftBillWriter;
 use App\Gateway\Credentials\CredentialVault;
+use App\Gateway\ToolGateway;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
+use App\Ingestion\Mailbox\FakeMailbox;
+use App\Media\Pipeline\FakeMediaPipeline;
 use App\Models\AiModel;
 use App\Models\FeatureFlag;
 use App\Support\Features\Features;
+use App\Tools\ToolRegistry;
+use App\Voice\Fake\FakeSpeechToText;
+use App\Voice\Fake\FakeTextToSpeech;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\Ai\FixtureProvider;
 use Tests\Support\Ai\SecondFixtureProvider;
@@ -206,23 +219,23 @@ function metaPost($test, array $payload, ?string $secret = 'meta-app-secret', ar
 function m3SandboxConnectors(array $flags): void
 {
     $sandbox = [
-        ['courier.pathao.track', \App\Courier\Fake\FakePathaoCourier::class, 'connectors.courier'],
-        ['courier.carrybee.track', \App\Courier\Fake\FakeCarryBeeCourier::class, 'connectors.courier'],
-        ['courier.steadfast.track', \App\Courier\Fake\FakeSteadfastCourier::class, 'connectors.courier'],
-        ['courier.redx.track', \App\Courier\Fake\FakeRedxCourier::class, 'connectors.courier'],
-        ['voice.transcribe', \App\Voice\Fake\FakeSpeechToText::class, 'connectors.voice'],
-        ['voice.synthesize', \App\Voice\Fake\FakeTextToSpeech::class, 'connectors.voice'],
-        ['media.video.generate', \App\Media\Pipeline\FakeMediaPipeline::class, 'connectors.media_pipeline'],
-        ['mail.inbox.read', \App\Ingestion\Mailbox\FakeMailbox::class, 'connectors.mail_ingestion'],
-        ['erp.draft_bill.create', \App\Erp\Write\FakeErpDraftBillWriter::class, 'connectors.erp_draft_bill'],
-        ['ads.draft.create', \App\Ads\Draft\FakeAdsDraftPlatform::class, 'connectors.ads_draft'],
+        ['courier.pathao.track', FakePathaoCourier::class, 'connectors.courier'],
+        ['courier.carrybee.track', FakeCarryBeeCourier::class, 'connectors.courier'],
+        ['courier.steadfast.track', FakeSteadfastCourier::class, 'connectors.courier'],
+        ['courier.redx.track', FakeRedxCourier::class, 'connectors.courier'],
+        ['voice.transcribe', FakeSpeechToText::class, 'connectors.voice'],
+        ['voice.synthesize', FakeTextToSpeech::class, 'connectors.voice'],
+        ['media.video.generate', FakeMediaPipeline::class, 'connectors.media_pipeline'],
+        ['mail.inbox.read', FakeMailbox::class, 'connectors.mail_ingestion'],
+        ['erp.draft_bill.create', FakeErpDraftBillWriter::class, 'connectors.erp_draft_bill'],
+        ['ads.draft.create', FakeAdsDraftPlatform::class, 'connectors.ads_draft'],
     ];
     $rows = array_map(static fn (array $s) => ['capability' => $s[0], 'provider' => 'sandbox', 'adapter' => $s[1], 'transport' => 'internal',
         'credentials' => [], 'priority' => 900, 'enabled_by' => 'flag:'.$s[2]], $sandbox);
 
     config(['hq-connectors.connectors' => array_merge(array_values(array_filter(config('hq-connectors.connectors'), static fn ($r) => $r['provider'] !== 'sandbox')), $rows)]);
     foreach ($flags as $flag) {
-        \App\Models\FeatureFlag::query()->updateOrCreate(['key' => $flag, 'environment' => '*'], ['description' => 'test', 'enabled' => true]);
+        FeatureFlag::query()->updateOrCreate(['key' => $flag, 'environment' => '*'], ['description' => 'test', 'enabled' => true]);
     }
     m3RebuildRegistries();
 }
@@ -230,7 +243,7 @@ function m3SandboxConnectors(array $flags): void
 /** The connector registry and the tool registry are built once per process; rebuild both (and the gateway that holds the tool registry) after a flag or a row changed. */
 function m3RebuildRegistries(): void
 {
-    foreach ([\App\Connectors\ConnectorRegistry::class, \App\Tools\ToolRegistry::class, \App\Gateway\ToolGateway::class] as $class) {
+    foreach ([ConnectorRegistry::class, ToolRegistry::class, ToolGateway::class] as $class) {
         app()->forgetInstance($class);
     }
 }

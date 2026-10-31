@@ -1,8 +1,8 @@
 import { FollowUpsBody, type CustomerFollowUps } from '@/components/customers/follow-ups-section';
 import { EmptyState } from '@/components/empty-state';
-import { ParcelStatusBadge, type Parcel } from '@/components/parcel-timeline';
 import { DataTable, Note, Panel, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { ParcelStatusBadge, type Parcel } from '@/components/parcel-timeline';
 import { Button } from '@/components/ui/button';
 import { Notice, toneClass } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
@@ -228,8 +228,12 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
     const decisionLabel = (d: string | null) =>
         d === null
             ? t('No review yet')
-            : (({ confirmed_wrong: t('Confirmed wrong'), needs_repair: t('Needs repair'), disputed: t('Disputed (needs a ruling)') }) as Record<string, string>)[d] ??
-              d;
+            : ((
+                  { confirmed_wrong: t('Confirmed wrong'), needs_repair: t('Needs repair'), disputed: t('Disputed (needs a ruling)') } as Record<
+                      string,
+                      string
+                  >
+              )[d] ?? d);
 
     return (
         <div role="status" className={cn('flex flex-col gap-3 rounded-xl border px-4 py-3 text-sm', toneClass('pending'))}>
@@ -276,9 +280,7 @@ function QuarantinePanel({ quarantine, canReview }: { quarantine: Quarantine; ca
 
 function NeedsInbox() {
     const t = useT();
-    return (
-        <EmptyState title={t('Shown only to people who may read the inbox.')} className="py-6" />
-    );
+    return <EmptyState title={t('Shown only to people who may read the inbox.')} className="py-6" />;
 }
 
 export default function CustomerShow(props: Props) {
@@ -494,7 +496,11 @@ export default function CustomerShow(props: Props) {
                                 label: 'Parcel',
                                 render: (o) => (
                                     <Link href={`/orders/${o.id}`} className="flex flex-wrap items-center gap-1 underline">
-                                        {o.parcels.length === 0 ? <span className="text-muted-foreground">{t('No parcel')}</span> : o.parcels.map((p) => <ParcelStatusBadge key={p.uuid} status={p.status} />)}
+                                        {o.parcels.length === 0 ? (
+                                            <span className="text-muted-foreground">{t('No parcel')}</span>
+                                        ) : (
+                                            o.parcels.map((p) => <ParcelStatusBadge key={p.uuid} status={p.status} />)
+                                        )}
                                     </Link>
                                 ),
                             },

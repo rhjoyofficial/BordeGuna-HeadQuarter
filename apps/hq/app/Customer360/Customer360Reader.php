@@ -4,6 +4,7 @@ namespace App\Customer360;
 
 use App\Conversation\ConversationState;
 use App\Conversation\HandoverReason;
+use App\Courier\ParcelTimeline;
 use App\Identity\Quarantine\CrossBusinessSuppression;
 use App\Identity\Quarantine\SuppressionView;
 use App\Memory\MemoryKind;
@@ -244,7 +245,7 @@ final class Customer360Reader
             })->values()->all();
 
         // docs/144-courier-connectors: where each order's parcels are, from HQ's own read model, this business only.
-        $parcels = \App\Courier\ParcelTimeline::forOrders(array_column($rows, 'id'), $businessId);
+        $parcels = ParcelTimeline::forOrders(array_column($rows, 'id'), $businessId);
         $rows = array_map(static fn (array $r) => $r + ['parcels' => $parcels[$r['id']] ?? []], $rows);
 
         return ['total' => (clone $query)->count(), 'rows' => $rows];

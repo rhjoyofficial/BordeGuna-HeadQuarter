@@ -126,7 +126,13 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                 </Link>
                 <div className="flex flex-wrap gap-2 text-xs">
                     <span className="hq-glass rounded-full px-3 py-1.5">{t('Bangla and English')}</span>
-                    <span className={usable ? 'text-tone-ok rounded-full border px-3 py-1.5 font-medium' : 'border-hq-orange/40 text-hq-orange rounded-full border px-3 py-1.5 font-medium'}>
+                    <span
+                        className={
+                            usable
+                                ? 'text-tone-ok rounded-full border px-3 py-1.5 font-medium'
+                                : 'border-hq-orange/40 text-hq-orange rounded-full border px-3 py-1.5 font-medium'
+                        }
+                    >
                         {usable ? (voice.sandbox ? t('Sandbox only') : t('Connected')) : t('Not connected yet')}
                     </span>
                 </div>
@@ -138,10 +144,18 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                 <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgb(124_108_246/0.28)_0%,rgb(32_178_170/0.10)_45%,transparent_70%)]" />
                 <div className="border-foreground/10 absolute size-[84%] rounded-full border" />
                 <div className="border-foreground/15 absolute size-[72%] rounded-full border" />
-                <div className={`hq-orb size-[60%] rounded-full ${phase === 'recording' ? 'hq-voice-breathe opacity-100' : 'opacity-70 grayscale-[35%]'}`} />
+                <div
+                    className={`hq-orb size-[60%] rounded-full ${phase === 'recording' ? 'hq-voice-breathe opacity-100' : 'opacity-70 grayscale-[35%]'}`}
+                />
             </div>
             <p className="text-muted-foreground text-[13px] font-medium tracking-[0.08em] uppercase" role="status">
-                {phase === 'recording' ? t('Listening: click stop when you are done') : phase === 'sending' ? t('Turning your voice into text') : usable ? t('Click the microphone to talk') : offReason}
+                {phase === 'recording'
+                    ? t('Listening: click stop when you are done')
+                    : phase === 'sending'
+                      ? t('Turning your voice into text')
+                      : usable
+                        ? t('Click the microphone to talk')
+                        : offReason}
             </p>
 
             <main className="flex w-full max-w-2xl flex-col gap-4">
@@ -153,7 +167,8 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                         <p className="leading-relaxed">{offReason}</p>
                         {voice.needs.length > 0 && (
                             <p className="text-muted-foreground leading-relaxed">
-                                {t('Needs one of these keys on the Credentials screen:')} <span className="font-mono text-xs">{voice.needs.join(', ')}</span>
+                                {t('Needs one of these keys on the Credentials screen:')}{' '}
+                                <span className="font-mono text-xs">{voice.needs.join(', ')}</span>
                             </p>
                         )}
                         <p className="text-muted-foreground leading-relaxed">
@@ -170,7 +185,11 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                         <div className="flex flex-wrap items-center gap-4 text-sm">
                             <label className="flex items-center gap-2">
                                 {t('Language')}
-                                <select className="bg-background border-input min-h-10 rounded-md border px-2" value={language} onChange={(e) => setLanguage(e.target.value as 'bn' | 'en')}>
+                                <select
+                                    className="bg-background border-input min-h-10 rounded-md border px-2"
+                                    value={language}
+                                    onChange={(e) => setLanguage(e.target.value as 'bn' | 'en')}
+                                >
                                     <option value="bn">{t('Bangla')}</option>
                                     <option value="en">{t('English')}</option>
                                 </select>
@@ -181,7 +200,9 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                             </label>
                         </div>
                         <p className="text-muted-foreground text-xs">
-                            {t('Your recording is sent to the speech provider and deleted straight away. A spoken request adds no authority: it goes to Ask HQ as text and you send it from there.')}
+                            {t(
+                                'Your recording is sent to the speech provider and deleted straight away. A spoken request adds no authority: it goes to Ask HQ as text and you send it from there.',
+                            )}
                         </p>
                     </section>
                 )}
@@ -198,7 +219,11 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                     </h2>
                     {lines.length === 0 ? (
                         <div className="border-glass-border text-muted-foreground flex min-h-24 flex-col justify-center gap-1 rounded-3xl border border-dashed p-4 text-center text-sm leading-relaxed">
-                            <p>{usable ? t('What you say will appear here as text, for you to check.') : t('Nothing is being listened to or recorded.')}</p>
+                            <p>
+                                {usable
+                                    ? t('What you say will appear here as text, for you to check.')
+                                    : t('Nothing is being listened to or recorded.')}
+                            </p>
                             <p>
                                 {t('To ask HQ now, type on the console.')}{' '}
                                 <Link href="/dashboard" className="text-hq-violet font-medium underline underline-offset-4">
@@ -217,10 +242,18 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                     )}
                     {last && (
                         <div className="flex flex-wrap gap-2">
-                            <button type="button" className="hq-glass min-h-11 rounded-full px-4 text-sm font-medium" onClick={() => toAsk(last.text)}>
+                            <button
+                                type="button"
+                                className="hq-glass min-h-11 rounded-full px-4 text-sm font-medium"
+                                onClick={() => toAsk(last.text)}
+                            >
                                 {t('Put this in Ask HQ')}
                             </button>
-                            <button type="button" className="hq-glass inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-sm font-medium" onClick={() => void readAloud(last.text)}>
+                            <button
+                                type="button"
+                                className="hq-glass inline-flex min-h-11 items-center gap-2 rounded-full px-4 text-sm font-medium"
+                                onClick={() => void readAloud(last.text)}
+                            >
                                 <Volume2 className="size-4" aria-hidden />
                                 {t('Read it back')}
                             </button>
@@ -232,7 +265,12 @@ export default function Voice({ voice }: { voice: VoiceData }) {
             <nav aria-label={t('Voice controls')} className="hq-glass mt-auto flex items-center gap-3.5 rounded-full p-2.5">
                 {usable ? (
                     phase === 'recording' ? (
-                        <button type="button" onClick={stopRecording} aria-label={t('Stop and send')} className="inline-flex size-14 items-center justify-center rounded-full bg-[#F43F5E] text-white">
+                        <button
+                            type="button"
+                            onClick={stopRecording}
+                            aria-label={t('Stop and send')}
+                            className="inline-flex size-14 items-center justify-center rounded-full bg-[#F43F5E] text-white"
+                        >
                             <Square className="size-5" aria-hidden />
                         </button>
                     ) : (
@@ -247,14 +285,31 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                         </button>
                     )
                 ) : (
-                    <button type="button" disabled aria-disabled="true" aria-label={t('Microphone: not available')} title={offReason} className="border-glass-border text-muted-foreground inline-flex size-14 cursor-not-allowed items-center justify-center rounded-full border opacity-60">
+                    <button
+                        type="button"
+                        disabled
+                        aria-disabled="true"
+                        aria-label={t('Microphone: not available')}
+                        title={offReason}
+                        className="border-glass-border text-muted-foreground inline-flex size-14 cursor-not-allowed items-center justify-center rounded-full border opacity-60"
+                    >
                         <MicOff className="size-5" aria-hidden />
                     </button>
                 )}
-                <Link href="/observe/posture" aria-label={t('Show what HQ is doing')} title={t('Show what HQ is doing')} className="border-glass-border inline-flex size-14 items-center justify-center rounded-full border">
+                <Link
+                    href="/observe/posture"
+                    aria-label={t('Show what HQ is doing')}
+                    title={t('Show what HQ is doing')}
+                    className="border-glass-border inline-flex size-14 items-center justify-center rounded-full border"
+                >
                     <Activity className="size-5" aria-hidden />
                 </Link>
-                <Link href="/dashboard" aria-label={t('End voice mode')} title={t('End voice mode')} className="inline-flex size-16 items-center justify-center rounded-full bg-[#F43F5E] text-white shadow-[0_10px_30px_rgb(244_63_94/0.4)]">
+                <Link
+                    href="/dashboard"
+                    aria-label={t('End voice mode')}
+                    title={t('End voice mode')}
+                    className="inline-flex size-16 items-center justify-center rounded-full bg-[#F43F5E] text-white shadow-[0_10px_30px_rgb(244_63_94/0.4)]"
+                >
                     <X className="size-6" aria-hidden />
                 </Link>
             </nav>

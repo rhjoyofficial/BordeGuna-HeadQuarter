@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Health\HealthController;
+use App\Http\Controllers\Webhooks\CourierWebhookController;
 use App\Http\Controllers\Webhooks\MetaForwardController;
 use App\Http\Controllers\Webhooks\MetaWebhookController;
 use App\Http\Controllers\Webhooks\ShopWebhookController;
@@ -17,5 +18,5 @@ Route::get('/webhooks/meta', [MetaWebhookController::class, 'verify'])->middlewa
 Route::post('/webhooks/meta', [MetaWebhookController::class, 'receive'])->middleware('throttle:600,1')->name('webhooks.meta');
 
 // The n8n copy of Meta's webhook for gate P3-G3 (docs/88 A point 2): 404 while `channels.meta.forwarded` is off, which it is.
-Route::post('/webhooks/courier/{provider}/{business}', [\App\Http\Controllers\Webhooks\CourierWebhookController::class, 'receive'])->middleware('throttle:300,1')->name('webhooks.courier');
+Route::post('/webhooks/courier/{provider}/{business}', [CourierWebhookController::class, 'receive'])->middleware('throttle:300,1')->name('webhooks.courier');
 Route::post('/webhooks/meta/forwarded', MetaForwardController::class)->middleware('throttle:600,1')->name('webhooks.meta.forwarded');

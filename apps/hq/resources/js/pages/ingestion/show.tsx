@@ -42,7 +42,9 @@ function Cited({ label, field }: { label: string; field: Field }) {
                         {field.value}
                         {field.currency ? ` ${field.currency}` : ''}
                     </div>
-                    <blockquote className="border-glass-border text-muted-foreground border-l-2 pl-2 font-mono text-xs break-words whitespace-pre-wrap">{field.citation.text}</blockquote>
+                    <blockquote className="border-glass-border text-muted-foreground border-l-2 pl-2 font-mono text-xs break-words whitespace-pre-wrap">
+                        {field.citation.text}
+                    </blockquote>
                 </>
             )}
         </div>
@@ -52,7 +54,8 @@ function Cited({ label, field }: { label: string; field: Field }) {
 export default function IngestionShow({ document: d, can }: { document: Doc; can: { review: boolean; send: boolean } }) {
     const t = useT();
     const form = useForm({ note: '' });
-    const decide = (decision: 'reviewed' | 'rejected') => router.post(`/ingestion/${d.uuid}/decide`, { decision, note: form.data.note }, { preserveScroll: true });
+    const decide = (decision: 'reviewed' | 'rejected') =>
+        router.post(`/ingestion/${d.uuid}/decide`, { decision, note: form.data.note }, { preserveScroll: true });
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Supplier documents', href: '/ingestion' },
         { title: d.extracted.invoice_number?.value ?? d.uuid.slice(0, 8), href: `/ingestion/${d.uuid}` },
@@ -68,7 +71,9 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                     description={`${d.business ?? ''} · ${d.from ?? ''} · ${formatDateTime(d.received_at)}`}
                     actions={<StatusBadge status={d.status} />}
                 />
-                <Notice tone="warn">{t('This is a draft read by a program. Check every field against the words beside it before you trust it.')}</Notice>
+                <Notice tone="warn">
+                    {t('This is a draft read by a program. Check every field against the words beside it before you trust it.')}
+                </Notice>
 
                 {d.extracted.warnings.length > 0 && (
                     <Notice tone="pending" title={t('Things to check')}>
@@ -110,7 +115,9 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                                             <td className="px-3 py-2 text-right tabular-nums">{l.quantity?.value}</td>
                                             <td className="px-3 py-2 text-right tabular-nums">{l.unit_price?.value}</td>
                                             <td className="px-3 py-2 text-right tabular-nums">{l.line_total?.value}</td>
-                                            <td className="text-muted-foreground px-3 py-2 font-mono text-xs break-words">{l.description?.citation.text}</td>
+                                            <td className="text-muted-foreground px-3 py-2 font-mono text-xs break-words">
+                                                {l.description?.citation.text}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -123,14 +130,22 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                     <pre className="text-xs whitespace-pre-wrap">{d.source_text}</pre>
                 </TechnicalDetail>
 
-                {d.erp_draft_ref && <Notice tone="ok">{t('A draft bill exists in the ERP: {ref}. The ERP keeps its own approval.', { ref: d.erp_draft_ref })}</Notice>}
+                {d.erp_draft_ref && (
+                    <Notice tone="ok">{t('A draft bill exists in the ERP: {ref}. The ERP keeps its own approval.', { ref: d.erp_draft_ref })}</Notice>
+                )}
                 {d.erp_draft_error && <Notice tone="danger">{d.erp_draft_error}</Notice>}
                 {d.review_note && <Notice tone="neutral">{d.review_note}</Notice>}
 
                 {can.review && open && (
                     <div className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title={t('Your decision')} />
-                        <Textarea value={form.data.note} onChange={(e) => form.setData('note', e.target.value)} rows={2} placeholder={t('A note (optional)')} aria-label={t('A note (optional)')} />
+                        <Textarea
+                            value={form.data.note}
+                            onChange={(e) => form.setData('note', e.target.value)}
+                            rows={2}
+                            placeholder={t('A note (optional)')}
+                            aria-label={t('A note (optional)')}
+                        />
                         <div className="flex flex-wrap gap-2">
                             <Button type="button" onClick={() => decide('reviewed')}>
                                 {t('I checked it: mark reviewed')}
@@ -146,10 +161,14 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                     <div className="hq-card flex flex-col gap-2 p-4">
                         <SectionHeader title={t('Send to the ERP as a draft bill')} />
                         <p className="text-muted-foreground text-sm">
-                            {t('This asks the ERP for a draft bill. A second person must approve the request, and the ERP keeps its own approval after that.')}
+                            {t(
+                                'This asks the ERP for a draft bill. A second person must approve the request, and the ERP keeps its own approval after that.',
+                            )}
                         </p>
                         <div>
-                            <Button onClick={() => router.post(`/ingestion/${d.uuid}/send-to-erp`, {}, { preserveScroll: true })}>{t('Ask for a draft bill')}</Button>
+                            <Button onClick={() => router.post(`/ingestion/${d.uuid}/send-to-erp`, {}, { preserveScroll: true })}>
+                                {t('Ask for a draft bill')}
+                            </Button>
                         </div>
                     </div>
                 )}

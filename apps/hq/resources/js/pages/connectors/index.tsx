@@ -54,7 +54,14 @@ function Yes({ on, label }: { on: boolean; label: string }) {
 export default function Connectors({ families, meta, can }: { families: Family[]; meta: Meta; can: { check_tokens: boolean } }) {
     const t = useT();
     const stateLabel = (s: string) =>
-        (({ ready: t('Connected'), sandbox: t('Sandbox only (no real provider)'), needs_credentials: t('Not connected yet: a key is needed'), off: t('Not connected yet: switched off') }) as Record<string, string>)[s] ?? s;
+        (
+            ({
+                ready: t('Connected'),
+                sandbox: t('Sandbox only (no real provider)'),
+                needs_credentials: t('Not connected yet: a key is needed'),
+                off: t('Not connected yet: switched off'),
+            }) as Record<string, string>
+        )[s] ?? s;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -104,7 +111,10 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                                                 <ul className="mt-1.5 flex flex-col gap-1">
                                                     {p.needs.map((n) => (
                                                         <li key={n.kind}>
-                                                            <Yes on={n.stored} label={`${t('Key')} ${n.kind} (${n.for === 'HQ' ? t('for HQ') : t('for each business')})`} />
+                                                            <Yes
+                                                                on={n.stored}
+                                                                label={`${t('Key')} ${n.kind} (${n.for === 'HQ' ? t('for HQ') : t('for each business')})`}
+                                                            />
                                                         </li>
                                                     ))}
                                                 </ul>
@@ -125,7 +135,10 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                 </div>
 
                 <section className="flex flex-col gap-3" aria-labelledby="meta-health">
-                    <SectionHeader title={t('Meta token health')} aside={meta.health_flag ? t('Checking is on') : t('Checking is off: the switch connectors.meta_health')} />
+                    <SectionHeader
+                        title={t('Meta token health')}
+                        aside={meta.health_flag ? t('Checking is on') : t('Checking is off: the switch connectors.meta_health')}
+                    />
                     <div className="hq-card flex flex-col gap-2 p-4">
                         <div className="flex flex-wrap gap-4">
                             <Yes on={meta.app_secret_stored} label={t('App secret stored (signs and checks webhooks)')} />
@@ -135,7 +148,10 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                         </div>
                     </div>
                     {meta.tokens.length === 0 ? (
-                        <EmptyState title={t('No Meta token is stored')} description={t('Store a Page, Instagram, WhatsApp or ads token on the Credentials screen; it appears here.')} />
+                        <EmptyState
+                            title={t('No Meta token is stored')}
+                            description={t('Store a Page, Instagram, WhatsApp or ads token on the Credentials screen; it appears here.')}
+                        />
                     ) : (
                         <div className="hq-table-box">
                             <table className="w-full text-sm">
@@ -155,15 +171,41 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                                             <td className="px-3 py-2 font-mono text-xs">{k.kind}</td>
                                             <td className="px-3 py-2 font-mono text-xs">{k.account_ref}</td>
                                             <td className="px-3 py-2">
-                                                <StatusBadge tone={k.valid === false || k.status !== 'active' ? 'danger' : k.expiring_soon ? 'warn' : k.valid ? 'ok' : 'neutral'}>
-                                                    {k.valid === false || k.status !== 'active' ? t('Not valid') : k.expiring_soon ? t('Expires soon') : k.valid ? t('Valid') : t('Not checked yet')}
+                                                <StatusBadge
+                                                    tone={
+                                                        k.valid === false || k.status !== 'active'
+                                                            ? 'danger'
+                                                            : k.expiring_soon
+                                                              ? 'warn'
+                                                              : k.valid
+                                                                ? 'ok'
+                                                                : 'neutral'
+                                                    }
+                                                >
+                                                    {k.valid === false || k.status !== 'active'
+                                                        ? t('Not valid')
+                                                        : k.expiring_soon
+                                                          ? t('Expires soon')
+                                                          : k.valid
+                                                            ? t('Valid')
+                                                            : t('Not checked yet')}
                                                 </StatusBadge>
                                             </td>
                                             <td className="px-3 py-2">{k.expires_at ? formatDateTime(k.expires_at) : t('No expiry known')}</td>
                                             <td className="px-3 py-2">{k.last_verified_at ? formatDateTime(k.last_verified_at) : '-'}</td>
                                             <td className="px-3 py-2 text-right">
                                                 {can.check_tokens && (
-                                                    <Button size="sm" variant="outline" onClick={() => router.post('/connectors/meta/check', { kind: k.kind, account_ref: k.account_ref }, { preserveScroll: true })}>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() =>
+                                                            router.post(
+                                                                '/connectors/meta/check',
+                                                                { kind: k.kind, account_ref: k.account_ref },
+                                                                { preserveScroll: true },
+                                                            )
+                                                        }
+                                                    >
                                                         {t('Check now')}
                                                     </Button>
                                                 )}
@@ -174,7 +216,11 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                             </table>
                         </div>
                     )}
-                    <Notice tone="info">{t('Checking a token asks Meta only whether it is valid, when it expires and what it may do. The token itself never leaves the vault.')}</Notice>
+                    <Notice tone="info">
+                        {t(
+                            'Checking a token asks Meta only whether it is valid, when it expires and what it may do. The token itself never leaves the vault.',
+                        )}
+                    </Notice>
                 </section>
             </div>
         </AppLayout>

@@ -29,7 +29,9 @@ export default function Parcels({ parcels, businesses, providers }: Props) {
             <div className="flex max-w-5xl flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title={t('Parcels')}
-                    description={t('Where each consignment is, as the courier last said. HQ reads and listens only: nothing is booked or changed in the ERP.')}
+                    description={t(
+                        'Where each consignment is, as the courier last said. HQ reads and listens only: nothing is booked or changed in the ERP.',
+                    )}
                 />
 
                 <form
@@ -42,7 +44,11 @@ export default function Parcels({ parcels, businesses, providers }: Props) {
                     <SectionHeader title={t('Track a parcel now')} />
                     <FormRow>
                         <Field label={t('Business')} htmlFor="p-business" size="lg" error={form.errors.business_slug}>
-                            <NativeSelect id="p-business" value={form.data.business_slug} onChange={(e) => form.setData('business_slug', e.target.value)}>
+                            <NativeSelect
+                                id="p-business"
+                                value={form.data.business_slug}
+                                onChange={(e) => form.setData('business_slug', e.target.value)}
+                            >
                                 {businesses.map((b) => (
                                     <option key={b.slug} value={b.slug}>
                                         {b.name}
@@ -72,7 +78,10 @@ export default function Parcels({ parcels, businesses, providers }: Props) {
                 </form>
 
                 {parcels.length === 0 ? (
-                    <EmptyState title={t('No parcels yet')} description={t('Parcels appear when a courier sends a status update or when you track one.')} />
+                    <EmptyState
+                        title={t('No parcels yet')}
+                        description={t('Parcels appear when a courier sends a status update or when you track one.')}
+                    />
                 ) : (
                     <ul className="flex flex-col gap-3">
                         {parcels.map((p) => (

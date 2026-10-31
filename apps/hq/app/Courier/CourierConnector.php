@@ -38,10 +38,9 @@ interface CourierConnector
      * secret throws before the body is parsed, and a body that is not a status change throws too.
      *
      * @param  array<string, string>  $headers  lower-case header name => value
-     *
      * @return ParcelSnapshot|null null when the call is authentic but carries nothing to record (a courier's test ping)
      *
-     * @throws Exceptions\InvalidCourierWebhook
+     * @throws InvalidCourierWebhook
      */
     public function receiveWebhook(string $rawBody, array $headers, string $secret): ?ParcelSnapshot;
 }

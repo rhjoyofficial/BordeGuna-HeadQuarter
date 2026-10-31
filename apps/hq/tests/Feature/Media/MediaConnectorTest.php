@@ -1,10 +1,12 @@
 <?php
 
-use App\Gateway\CallerKind;
+use App\Ai\Pause\AiPauseSwitch;
+use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
-use App\Gateway\Credentials\CredentialVault;
+use App\Http\Controllers\Ask\AskController;
+use App\Media\MediaAssetService;
 use App\Media\Pipeline\Exceptions\MediaPipelineRefused;
 use App\Media\Pipeline\Exceptions\MediaPipelineUnavailable;
 use App\Media\Pipeline\FakeMediaPipeline;
@@ -16,17 +18,26 @@ use App\Media\Upload\AttachmentGuard;
 use App\Media\Upload\AttachmentRejected;
 use App\Media\Upload\ChatMediaUploader;
 use App\Media\Upload\MediaRetention;
+use App\Models\AskConversation;
+use App\Models\AskMessage;
+use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\ChatAttachment;
+use App\Models\ContentPublication;
 use App\Models\IntegrationCredential;
 use App\Models\MediaAsset;
 use App\Models\MediaDraft;
 use App\Models\UserBusinessScope;
+use App\Tools\Connectors\CheckReelDraftTool;
+use App\Tools\Connectors\DraftReelTool;
+use App\Tools\ToolContext;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /*
  | docs/144-media-in-chat and docs/144-media-pipeline: what HQ will store from an upload (decided from the bytes), the per-business
@@ -94,7 +105,7 @@ it('stores an upload under a business with retention, and audits it', function (
     expect($a->business_id)->toBe($this->mine->id)->and($a->original_name)->toBe('passwd.png')->and($a->kind)->toBe('image')
         ->and($a->expires_at->isAfter(now()->addDays(89)))->toBeTrue()
         ->and($a->asset->provenance->isTrusted())->toBeFalse()
-        ->and(\App\Models\AuditLog::where('action', 'chat_attachment.stored')->count())->toBe(1);
+        ->and(AuditLog::where('action', 'chat_attachment.stored')->count())->toBe(1);
 });
 
 it('makes a restricted person name one of their businesses, and refuses any other', function () {
@@ -141,13 +152,13 @@ it('links a question to the person\'s own uploads only', function () {
     $mine = app(ChatMediaUploader::class)->store($this->owner, m3Png(), 'mine.png', $this->mine->id);
     $other = $this->hqUser('operator');
     $theirs = app(ChatMediaUploader::class)->store($other, m3Png(), 'theirs.png', $this->mine->id);
-    $conversation = \App\Models\AskConversation::forceCreate(['uuid' => (string) Illuminate\Support\Str::uuid(), 'user_id' => $this->owner->id, 'title' => 't', 'agent_key' => 'executive', 'last_activity_at' => now()]);
-    \App\Models\AskMessage::forceCreate(['ask_conversation_id' => $conversation->id, 'role' => 'user', 'status' => 'done', 'content' => 'q']);
+    $conversation = AskConversation::forceCreate(['uuid' => (string) Str::uuid(), 'user_id' => $this->owner->id, 'title' => 't', 'agent_key' => 'executive', 'last_activity_at' => now()]);
+    AskMessage::forceCreate(['ask_conversation_id' => $conversation->id, 'role' => 'user', 'status' => 'done', 'content' => 'q']);
 
-    $method = new ReflectionMethod(\App\Http\Controllers\Ask\AskController::class, 'attach');
-    $request = Illuminate\Http\Request::create('/ask', 'POST');
+    $method = new ReflectionMethod(AskController::class, 'attach');
+    $request = Request::create('/ask', 'POST');
     $request->setUserResolver(fn () => $this->owner);
-    $method->invoke(app(\App\Http\Controllers\Ask\AskController::class), $request, $conversation, [$mine->uuid, $theirs->uuid]);
+    $method->invoke(app(AskController::class), $request, $conversation, [$mine->uuid, $theirs->uuid]);
 
     expect($mine->fresh()->status)->toBe('attached')->and($mine->fresh()->ask_message_id)->not->toBeNull()
         ->and($theirs->fresh()->status)->toBe('stored')->and($theirs->fresh()->ask_message_id)->toBeNull();
@@ -163,7 +174,7 @@ it('deletes expired files, and keeps the bytes another business still needs', fu
     $a->forceFill(['expires_at' => now()->subDay()])->save();
     $result = app(MediaRetention::class)->purgeExpired();
     expect($result)->toBe(['attachments' => 1, 'assets' => 0])->and($a->fresh()->status)->toBe('purged')
-        ->and(MediaAsset::count())->toBe(1)->and(app(\App\Media\MediaAssetService::class)->contents($b->asset))->not->toBeNull();
+        ->and(MediaAsset::count())->toBe(1)->and(app(MediaAssetService::class)->contents($b->asset))->not->toBeNull();
 
     $b->forceFill(['expires_at' => now()->subDay()])->save();
     expect(app(MediaRetention::class)->purgeExpired())->toBe(['attachments' => 1, 'assets' => 1])->and(MediaAsset::count())->toBe(0);
@@ -232,14 +243,14 @@ it('asks for a draft only after an approval, keeps it a draft, and publishes not
     expect($asked->status)->toBe(OutcomeStatus::AwaitingApproval)->and(MediaDraft::count())->toBe(0);
 
     // Approved: the tool runs, makes a draft that is generating, and the check turns it into a ready draft asset.
-    $draftTool = app(\App\Tools\Connectors\DraftReelTool::class);
-    $result = $draftTool->execute($args, new \App\Tools\ToolContext('k1', 'c1', $this->mine->id, actorUserId: $this->owner->id));
+    $draftTool = app(DraftReelTool::class);
+    $result = $draftTool->execute($args, new ToolContext('k1', 'c1', $this->mine->id, actorUserId: $this->owner->id));
     expect($result->ok())->toBeTrue();
     $draft = MediaDraft::sole();
     expect($draft->status)->toBe('generating')->and($draft->business_id)->toBe($this->mine->id);
 
-    $check = app(\App\Tools\Connectors\CheckReelDraftTool::class);
-    $ctx = new \App\Tools\ToolContext('k2', 'c2', $this->mine->id, actorUserId: $this->owner->id);
+    $check = app(CheckReelDraftTool::class);
+    $ctx = new ToolContext('k2', 'c2', $this->mine->id, actorUserId: $this->owner->id);
     $check->execute(['business_slug' => $this->mine->slug, 'draft_uuid' => $draft->uuid], $ctx);
     expect($draft->fresh()->status)->toBe('generating');
     $check->execute(['business_slug' => $this->mine->slug, 'draft_uuid' => $draft->uuid], $ctx);
@@ -251,11 +262,11 @@ it('asks for a draft only after an approval, keeps it a draft, and publishes not
     // Approving records a person's yes on the draft and nothing else.
     $this->actingAsHq($this->owner)->post("/media-drafts/{$draft->uuid}/decide", ['decision' => 'approved'])->assertRedirect();
     expect($draft->fresh()->status)->toBe('approved')->and($draft->fresh()->reviewed_by)->toBe($this->owner->id)
-        ->and(\App\Models\ContentPublication::count())->toBe(0);
+        ->and(ContentPublication::count())->toBe(0);
 });
 
 it('keeps a business\'s drafts from a person limited to another', function () {
-    $draft = MediaDraft::create(['uuid' => (string) Illuminate\Support\Str::uuid(), 'business_id' => $this->theirs->id, 'brief' => 'secret brief', 'status' => 'ready']);
+    $draft = MediaDraft::create(['uuid' => (string) Str::uuid(), 'business_id' => $this->theirs->id, 'brief' => 'secret brief', 'status' => 'ready']);
     $restricted = $this->hqUser('operator');
     UserBusinessScope::create(['user_id' => $restricted->id, 'business_id' => $this->mine->id]);
 
@@ -270,9 +281,9 @@ it('keeps a business\'s drafts from a person limited to another', function () {
 
 it('refuses a reel while Pause All AI is on', function () {
     m3SandboxConnectors(['connectors.media_pipeline']);
-    app(\App\Ai\Pause\AiPauseSwitch::class)->pause($this->owner, 'test');
+    app(AiPauseSwitch::class)->pause($this->owner, 'test');
 
-    $result = app(\App\Tools\Connectors\DraftReelTool::class)->execute(['business_slug' => $this->mine->slug, 'brief' => 'x'], new \App\Tools\ToolContext('k', 'c', $this->mine->id));
+    $result = app(DraftReelTool::class)->execute(['business_slug' => $this->mine->slug, 'brief' => 'x'], new ToolContext('k', 'c', $this->mine->id));
 
     expect($result->ok())->toBeFalse()->and(MediaDraft::count())->toBe(0);
 });

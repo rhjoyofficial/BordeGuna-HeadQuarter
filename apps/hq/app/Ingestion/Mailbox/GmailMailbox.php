@@ -3,6 +3,7 @@
 namespace App\Ingestion\Mailbox;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -53,7 +54,7 @@ final class GmailMailbox extends AbstractHttpMailbox
         return new MailboxBatch(array_slice($messages, 0, $limit));
     }
 
-    /** @param  callable(): \Illuminate\Http\Client\PendingRequest  $http */
+    /** @param  callable(): PendingRequest  $http */
     private function message(string $id, array $full, string $base, callable $http): InboundMail
     {
         $headers = [];

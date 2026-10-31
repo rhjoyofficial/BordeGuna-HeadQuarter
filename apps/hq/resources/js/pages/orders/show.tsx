@@ -34,7 +34,10 @@ export default function OrderShow({ order, parcels }: { order: Order; parcels: P
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={order.ref} />
             <div className="flex max-w-4xl flex-col gap-6 p-4 md:p-6">
-                <PageHeader title={order.ref} description={t('HQ holds a copy of this order. The shop or the ERP is the truth; check there before acting on a status.')} />
+                <PageHeader
+                    title={order.ref}
+                    description={t('HQ holds a copy of this order. The shop or the ERP is the truth; check there before acting on a status.')}
+                />
 
                 <section className="hq-card flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-sm">
                     <StatusBadge status={order.status} />
@@ -42,7 +45,9 @@ export default function OrderShow({ order, parcels }: { order: Order; parcels: P
                     <span>BDT {order.gross}</span>
                     <span className="text-muted-foreground">{formatDateTime(order.placed_at)}</span>
                     {order.store && <span className="text-muted-foreground">{order.store}</span>}
-                    {(order.district || order.thana) && <span className="text-muted-foreground">{[order.thana, order.district].filter(Boolean).join(', ')}</span>}
+                    {(order.district || order.thana) && (
+                        <span className="text-muted-foreground">{[order.thana, order.district].filter(Boolean).join(', ')}</span>
+                    )}
                     {order.customer_id && (
                         <Link href={`/customers/${order.customer_id}`} className="underline">
                             {t('Customer')}
@@ -53,7 +58,12 @@ export default function OrderShow({ order, parcels }: { order: Order; parcels: P
                 <section className="flex flex-col gap-3">
                     <SectionHeader title={t('Parcels')} />
                     {parcels.length === 0 ? (
-                        <EmptyState title={t('No parcel is linked to this order')} description={t('A parcel is linked when the courier echoes this order number, or it can be tracked on the Parcels screen.')} />
+                        <EmptyState
+                            title={t('No parcel is linked to this order')}
+                            description={t(
+                                'A parcel is linked when the courier echoes this order number, or it can be tracked on the Parcels screen.',
+                            )}
+                        />
                     ) : (
                         parcels.map((p) => (
                             <div key={p.uuid} className="hq-card p-4">

@@ -3,11 +3,11 @@
 namespace App\Tools\Connectors;
 
 use App\Gateway\OutcomeClass;
-use App\Ingestion\MailIngestor;
 use App\Ingestion\Mailbox\Exceptions\MailboxRefused;
 use App\Ingestion\Mailbox\Exceptions\MailboxUnavailable;
 use App\Ingestion\Mailbox\GmailMailbox;
 use App\Ingestion\Mailbox\GraphMailbox;
+use App\Ingestion\MailIngestor;
 use App\Models\Business;
 use App\Tools\ToolContext;
 use App\Tools\ToolResult;

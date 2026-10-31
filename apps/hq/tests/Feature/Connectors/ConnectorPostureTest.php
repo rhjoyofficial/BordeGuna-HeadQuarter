@@ -1,15 +1,21 @@
 <?php
 
+use App\Connectors\Capabilities;
+use App\Connectors\ConnectorRegistry;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Agent;
+use App\Models\Business;
 use App\Models\FeatureFlag;
+use App\Tools\Connectors\CreateDraftBillTool;
+use App\Tools\ToolContext;
 use App\Tools\ToolRegistry;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Spatie\Permission\Models\Role;
 
 /*
  | docs/144: what the shipped state of the HQ-completion connectors is, and that it stays so. Every switch is OFF, so no connector tool
@@ -77,12 +83,12 @@ it('declares each tool with a permission that exists, an audit action, the risk 
                 : expect($d->riskTier->writesOutsideHq())->toBeFalse();
             // A tool whose switch is off refuses even when called directly.
             FeatureFlag::where('key', $flag)->update(['enabled' => false]);
-            $business = \App\Models\Business::first();
-            $direct = $tool->execute(['business_slug' => $business->slug], new \App\Tools\ToolContext('k', 'c', $business->id, actorUserId: $this->owner->id));
+            $business = Business::first();
+            $direct = $tool->execute(['business_slug' => $business->slug], new ToolContext('k', 'c', $business->id, actorUserId: $this->owner->id));
             expect($direct->ok())->toBeFalse();
         }
     }
-    expect(app(\App\Tools\Connectors\CreateDraftBillTool::class)->descriptor()->requesterMayDecide)->toBeFalse();
+    expect(app(CreateDraftBillTool::class)->descriptor()->requesterMayDecide)->toBeFalse();
 });
 
 it('holds the new permissions for owner and operator only', function () {
@@ -90,12 +96,12 @@ it('holds the new permissions for owner and operator only', function () {
 
     foreach (['brand_manager', 'support_agent', 'finance_viewer'] as $role) {
         foreach ($new as $permission) {
-            expect(\Spatie\Permission\Models\Role::findByName($role)->hasPermissionTo($permission))->toBeFalse("{$role} holds {$permission}");
+            expect(Role::findByName($role)->hasPermissionTo($permission))->toBeFalse("{$role} holds {$permission}");
         }
     }
     foreach (['owner', 'operator'] as $role) {
         foreach ($new as $permission) {
-            expect(\Spatie\Permission\Models\Role::findByName($role)->hasPermissionTo($permission))->toBeTrue();
+            expect(Role::findByName($role)->hasPermissionTo($permission))->toBeTrue();
         }
     }
 });
@@ -104,8 +110,8 @@ it('ships the courier webhook open to the couriers but throttled, and every conn
     $route = collect(Route::getRoutes()->getRoutes())->first(fn ($r) => $r->uri() === 'api/webhooks/courier/{provider}/{business}');
     expect($route->methods())->toBe(['POST'])->and($route->gatherMiddleware())->toContain('throttle:300,1')->not->toContain('auth');
 
-    foreach (app(\App\Connectors\ConnectorRegistry::class)->all() as $row) {
-        expect(is_a($row->adapter, \App\Connectors\Capabilities::contract($row->capability), true))->toBeTrue();
+    foreach (app(ConnectorRegistry::class)->all() as $row) {
+        expect(is_a($row->adapter, Capabilities::contract($row->capability), true))->toBeTrue();
         expect($row->enabledBy)->toStartWith('flag:connectors.');
     }
 });

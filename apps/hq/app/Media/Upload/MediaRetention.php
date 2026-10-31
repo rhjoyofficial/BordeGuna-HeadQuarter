@@ -2,7 +2,6 @@
 
 namespace App\Media\Upload;
 
-use App\Media\MediaAssetService;
 use App\Models\ChatAttachment;
 use App\Models\MailAttachment;
 use App\Models\MediaAsset;

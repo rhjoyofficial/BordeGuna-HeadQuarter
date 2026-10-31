@@ -8,18 +8,22 @@ use App\Ads\Draft\Exceptions\AdsDraftRefused;
 use App\Ads\Draft\Exceptions\AdsDraftUnavailable;
 use App\Ads\Draft\FakeAdsDraftPlatform;
 use App\Ads\Draft\MetaAdsDraftPlatform;
-use App\Ads\Meta\MetaTokenInspector;
+use App\Commerce\Exceptions\Unsupported;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\AdsDraft;
 use App\Models\Business;
+use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
 use App\Models\PlatformAccount;
 use App\Models\UserBusinessScope;
+use App\Tools\Connectors\CreateAdsDraftTool;
+use App\Tools\ToolContext;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
 
 /*
@@ -111,7 +115,7 @@ it('passes plain, honest copy', function () {
 
 function m3FakeMetaCreate(string $mode = 'ok'): void
 {
-    Http::swap(new \Illuminate\Http\Client\Factory);
+    Http::swap(new Factory);
     $seq = ['n' => 0];
     Http::fake(function ($request) use (&$seq, $mode) {
         $url = $request->url();
@@ -185,7 +189,7 @@ it('is refused as a refusal with what was already made, and reported down as una
 it('refuses before any request when no credential scope is open, and an ad account id that is not digits', function () {
     Http::fake();
 
-    expect(fn () => app(MetaAdsDraftPlatform::class)->createPausedDraft('laladia', '530866839523958', m3Spec()))->toThrow(\App\Commerce\Exceptions\Unsupported::class)
+    expect(fn () => app(MetaAdsDraftPlatform::class)->createPausedDraft('laladia', '530866839523958', m3Spec()))->toThrow(Unsupported::class)
         ->and(fn () => app(MetaAdsDraftPlatform::class)->createPausedDraft('laladia', '../me', m3Spec()))->toThrow(AdsDraftRefused::class);
     Http::assertNothingSent();
 });
@@ -199,7 +203,7 @@ it('has no way to switch anything on: no activation method, no other status word
         expect($source)->not->toMatch('/function\s+(activate|resume|publish|enable|delete|archive|changeBudget|setBudget)/i');
     }
     // The only status the Meta driver ever names is the constant.
-    expect(preg_match_all("/PAUSED/", file_get_contents(app_path('Ads/Draft/MetaAdsDraftPlatform.php'))))->toBeGreaterThan(3);
+    expect(preg_match_all('/PAUSED/', file_get_contents(app_path('Ads/Draft/MetaAdsDraftPlatform.php'))))->toBeGreaterThan(3);
 });
 
 // ── the tool, through the gateway ───────────────────────────────────────────────────────────────
@@ -211,7 +215,7 @@ it('waits for approval, then creates the paused draft and records it for the bus
     $requested = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.create_draft', $args, $this->business->id));
     expect($requested->status)->toBe(OutcomeStatus::AwaitingApproval)->and(AdsDraft::count())->toBe(0);
 
-    $result = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute($args, new \App\Tools\ToolContext('k', 'c', $this->business->id, actorUserId: $this->owner->id));
+    $result = app(CreateAdsDraftTool::class)->execute($args, new ToolContext('k', 'c', $this->business->id, actorUserId: $this->owner->id));
     expect($result->ok())->toBeTrue();
     $draft = AdsDraft::sole();
     expect($draft->status)->toBe('created_paused')->and($draft->business_id)->toBe($this->business->id)->and($draft->checks['ok'])->toBeTrue()
@@ -219,7 +223,7 @@ it('waits for approval, then creates the paused draft and records it for the bus
 });
 
 it('shows the checks in the approval preview, so the approver sees a refused draft before deciding', function () {
-    $preview = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->preview(m3AdsArgs($this->business, $this->account, ['daily_budget' => '50.00']), new \App\Tools\ToolContext('k', 'c', $this->business->id));
+    $preview = app(CreateAdsDraftTool::class)->preview(m3AdsArgs($this->business, $this->account, ['daily_budget' => '50.00']), new ToolContext('k', 'c', $this->business->id));
 
     expect($preview['checks']['ok'])->toBeFalse()->and($preview['checks']['budget']['ok'])->toBeFalse()->and($preview['external_effect'])->toContain('paused');
 });
@@ -228,7 +232,7 @@ it('creates nothing when a check fails, whoever approved it', function (array $o
     m3SandboxConnectors(['connectors.ads_draft']);
     Http::fake();
 
-    $result = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute(m3AdsArgs($this->business, $this->account, $over), new \App\Tools\ToolContext('k', 'c', $this->business->id));
+    $result = app(CreateAdsDraftTool::class)->execute(m3AdsArgs($this->business, $this->account, $over), new ToolContext('k', 'c', $this->business->id));
 
     expect($result->ok())->toBeFalse()->and($result->output['checks']['ok'] ?? null)->toBeFalse()->and(AdsDraft::count())->toBe(0);
     Http::assertNothingSent();
@@ -243,10 +247,10 @@ it('lets a recorded piece of evidence carry its claim, and only that claim', fun
     m3SandboxConnectors(['connectors.ads_draft']);
     $args = m3AdsArgs($this->business, $this->account, ['primary_text' => 'বিএসটিআই অনুমোদিত আচার, তাজা স্বাদ']);
 
-    $one = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute($args + ['claim_proofs' => ['certified' => 'BSTI cert 123']], new \App\Tools\ToolContext('k', 'c', $this->business->id));
+    $one = app(CreateAdsDraftTool::class)->execute($args + ['claim_proofs' => ['certified' => 'BSTI cert 123']], new ToolContext('k', 'c', $this->business->id));
     expect($one->ok())->toBeFalse(); // "fresh" is still unproven
 
-    $both = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute($args + ['claim_proofs' => ['certified' => 'BSTI cert 123', 'fresh' => 'Packed 12 Oct, batch 4']], new \App\Tools\ToolContext('k2', 'c2', $this->business->id));
+    $both = app(CreateAdsDraftTool::class)->execute($args + ['claim_proofs' => ['certified' => 'BSTI cert 123', 'fresh' => 'Packed 12 Oct, batch 4']], new ToolContext('k2', 'c2', $this->business->id));
     expect($both->ok())->toBeTrue();
 });
 
@@ -254,7 +258,7 @@ it('uses only an ad account that belongs to the business, and only a business th
     m3SandboxConnectors(['connectors.ads_draft']);
     $other = Business::where('id', '!=', $this->business->id)->firstOrFail();
 
-    $foreign = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute(m3AdsArgs($other, $this->account), new \App\Tools\ToolContext('k', 'c', $other->id));
+    $foreign = app(CreateAdsDraftTool::class)->execute(m3AdsArgs($other, $this->account), new ToolContext('k', 'c', $other->id));
     expect($foreign->ok())->toBeFalse()->and((string) $foreign->error)->toContain('not one of this business')->and(AdsDraft::count())->toBe(0);
 
     $restricted = $this->hqUser('operator');
@@ -279,7 +283,7 @@ it('reports a platform that left something active as a failure, naming the objec
     };
     app()->bind(FakeAdsDraftPlatform::class, fn () => $platform);
 
-    $result = app(\App\Tools\Connectors\CreateAdsDraftTool::class)->execute(m3AdsArgs($this->business, $this->account), new \App\Tools\ToolContext('k', 'c', $this->business->id));
+    $result = app(CreateAdsDraftTool::class)->execute(m3AdsArgs($this->business, $this->account), new ToolContext('k', 'c', $this->business->id));
 
     expect($result->ok())->toBeFalse()->and($result->output['objects']['campaign'])->toBe('c1')->and(AdsDraft::sole()->status)->toBe('failed');
 });
@@ -349,7 +353,7 @@ it('says honestly that nothing is connected yet, and what each connector needs',
 });
 
 it('moves a connector to needs-credentials when its switch is on and to connected when its key is stored', function () {
-    \App\Models\FeatureFlag::query()->updateOrCreate(['key' => 'connectors.voice', 'environment' => '*'], ['description' => 't', 'enabled' => true]);
+    FeatureFlag::query()->updateOrCreate(['key' => 'connectors.voice', 'environment' => '*'], ['description' => 't', 'enabled' => true]);
     m3RebuildRegistries();
     $state = fn () => collect($this->actingAsHq($this->owner)->get('/connectors')->inertiaProps()['families'])->firstWhere('key', 'voice')['state'];
 

@@ -26,7 +26,12 @@ export async function postForm<T = Record<string, unknown>>(url: string, body: F
         const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
         if (!response.ok) {
             const first = json.errors ? (Object.values(json.errors as Record<string, string[]>)[0]?.[0] ?? '') : '';
-            return { ok: false, status: response.status, error: String(json.error ?? first ?? json.message ?? 'The request was refused.'), state: json.state as string | undefined };
+            return {
+                ok: false,
+                status: response.status,
+                error: String(json.error ?? first ?? json.message ?? 'The request was refused.'),
+                state: json.state as string | undefined,
+            };
         }
         return { ok: true, data: json as T };
     } catch {

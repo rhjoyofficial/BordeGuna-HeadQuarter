@@ -7,7 +7,6 @@ use App\Ingestion\Mailbox\Exceptions\MailboxRefused;
 use App\Ingestion\Mailbox\Exceptions\MailboxUnavailable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /** What the REST mailbox drivers share: the token only from the open vault scope, and failures in two classes. */

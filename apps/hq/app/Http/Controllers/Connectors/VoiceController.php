@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Connectors;
 use App\Gateway\OutcomeStatus;
 use App\Media\Upload\AttachmentRejected;
 use App\Media\Upload\ChatMediaUploader;
+use App\Media\Upload\MediaRetention;
+use App\Support\Features\Features;
 use App\Voice\SpeechSynthesisRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,7 +26,7 @@ final class VoiceController extends ConnectorController
             // Consent to KEEP the transcript, for this recording only. Without it the transcript is shown and dropped.
             'keep_transcript' => ['nullable', 'boolean'],
         ]);
-        if (! app(\App\Support\Features\Features::class)->enabled('connectors.voice')) {
+        if (! app(Features::class)->enabled('connectors.voice')) {
             return response()->json(['error' => 'Not connected yet: voice is switched off.', 'state' => 'disabled'], 409);
         }
         $file = $request->file('audio');
@@ -43,7 +45,7 @@ final class VoiceController extends ConnectorController
             // The recording must not outlive a refusal either (the tool discards it once it ran; a refusal before that does not).
             $left = $attachment->fresh();
             if ($left !== null && $left->status !== 'purged') {
-                app(\App\Media\Upload\MediaRetention::class)->discard($left);
+                app(MediaRetention::class)->discard($left);
             }
 
             return response()->json(['error' => (string) ($outcome->error ?? $outcome->policyReason ?? 'Voice is not available.'), 'state' => $outcome->output['connector_state'] ?? $outcome->status->value], 409);

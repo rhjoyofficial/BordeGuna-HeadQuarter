@@ -1,5 +1,6 @@
 <?php
 
+use App\Commerce\Exceptions\Unsupported;
 use App\Erp\Write\ErpDraftBill;
 use App\Erp\Write\ErpDraftBillWriter;
 use App\Erp\Write\Exceptions\ErpWriteRefused;
@@ -13,21 +14,30 @@ use App\Gateway\ToolRequest;
 use App\Ingestion\Extraction\DocumentTextExtractor;
 use App\Ingestion\Extraction\ExtractionVerifier;
 use App\Ingestion\Extraction\RuleBasedBillExtractor;
-use App\Ingestion\MailIngestor;
 use App\Ingestion\Mailbox\Exceptions\MailboxRefused;
 use App\Ingestion\Mailbox\Exceptions\MailboxUnavailable;
 use App\Ingestion\Mailbox\FakeMailbox;
 use App\Ingestion\Mailbox\GmailMailbox;
 use App\Ingestion\Mailbox\GraphMailbox;
+use App\Ingestion\Mailbox\InboundAttachment;
+use App\Ingestion\Mailbox\InboundMail;
+use App\Ingestion\Mailbox\MailboxBatch;
 use App\Ingestion\Mailbox\MailboxConnector;
+use App\Ingestion\MailIngestor;
+use App\Models\Approval;
+use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\IngestedDocument;
 use App\Models\IntegrationCredential;
 use App\Models\MailAttachment;
 use App\Models\MailMessage;
 use App\Models\UserBusinessScope;
+use App\Tools\Connectors\CreateDraftBillTool;
+use App\Tools\ToolContext;
+use Carbon\CarbonImmutable;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -81,7 +91,7 @@ function m3Pdf(array $lines): string
 
 function m3FakeMailHttp(string $mode): void
 {
-    Http::swap(new \Illuminate\Http\Client\Factory);
+    Http::swap(new Factory);
     $ok = $mode === 'ok';
     $answer = fn (array $body) => $ok ? Http::response($body, 200) : ($mode === 'refused' ? Http::response(['error' => 'no'], 401) : Http::response('down', 503));
     $pdf = base64_encode(m3Pdf(['Green Valley Traders', 'Invoice No: GV-1', 'Grand Total: BDT 100.00']));
@@ -144,7 +154,7 @@ it('is refused as a refusal and reported down as unavailable, without the token 
 it('refuses before any request when no credential scope is open', function () {
     Http::fake();
 
-    expect(fn () => app(GmailMailbox::class)->fetch('laladia', null, 5))->toThrow(\App\Commerce\Exceptions\Unsupported::class);
+    expect(fn () => app(GmailMailbox::class)->fetch('laladia', null, 5))->toThrow(Unsupported::class);
     Http::assertNothingSent();
 });
 
@@ -229,14 +239,14 @@ it('keeps a file it will not store out, with the reason, and makes no draft from
             return 'fake_mailbox';
         }
 
-        public function fetch(string $accountRef, ?DateTimeInterface $since, int $limit): \App\Ingestion\Mailbox\MailboxBatch
+        public function fetch(string $accountRef, ?DateTimeInterface $since, int $limit): MailboxBatch
         {
-            $mail = fn (string $id, array $files) => new \App\Ingestion\Mailbox\InboundMail($id, 'x@y.test', 'files', \Carbon\CarbonImmutable::parse('2026-10-22'), null, $files);
+            $mail = fn (string $id, array $files) => new InboundMail($id, 'x@y.test', 'files', CarbonImmutable::parse('2026-10-22'), null, $files);
 
-            return new \App\Ingestion\Mailbox\MailboxBatch([$mail('bad-1', [
-                new \App\Ingestion\Mailbox\InboundAttachment('run.exe', 'application/pdf', "MZ\x90\x00".str_repeat("\0", 64)),
-                new \App\Ingestion\Mailbox\InboundAttachment('scan.png', 'image/png', "\x89PNG\r\n\x1A\n".str_repeat("\0", 64)),
-                new \App\Ingestion\Mailbox\InboundAttachment('note.txt', 'text/plain', 'just a hello, not a bill'),
+            return new MailboxBatch([$mail('bad-1', [
+                new InboundAttachment('run.exe', 'application/pdf', "MZ\x90\x00".str_repeat("\0", 64)),
+                new InboundAttachment('scan.png', 'image/png', "\x89PNG\r\n\x1A\n".str_repeat("\0", 64)),
+                new InboundAttachment('note.txt', 'text/plain', 'just a hello, not a bill'),
             ])]);
         }
     };
@@ -282,7 +292,7 @@ it('lists and shows only the documents of the businesses a person may see, and r
 
     $this->actingAsHq($restricted)->post("/ingestion/{$mine->uuid}/decide", ['decision' => 'reviewed', 'note' => 'checked'])->assertRedirect();
     expect($mine->fresh()->status)->toBe('reviewed')->and($mine->fresh()->reviewed_by)->toBe($restricted->id)
-        ->and(\App\Models\AuditLog::where('action', 'ingestion.reviewed')->count())->toBe(1);
+        ->and(AuditLog::where('action', 'ingestion.reviewed')->count())->toBe(1);
     // Decided already: a second decision is refused.
     $this->actingAsHq($restricted)->post("/ingestion/{$mine->uuid}/decide", ['decision' => 'rejected'])->assertSessionHasErrors('decision');
     expect($theirs->fresh()->status)->toBe('draft');
@@ -331,7 +341,9 @@ it('refuses an answer that is not a draft, a rejected token and a refusal, and r
         return;
     }
     $answer = Http::response(['data' => ['id' => 1, 'number' => 'PB-1', 'status' => 'posted']], 201);
-    Http::fake(['*purchase-bills/drafts' => function () use (&$answer) { return $answer; }]);
+    Http::fake(['*purchase-bills/drafts' => function () use (&$answer) {
+        return $answer;
+    }]);
 
     // A 2xx whose status is not draft is NOT a draft.
     expect(fn () => m3WithErpToken(true, fn () => $writer->createDraftBill('laladia', m3Bill(), 'k')))->toThrow(ErpWriteRefused::class, 'not a draft');
@@ -365,8 +377,8 @@ it('sends a reviewed document as a draft bill only after a second person approve
     $args = ['business_slug' => $this->mine->slug, 'document_uuid' => $doc->uuid];
 
     // Not reviewed yet: refused, nothing asked.
-    $tool = app(\App\Tools\Connectors\CreateDraftBillTool::class);
-    $ctx = new \App\Tools\ToolContext('k', 'c', $this->mine->id);
+    $tool = app(CreateDraftBillTool::class);
+    $ctx = new ToolContext('k', 'c', $this->mine->id);
     expect($tool->execute($args, $ctx)->ok())->toBeFalse();
 
     $doc->forceFill(['status' => IngestedDocument::REVIEWED])->save();
@@ -374,7 +386,7 @@ it('sends a reviewed document as a draft bill only after a second person approve
     expect($requested->status)->toBe(OutcomeStatus::AwaitingApproval)->and($doc->fresh()->status)->toBe('reviewed');
 
     // The requester may NOT decide it.
-    $approval = \App\Models\Approval::findOrFail($requested->approvalId);
+    $approval = Approval::findOrFail($requested->approvalId);
     expect($approval->separationOfDutiesReason($this->owner))->not->toBeNull();
     $this->actingAsHq($this->owner)->post("/approvals/{$approval->id}/approve");
     expect($doc->fresh()->status)->toBe('reviewed')->and($approval->fresh()->status->value)->toBe('pending');
@@ -392,7 +404,7 @@ it('refuses to draft a document of another business', function () {
     m3SandboxConnectors(['connectors.erp_draft_bill']);
     $theirs = IngestedDocument::create(['uuid' => (string) Str::uuid(), 'business_id' => $this->theirs->id, 'status' => 'reviewed', 'source_text' => 't', 'extracted' => ['warnings' => []], 'extractor' => 'x']);
 
-    $result = app(\App\Tools\Connectors\CreateDraftBillTool::class)->execute(['business_slug' => $this->mine->slug, 'document_uuid' => $theirs->uuid], new \App\Tools\ToolContext('k', 'c', $this->mine->id));
+    $result = app(CreateDraftBillTool::class)->execute(['business_slug' => $this->mine->slug, 'document_uuid' => $theirs->uuid], new ToolContext('k', 'c', $this->mine->id));
 
     expect($result->ok())->toBeFalse()->and($theirs->fresh()->status)->toBe('reviewed');
 });

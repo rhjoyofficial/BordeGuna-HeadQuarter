@@ -71,7 +71,7 @@ function Answer({ message }: { message: Message }) {
                     <StatusBadge status={run.status} />
                     {run.stop_reason && <span>stopped: {humanKey(run.stop_reason)}</span>}
                     <span>{run.tool_calls.length} tool call(s)</span>
-                    <Link href={`/agents/runs/${run.id}`} className="inline-flex items-center underline underline-offset-4 touch:min-h-11">
+                    <Link href={`/agents/runs/${run.id}`} className="touch:min-h-11 inline-flex items-center underline underline-offset-4">
                         Open the run
                     </Link>
                 </div>
@@ -211,7 +211,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                         key={c.uuid}
                                         href={`/ask/${c.uuid}`}
                                         className={cn(
-                                            'hover:bg-accent flex min-h-10 flex-col justify-center rounded-lg px-3 py-1.5 text-sm transition-colors touch:min-h-11',
+                                            'hover:bg-accent touch:min-h-11 flex min-h-10 flex-col justify-center rounded-lg px-3 py-1.5 text-sm transition-colors',
                                             conversation?.uuid === c.uuid && 'bg-accent font-medium',
                                         )}
                                     >
@@ -354,7 +354,8 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                             </div>
                             {uploads_on && (
                                 <p className="text-muted-foreground text-xs">
-                                    Attached files are kept for a limited time, for the people of this business. The agent does not read them: they are for people.
+                                    Attached files are kept for a limited time, for the people of this business. The agent does not read them: they
+                                    are for people.
                                 </p>
                             )}
                             {!runtime_on && (

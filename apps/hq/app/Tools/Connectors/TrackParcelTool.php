@@ -2,6 +2,7 @@
 
 namespace App\Tools\Connectors;
 
+use App\Connectors\Capabilities;
 use App\Courier\CourierTracker;
 use App\Courier\Drivers\CarryBeeCourier;
 use App\Courier\Drivers\PathaoCourier;
@@ -57,7 +58,7 @@ final class TrackParcelTool extends ConnectorTool
     protected function arguments(): array
     {
         return [
-            'courier' => ['type' => 'string', 'enum' => array_keys(\App\Connectors\Capabilities::COURIER_TRACK_BY_PROVIDER)],
+            'courier' => ['type' => 'string', 'enum' => array_keys(Capabilities::COURIER_TRACK_BY_PROVIDER)],
             'consignment_ref' => ['type' => 'string', 'minLength' => 3, 'maxLength' => 96],
         ];
     }
