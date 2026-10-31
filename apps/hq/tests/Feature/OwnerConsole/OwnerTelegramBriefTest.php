@@ -106,7 +106,7 @@ it('fails before reading anything while the flag is off', function () {
     $done = app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($parked->approvalId), $this->approver);
 
     // The approval guard reads the same live availability and refuses before claiming: the approval stays pending, nothing runs.
-    expect($done->ok())->toBeFalse()->and((string) $done->error)->toContain("feature flag [console.telegram_brief] is off")
+    expect($done->ok())->toBeFalse()->and((string) $done->error)->toContain('feature flag [console.telegram_brief] is off')
         ->and(Approval::findOrFail($parked->approvalId)->status)->toBe(ApprovalStatus::Pending)
         ->and($this->fake->sent)->toBe([])->and(OwnerBriefDelivery::count())->toBe(0);
 

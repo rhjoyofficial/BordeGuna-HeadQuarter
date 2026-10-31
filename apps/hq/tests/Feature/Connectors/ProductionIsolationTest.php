@@ -1,6 +1,5 @@
 <?php
 
-use App\Agents\AgentToolset;
 use App\Connectors\ConnectorRegistry;
 use App\Gateway\CallerKind;
 use App\Gateway\Identity\ActingIdentity;

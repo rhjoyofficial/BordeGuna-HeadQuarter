@@ -14,10 +14,10 @@ use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\IntegrationCredential;
 use App\Platform\PlatformRegistry;
+use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\Ai\FixtureProvider;
-use App\Tools\FlaggedTools;
 
 /*
  | M4 safety posture.

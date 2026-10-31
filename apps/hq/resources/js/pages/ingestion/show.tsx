@@ -118,7 +118,10 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                 )}
 
                 {checks && (
-                    <Notice tone={checks.passed ? 'ok' : 'danger'} title={checks.passed ? t('The arithmetic checks passed') : t('An arithmetic check failed')}>
+                    <Notice
+                        tone={checks.passed ? 'ok' : 'danger'}
+                        title={checks.passed ? t('The arithmetic checks passed') : t('An arithmetic check failed')}
+                    >
                         <ul className="list-disc pl-5">
                             {checks.results.map((c) => (
                                 <li key={c.check}>

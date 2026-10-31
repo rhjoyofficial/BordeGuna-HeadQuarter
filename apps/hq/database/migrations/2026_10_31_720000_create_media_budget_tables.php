@@ -63,10 +63,10 @@ return new class extends Migration
         });
 
         if (DB::getDriverName() === 'pgsql') {
-            DB::statement("ALTER TABLE media_budgets ADD CONSTRAINT media_budgets_limit_nonnegative CHECK (monthly_limit_bdt >= 0)");
+            DB::statement('ALTER TABLE media_budgets ADD CONSTRAINT media_budgets_limit_nonnegative CHECK (monthly_limit_bdt >= 0)');
             DB::statement("ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_state CHECK (state IN ('reserved','committed','released','reconciled'))");
             DB::statement("ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_kind CHECK (kind IN ('video','image','voice','avatar','other'))");
-            DB::statement("ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_amounts CHECK (estimate_amount >= 0 AND estimate_bdt >= 0 AND fx_rate_to_bdt > 0 AND (actual_bdt IS NULL OR actual_bdt >= 0))");
+            DB::statement('ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_amounts CHECK (estimate_amount >= 0 AND estimate_bdt >= 0 AND fx_rate_to_bdt > 0 AND (actual_bdt IS NULL OR actual_bdt >= 0))');
             DB::statement("ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_period CHECK (period ~ '^[0-9]{4}-[0-9]{2}$')");
         }
     }

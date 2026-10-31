@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\MediaBudgetEntry;
-use Tests\Support\Media\Budgets;
 use App\Ai\Pause\AiPauseSwitch;
 use App\Gateway\Credentials\CredentialVault;
 use App\Gateway\OutcomeStatus;
@@ -27,6 +25,7 @@ use App\Models\ChatAttachment;
 use App\Models\ContentPublication;
 use App\Models\IntegrationCredential;
 use App\Models\MediaAsset;
+use App\Models\MediaBudgetEntry;
 use App\Models\MediaDraft;
 use App\Models\UserBusinessScope;
 use App\Tools\Connectors\CheckReelDraftTool;
@@ -38,6 +37,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\Media\Budgets;
 
 /*
  | docs/144-media-in-chat and docs/144-media-pipeline: what HQ will store from an upload (decided from the bytes), the per-business

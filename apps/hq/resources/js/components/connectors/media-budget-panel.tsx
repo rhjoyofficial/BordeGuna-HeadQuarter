@@ -158,9 +158,7 @@ export function MediaBudgetPanel({ data }: { data: MediaBudgetData }) {
                                     <h3 className="font-semibold">{b.name}</h3>
                                     <StatusBadge tone={zero ? 'neutral' : 'ok'}>{zero ? t('No paid media') : t('Limit set')}</StatusBadge>
                                 </div>
-                                <p className="text-sm">
-                                    {t('Used BDT {used} of BDT {limit}', { used: b.used_bdt, limit: b.limit_bdt })}
-                                </p>
+                                <p className="text-sm">{t('Used BDT {used} of BDT {limit}', { used: b.used_bdt, limit: b.limit_bdt })}</p>
                                 {data.can_manage ? (
                                     <LimitForm business={b} />
                                 ) : (
