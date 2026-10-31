@@ -31,6 +31,9 @@ final class VeoMediaPipeline implements MediaPipeline
 
     public const ACCOUNT_REF = 'hq';
 
+    /** An operation name and nothing else: no dots, no traversal, no other path under the API. */
+    private const OPERATION = '#^(models/[A-Za-z0-9.\-]+/)?operations/[A-Za-z0-9_\-]+$#';
+
     public function __construct(private readonly CredentialVault $vault) {}
 
     public function key(): string
@@ -53,7 +56,7 @@ final class VeoMediaPipeline implements MediaPipeline
             ]));
 
         $name = $response->json('name');
-        if (! is_string($name) || preg_match('#^[A-Za-z0-9/_\-.]+$#', $name) !== 1) {
+        if (! is_string($name) || preg_match(self::OPERATION, $name) !== 1) {
             throw new MediaPipelineRefused('veo: the answer has no operation name.');
         }
 
@@ -62,7 +65,7 @@ final class VeoMediaPipeline implements MediaPipeline
 
     public function check(string $handle): MediaJobStatus
     {
-        if (preg_match('#^[A-Za-z0-9/_\-.]+$#', $handle) !== 1) {
+        if (preg_match(self::OPERATION, $handle) !== 1) {
             throw new MediaPipelineRefused('veo: this is not an operation name.');
         }
         $key = $this->vault->secret(self::CREDENTIAL, self::ACCOUNT_REF);

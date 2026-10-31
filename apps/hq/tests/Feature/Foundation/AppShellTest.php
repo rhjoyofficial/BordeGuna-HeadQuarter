@@ -76,9 +76,9 @@ it('keeps every sidebar entry pointing at a real screen behind the permission it
     $this->seed(RolesAndPermissionsSeeder::class);
     $entries = shellNavEntries();
 
-    // 26 entries: the 24 of before the regrouping, plus the cross-business review and the identity conflicts (docs/140).
-    expect($entries)->toHaveCount(26)
-        ->and(array_unique(array_column($entries, 'url')))->toHaveCount(26);
+    // 31 entries: the 26 before, plus the five connector screens of docs/144 (Parcels, Supplier documents, Reel drafts, Paused ad drafts, Connectors).
+    expect($entries)->toHaveCount(31)
+        ->and(array_unique(array_column($entries, 'url')))->toHaveCount(31);
 
     $routes = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => in_array('GET', $r->methods(), true));
 

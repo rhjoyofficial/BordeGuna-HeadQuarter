@@ -49,7 +49,11 @@ it('keeps the voice screen behind the console\'s permission, and away from guest
 });
 
 it('gives voice one GET route, gated like the console, and no way to send it anything', function () {
-    $voice = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_contains($r->uri(), 'voice'))->values();
+    // The screen is one GET; docs/144 adds two POSTs behind their own permission, tested below.
+    $voice = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => $r->uri() === 'voice')->values();
+    $posts = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => str_starts_with($r->uri(), 'voice/'))->values();
+    expect($posts->map(fn ($r) => $r->uri())->sort()->values()->all())->toBe(['voice/speak', 'voice/transcribe'])
+        ->and($posts->every(fn ($r) => $r->methods() === ['POST'] && in_array('permission:hq.voice.use', $r->gatherMiddleware(), true)))->toBeTrue();
 
     expect($voice)->toHaveCount(1)
         ->and($voice[0]->uri())->toBe('voice')
