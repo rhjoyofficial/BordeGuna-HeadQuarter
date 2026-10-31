@@ -56,6 +56,7 @@ use App\Tools\Hq\ListApprovalsTool;
 use App\Tools\Hq\ListJobsTool;
 use App\Tools\Hq\RecentEventsTool;
 use App\Tools\Identity\QuarantineRepairTool;
+use App\Tools\Identity\ResolveIdentityConflictTool;
 use App\Tools\Outcomes\AttributeOutcomeTool;
 
 /*
@@ -169,6 +170,12 @@ return [
         // `hq.customers.quarantine.repair`, PERMANENTLY human-only; executes only a batch the dry run proposed whose
         // every row a person reviewed (`needs_repair`, none disputed). The ONLY caller of `RepairApplier::applyRepair()`.
         QuarantineRepairTool::class,
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of ONE open identity
+        // conflict of one business: keep the owner, move to the claimant of the SAME business, or mark not resolvable.
+        // R3 write of HQ rows only (the identity, the conflict, the append-only resolution, audit), permission
+        // `hq.customers.identity_conflicts.resolve`, PERMANENTLY human-only, held by no agent. The ONLY caller of
+        // `ConflictResolver::resolveConflict()`. Never across a business, never a merge.
+        ResolveIdentityConflictTool::class,
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)

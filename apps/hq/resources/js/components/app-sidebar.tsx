@@ -12,6 +12,7 @@ import {
     Building2,
     CalendarClock,
     Coins,
+    Fingerprint,
     Flag,
     Gauge,
     GitCompareArrows,
@@ -68,6 +69,8 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
             // docs/117 and docs/126: the cross-business review was reachable only from the customer list; a screen nobody can navigate to is a screen nobody uses.
             { title: 'Cross-business review', url: '/customers/quarantine', icon: ShieldAlert, permission: 'hq.customers.quarantine.review' },
+            // docs/140: open identity conflicts per business and their human resolution (the action is behind its own permission).
+            { title: 'Identity conflicts', url: '/customers/identity-conflicts', icon: Fingerprint, permission: 'hq.customers.quarantine.review' },
         ],
     },
     {

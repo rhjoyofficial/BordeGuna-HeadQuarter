@@ -19,7 +19,7 @@ use App\Tools\ToolRegistry;
  |      reached around the tool (which is how `hq:facts:reconcile` used to reach `commerce.reconcile_facts`'s).
  |   4. The registered effectful tools are exactly the nine reviewed in docs/105 §1.2 plus the three added deliberately
  |      afterwards: `consent.lift_restriction` (docs/114, row 9), `outcomes.attribute` (docs/115, row 10) and
- |      `customers.quarantine.repair` (docs/126, row 11).
+ |      `customers.quarantine.repair` (docs/126, row 11), and `customers.identity_conflicts.resolve` (docs/140, row 12).
  |      Registering another effectful tool fails here until docs/105's coverage table (and this list) is updated in
  |      the same reviewed change.
  */
@@ -74,6 +74,9 @@ it('lets only the gateway invoke a tool: the scheduler is a gateway caller with 
         // from the quarantine screen and from `hq:identity:repair --apply --by=`; neither reaches the applier itself.
         'Http/Controllers/Identity/CustomerQuarantineController.php' => ['$this->gateway->execute'],
         'Console/Commands/IdentityRepair.php' => ['$gateway->execute'],
+        // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, asked of the gateway as the person from
+        // the identity conflicts screen; the controller never reaches the resolver itself.
+        'Http/Controllers/Identity/CustomerIdentityConflictController.php' => ['$this->gateway->execute'],
         // Not tools: the workflow engine's reconcile, the publication service's own method, two previews of
         // what a person is about to do (an execution context, a parsed schedule).
         'Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
@@ -152,6 +155,9 @@ it('reaches the services behind the effectful tools only from their tools, never
         // docs/126 (ruling docs/120 item 36): the only writer of a cross-business repair is reached from its tool.
         '/->applyRepair\s*\(/' => ['Tools/Identity/QuarantineRepairTool.php'],
         '/\bRepairApplier\b/' => ['Tools/Identity/QuarantineRepairTool.php', 'Identity/Repair/RepairApplier.php'],
+        // docs/140 (ruling docs/131 item 3): the only writer of an identity-conflict resolution is reached from its tool.
+        '/->resolveConflict\s*\(/' => ['Tools/Identity/ResolveIdentityConflictTool.php'],
+        '/\bConflictResolver\b/' => ['Tools/Identity/ResolveIdentityConflictTool.php', 'Identity/Conflicts/ConflictResolver.php'],
     ];
 
     $files = gcAppFiles();
@@ -167,10 +173,11 @@ it('reaches the services behind the effectful tools only from their tools, never
         ->and(preg_match('/->createSalesOrderDraft\s*\(/', $files['Tools/Commerce/TakeOrderTool.php']))->toBe(1)
         ->and(preg_match('/->cancelSalesOrder\s*\(/', $files['Tools/Commerce/CancelSalesOrderTool.php']))->toBe(1)
         ->and(preg_match('/->liftDoNotContact\s*\(/', $files['Tools/Consent/LiftRestrictionTool.php']))->toBe(1)
-        ->and(preg_match('/->applyRepair\s*\(/', $files['Tools/Identity/QuarantineRepairTool.php']))->toBe(1);
+        ->and(preg_match('/->applyRepair\s*\(/', $files['Tools/Identity/QuarantineRepairTool.php']))->toBe(1)
+        ->and(preg_match('/->resolveConflict\s*\(/', $files['Tools/Identity/ResolveIdentityConflictTool.php']))->toBe(1);
 });
 
-it('pins the registered effectful tools to the nine reviewed in docs/105 plus consent.lift_restriction (docs/114), outcomes.attribute (docs/115) and customers.quarantine.repair (docs/126), and classifies every tool class in app/Tools', function () {
+it('pins the registered effectful tools to the nine reviewed in docs/105 plus consent.lift_restriction (docs/114), outcomes.attribute (docs/115), customers.quarantine.repair (docs/126) and customers.identity_conflicts.resolve (docs/140), and classifies every tool class in app/Tools', function () {
     $registry = app(ToolRegistry::class);
     $effectful = array_values(array_filter($registry->keys(), fn (string $key) => $registry->get($key)->descriptor()->hasEffect()));
     sort($effectful);
@@ -182,6 +189,9 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
         'commerce.take_order',
         // docs/114 §3 (S7 follow-up): the two-person lift of a do-not-contact, docs/105 §1.2 row 9.
         'consent.lift_restriction',
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of one identity conflict.
+        // R3 write of HQ rows only, permanently human-only, permission hq.customers.identity_conflicts.resolve. docs/105 §1.2 row 12.
+        'customers.identity_conflicts.resolve',
         // docs/126 (ruling docs/120 A3, item 36): the reviewed cross-business repair. R3 write of HQ rows only,
         // permanently human-only, permission hq.customers.quarantine.repair. docs/105 §1.2 row 11.
         'customers.quarantine.repair',

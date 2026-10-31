@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AiPauseController;
 use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Ask\AskController;
 use App\Http\Controllers\FollowUps\FollowUpController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
+use App\Http\Controllers\Identity\CustomerIdentityConflictController;
 use App\Http\Controllers\Identity\CustomerQuarantineController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
@@ -150,6 +152,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::post('flags', [AdminController::class, 'storeFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.store');
     Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.toggle');
 
+    // docs/138 ruling 7, docs/141: Pause All AI. Two routes, two permissions: the pause route can only pause,
+    // and re-enabling is its own operation. Both act on every business, so both need group-wide authority.
+    Route::post('ai/pause', [AiPauseController::class, 'pause'])->middleware(['permission:hq.ai.pause', 'group.wide:hq.ai.pause'])->name('ai.pause');
+    Route::post('ai/resume', [AiPauseController::class, 'resume'])->middleware(['permission:hq.ai.resume', 'group.wide:hq.ai.resume'])->name('ai.resume');
+
     Route::get('credentials', [AdminController::class, 'credentials'])->middleware('permission:hq.credentials.view')->name('credentials.index');
     Route::post('credentials', [AdminController::class, 'storeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.store');
     Route::post('credentials/{credential}/revoke', [AdminController::class, 'revokeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.revoke');
@@ -166,6 +173,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // tool customers.quarantine.repair as the signed-in person), and assign a business to a memory it withheld.
     Route::post('customers/quarantine/repair', [CustomerQuarantineController::class, 'repair'])->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.repair');
     Route::post('customers/quarantine/memories/{memory}/assign', [CustomerQuarantineController::class, 'assignMemory'])->whereNumber('memory')->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.memories.assign');
+    // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): open identity conflicts per business, and a person's evidence-backed
+    // resolution of one (a gateway request for the human-only tool customers.identity_conflicts.resolve). Before customers/{customer}.
+    Route::get('customers/identity-conflicts', [CustomerIdentityConflictController::class, 'index'])->middleware('permission:hq.customers.quarantine.review')->name('customers.identity-conflicts');
+    Route::post('customers/identity-conflicts/{conflict}/resolve', [CustomerIdentityConflictController::class, 'resolve'])->whereNumber('conflict')->middleware('permission:hq.customers.identity_conflicts.resolve')->name('customers.identity-conflicts.resolve');
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');

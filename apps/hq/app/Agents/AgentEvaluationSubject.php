@@ -349,7 +349,8 @@ final readonly class AgentEvaluationSubject implements EvaluationSubject
             prohibitedCapability: $run->prohibited_capability === null ? null : (array) $run->prohibited_capability,
             // A provider refusal measured nothing about the agent; the grader and the runner are
             // told so rather than left to read a quota as a refusal that never came.
-            unmeasured: $run->stop_reason === AgentRunner::STOP_PROVIDER_REFUSED,
+            // docs/141: a run stopped by Pause All AI measured nothing either.
+            unmeasured: in_array($run->stop_reason, [AgentRunner::STOP_PROVIDER_REFUSED, AgentRunner::STOP_AI_PAUSED], true),
             agentWoken: $agentWoken,
             // docs/86: the fourth runtime reading, and whether the provider was asked at all.
             roleBoundary: $run->role_boundary === null ? null : (array) $run->role_boundary,
