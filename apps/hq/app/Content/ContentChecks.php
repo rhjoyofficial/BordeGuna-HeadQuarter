@@ -8,6 +8,7 @@ use App\Briefing\EvidenceKind;
 use App\Briefing\EvidenceScope;
 use App\Briefing\Freshness;
 use App\Briefing\NarrativeNumberCheck;
+use App\Models\Brand;
 use App\Models\ContentBrief;
 use Carbon\CarbonImmutable;
 
@@ -21,6 +22,8 @@ use Carbon\CarbonImmutable;
  * 2. **The claims policy** of the brief, for the product lines the draft is about, plus the lines'
  *    shared rules. A product line the policy does not cover fails closed.
  * 3. **Banned words** of the brief.
+ * 4. (docs/145-a) the owner's active `content_claims_rules` for the business and the `ClaimsFloor`
+ *    (no unproven health claim, no testimonial), merged into the policy by `ClaimsRulebook`; each only adds.
  *
  * ⛔ A draft that fails goes to a person marked failed. Nothing here, or anywhere, corrects the text.
  */
@@ -28,7 +31,10 @@ final class ContentChecks
 {
     public const RULE = 'content.numbers.v1';
 
-    public function __construct(private readonly NarrativeNumberCheck $numbers) {}
+    public function __construct(
+        private readonly NarrativeNumberCheck $numbers,
+        private readonly ClaimsRulebook $rulebook,
+    ) {}
 
     /**
      * @param  list<string>  $productLines
@@ -37,7 +43,8 @@ final class ContentChecks
      */
     public function run(string $text, ContentBrief $brief, array $productLines, array $facts, array $citedClaims, ?string $business = null, ?string $brand = null): array
     {
-        $policy = $brief->policy();
+        // docs/145-a: the brief's policy, plus the owner's active rules for the business, plus the floor.
+        $policy = $this->rulebook->policyFor($brief, (int) Brand::query()->whereKey($brief->brand_id)->value('business_id'));
 
         $uncovered = array_values(array_filter($productLines, static fn (string $l): bool => ! $policy->covers($l)));
         $violations = $policy->violations($text, $productLines);
