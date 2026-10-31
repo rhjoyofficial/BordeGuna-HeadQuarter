@@ -172,6 +172,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // behind hq.customers.quarantine.repair; neither reaches a provider.
         'POST customers/quarantine/repair',
         'POST customers/quarantine/memories/{memory}/assign',
+        // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, a gateway request for the human-only
+        // tool customers.identity_conflicts.resolve (HQ rows only), behind hq.customers.identity_conflicts.resolve.
+        'POST customers/identity-conflicts/{conflict}/resolve',
         'POST flags', 'POST flags/{flag}/toggle',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.

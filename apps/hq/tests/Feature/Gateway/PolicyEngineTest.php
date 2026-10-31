@@ -373,9 +373,11 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     //   - docs/126 (ruling docs/120 A3, item 36): changing who an identity, an order or a thread belongs to is the
     //     act the incident forbids any lookup from doing silently; only a person's evidence-backed, reviewed
     //     authorization may do it, so the repair is permanently human-only.
+    //   - docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an identity conflict decides who an identity belongs
+    //     to; "No agent may resolve conflicts", so the resolution tool is permanently human-only.
     // Sorted, so the order tools are registered in cannot move this pin.
     sort($never);
-    expect($never)->toBe(['consent.lift_restriction', 'customers.quarantine.repair', 'outcomes.attribute']);
+    expect($never)->toBe(['consent.lift_restriction', 'customers.identity_conflicts.resolve', 'customers.quarantine.repair', 'outcomes.attribute']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 

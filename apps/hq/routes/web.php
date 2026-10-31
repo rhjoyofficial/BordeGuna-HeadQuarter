@@ -8,6 +8,7 @@ use App\Http\Controllers\Ask\AskController;
 use App\Http\Controllers\FollowUps\FollowUpController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
+use App\Http\Controllers\Identity\CustomerIdentityConflictController;
 use App\Http\Controllers\Identity\CustomerQuarantineController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
@@ -166,6 +167,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // tool customers.quarantine.repair as the signed-in person), and assign a business to a memory it withheld.
     Route::post('customers/quarantine/repair', [CustomerQuarantineController::class, 'repair'])->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.repair');
     Route::post('customers/quarantine/memories/{memory}/assign', [CustomerQuarantineController::class, 'assignMemory'])->whereNumber('memory')->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.memories.assign');
+    // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): open identity conflicts per business, and a person's evidence-backed
+    // resolution of one (a gateway request for the human-only tool customers.identity_conflicts.resolve). Before customers/{customer}.
+    Route::get('customers/identity-conflicts', [CustomerIdentityConflictController::class, 'index'])->middleware('permission:hq.customers.quarantine.review')->name('customers.identity-conflicts');
+    Route::post('customers/identity-conflicts/{conflict}/resolve', [CustomerIdentityConflictController::class, 'resolve'])->whereNumber('conflict')->middleware('permission:hq.customers.identity_conflicts.resolve')->name('customers.identity-conflicts.resolve');
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');
