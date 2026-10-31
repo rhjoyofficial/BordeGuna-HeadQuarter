@@ -107,6 +107,13 @@ const BANGLA_SCREENS = [
     'js/layouts/auth/auth-simple-layout.tsx',
     'js/layouts/auth/auth-card-layout.tsx',
     'js/layouts/auth/auth-split-layout.tsx',
+    // docs/145 (HQ completion, M4): content, research digests, avatar consent, skills, the autonomy ladder.
+    'js/pages/content/index.tsx',
+    'js/pages/research/digests.tsx',
+    'js/pages/avatar/index.tsx',
+    'js/pages/skills/index.tsx',
+    'js/pages/autonomy/index.tsx',
+    'js/components/completion/reason-action.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

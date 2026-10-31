@@ -35,6 +35,13 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Auth/NewPasswordController.php' => 'no business rows',
     'Auth/PasswordResetLinkController.php' => 'no business rows',
     'Auth/VerifyEmailController.php' => 'no business rows',
+    // docs/145 (HQ completion, M4): every list is narrowed to readable businesses and every row act answers 404 outside them.
+    'Completion/AutonomyController.php' => 'scoped',
+    'Completion/AvatarController.php' => 'scoped',
+    'Completion/ContentController.php' => 'scoped',
+    'Completion/RefusesPolitely.php' => 'scoped',
+    'Completion/ResearchDigestController.php' => 'scoped',
+    'Completion/SkillController.php' => 'scoped',
     'Controller.php' => 'no business rows',
     'FollowUps/FollowUpController.php' => 'scoped',
     'Health/HealthController.php' => 'no business rows',

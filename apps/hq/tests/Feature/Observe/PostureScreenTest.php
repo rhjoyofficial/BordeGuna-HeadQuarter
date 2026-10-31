@@ -178,6 +178,18 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/141 (ruling 7): Pause All AI. Pause can only turn AI off; resume is its own permission. Both need group-wide
         // authority, write one state row and one audit row, and reach no provider.
         'POST ai/pause', 'POST ai/resume',
+        // docs/145 (HQ completion, M4). Phase 6: a person plans a post, writes or (behind a flag, a connected drafter and
+        // Pause All AI) drafts its words, reviews them, skips it; the owner writes or retires a claims rule; a person builds
+        // a research digest from filed research. None publishes, searches, fetches or reaches a customer.
+        'POST content/calendar', 'POST content/calendar/{entry}/draft', 'POST content/calendar/{entry}/ai-draft', 'POST content/calendar/{entry}/review',
+        'POST content/calendar/{entry}/skip', 'POST content/claims-rules', 'POST content/claims-rules/{rule}/retire', 'POST research/digests',
+        // Phase 8: record or revoke a written consent; a clip request is a gateway request for avatar.generate (R4, approval,
+        // permanently human-only, registered nowhere).
+        'POST avatar/consents', 'POST avatar/consents/{consent}/revoke', 'POST avatar/generate',
+        // Phase 9: a person proposes or moves a skill; nothing here starts a delegated run.
+        'POST skills', 'POST skills/{skill}/{action}',
+        // Phase 10: thresholds and grants need hq.autonomy.grant and group-wide authority; revoking only ever stops autonomy.
+        'POST autonomy/thresholds', 'POST autonomy/thresholds/{threshold}/retire', 'POST autonomy/grants', 'POST autonomy/grants/{grant}/revoke',
         'POST flags', 'POST flags/{flag}/toggle',
         // docs/143 (owner console, every one behind a flag seeded OFF): plans, batch and one-click approval, reply options, event watches
         // and the Telegram brief request. Each supplies ids, a hash or a proposal; each goes through the gateway or the one approval path.

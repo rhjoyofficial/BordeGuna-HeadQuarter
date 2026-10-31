@@ -77,6 +77,8 @@ it('lets only the gateway invoke a tool: the scheduler is a gateway caller with 
         // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, asked of the gateway as the person from
         // the identity conflicts screen; the controller never reaches the resolver itself.
         'Http/Controllers/Identity/CustomerIdentityConflictController.php' => ['$this->gateway->execute'],
+        // docs/145-b: a clip request is a gateway request for avatar.generate (R4, approval, human-only, registered nowhere).
+        'Http/Controllers/Completion/AvatarController.php' => ['$this->gateway->execute'],
         // Not tools: the workflow engine's reconcile, the publication service's own method, two previews of
         // what a person is about to do (an execution context, a parsed schedule).
         'Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],

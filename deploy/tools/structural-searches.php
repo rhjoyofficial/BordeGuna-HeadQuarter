@@ -127,6 +127,7 @@ const SS_TOOL_CALL_SITES = [
     'app/Console/Commands/IdentityRepair.php' => ['$gateway->execute'],                       // human-only repair tool, docs/126 (twin: GatewayCoverageStructureTest)
     'app/Http/Controllers/Identity/CustomerQuarantineController.php' => ['$this->gateway->execute'], // repair from the quarantine screen, docs/126
     'app/Http/Controllers/Identity/CustomerIdentityConflictController.php' => ['$this->gateway->execute'], // human-only conflict resolution, docs/140 (twin: GatewayCoverageStructureTest)
+    'app/Http/Controllers/Completion/AvatarController.php' => ['$this->gateway->execute'], // avatar.generate, R4 + approval + human-only, docs/145-b (twin: GatewayCoverageStructureTest)
     'app/Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
     'app/Content/Publishing/PublicationService.php' => ['$this->reconcile'],
     'app/Ask/AskHq.php' => ['$this->contexts->preview'],

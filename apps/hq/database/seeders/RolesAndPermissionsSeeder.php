@@ -99,6 +99,17 @@ class RolesAndPermissionsSeeder extends Seeder
         // distinct operation that turns it back on. Both also need group-wide authority (ruling 13). Owner and
         // operator hold them through '*'; no other role is given either.
         'hq.ai.pause', 'hq.ai.resume',
+        // docs/145 (HQ completion, agent M4). Phase 6: the content calendar (`plan` writes plans and drafts, `review` approves
+        // or rejects a draft), the owner's claims rules (`claims.manage`, owner/operator only), research digests.
+        'hq.content.view', 'hq.content.plan', 'hq.content.review', 'hq.content.claims.manage',
+        'hq.research.view', 'hq.research.digest',
+        // Phase 8: the avatar consent registry and the (unregistered, approval-gated) generation tool.
+        'hq.avatar.view', 'hq.avatar.consent.manage', 'hq.avatar.generate',
+        // Phase 9: the skill registry. `propose` records or suspends; `activate` approves, activates and retires.
+        'hq.skills.view', 'hq.skills.propose', 'hq.skills.activate',
+        // Phase 10: the evidence ladder. `grant` sets thresholds and grants (also needs group-wide authority);
+        // `revoke` only ever stops autonomy. Owner and operator hold all three through '*'; no other role.
+        'hq.autonomy.view', 'hq.autonomy.grant', 'hq.autonomy.revoke',
     ];
 
     public const ROLES = [
@@ -113,6 +124,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'hq.playbooks.view', 'hq.playbooks.draft',
             // docs/113 section 4: may record a follow-up or an interest; deciding is owner/operator (Q4).
             'hq.followups.view', 'hq.followups.propose',
+            // docs/145-a: plans the brand's posts and writes drafts; reviewing them and the claims rules are not theirs.
+            'hq.content.view', 'hq.content.plan', 'hq.research.view',
         ],
         'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage',
             // The person who hears "stop messaging me" can record it; starting contact is not theirs.
