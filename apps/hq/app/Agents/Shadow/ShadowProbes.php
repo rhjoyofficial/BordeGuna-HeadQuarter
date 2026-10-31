@@ -2,9 +2,9 @@
 
 namespace App\Agents\Shadow;
 
-use App\Ai\Pause\AiPause;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Ai\Pause\AiPause;
 use App\Execution\Requester;
 use App\Models\AgentRun;
 use App\Models\ShadowPeriod;

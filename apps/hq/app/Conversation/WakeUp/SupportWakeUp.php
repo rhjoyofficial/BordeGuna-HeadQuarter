@@ -2,9 +2,9 @@
 
 namespace App\Conversation\WakeUp;
 
-use App\Ai\Pause\AiPause;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Ai\Pause\AiPause;
 use App\Ai\TaskType;
 use App\Conversation\ConversationService;
 use App\Conversation\ConversationState;

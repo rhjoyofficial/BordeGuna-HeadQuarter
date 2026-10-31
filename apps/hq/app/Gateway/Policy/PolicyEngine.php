@@ -4,12 +4,12 @@ namespace App\Gateway\Policy;
 
 use App\Agents\RolePolicy;
 use App\Ai\Pause\AiPause;
+use App\Gateway\CallerKind;
 use App\Gateway\Descriptor\ActionClass;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Identity\ActingIdentity;
-use App\Gateway\CallerKind;
 use App\Gateway\ToolRequest;
 use App\Models\Business;
 use App\Support\Features\Features;
