@@ -47,6 +47,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'conversation.read_thread', 'messaging.send_reply',
         // M7 (docs/80 C.1): composes and stores the Executive Briefing's evidence bundle. No job runs it yet.
         'briefing.compose',
+        // docs/143 D: owner-only Telegram brief, R4, approval-required, flag OFF.
+        'briefing.send_owner_telegram',
         // Phase 4 read side (docs/81 C.5): five live ERP reads, R2, read-only, held by no agent.
         'erp.lookup_product', 'erp.lookup_sku', 'erp.read_price', 'erp.read_availability', 'erp.check_order_eligibility',
         // Phase 4 order write (docs/83 C.3, docs/88 A point 3): R4, approval-required, held by no agent, no store admitted.

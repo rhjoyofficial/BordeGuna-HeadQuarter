@@ -11,6 +11,7 @@ import { formatNumber, useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
+import { ReplyOptions, type ReplyOptionSet } from '@/components/inbox/reply-options';
 import { AgentNotice, type AgentStatus, customerLabel, languageLabel, stateTone, type ThreadCard } from './index';
 
 type Thread = ThreadCard & {
@@ -170,6 +171,7 @@ export default function InboxShow({
     thread,
     messages,
     proposals,
+    reply_options,
     handover,
     orders,
     memory,
@@ -184,6 +186,7 @@ export default function InboxShow({
     thread: Thread;
     messages: Message[];
     proposals: Proposal[];
+    reply_options: ReplyOptionSet[];
     handover: Handover | null;
     orders: RecentOrder[];
     memory: Remembered[];
@@ -323,6 +326,8 @@ export default function InboxShow({
                                 ))}
                             </div>
                         </section>
+
+                        <ReplyOptions sets={reply_options} conversation={thread.uuid} canManage={can.manage} />
 
                         {proposals.length > 0 && (
                             <section>

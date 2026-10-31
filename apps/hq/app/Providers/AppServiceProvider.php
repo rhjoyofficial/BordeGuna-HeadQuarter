@@ -26,6 +26,9 @@ use App\Listeners\RecordAuthenticationEvents;
 use App\Media\LocalStorageDriver;
 use App\Media\MediaAssetService;
 use App\Outcomes\FollowUps\LedgerFollowUpOutcomeLink;
+use App\OwnerConsole\Brief\OwnerChannel;
+use App\OwnerConsole\Brief\TelegramOwnerChannel;
+use App\OwnerConsole\Brief\UnavailableOwnerChannel;
 use App\Platform\CapabilityResolver;
 use App\Platform\Contracts\StorageDriver;
 use App\Platform\PlatformRegistry;
@@ -78,6 +81,12 @@ class AppServiceProvider extends ServiceProvider
 
         // ── Phase 2.5 shared foundation ──────────────────────────────────────────────────────
         //
+        // docs/143 D: the owner's own device. Shipped as `none`, so nothing can be sent until a person configures a driver.
+        $this->app->singleton(OwnerChannel::class, fn () => match ((string) config('hq.owner_console.driver', 'none')) {
+            'telegram' => new TelegramOwnerChannel,
+            default => new UnavailableOwnerChannel,
+        });
+
         // ⚠ The platform registry ships EMPTY, and that is the correct state: no provider is
         // implemented yet. `CapabilityResolver` fails closed on an unknown platform, so "we have no
         // code for this" and "this account may do anything" can never be the same answer.

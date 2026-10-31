@@ -21,12 +21,14 @@ use App\Observe\Alerts\Rules\SchedulerTickStale;
 use App\Observe\Alerts\Rules\ShadowPeriodStopped;
 use App\Observe\Alerts\Rules\SnapshotStale;
 use App\Observe\Alerts\Rules\WebhookSignatureFailures;
+use App\OwnerConsole\Do\DoPlanWorkflow;
 use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Support\Events\Handlers\SupportWakeUpHandler;
 use App\Tools\Briefing\ComposeBriefingTool;
+use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use App\Tools\Commerce\CancelSalesOrderTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\GetOrderStatusTool;
@@ -123,6 +125,8 @@ return [
         // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
         // model while narration is off, which is the shipped state. No scheduled job runs it.
         ComposeBriefingTool::class,
+        // docs/143 D: the owner-only Telegram brief. R4 (approval), not agent-executable, flag console.telegram_brief OFF.
+        SendOwnerTelegramBriefTool::class,
 
         // Phase 4 read side (docs/81 C.5, docs/79): what HQ must know before it could ever take an
         // order, read live from the ERP. Every one is R2 and read-only. ⛔ NO agent holds any of them
@@ -383,7 +387,7 @@ return [
         // docs/113 section 7 (S4 part 1): the first listed type. It sleeps until a follow-up is due and
         // then waits for a person; it has no tool step, so a run has no effect. Started only by a person
         // approving a follow-up. Listing it schedules nothing by itself.
-        'definitions' => [FollowUpWorkflow::class],
+        'definitions' => [FollowUpWorkflow::class, DoPlanWorkflow::class],
         // Longer than the scheduler queue's job timeout, so an expired lease means a dead worker.
         'lease_seconds' => 300,
         'default_max_attempts' => 3,
@@ -630,6 +634,17 @@ return [
             'webhook_signature_failures' => ['count' => 10, 'window_hours' => 2],
             // docs/116: one disagreement is audit only; this many for one agent in the window is a pattern.
             'guard_gateway_disagreement' => ['count' => 3, 'window_hours' => 24],
+        ],
+    ],
+
+    // docs/143: the owner console. Every feature here is behind a feature flag seeded OFF.
+    'owner_console' => [
+        // `none` (shipped: nothing can be sent), `telegram`. The fake exists for tests only.
+        'driver' => env('HQ_OWNER_CHANNEL', 'none'),
+        'telegram' => [
+            'bot_token' => env('HQ_OWNER_TELEGRAM_BOT_TOKEN'),
+            'chat_id' => env('HQ_OWNER_TELEGRAM_CHAT_ID'),
+            'chat_verified' => (bool) env('HQ_OWNER_TELEGRAM_CHAT_VERIFIED', false),
         ],
     ],
 ];

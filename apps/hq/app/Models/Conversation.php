@@ -93,4 +93,10 @@ class Conversation extends Model
     {
         return $this->state === ConversationState::HumanRequired;
     }
+
+    /** docs/143 E: the reply option sets of this thread (also the scope of the `optionSet` route binding). */
+    public function optionSets(): HasMany
+    {
+        return $this->hasMany(ReplyOptionSet::class);
+    }
 }

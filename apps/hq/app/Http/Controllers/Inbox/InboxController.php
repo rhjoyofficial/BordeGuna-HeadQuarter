@@ -27,8 +27,10 @@ use App\Models\Customer;
 use App\Models\DecisionRecord;
 use App\Models\FactsOrder;
 use App\Models\Memory;
+use App\Models\ReplyOptionSet;
 use App\Models\ShadowComparison;
 use App\Models\User;
+use App\OwnerConsole\Flag;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
 use Illuminate\Database\Eloquent\Builder;
@@ -128,6 +130,10 @@ final class InboxController extends Controller
             ]);
 
         return Inertia::render('inbox/show', [
+            // docs/143 E (flag support.reply_options, OFF): the open A/B/C sets of this thread, only when the flag is on.
+            'reply_options' => Flag::on(Flag::REPLY_OPTIONS)
+                ? ReplyOptionSet::query()->where('conversation_id', $conversation->id)->where('state', 'open')->latest('id')->get()->map(fn ($set) => ['uuid' => $set->uuid, 'options' => $set->options])->all()
+                : [],
             'thread' => $this->card($conversation, null) + [
                 'ai_disabled' => $conversation->ai_disabled,
                 'platform_account' => $conversation->platformAccount?->name,

@@ -82,6 +82,12 @@ it('lets only the gateway invoke a tool: the scheduler is a gateway caller with 
         'Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
         'Content/Publishing/PublicationService.php' => ['$this->reconcile'],
         'Ask/AskHq.php' => ['$this->contexts->preview'],
+        // docs/143 (owner console, all flags OFF): each asks the gateway as a named person; a plan step, a watch proposal and the
+        // chosen reply option are gateway calls under policy, and the briefing screen only PARKS the Telegram send on an approval.
+        'OwnerConsole/Do/DoPlanService.php' => ['$this->gateway->execute'],
+        'OwnerConsole/Watches/EventWatchService.php' => ['$this->gateway->execute'],
+        'OwnerConsole/Replies/ReplyOptionService.php' => ['$this->gateway->execute'],
+        'Http/Controllers/Observe/BriefingController.php' => ['$gateway->execute'],
         'Http/Controllers/Scheduling/NlScheduleController.php' => ['$this->nl->preview'],
     ];
 
@@ -184,6 +190,8 @@ it('pins the registered effectful tools to the nine reviewed in docs/105 plus co
 
     expect($effectful)->toBe([
         'briefing.compose',
+        // docs/143 D: the owner-only Telegram brief. R4, approval-required, not agent-executable, flag OFF.
+        'briefing.send_owner_telegram',
         'commerce.cancel_sales_order',
         'commerce.reconcile_facts',
         'commerce.take_order',

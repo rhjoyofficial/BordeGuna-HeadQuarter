@@ -135,7 +135,7 @@ it('lets an agent execute only reads below R3, and nothing that reaches a person
     // agent-executable (so the loops above never reach it) and admits no store, so the gateway
     // refuses every call. docs/88 A point 3: the third is its compensating tool,
     // `commerce.cancel_sales_order`, inert the same two ways.
-    expect($highRisk)->toBe(['demo.request_approval', 'commerce.take_order', 'commerce.cancel_sales_order']);
+    expect($highRisk)->toBe(['demo.request_approval', 'briefing.send_owner_telegram', 'commerce.take_order', 'commerce.cancel_sales_order']);
     foreach (['commerce.take_order', 'commerce.cancel_sales_order'] as $key) {
         $write = $descriptors->firstWhere('key', $key);
         expect($write->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable")

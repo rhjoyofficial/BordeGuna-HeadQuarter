@@ -86,6 +86,11 @@ class RolesAndPermissionsSeeder extends Seeder
         // gateway tool `customers.quarantine.repair`, and assigning a business to a memory the repair withheld.
         // Owner and operator hold it through '*'; no other role is given it.
         'hq.customers.quarantine.repair',
+        // docs/143 (owner console, all behind flags seeded OFF). Owner and operator hold them through '*'; no other role is given them.
+        // Do mode: propose a plan, and start one (starting approves no step). Telegram brief: the gateway tool's permission.
+        // Event watches: propose one, and enable/disable/reject one (enabling grants no authority for its action).
+        'hq.do.propose', 'hq.do.start', 'hq.briefing.deliver', 'hq.watches.propose', 'hq.watches.enable',
+
         // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an open identity conflict with evidence, through
         // the human-only gateway tool `customers.identity_conflicts.resolve` only. Owner and operator hold it through
         // '*'; no other role is given it.

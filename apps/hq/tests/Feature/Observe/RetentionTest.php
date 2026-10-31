@@ -124,6 +124,8 @@ it('knows every column that points at a detail row, so a new reference cannot be
         'consent_events.tool_call_id',
         'conversation_messages.ai_run_id',
         'conversation_messages.tool_call_id',
+        // docs/143 A: a Do plan step points at the call it made; kept while the step exists (RetentionPolicy).
+        'do_plan_steps.tool_call_id',
         'evaluation_results.ai_run_id',
         // docs/107 section 9: an attribution credits the call or model call; kept while it does.
         'outcome_attributions.ai_run_id',

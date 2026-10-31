@@ -13,6 +13,8 @@ use App\Models\Brand;
 use App\Models\Business;
 use App\Models\ConnectorCall;
 use App\Models\DomainEvent;
+use App\Models\DoPlan;
+use App\Models\EventWatch;
 use App\Models\FactsOrder;
 use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
@@ -23,6 +25,7 @@ use App\Models\Store;
 use App\Models\ToolRegistration;
 use App\Models\User;
 use App\Observe\Console\ConsoleReader;
+use App\OwnerConsole\Flag;
 use App\Scheduling\Commands\SchedulerTick;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -123,6 +126,16 @@ final class AdminController extends Controller
                 'tone' => 'warn',
             ],
         ];
+
+        // docs/143: owner-console items that need a person, shown only while their flag is on, each inside the person's business scope.
+        if (Flag::on(Flag::DO_MODE)) {
+            $attention[] = ['key' => 'do_plans_open', 'label' => 'Do plans waiting for you', 'count' => $scoped(DoPlan::query())->whereIn('state', ['proposed', 'running'])->count(),
+                'href' => '/do-plans', 'permission' => 'hq.do.propose', 'tone' => 'pending'];
+        }
+        if (Flag::on(Flag::EVENT_WATCHES)) {
+            $attention[] = ['key' => 'watches_proposed', 'label' => 'Event watches waiting to be enabled', 'count' => $scoped(EventWatch::query())->where('state', 'proposed')->count(),
+                'href' => '/watches', 'permission' => 'hq.watches.enable', 'tone' => 'pending'];
+        }
 
         $lastTick = Cache::get(SchedulerTick::HEARTBEAT_KEY);
         // docs/136: `connector_calls` carries no business and no content; a machinery health count, like the heartbeat.

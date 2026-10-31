@@ -179,6 +179,13 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // authority, write one state row and one audit row, and reach no provider.
         'POST ai/pause', 'POST ai/resume',
         'POST flags', 'POST flags/{flag}/toggle',
+        // docs/143 (owner console, every one behind a flag seeded OFF): plans, batch and one-click approval, reply options, event watches
+        // and the Telegram brief request. Each supplies ids, a hash or a proposal; each goes through the gateway or the one approval path.
+        'POST do-plans', 'POST do-plans/{plan}/advance', 'POST do-plans/{plan}/cancel', 'POST do-plans/{plan}/start',
+        'POST watches', 'POST watches/{watch}/disable', 'POST watches/{watch}/enable', 'POST watches/{watch}/reject',
+        'POST approvals/batch', 'POST approvals/{approval}/quick-approve',
+        'POST inbox/{conversation}/reply-options', 'POST inbox/{conversation}/reply-options/{optionSet}/choose', 'POST inbox/{conversation}/reply-options/{optionSet}/discard',
+        'POST observe/briefings/{uuid}/send-telegram',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.
         // No route takes a message, a tool key or a provider; nothing reaches a customer.

@@ -130,6 +130,11 @@ const SS_TOOL_CALL_SITES = [
     'app/Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
     'app/Content/Publishing/PublicationService.php' => ['$this->reconcile'],
     'app/Ask/AskHq.php' => ['$this->contexts->preview'],
+    // docs/143 (owner console, all flags OFF; twin: GatewayCoverageStructureTest): gateway calls as a named person.
+    'app/OwnerConsole/Do/DoPlanService.php' => ['$this->gateway->execute'],
+    'app/OwnerConsole/Watches/EventWatchService.php' => ['$this->gateway->execute'],
+    'app/OwnerConsole/Replies/ReplyOptionService.php' => ['$this->gateway->execute'],
+    'app/Http/Controllers/Observe/BriefingController.php' => ['$gateway->execute'],
     'app/Http/Controllers/Scheduling/NlScheduleController.php' => ['$this->nl->preview'],
 ];
 const SS_EFFECT_SERVICES = [

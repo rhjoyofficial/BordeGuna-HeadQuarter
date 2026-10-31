@@ -47,6 +47,11 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Observe/BriefingController.php' => 'scoped',
     'Observe/DecisionCorpusController.php' => 'through:app/Decisions/DecisionCorpusReader.php',
     'Observe/ObserveController.php' => 'scoped',
+    // docs/143: every read and write restricts by the person's businesses; another business's row is a 404 (tests in OwnerConsole/).
+    'OwnerConsole/BatchApprovalController.php' => 'scoped',
+    'OwnerConsole/DoPlanController.php' => 'scoped',
+    'OwnerConsole/EventWatchController.php' => 'scoped',
+    'OwnerConsole/ReplyOptionController.php' => 'scoped',
     'Playbooks/PlaybookController.php' => 'scoped',
     'Scheduling/NlScheduleController.php' => 'through:app/Scheduling/Nl/EntityResolver.php',
     'Scheduling/ScheduledJobController.php' => 'scoped',
