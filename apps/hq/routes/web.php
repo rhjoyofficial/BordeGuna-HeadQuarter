@@ -214,6 +214,9 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{followUp:uuid}/complete', [FollowUpController::class, 'complete'])->middleware('permission:hq.followups.decide')->name('complete');
         Route::post('{followUp:uuid}/cancel', [FollowUpController::class, 'cancel'])->middleware('permission:hq.followups.decide')->name('cancel');
     });
+
+    // docs/145 (HQ completion, agent M4): Phases 6, 8, 9 and 10, inside this same authenticated, 2FA-verified group.
+    require __DIR__.'/completion.php';
 });
 
 require __DIR__.'/settings.php';
