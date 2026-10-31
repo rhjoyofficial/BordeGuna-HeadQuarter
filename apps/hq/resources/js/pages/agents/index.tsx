@@ -1,5 +1,5 @@
 import { runStatus } from '@/components/agents/run-status';
-import { AiCost } from '@/components/ai-cost';
+import { AiCost, AiCostToggle } from '@/components/ai-cost';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, SectionHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -158,7 +158,7 @@ export default function AgentsIndex({ agents, runs, filter }: { agents: AgentCar
                 )}
 
                 <section className="flex flex-col gap-3">
-                    <SectionHeader title="Runs" />
+                    <SectionHeader title="Runs" aside={<AiCostToggle />} />
                     <Toolbar label="Run filter">
                         {filters.map((f) => (
                             <Button

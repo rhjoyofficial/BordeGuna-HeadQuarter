@@ -1,4 +1,4 @@
-import { AiCost } from '@/components/ai-cost';
+import { AiCost, AiCostToggle } from '@/components/ai-cost';
 import { Bar, DataTable, Note, Panel, Stat, StatGrid, WindowPicker, orDash, type DashboardWindow } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -63,7 +63,10 @@ export default function Cost(props: Props) {
                     title="Cost"
                     description="What model calls cost, where it went, and how fast the monthly budget is burning. A call counts its reported cost when the provider reported one and its estimate otherwise, exactly as the budget does."
                 >
-                    <WindowPicker period={period} path="/observe/cost" />
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <WindowPicker period={period} path="/observe/cost" />
+                        <AiCostToggle />
+                    </div>
                 </PageHeader>
 
                 <StatGrid>

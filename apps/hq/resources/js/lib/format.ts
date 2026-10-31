@@ -141,25 +141,22 @@ function moneyFigure(n: number): string {
     return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export type AiCostParts = { main: string; secondary: string | null; zero: boolean };
+export type AiCostCurrency = 'BDT' | 'USD';
 
 /**
- * A model cost (stored in USD) as text, BDT first (Joy's rule: amounts always in BDT) and USD kept as the
- * secondary figure: `main` "BDT 1,245.50", `secondary` "USD 9.58". The rate comes from the server
- * (`money.usd_bdt_rate`); without one, `main` is the USD figure and nothing is guessed. Display only.
+ * A model cost (stored in USD) as text in ONE currency: "BDT 159.90" or "USD 1.23". BDT is the default
+ * (Joy's rule: amounts always in BDT); the person may switch to USD. The rate comes from the server
+ * (`money.usd_bdt_rate`); without one the text is USD whatever was chosen, and nothing is guessed.
  */
-export function aiCostParts(amount: number | string | null | undefined, rate: number | null | undefined): AiCostParts {
+export function aiCostText(
+    amount: number | string | null | undefined,
+    rate: number | null | undefined,
+    currency: AiCostCurrency = 'BDT',
+): { text: string; zero: boolean } {
     const parsed = Number(amount ?? 0);
     const n = Number.isFinite(parsed) ? parsed : 0;
-    const usd = `USD ${moneyFigure(n)}`;
-    if (typeof rate !== 'number' || !(rate > 0)) return { main: usd, secondary: null, zero: n === 0 };
-    return { main: `BDT ${moneyFigure(n * rate)}`, secondary: usd, zero: n === 0 };
-}
-
-/** "BDT 1,245.50 (USD 9.58)" for a model cost stored in USD; "USD 9.58" alone when no rate is set. */
-export function humanBdtFromUsd(amount: number | string | null | undefined, rate: number | null | undefined): string {
-    const { main, secondary } = aiCostParts(amount, rate);
-    return secondary ? `${main} (${secondary})` : main;
+    const text = currency === 'BDT' && typeof rate === 'number' && rate > 0 ? `BDT ${moneyFigure(n * rate)}` : `USD ${moneyFigure(n)}`;
+    return { text, zero: n === 0 };
 }
 
 /** Shorten a long sentence for a table cell. */
