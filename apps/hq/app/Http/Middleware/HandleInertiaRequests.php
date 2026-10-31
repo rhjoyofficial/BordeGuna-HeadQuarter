@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Ai\Pause\AiPauseScreen;
 use App\Support\Features\Features;
 use App\Support\Navigation\NavBadges;
 use Illuminate\Http\Request;
@@ -53,6 +54,10 @@ class HandleInertiaRequests extends Middleware
                 'status' => $request->session()->get('status'),
                 'outcome' => $request->session()->get('outcome'),
             ],
+            // docs/138 ruling 7, docs/141: Pause All AI, for the banner on every page and the controls on the
+            // console and the posture screen. Read fresh on every page (never cached); whether this person
+            // may pause or turn AI back on is the server's answer, never the permission list alone.
+            'aiPause' => fn () => $request->user() === null ? null : app(AiPauseScreen::class)->for($request->user()),
             // What is waiting, as counts next to the sidebar items. A closure, so a request that
             // does not render the shell does not pay for three counts it will not show.
             // `features` carries the switches that decide whether a navigation item exists at all.

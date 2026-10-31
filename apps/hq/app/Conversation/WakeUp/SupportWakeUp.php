@@ -2,6 +2,7 @@
 
 namespace App\Conversation\WakeUp;
 
+use App\Ai\Pause\AiPause;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
 use App\Ai\TaskType;
@@ -84,6 +85,9 @@ final class SupportWakeUp
 
     public const SKIP_RUNTIME_OFF = 'ai.runtime is off';
 
+    /** docs/141: Pause All AI is on, or its state could not be read. */
+    public const SKIP_AI_PAUSED = 'Pause All AI is on';
+
     public const SKIP_AGENT_NOT_ACTIVE = 'the support agent is not active';
 
     public const SKIP_NO_ENABLING_USER = 'the support agent names no enabling user';
@@ -110,6 +114,7 @@ final class SupportWakeUp
         private readonly HandoffStateMachine $states,
         private readonly EventRecorder $events,
         private readonly Auditor $auditor,
+        private readonly AiPause $pause,
     ) {}
 
     /**
@@ -130,6 +135,10 @@ final class SupportWakeUp
         }
         if (! $this->features->enabled((string) config('hq.ai.enabled_flag', 'ai.runtime'), $conversation->business_id)) {
             return self::SKIP_RUNTIME_OFF;
+        }
+        // docs/141: read fresh for every inbound message, so a pause stops the next wake-up and the queued ones.
+        if ($this->pause->isPaused()) {
+            return self::SKIP_AI_PAUSED;
         }
 
         $agent = Agent::query()->where('key', ConversationService::SUPPORT_AGENT)->first(['id', 'key', 'status', 'enabling_user_id']);

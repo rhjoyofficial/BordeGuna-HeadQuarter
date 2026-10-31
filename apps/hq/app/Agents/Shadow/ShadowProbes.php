@@ -2,6 +2,7 @@
 
 namespace App\Agents\Shadow;
 
+use App\Ai\Pause\AiPause;
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
 use App\Execution\Requester;
@@ -44,7 +45,10 @@ final class ShadowProbes
         'data_freshness' => 'How current is the data you are working from?',
     ];
 
-    public function __construct(private readonly AgentRunner $runner) {}
+    public function __construct(
+        private readonly AgentRunner $runner,
+        private readonly AiPause $pause,
+    ) {}
 
     /**
      * The probe list a period stores: the defaults, or the opener's own questions keyed in order.
@@ -71,6 +75,13 @@ final class ShadowProbes
     {
         $out = [];
         $operator = User::query()->find($period->opened_by_user_id ?? $period->agent?->enabling_user_id);
+
+        // docs/141: a paused HQ asks no probe. The slot is written as skipped with the reason, so the gap is
+        // on the record; the period itself is left exactly as it was (a pause closes nothing).
+        if ($canRun && $this->pause->isPaused()) {
+            $canRun = false;
+            $whyNot = 'Pause All AI is on (or its state could not be read), so the probe was not asked.';
+        }
 
         foreach ($period->probes() as $probe) {
             $row = ShadowProbeRun::query()->firstOrNew([

@@ -21,6 +21,9 @@ use Illuminate\Filesystem\Filesystem;
 
 const SCOPE_AUDIT_CONTROLLERS = [
     'Admin/AdminController.php' => 'scoped',
+    // docs/141: Pause All AI writes one group-wide row that belongs to no business; both routes need
+    // group-wide authority (ruling 13), so a restricted person is refused before anything is read.
+    'Admin/AiPauseController.php' => 'no business rows',
     'Admin/ToolRegistryController.php' => 'scoped',
     'Agents/AgentController.php' => 'scoped',
     'Approvals/ApprovalController.php' => 'scoped',

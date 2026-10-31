@@ -36,10 +36,13 @@ const GLOBAL_SWITCH_ROUTES = [
     'flags.store' => 'hq.flags.manage',
     'flags.toggle' => 'hq.flags.manage',
     'tools.toggle' => 'hq.tools.manage',
+    // docs/138 ruling 7, docs/141: Pause All AI, two routes with two permissions.
+    'ai.pause' => 'hq.ai.pause',
+    'ai.resume' => 'hq.ai.resume',
 ];
 
 /** Permissions whose every write route is, by definition, a global switch. */
-const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage'];
+const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage', 'hq.ai.pause', 'hq.ai.resume'];
 
 /** The services a global switch reaches; each checks the authority itself, so no caller can skip it. */
 const GLOBAL_SWITCH_SERVICES = [
@@ -48,6 +51,7 @@ const GLOBAL_SWITCH_SERVICES = [
     'app/Agents/Shadow/ShadowPeriods.php',
     'app/Autonomy/Evidence/EvidencePolicies.php',
     'app/Conversation/Language/LanguagePolicies.php',
+    'app/Ai/Pause/AiPauseSwitch.php',
 ];
 
 beforeEach(function () {

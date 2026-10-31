@@ -2,6 +2,7 @@
 
 namespace App\Ai;
 
+use App\Ai\Pause\AiPause;
 use App\Ai\Providers\AnthropicCheck;
 use App\Ai\Providers\OpenAiCheck;
 use App\Ai\Providers\OpenAiProvider;
@@ -50,6 +51,7 @@ final class ProviderCheck
         private readonly ServingProvider $serving,
         AnthropicCheck $anthropic,
         OpenAiCheck $openai,
+        private readonly AiPause $pause,
     ) {
         $this->calls = [$anthropic->provider() => $anthropic, $openai->provider() => $openai];
     }
@@ -60,6 +62,12 @@ final class ProviderCheck
      */
     public function run(string $source = self::SOURCE, ?string $provider = null): array
     {
+        // ⛔ docs/141: the readiness call is a real request to a model provider, so Pause All AI refuses it
+        //    too. Nothing is recorded on the credential: a pause says nothing about the key.
+        if ($this->pause->isPaused()) {
+            return $this->refused($provider, 'Pause All AI is on (or its state could not be read), so no request was sent to the model provider', OutcomeClass::CapabilityUnavailable);
+        }
+
         if ($provider === null && $this->serving->state() === ServingProvider::MIXED) {
             return $this->refused(null, $this->serving->describe().'; nothing was checked', OutcomeClass::ConnectorError);
         }
