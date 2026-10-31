@@ -4,6 +4,7 @@ use App\Console\Commands\DoPlansAdvance;
 use App\Models\AuditLog;
 use App\Models\Brand;
 use App\Models\FeatureFlag;
+use App\Models\ReplyOptionSet;
 use App\Models\UserBusinessScope;
 use App\OwnerConsole\Batch\ApprovalActs;
 use App\OwnerConsole\Do\DoPlanService;
@@ -43,7 +44,7 @@ it('refuses every owner-console action while its flag is off', function () {
     expect(fn () => app(ApprovalActs::class)->batch($this->owner, [['id' => 1, 'payload_hash' => 'x']]))->toThrow(Refused::class, 'switched off');
     expect(fn () => app(ApprovalActs::class)->oneClick($this->owner, 1, 'x'))->toThrow(Refused::class, 'switched off');
     expect(fn () => app(EventWatchService::class)->propose($this->owner, $lld, 'w', 'order.created', []))->toThrow(Refused::class, 'switched off');
-    expect(fn () => app(ReplyOptionService::class)->discard(new App\Models\ReplyOptionSet, $this->owner))->toThrow(Refused::class, 'switched off');
+    expect(fn () => app(ReplyOptionService::class)->discard(new ReplyOptionSet, $this->owner))->toThrow(Refused::class, 'switched off');
 
     $this->artisan('hq:do-plans:advance')->assertSuccessful();
     expect(DoPlansAdvance::class)->toBeString();
@@ -67,10 +68,10 @@ it('lets only a group-wide person change any of the six switches, and records sc
 
     foreach (Flag::all() as $key) {
         $flag = FeatureFlag::query()->where('key', $key)->firstOrFail();
-        $this->actingAsHq($restricted)->post("/flags/{$flag->id}/toggle", ["reason" => "test"])->assertForbidden();
+        $this->actingAsHq($restricted)->post("/flags/{$flag->id}/toggle", ['reason' => 'test'])->assertForbidden();
         expect((bool) $flag->fresh()->enabled)->toBeFalse("{$key} unchanged by a restricted operator");
 
-        $this->actingAsHq($this->owner)->post("/flags/{$flag->id}/toggle", ["reason" => "test"])->assertRedirect();
+        $this->actingAsHq($this->owner)->post("/flags/{$flag->id}/toggle", ['reason' => 'test'])->assertRedirect();
         expect((bool) $flag->fresh()->enabled)->toBeTrue();
     }
     $row = AuditLog::query()->where('action', 'feature_flag.toggled')->latest('id')->first();
