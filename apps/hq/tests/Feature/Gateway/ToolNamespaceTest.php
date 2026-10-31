@@ -67,6 +67,10 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'customers.quarantine.repair',
         // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, R3, permanently human-only, held by no agent.
         'customers.identity_conflicts.resolve',
+        // R2 (ruling 31 Oct item 7): the flag-gated tools, always registered, each available only while its flag is ON
+        // (all OFF as shipped). docs/144 connectors, docs/145-b avatar. No scheduled job names any of them.
+        'courier.track_parcel', 'courier.poll_parcels', 'voice.transcribe', 'voice.synthesize', 'media.draft_reel', 'media.check_draft',
+        'mail.poll_inbox', 'erp.create_draft_bill', 'ads.create_draft', 'meta.check_token_health', 'avatar.generate',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

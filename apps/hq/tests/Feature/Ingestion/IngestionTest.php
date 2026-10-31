@@ -290,7 +290,12 @@ it('lists and shows only the documents of the businesses a person may see, and r
     $this->actingAsHq($restricted)->post("/ingestion/{$theirs->uuid}/decide", ['decision' => 'reviewed'])->assertNotFound();
     $this->actingAsHq($restricted)->get("/ingestion/{$mine->uuid}")->assertOk()->assertInertia(fn ($p) => $p->component('ingestion/show')->where('document.extracted.invoice_number.citation.text', fn ($t) => str_contains($t, 'GV-2026-0042')));
 
-    $this->actingAsHq($restricted)->post("/ingestion/{$mine->uuid}/decide", ['decision' => 'reviewed', 'note' => 'checked'])->assertRedirect();
+    // R2 (ruling 31 Oct item 10): "reviewed" needs every field confirmed explicitly; without that it is refused.
+    $this->actingAsHq($restricted)->post("/ingestion/{$mine->uuid}/decide", ['decision' => 'reviewed', 'note' => 'checked', 'confirm' => ['supplier', 'amounts']])
+        ->assertSessionHasErrors('decision');
+    expect($mine->fresh()->status)->toBe('draft');
+    $this->actingAsHq($restricted)->post("/ingestion/{$mine->uuid}/decide", ['decision' => 'reviewed', 'note' => 'checked', 'confirm' => IngestedDocument::REVIEW_FIELDS])->assertRedirect();
+    expect($mine->fresh()->review_confirmations)->toBe(IngestedDocument::REVIEW_FIELDS);
     expect($mine->fresh()->status)->toBe('reviewed')->and($mine->fresh()->reviewed_by)->toBe($restricted->id)
         ->and(AuditLog::where('action', 'ingestion.reviewed')->count())->toBe(1);
     // Decided already: a second decision is refused.
@@ -381,7 +386,10 @@ it('sends a reviewed document as a draft bill only after a second person approve
     $ctx = new ToolContext('k', 'c', $this->mine->id);
     expect($tool->execute($args, $ctx)->ok())->toBeFalse();
 
+    // R2 (ruling 31 Oct item 10): reviewed WITHOUT the field-by-field confirmations is still refused at the tool.
     $doc->forceFill(['status' => IngestedDocument::REVIEWED])->save();
+    expect($tool->execute($args, $ctx)->error)->toContain('confirmed');
+    $doc->forceFill(['review_confirmations' => IngestedDocument::REVIEW_FIELDS])->save();
     $requested = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'erp.create_draft_bill', $args, $this->mine->id));
     expect($requested->status)->toBe(OutcomeStatus::AwaitingApproval)->and($doc->fresh()->status)->toBe('reviewed');
 

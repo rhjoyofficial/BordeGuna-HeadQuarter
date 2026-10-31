@@ -48,6 +48,8 @@ const SCOPE_AUDIT_CONTROLLERS = [
     'Connectors/ConnectorController.php' => 'scoped',
     'Connectors/ConnectorsController.php' => 'through:app/Connectors/ConnectorHub.php',
     'Connectors/IngestionController.php' => 'scoped',
+    // R2 (ruling 31 Oct item 12): the media budget's two owner acts; business from scopedBusiness() (404 outside), ledger lines visibleTo().
+    'Connectors/MediaBudgetController.php' => 'scoped',
     'Connectors/MediaDraftController.php' => 'scoped',
     'Connectors/ParcelController.php' => 'scoped',
     // A recording is the speaker's own, HQ-wide, never a business row (its file has no business and only its uploader opens it).

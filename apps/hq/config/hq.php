@@ -27,6 +27,7 @@ use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Support\Events\Handlers\SupportWakeUpHandler;
+use App\Tools\Avatar\GenerateAvatarTool;
 use App\Tools\Briefing\ComposeBriefingTool;
 use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use App\Tools\Commerce\CancelSalesOrderTool;
@@ -135,8 +136,8 @@ return [
         // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
         // model while narration is off, which is the shipped state. No scheduled job runs it.
         ComposeBriefingTool::class,
-        // docs/143 D: the owner-only Telegram brief. R4 (approval), not agent-executable, flag console.telegram_brief OFF.
-        SendOwnerTelegramBriefTool::class,
+        // docs/143 D: the owner-only Telegram brief moved to `flagged_tools` below (ruling 31 Oct item 7): always registered,
+        // available only while `console.telegram_brief` is ON.
 
         // Phase 4 read side (docs/81 C.5, docs/79): what HQ must know before it could ever take an
         // order, read live from the ERP. Every one is R2 and read-only. ⛔ NO agent holds any of them
@@ -192,11 +193,13 @@ return [
         ResolveIdentityConflictTool::class,
     ],
 
-    // docs/144 (HQ-completion connectors): tools that exist ONLY while their feature flag is ON. With the flag off (the shipped
-    // state, flags seeded OFF) a tool is not in the registry at all, so the gateway answers "unknown tool" for everyone, which is
-    // the same lock `tools` above is for the older ones, held per flag. Switching a flag on adds its tools on the next request
-    // (web) or the next worker restart (queues); switching it off removes them. None is agent-executable and no agent holds one.
-    // Each still checks its own flag, its permission, its business scope and its credential; R4 ones wait for approval.
+    // Applied ruling 31 Oct item 7 (docs/144-connectors-overview "Applied ruling 31 Oct"): ALWAYS-REGISTERED descriptors with
+    // FLAG-GATED availability. Every class below is in the ToolRegistry whatever its flag says, so its descriptor is in the
+    // canonical catalogue. Its AVAILABILITY is the flag, read live on every call by ToolAvailability and again by the gateway for
+    // the resolved business: with the flag off the call is refused with the typed outcome `feature_disabled` (not "unknown
+    // tool"), and AgentToolset never lists it to an agent. A queue worker started while a flag was on reads the flag afresh on
+    // each call, so it never runs a tool whose flag has since gone off. A flag ON is ONE more AND: it grants no permission, no
+    // agent tool, no autonomy grant and no approval; R4 tools still wait for a person. None is agent-executable; no agent holds one.
     'flagged_tools' => [
         'connectors.courier' => [TrackParcelTool::class, PollParcelsTool::class],
         'connectors.voice' => [VoiceTranscribeTool::class, VoiceSynthesizeTool::class],
@@ -205,6 +208,11 @@ return [
         'connectors.erp_draft_bill' => [CreateDraftBillTool::class],
         'connectors.ads_draft' => [CreateAdsDraftTool::class],
         'connectors.meta_health' => [CheckMetaTokenTool::class],
+        // docs/143 D (M2): the owner-only Telegram brief. R4, approval, flag OFF.
+        'console.telegram_brief' => [SendOwnerTelegramBriefTool::class],
+        // docs/145-b (M4): avatar generation on a recorded consent. R4, permanently human-only, flag `avatar.generation` OFF
+        // (no row), no provider bound, and the media budget (default BDT 0) refuses it before any provider call.
+        'avatar.generation' => [GenerateAvatarTool::class],
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)
@@ -520,6 +528,29 @@ return [
         'scan_required' => false,
         'limits' => ['image_mb' => 10, 'video_mb' => 60, 'document_mb' => 15, 'text_mb' => 2, 'audio_mb' => 10],
         'veo' => ['base_url' => 'https://generativelanguage.googleapis.com/v1beta', 'model' => 'veo-3.1-fast-generate-preview', 'timeout' => 30, 'download_timeout' => 120],
+
+        // Ruling 31 Oct item 12 (docs/147-r2): the per-business monthly media budget (`App\Media\Budget\MediaBudgets`). The LIMIT
+        // is the owner's, per business, on the Connectors screen (no row = BDT 0 = no paid media). What is here is how a cost is
+        // estimated and converted. ⛔ A price left null is UNKNOWN, and an unknown price refuses the operation: Joy fills a real
+        // provider's price from its billing page when he connects it, in a reviewed release. No env() on purpose.
+        'budget' => [
+            // Provider billing currency to BDT. A currency missing here, or an empty rate, refuses (no rate is guessed).
+            'fx_to_bdt' => ['USD' => '130.00'],
+            // Added on top of the rate, and the result is rounded UP to the paisa: the BDT figure never understates a cost.
+            'fx_safety_margin_percent' => '5',
+            // price per `per` units of `unit`, in `currency`. Keyed by the provider's own key (adapter key() / name()).
+            'prices' => [
+                'veo' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => null],
+                'azure_speech' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                'elevenlabs' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => null],
+                'openai_compatible_tts' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                // Sandbox fakes (reachable only under HQ_CONNECTORS_SANDBOX, which nothing sets): a nominal price so the budget
+                // path is exercised exactly as a paid one would be. Never a production provider.
+                'fake_video' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => '0.10'],
+                'fake_tts' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => '0.01'],
+                'sandbox' => ['unit' => 'generation', 'per' => '1', 'currency' => 'USD', 'price' => '1.00'],
+            ],
+        ],
     ],
 
     // docs/144-email-ingestion.
@@ -529,6 +560,9 @@ return [
         'gmail' => ['base_url' => 'https://gmail.googleapis.com/gmail/v1'],
         // The mailbox for an application token (`users/{upn}`); empty means `me` (a delegated token).
         'graph' => ['base_url' => 'https://graph.microsoft.com/v1.0', 'user' => ''],
+        // Ruling 31 Oct item 10 (docs/147-r2): a future OCR or model-assisted bill extractor needs the flag `ingestion.model_extraction`
+        // (no row: off) AND this evaluation gate naming it (null: none passed). Until both, the rule-based extractor reads every bill.
+        'model_extraction' => ['eval_passed_extractor' => null],
     ],
 
     // Phase 7 (docs/88 A point 6, stream U): speech. ⛔ Nothing here switches anything on: the providers
@@ -558,7 +592,11 @@ return [
             'language_code' => null,
             'timeout' => 60,
         ],
-        // docs/144-voice-provider: the default speech provider is any OpenAI-compatible audio API.
+        // Applied ruling 31 Oct item 8: speech to text has NO production default. `benchmark_passed_provider` names the one provider
+        // key that passed the 50-note Bangla bake-off (docs/147-r2-voice-bakeoff-plan.md); null refuses every transcription. Setting
+        // it is a reviewed release with the bake-off evidence committed beside it. No env() on purpose.
+        'stt' => ['benchmark_passed_provider' => null],
+        // An OpenAI-compatible speech-to-text candidate for the bake-off (not a default; an OpenAI-compatible API is no evidence of Bangla quality).
         'openai_compatible' => [
             'base_url' => 'https://api.openai.com/v1',
             'stt_model' => 'gpt-4o-transcribe',
@@ -567,7 +605,8 @@ return [
             'timeout' => 60,
         ],
         // The stock voice used when a request names none, by speech provider key.
-        'default_voice' => ['openai_compatible_tts' => 'alloy', 'azure_speech' => 'bn-BD-NabanitaNeural', 'fake_tts' => 'sandbox'],
+        // Ruling 31 Oct item 8: Azure bn-BD is the preferred TTS (Nabanita default, Pradeep the other approved voice); ElevenLabs the alternative.
+        'default_voice' => ['azure_speech' => 'bn-BD-NabanitaNeural', 'fake_tts' => 'sandbox'],
         // A transcript a person agreed to keep is deleted after this many days.
         'transcript_retention_days' => 30,
         'azure' => [

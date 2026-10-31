@@ -56,7 +56,9 @@ final class VoiceController extends ConnectorController
 
     public function speak(Request $request): JsonResponse
     {
-        $data = $request->validate(['text' => ['required', 'string', 'max:'.SpeechSynthesisRequest::MAX_CHARACTERS], 'language' => ['nullable', 'in:bn-BD,en-US']]);
+        // Ruling 31 Oct item 12 (R2): reading aloud is paid voice generation, paid from one business's media budget, so it names that business.
+        $data = $request->validate(['text' => ['required', 'string', 'max:'.SpeechSynthesisRequest::MAX_CHARACTERS], 'language' => ['nullable', 'in:bn-BD,en-US'],
+            'business_slug' => ['required', 'string', 'max:64']]);
         $outcome = $this->runTool($request->user(), 'voice.synthesize', array_filter($data, static fn ($v) => $v !== null));
         if (! in_array($outcome->status, [OutcomeStatus::Succeeded, OutcomeStatus::Replayed], true)) {
             return response()->json(['error' => (string) ($outcome->error ?? $outcome->policyReason ?? 'Voice is not available.'), 'state' => $outcome->output['connector_state'] ?? $outcome->status->value], 409);

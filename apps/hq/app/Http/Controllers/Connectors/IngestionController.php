@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Connectors;
 
+use App\Ingestion\Extraction\BillChecks;
 use App\Models\Business;
 use App\Models\IngestedDocument;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -48,7 +50,7 @@ final class IngestionController extends ConnectorController
             'document' => [
                 'uuid' => $d->uuid, 'status' => $d->status, 'business' => $d->business?->name, 'business_slug' => $d->business?->slug,
                 'from' => $d->message?->from_address, 'subject' => $d->message?->subject, 'received_at' => $d->message?->received_at?->toIso8601String(),
-                'extractor' => $d->extractor, 'extracted' => $d->extracted, 'source_text' => $d->source_text, 'review_note' => $d->review_note,
+                'extractor' => $d->extractor, 'extracted' => (array) $d->extracted + ['checks' => (new BillChecks)->run((array) $d->extracted)], 'source_text' => $d->source_text, 'review_note' => $d->review_note,
                 'erp_draft_ref' => $d->erp_draft_ref, 'erp_draft_error' => $d->erp_draft_error,
             ],
             'can' => ['review' => $request->user()->can('hq.ingestion.review'), 'send' => $request->user()->can('hq.tools.erp.draft_bill')],
@@ -66,13 +68,27 @@ final class IngestionController extends ConnectorController
     public function decide(Request $request, string $uuid): RedirectResponse
     {
         $d = $this->find($request, $uuid);
-        $data = $request->validate(['decision' => ['required', 'in:reviewed,rejected'], 'note' => ['nullable', 'string', 'max:500']]);
+        $data = $request->validate(['decision' => ['required', 'in:reviewed,rejected'], 'note' => ['nullable', 'string', 'max:500'],
+            'confirm' => ['nullable', 'array'], 'confirm.*' => ['string', Rule::in(IngestedDocument::REVIEW_FIELDS)]]);
         if (! in_array($d->status, [IngestedDocument::DRAFT, IngestedDocument::ERP_FAILED], true)) {
             throw ValidationException::withMessages(['decision' => 'This document has already been decided.']);
         }
 
+        // Ruling 31 Oct item 10: marking a document reviewed needs an explicit confirmation of EVERY listed field (vendor, invoice
+        // number, dates, line items, amounts, tax, currency, payment details) and the deterministic checks passing. Rejecting needs neither.
+        $confirmed = array_values(array_unique((array) ($data['confirm'] ?? [])));
+        if ($data['decision'] === IngestedDocument::REVIEWED) {
+            if (($missing = array_values(array_diff(IngestedDocument::REVIEW_FIELDS, $confirmed))) !== []) {
+                throw ValidationException::withMessages(['decision' => 'Confirm every field against the document first: '.implode(', ', $missing).'.']);
+            }
+            if (! (new BillChecks)->run((array) $d->extracted)['passed']) {
+                throw ValidationException::withMessages(['decision' => 'A deterministic check failed (arithmetic, total, tax or currency), so this document cannot be marked reviewed.']);
+            }
+        }
+
         $before = $d->status;
-        $d->forceFill(['status' => $data['decision'], 'reviewed_by' => $request->user()->getKey(), 'reviewed_at' => now(), 'review_note' => $data['note'] ?? null])->save();
+        $d->forceFill(['status' => $data['decision'], 'reviewed_by' => $request->user()->getKey(), 'reviewed_at' => now(), 'review_note' => $data['note'] ?? null,
+            'review_confirmations' => $data['decision'] === IngestedDocument::REVIEWED ? $confirmed : null])->save();
         app(Auditor::class)->record('ingestion.'.$data['decision'], $d, ['status' => $before], ['status' => $d->status], $data['note'] ?? null, context: ['business_id' => $d->business_id]);
 
         return back()->with('status', 'ingestion-'.$data['decision']);

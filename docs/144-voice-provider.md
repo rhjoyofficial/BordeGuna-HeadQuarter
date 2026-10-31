@@ -1,5 +1,9 @@
 # 144. Voice: decision record (Q2, 31 October 2026)
 
+> **Applied ruling 31 Oct 2026 (item 8):** the OpenAI-compatible default below is SUPERSEDED. Text to speech: Azure `bn-BD`
+> (Nabanita, Pradeep) preferred, ElevenLabs the alternative. Speech to text: no production default until the 50-note Bangla bake-off passes
+> (`147-r2-voice-bakeoff-plan.md`, `App\Voice\SttBenchmarkGate`). Read aloud is paid from a business's media budget (`147-r2-*`).
+
 ## Question
 
 Which speech provider, and how does push to talk work without giving a voice any authority?

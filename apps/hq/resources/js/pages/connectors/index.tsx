@@ -1,3 +1,4 @@
+import { MediaBudgetPanel, type MediaBudgetData } from '@/components/connectors/media-budget-panel';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -51,7 +52,17 @@ function Yes({ on, label }: { on: boolean; label: string }) {
  * things from a person: its switch turned on (Feature flags) and its key stored (Credentials). Nothing here calls a
  * provider or shows a secret.
  */
-export default function Connectors({ families, meta, can }: { families: Family[]; meta: Meta; can: { check_tokens: boolean } }) {
+export default function Connectors({
+    families,
+    meta,
+    can,
+    media_budget,
+}: {
+    families: Family[];
+    meta: Meta;
+    can: { check_tokens: boolean };
+    media_budget?: MediaBudgetData;
+}) {
     const t = useT();
     const stateLabel = (s: string) =>
         (
@@ -222,6 +233,8 @@ export default function Connectors({ families, meta, can }: { families: Family[]
                         )}
                     </Notice>
                 </section>
+
+                {media_budget && <MediaBudgetPanel data={media_budget} />}
             </div>
         </AppLayout>
     );

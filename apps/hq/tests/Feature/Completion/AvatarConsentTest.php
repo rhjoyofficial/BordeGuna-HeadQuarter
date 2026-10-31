@@ -4,12 +4,14 @@ use App\Avatar\AvatarGenerations;
 use App\Avatar\AvatarProvider;
 use App\Avatar\FakeAvatarProvider;
 use App\Avatar\PhaseEightTools;
+use App\Gateway\Registry\ToolAvailability;
 use App\Models\Approval;
 use App\Models\AvatarConsent;
 use App\Models\AvatarGeneration;
 use App\Models\Brand;
 use App\Models\Business;
 use App\Models\MediaAsset;
+use App\Models\ToolCall;
 use App\Research\ResearchRefused;
 use App\Tools\Avatar\GenerateAvatarTool;
 use App\Tools\ToolRegistry;
@@ -56,7 +58,10 @@ it('registers the avatar routes behind auth, 2FA and their permissions, and decl
     foreach (PhaseEightTools::DECLARED as $class) {
         expect(in_array($class, config('hq.tools'), true))->toBeFalse();
     }
-    expect(app(ToolRegistry::class)->has(GenerateAvatarTool::KEY))->toBeFalse()
+    // R2 pin edit (ruling 31 Oct item 7): the descriptor is ALWAYS registered; with its flag off (no row) it is NOT available, and the
+    // gateway refuses it with the typed `feature_disabled`, never as an unknown tool.
+    expect(app(ToolRegistry::class)->has(GenerateAvatarTool::KEY))->toBeTrue()
+        ->and(app(ToolAvailability::class)->check(GenerateAvatarTool::KEY)[ToolAvailability::FEATURE_DISABLED] ?? false)->toBeTrue()
         ->and(app()->bound(AvatarProvider::class))->toBeFalse();
     $d = app(GenerateAvatarTool::class)->descriptor();
     expect($d->permanentlyHumanOnly)->toBeTrue()->and($d->riskTier->value)->toBe('r4')->and($d->agentExecutable)->toBeFalse();
@@ -126,15 +131,21 @@ it('withdraws unfinished generations on revocation through the screen, and a rev
         ->and(fn () => DB::transaction(fn () => AvatarConsent::query()->whereKey($consent->id)->delete()))->toThrow(QueryException::class);
 });
 
-it('asks the gateway for a clip as the signed-in person, and the unregistered tool is refused with nothing generated', function () {
-    M4::on('avatar.generation');
+it('asks the gateway for a clip as the signed-in person: refused feature_disabled while the flag is off, parked for approval while on, nothing generated', function () {
+    // R2 pin edit (ruling 31 Oct item 7): the tool is always registered. Flag off: the gateway refuses it `feature_disabled`.
     app()->instance(AvatarProvider::class, $provider = new FakeAvatarProvider);
     $this->actingAsHq($this->owner)->post('/avatar/consents', acRecord())->assertSessionHasNoErrors();
     $consent = AvatarConsent::query()->sole();
+    $ask = ['consent_uuid' => $consent->uuid, 'brand_id' => $this->lld->id, 'use' => 'product_promo', 'modality' => 'face', 'script' => 'হ্যালো'];
 
-    $this->actingAsHq($this->owner)->post('/avatar/generate', ['consent_uuid' => $consent->uuid, 'brand_id' => $this->lld->id, 'use' => 'product_promo', 'modality' => 'face', 'script' => 'হ্যালো'])
-        ->assertSessionHasErrors('generate');
-    expect($provider->requests)->toBe([])->and(AvatarGeneration::query()->count())->toBe(0);
+    $this->actingAsHq($this->owner)->post('/avatar/generate', $ask)->assertSessionHasErrors('generate');
+    expect(ToolCall::query()->where('tool_key', GenerateAvatarTool::KEY)->latest('id')->value('outcome_class'))->toBe('feature_disabled');
+
+    // Flag on: the flag grants nothing by itself. R4, so the request only parks an approval; nothing reaches the provider.
+    M4::on('avatar.generation');
+    $this->actingAsHq($this->owner)->post('/avatar/generate', $ask)->assertSessionHasNoErrors()->assertSessionHas('status', 'avatar-generation-awaiting-approval');
+    expect($provider->requests)->toBe([])->and(AvatarGeneration::query()->count())->toBe(0)
+        ->and(Approval::query()->where('tool_key', GenerateAvatarTool::KEY)->count())->toBe(1);
 });
 
 it('keeps another business\'s consents out of sight and out of reach for a person limited to one business', function () {

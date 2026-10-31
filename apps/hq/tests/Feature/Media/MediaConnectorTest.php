@@ -25,6 +25,7 @@ use App\Models\ChatAttachment;
 use App\Models\ContentPublication;
 use App\Models\IntegrationCredential;
 use App\Models\MediaAsset;
+use App\Models\MediaBudgetEntry;
 use App\Models\MediaDraft;
 use App\Models\UserBusinessScope;
 use App\Tools\Connectors\CheckReelDraftTool;
@@ -36,6 +37,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\Media\Budgets;
 
 /*
  | docs/144-media-in-chat and docs/144-media-pipeline: what HQ will store from an upload (decided from the bytes), the per-business
@@ -238,10 +240,15 @@ it('asks for a draft only after an approval, keeps it a draft, and publishes not
     $asked = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'media.draft_reel', $args, $this->mine->id));
     expect($asked->status)->toBe(OutcomeStatus::AwaitingApproval)->and(MediaDraft::count())->toBe(0);
 
-    // Approved: the tool runs, makes a draft that is generating, and the check turns it into a ready draft asset.
+    // R2 (ruling 31 Oct item 12): with the default media budget of BDT 0 the approved run is refused before the provider is called.
     $draftTool = app(DraftReelTool::class);
+    $zero = $draftTool->execute($args, new ToolContext('k0', 'c0', $this->mine->id, actorUserId: $this->owner->id));
+    expect($zero->ok())->toBeFalse()->and((string) $zero->error)->toContain('BDT 0')->and(MediaDraft::count())->toBe(0);
+
+    // Approved, with a budget: the tool reserves, runs, makes a draft that is generating, and the check turns it into a ready draft asset.
+    Budgets::grant($this->mine->id, '500.00');
     $result = $draftTool->execute($args, new ToolContext('k1', 'c1', $this->mine->id, actorUserId: $this->owner->id));
-    expect($result->ok())->toBeTrue();
+    expect($result->ok())->toBeTrue()->and(MediaBudgetEntry::sole()->state)->toBe('committed')->and(MediaBudgetEntry::sole()->kind)->toBe('video');
     $draft = MediaDraft::sole();
     expect($draft->status)->toBe('generating')->and($draft->business_id)->toBe($this->mine->id);
 

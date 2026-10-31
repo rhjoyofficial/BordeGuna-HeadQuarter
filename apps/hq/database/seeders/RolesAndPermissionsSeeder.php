@@ -117,6 +117,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // approves); `ads.draft` prepares a paused ad draft; `meta.health` checks a Meta token.
         'hq.connectors.view', 'hq.tools.courier.read', 'hq.voice.use', 'hq.tools.media.draft', 'hq.tools.mail.ingest',
         'hq.ingestion.review', 'hq.tools.erp.draft_bill', 'hq.tools.ads.draft', 'hq.tools.meta.health',
+        // Ruling 31 Oct item 12 (R2, docs/147-r2): setting a business's monthly media budget and reconciling a provider's billed
+        // cost. Held through '*' by owner and operator; `MediaBudgets::setLimit()` also requires the OWNER role.
+        'hq.media.budget.manage',
     ];
 
     public const ROLES = [

@@ -75,3 +75,24 @@ Counts are in `STATE.md` and the final report. New test files: `tests/Feature/Co
 Existing tests changed, each for a stated reason: `ConnectorRegistryTest` and `ConnectorStructureTest` (the registry is no longer empty; every row
 is OFF and no sandbox row ships), `PhoneAndVoiceTest` (the microphone is allowed in exactly one place, inside a click handler; the voice screen is
 no longer inert text), `PostureScreenTest` (the new POST routes, each a person's click through the gateway), `AppShellTest` (five nav entries).
+
+## Applied ruling 31 Oct
+
+The ChatGPT final ruling of 31 October 2026 changed four things here (full record: `147-r2-tools-connectors-media-2026-10-31.md`).
+
+- **Tool registration (item 7).** The "registered only while the flag is ON" design in section 2 is replaced: every flag-gated tool is
+  ALWAYS registered (its descriptor is in the catalogue), and its AVAILABILITY is its flag, read live on every call. A call while the flag
+  is off is refused with the typed outcome `feature_disabled`, not "unknown tool"; agents are never offered a disabled tool; a long-lived
+  queue worker reads the flag afresh each call. A flag ON grants no permission, agent tool, autonomy or approval. The owner Telegram brief
+  (docs/143) and `avatar.generate` (docs/145-b) are flag-gated the same way.
+- **Voice (item 8).** Text to speech: Azure `bn-BD` (Nabanita, Pradeep) preferred, ElevenLabs the alternative; the OpenAI-compatible TTS row
+  is removed. Speech to text: no production default; every transcription is refused until a provider passes the 50-note Bangla bake-off
+  (`147-r2-voice-bakeoff-plan.md`). The voice row of the table in section 3 is superseded accordingly.
+- **Invoice extraction (item 10).** Deterministic by default; any OCR or model extractor needs its own flag AND a passed evaluation;
+  citations carry page and offsets; arithmetic, totals, tax and currency are checked deterministically; a person confirms every field
+  before a document is reviewed; nothing in extraction can post or pay.
+- **Media budget (item 12).** Reel/video drafts, voice generation and avatar generation reserve their estimated cost against the business's
+  monthly media budget (BDT, owner-set on the Connectors screen, default BDT 0 = none) before any provider is called. Real provider prices
+  ship unknown, so a paid provider is refused until its price is entered. `voice.synthesize` now names the business that pays.
+- Unchanged and confirmed: agents cannot read raw attachments (item 9); no Meta send connector, credential or agent send tool is seeded
+  before P3-G4 (item 11).

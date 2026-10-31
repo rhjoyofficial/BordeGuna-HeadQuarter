@@ -108,6 +108,17 @@ final readonly class VoiceNoteIngestion
             ]];
         }
 
+        // Ruling 31 Oct item 8: a registered provider transcribes only if it is the one that passed the Bangla bake-off.
+        if (($refusal = app(SttBenchmarkGate::class)->refusalFor($provider->key())) !== null) {
+            return [null, [
+                'source' => 'voice_note',
+                'transcribed' => false,
+                'audio_asset_uuid' => $asset->uuid,
+                'provider' => $provider->key(),
+                'reason' => substr($refusal, 0, 200),
+            ]];
+        }
+
         try {
             $transcript = $provider->transcribe($audio, $mime);
         } catch (SpeechProviderRefused|SpeechProviderUnavailable $e) {

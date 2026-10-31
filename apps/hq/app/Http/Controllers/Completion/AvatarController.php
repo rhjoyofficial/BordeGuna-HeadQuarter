@@ -6,6 +6,7 @@ use App\Avatar\AvatarConsents;
 use App\Avatar\AvatarGenerations;
 use App\Avatar\AvatarProvider;
 use App\Gateway\OutcomeStatus;
+use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Http\Controllers\Controller;
@@ -72,7 +73,8 @@ final class AvatarController extends Controller
             'posture' => [
                 'generation_flag' => $this->features->enabled(AvatarGenerations::FLAG),
                 'provider_connected' => app()->bound(AvatarProvider::class),
-                'tool_registered' => in_array(GenerateAvatarTool::class, (array) config('hq.tools', []), true),
+                // Ruling 31 Oct item 7: the tool is always registered; what the screen shows is whether it is AVAILABLE (flag live).
+                'tool_registered' => app(ToolAvailability::class)->isAvailable(GenerateAvatarTool::KEY),
             ],
             'options' => [
                 'kinds' => AvatarConsents::KINDS, 'modalities' => AvatarConsents::MODALITIES, 'uses' => AvatarConsents::USES, 'max_months' => AvatarConsents::MAX_MONTHS,

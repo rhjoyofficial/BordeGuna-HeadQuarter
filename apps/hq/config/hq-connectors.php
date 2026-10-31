@@ -23,7 +23,6 @@ use App\Voice\Providers\AzureTextToSpeech;
 use App\Voice\Providers\ElevenLabsTextToSpeech;
 use App\Voice\Providers\GoogleSpeechToText;
 use App\Voice\Providers\OpenAiCompatibleSpeechToText;
-use App\Voice\Providers\OpenAiCompatibleTextToSpeech;
 
 /*
  | The ConnectorRegistry (docs/97 §6 D2, docs/98): which provider serves which capability.
@@ -67,17 +66,18 @@ $real = [
     ['capability' => 'courier.redx.track', 'provider' => 'redx', 'adapter' => RedxCourier::class, 'transport' => 'direct_api',
         'credentials' => [['kind' => RedxCourier::CREDENTIAL, 'account_ref_from' => $business]], 'priority' => 10, 'enabled_by' => 'flag:connectors.courier'],
 
-    // Voice (docs/144-voice-provider): OpenAI-compatible is the default; the adapters that already existed stay as alternatives.
+    // Voice. Applied ruling 31 Oct item 8: speech to text has NO production default. These two rows are bake-off CANDIDATES only:
+    // `voice.transcribe` refuses every provider until `hq.voice.stt.benchmark_passed_provider` names the one that passed the 50-note
+    // Bangla bake-off (docs/147-r2-voice-bakeoff-plan.md), and then only that one. Text to speech: Azure bn-BD (Nabanita, Pradeep) is
+    // the preferred provider, ElevenLabs the alternative; the OpenAI-compatible TTS adapter stays in the code, registered nowhere.
     ['capability' => 'voice.transcribe', 'provider' => 'openai_compatible', 'adapter' => OpenAiCompatibleSpeechToText::class, 'transport' => 'direct_api',
         'credentials' => [['kind' => OpenAiCompatibleSpeechToText::CREDENTIAL, 'account_ref_from' => '=hq']], 'priority' => 10, 'enabled_by' => 'flag:connectors.voice'],
     ['capability' => 'voice.transcribe', 'provider' => 'google_speech', 'adapter' => GoogleSpeechToText::class, 'transport' => 'direct_api',
         'credentials' => [['kind' => GoogleSpeechToText::CREDENTIAL_PROVIDER, 'account_ref_from' => '=hq']], 'priority' => 20, 'enabled_by' => 'flag:connectors.voice'],
-    ['capability' => 'voice.synthesize', 'provider' => 'openai_compatible', 'adapter' => OpenAiCompatibleTextToSpeech::class, 'transport' => 'direct_api',
-        'credentials' => [['kind' => OpenAiCompatibleSpeechToText::CREDENTIAL, 'account_ref_from' => '=hq']], 'priority' => 10, 'enabled_by' => 'flag:connectors.voice'],
     ['capability' => 'voice.synthesize', 'provider' => 'azure_speech', 'adapter' => AzureTextToSpeech::class, 'transport' => 'direct_api',
-        'credentials' => [['kind' => AzureTextToSpeech::CREDENTIAL_PROVIDER, 'account_ref_from' => '=hq']], 'priority' => 20, 'enabled_by' => 'flag:connectors.voice'],
+        'credentials' => [['kind' => AzureTextToSpeech::CREDENTIAL_PROVIDER, 'account_ref_from' => '=hq']], 'priority' => 10, 'enabled_by' => 'flag:connectors.voice'],
     ['capability' => 'voice.synthesize', 'provider' => 'elevenlabs', 'adapter' => ElevenLabsTextToSpeech::class, 'transport' => 'direct_api',
-        'credentials' => [['kind' => ElevenLabsTextToSpeech::CREDENTIAL_PROVIDER, 'account_ref_from' => '=hq']], 'priority' => 30, 'enabled_by' => 'flag:connectors.voice'],
+        'credentials' => [['kind' => ElevenLabsTextToSpeech::CREDENTIAL_PROVIDER, 'account_ref_from' => '=hq']], 'priority' => 20, 'enabled_by' => 'flag:connectors.voice'],
 
     // Video drafts (docs/144-media-pipeline).
     ['capability' => 'media.video.generate', 'provider' => 'veo', 'adapter' => VeoMediaPipeline::class, 'transport' => 'direct_api',

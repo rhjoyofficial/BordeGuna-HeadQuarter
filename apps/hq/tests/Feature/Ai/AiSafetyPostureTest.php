@@ -14,6 +14,7 @@ use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\IntegrationCredential;
 use App\Platform\PlatformRegistry;
+use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\Ai\FixtureProvider;
@@ -135,7 +136,15 @@ it('lets an agent execute only reads below R3, and nothing that reaches a person
     // agent-executable (so the loops above never reach it) and admits no store, so the gateway
     // refuses every call. docs/88 A point 3: the third is its compensating tool,
     // `commerce.cancel_sales_order`, inert the same two ways.
-    expect($highRisk)->toBe(['demo.request_approval', 'briefing.send_owner_telegram', 'commerce.take_order', 'commerce.cancel_sales_order']);
+    // R2 pin edit (ruling 31 Oct item 7): the flag-gated tools are now ALWAYS registered, so their R4 descriptors are in the
+    // catalogue. Each is named here, and each is held to being flag-gated (flag OFF as shipped) and not agent-executable.
+    $flaggedR4 = ['media.draft_reel', 'erp.create_draft_bill', 'ads.create_draft', 'briefing.send_owner_telegram', 'avatar.generate'];
+    expect($highRisk)->toBe(['demo.request_approval', 'commerce.take_order', 'commerce.cancel_sales_order', ...$flaggedR4]);
+    foreach ($flaggedR4 as $key) {
+        expect(app(FlaggedTools::class)->flagFor($key))->not->toBeNull("[{$key}] must be flag-gated")
+            ->and(app(FlaggedTools::class)->flagOn($key))->toBeFalse("[{$key}] must ship with its flag off")
+            ->and($descriptors->firstWhere('key', $key)->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable");
+    }
     foreach (['commerce.take_order', 'commerce.cancel_sales_order'] as $key) {
         $write = $descriptors->firstWhere('key', $key);
         expect($write->agentExecutable)->toBeFalse("[{$key}] must not be agent-executable")

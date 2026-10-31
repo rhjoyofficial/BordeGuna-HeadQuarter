@@ -9,7 +9,20 @@ import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 
-type Citation = { text: string; start: number; end: number };
+type Citation = { text: string; start: number; end: number; page?: number };
+type Check = { check: string; ok: boolean; detail: string };
+
+// Ruling 31 Oct item 10: each of these is confirmed explicitly by the reviewer before a document can be marked reviewed.
+const REVIEW_FIELDS: { key: string; label: string }[] = [
+    { key: 'supplier', label: 'Supplier' },
+    { key: 'invoice_number', label: 'Invoice number' },
+    { key: 'invoice_date', label: 'Invoice date' },
+    { key: 'lines', label: 'Lines' },
+    { key: 'amounts', label: 'Amounts' },
+    { key: 'tax', label: 'Tax' },
+    { key: 'currency', label: 'Currency' },
+    { key: 'payment_details', label: 'Payment details' },
+];
 type Field = { value: string; currency?: string; citation: Citation } | null;
 type Line = { description: Field; quantity: Field; unit_price: Field; line_total: Field };
 type Doc = {
@@ -21,7 +34,15 @@ type Doc = {
     subject: string | null;
     received_at: string | null;
     extractor: string;
-    extracted: { supplier: Field; invoice_number: Field; invoice_date: Field; total: Field; lines: Line[]; warnings: string[] };
+    extracted: {
+        supplier: Field;
+        invoice_number: Field;
+        invoice_date: Field;
+        total: Field;
+        lines: Line[];
+        warnings: string[];
+        checks?: { passed: boolean; results: Check[] };
+    };
     source_text: string;
     review_note: string | null;
     erp_draft_ref: string | null;
@@ -45,6 +66,13 @@ function Cited({ label, field }: { label: string; field: Field }) {
                     <blockquote className="border-glass-border text-muted-foreground border-l-2 pl-2 font-mono text-xs break-words whitespace-pre-wrap">
                         {field.citation.text}
                     </blockquote>
+                    <div className="text-muted-foreground text-xs">
+                        {t('Page {page}, characters {start} to {end}', {
+                            page: field.citation.page ?? 1,
+                            start: field.citation.start,
+                            end: field.citation.end,
+                        })}
+                    </div>
                 </>
             )}
         </div>
@@ -53,9 +81,13 @@ function Cited({ label, field }: { label: string; field: Field }) {
 
 export default function IngestionShow({ document: d, can }: { document: Doc; can: { review: boolean; send: boolean } }) {
     const t = useT();
-    const form = useForm({ note: '' });
+    const form = useForm<{ note: string; confirm: string[] }>({ note: '', confirm: [] });
     const decide = (decision: 'reviewed' | 'rejected') =>
-        router.post(`/ingestion/${d.uuid}/decide`, { decision, note: form.data.note }, { preserveScroll: true });
+        router.post(`/ingestion/${d.uuid}/decide`, { decision, note: form.data.note, confirm: form.data.confirm }, { preserveScroll: true });
+    const checks = d.extracted.checks;
+    const allConfirmed = REVIEW_FIELDS.every((f) => form.data.confirm.includes(f.key));
+    const toggle = (key: string, on: boolean) =>
+        form.setData('confirm', on ? [...form.data.confirm, key] : form.data.confirm.filter((k) => k !== key));
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Supplier documents', href: '/ingestion' },
         { title: d.extracted.invoice_number?.value ?? d.uuid.slice(0, 8), href: `/ingestion/${d.uuid}` },
@@ -82,6 +114,22 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                                 <li key={w}>{w}</li>
                             ))}
                         </ul>
+                    </Notice>
+                )}
+
+                {checks && (
+                    <Notice
+                        tone={checks.passed ? 'ok' : 'danger'}
+                        title={checks.passed ? t('The arithmetic checks passed') : t('An arithmetic check failed')}
+                    >
+                        <ul className="list-disc pl-5">
+                            {checks.results.map((c) => (
+                                <li key={c.check}>
+                                    {c.ok ? t('Passed') : t('Failed')}: {c.detail}
+                                </li>
+                            ))}
+                        </ul>
+                        {!checks.passed && <p className="mt-1">{t('A document whose checks fail cannot be marked reviewed or sent to the ERP.')}</p>}
                     </Notice>
                 )}
 
@@ -139,6 +187,22 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                 {can.review && open && (
                     <div className="hq-card flex flex-col gap-3 p-4">
                         <SectionHeader title={t('Your decision')} />
+                        <fieldset className="flex flex-col gap-1.5">
+                            <legend className="mb-1 text-sm font-medium">{t('I checked each of these against the document')}</legend>
+                            <div className="flex flex-wrap gap-x-4 gap-y-2">
+                                {REVIEW_FIELDS.map((f) => (
+                                    <label key={f.key} className="inline-flex min-h-11 items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            className="size-4"
+                                            checked={form.data.confirm.includes(f.key)}
+                                            onChange={(e) => toggle(f.key, e.target.checked)}
+                                        />
+                                        {t(f.label)}
+                                    </label>
+                                ))}
+                            </div>
+                        </fieldset>
                         <Textarea
                             value={form.data.note}
                             onChange={(e) => form.setData('note', e.target.value)}
@@ -147,7 +211,7 @@ export default function IngestionShow({ document: d, can }: { document: Doc; can
                             aria-label={t('A note (optional)')}
                         />
                         <div className="flex flex-wrap gap-2">
-                            <Button type="button" onClick={() => decide('reviewed')}>
+                            <Button type="button" onClick={() => decide('reviewed')} disabled={!allConfirmed || checks?.passed === false}>
                                 {t('I checked it: mark reviewed')}
                             </Button>
                             <Button type="button" variant="outline" onClick={() => decide('rejected')}>

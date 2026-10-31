@@ -114,6 +114,9 @@ const BANGLA_SCREENS = [
     'js/pages/skills/index.tsx',
     'js/pages/autonomy/index.tsx',
     'js/components/completion/reason-action.tsx',
+    // R2 (ruling 31 Oct item 12): the media budget panel on the Connectors screen, and the Connectors screen itself.
+    'js/components/connectors/media-budget-panel.tsx',
+    'js/pages/connectors/index.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

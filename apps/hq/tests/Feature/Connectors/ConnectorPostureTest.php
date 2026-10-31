@@ -4,6 +4,7 @@ use App\Connectors\Capabilities;
 use App\Connectors\ConnectorRegistry;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\OutcomeClass;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Agent;
@@ -30,7 +31,9 @@ beforeEach(function () {
 
 function m3FlaggedTools(): array
 {
-    return (array) config('hq.flagged_tools');
+    // R2: `hq.flagged_tools` now also holds docs/143's Telegram brief and docs/145-b's avatar tool (ruling 31 Oct item 7); this
+    // file is about docs/144's connector tools, so it reads the `connectors.*` flags only.
+    return array_filter((array) config('hq.flagged_tools'), fn (string $flag) => str_starts_with($flag, 'connectors.'), ARRAY_FILTER_USE_KEY);
 }
 
 it('ships every connector switch seeded and OFF', function () {
@@ -40,15 +43,17 @@ it('ships every connector switch seeded and OFF', function () {
     }
 });
 
-it('registers no connector tool while the switches are off, so the gateway refuses each as unknown', function () {
+it('registers every connector tool descriptor, and with the switches off the gateway refuses each as feature_disabled, not unknown', function () {
+    // R2 pin edit (ruling 31 Oct item 7): always-registered descriptors, flag-gated availability.
     $registered = app(ToolRegistry::class)->keys();
 
     foreach (m3FlaggedTools() as $classes) {
         foreach ($classes as $class) {
             $key = app($class)->key();
-            expect($registered)->not->toContain($key);
+            expect($registered)->toContain($key);
             $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, $key, []));
-            expect($outcome->ok())->toBeFalse()->and((string) $outcome->error)->toContain('Unknown tool');
+            expect($outcome->ok())->toBeFalse()->and($outcome->class)->toBe(OutcomeClass::FeatureDisabled)
+                ->and((string) $outcome->error)->not->toContain('Unknown tool');
         }
     }
 });

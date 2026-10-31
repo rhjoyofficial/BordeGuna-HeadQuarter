@@ -9,6 +9,8 @@ use App\Connectors\ConnectorRegistry;
 use App\Connectors\ConnectorRequest;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\OutcomeClass;
+use App\Media\Budget\MediaBudgetRefused;
+use App\Media\Budget\MediaBudgets;
 use App\Media\Pipeline\Exceptions\MediaPipelineRefused;
 use App\Media\Pipeline\Exceptions\MediaPipelineUnavailable;
 use App\Media\Pipeline\MediaJobSpec;
@@ -132,15 +134,33 @@ final class DraftReelTool extends ConnectorTool implements PreviewableTool
             return ToolResult::failed('The connector is not a media pipeline.', [], OutcomeClass::InternalError);
         }
 
+        // Ruling 31 Oct item 12 (R2): reserve the estimate against THIS business's monthly media budget before the provider is
+        // called. BDT 0 (the default), an unknown price or an unknown rate refuses here, and nothing reaches the provider.
+        $budget = app(MediaBudgets::class);
+        try {
+            $reservation = $budget->reserve((int) $business->id, 'video', $pipeline->key(), $this->key(), 'reel:'.$context->idempotencyKey,
+                $budget->estimate($pipeline->key(), $spec->seconds), $context->actorUserId);
+        } catch (MediaBudgetRefused $e) {
+            return ToolResult::failed($e->getMessage(), ['budget' => 'refused'], OutcomeClass::PolicyDenied);
+        }
+
         try {
             $handle = $pipeline->start($spec);
         } catch (MediaPipelineRefused $e) {
+            $budget->release($reservation);
+
             return ToolResult::failed($e->getMessage(), [], OutcomeClass::ConnectorError);
         } catch (MediaPipelineUnavailable $e) {
+            $budget->release($reservation);
+
             return ToolResult::failed($e->getMessage(), [], OutcomeClass::ProviderUnavailable);
         } catch (Throwable $e) {
+            // Unknown whether the provider took the job: the estimate stays spent until reconciled.
+            $budget->commit($reservation);
+
             return ToolResult::uncertain($e::class);
         }
+        $budget->commit($reservation);
 
         $draft = MediaDraft::create([
             'uuid' => (string) Str::uuid(), 'business_id' => $business->id, 'brand_id' => $brandId, 'kind' => 'reel', 'brief' => $spec->brief,

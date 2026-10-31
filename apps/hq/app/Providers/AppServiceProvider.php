@@ -57,7 +57,9 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry([...config('hq.tools', []), ...app(FlaggedTools::class)->enabled()]));
+        // Applied ruling 31 Oct item 7: the flag-gated tools are ALWAYS registered (descriptors in the catalogue); their flag is checked
+        // live by ToolAvailability on every call, so a long-lived worker never holds a stale "registered while ON" state.
+        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(array_values(array_unique([...config('hq.tools', []), ...app(FlaggedTools::class)->all()]))));
         // docs/102: the workflow seam. Only listed definitions can start, and no listed definition has a
         // tool step (docs/120 item 17, ListedWorkflowDefinitionsStructureTest).
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
