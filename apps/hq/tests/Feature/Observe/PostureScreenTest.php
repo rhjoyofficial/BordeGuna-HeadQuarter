@@ -184,7 +184,7 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST do-plans', 'POST do-plans/{plan}/advance', 'POST do-plans/{plan}/cancel', 'POST do-plans/{plan}/start',
         'POST watches', 'POST watches/{watch}/disable', 'POST watches/{watch}/enable', 'POST watches/{watch}/reject',
         'POST approvals/batch', 'POST approvals/{approval}/quick-approve',
-        'POST inbox/{conversation}/reply-options', 'POST inbox/{conversation}/reply-options/{set}/choose', 'POST inbox/{conversation}/reply-options/{set}/discard',
+        'POST inbox/{conversation}/reply-options', 'POST inbox/{conversation}/reply-options/{optionSet}/choose', 'POST inbox/{conversation}/reply-options/{optionSet}/discard',
         'POST observe/briefings/{uuid}/send-telegram',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.

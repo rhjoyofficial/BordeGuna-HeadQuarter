@@ -133,8 +133,8 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{conversation:uuid}/memory/{memory}/forget', [InboxController::class, 'forget'])->middleware('permission:hq.inbox.manage')->name('forget');
         // docs/143 E (flag support.reply_options, OFF): Support's A/B/C drafts; a person picks and edits one, only that one is sent.
         Route::post('{conversation:uuid}/reply-options', [ReplyOptionController::class, 'store'])->middleware('permission:hq.inbox.manage')->name('reply-options.store');
-        Route::post('{conversation:uuid}/reply-options/{set:uuid}/choose', [ReplyOptionController::class, 'choose'])->middleware('permission:hq.inbox.manage')->name('reply-options.choose');
-        Route::post('{conversation:uuid}/reply-options/{set:uuid}/discard', [ReplyOptionController::class, 'discard'])->middleware('permission:hq.inbox.manage')->name('reply-options.discard');
+        Route::post('{conversation:uuid}/reply-options/{optionSet:uuid}/choose', [ReplyOptionController::class, 'choose'])->middleware('permission:hq.inbox.manage')->name('reply-options.choose');
+        Route::post('{conversation:uuid}/reply-options/{optionSet:uuid}/discard', [ReplyOptionController::class, 'discard'])->middleware('permission:hq.inbox.manage')->name('reply-options.discard');
         // P3-G3 pairing (docs/78 B.1): a person's verdict on a proposal beside what was actually sent.
         Route::post('{conversation:uuid}/comparisons/{comparison}/verdict', [InboxController::class, 'verdict'])->middleware('permission:hq.inbox.manage')->name('verdict');
     });

@@ -41,8 +41,9 @@ final class ReplyOptionController extends Controller
         return back()->with('status', 'reply-options-proposed');
     }
 
-    public function choose(Request $request, Conversation $conversation, ReplyOptionSet $set): RedirectResponse
+    public function choose(Request $request, Conversation $conversation, ReplyOptionSet $optionSet): RedirectResponse
     {
+        $set = $optionSet;
         $this->assertSet($request, $conversation, $set);
         $data = $request->validate(['label' => ['required', 'in:A,B,C'], 'text' => ['nullable', 'string', 'max:'.ReplyOptionService::MAX_TEXT]]);
 
@@ -55,8 +56,9 @@ final class ReplyOptionController extends Controller
         return back()->with('status', $done->state === 'chosen' ? 'reply-sent' : 'reply-not-sent');
     }
 
-    public function discard(Request $request, Conversation $conversation, ReplyOptionSet $set): RedirectResponse
+    public function discard(Request $request, Conversation $conversation, ReplyOptionSet $optionSet): RedirectResponse
     {
+        $set = $optionSet;
         $this->assertSet($request, $conversation, $set);
 
         try {

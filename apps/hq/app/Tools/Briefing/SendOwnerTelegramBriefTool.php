@@ -7,6 +7,7 @@ use App\Gateway\Descriptor\DataClass;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\Reversibility;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
 use App\Models\Briefing;
@@ -30,8 +31,9 @@ use Illuminate\Support\Str;
  * chat comes from configuration and is validated by the channel (a private id the owner confirmed).
  *
  * The flag `console.telegram_brief` is OFF: with it off the tool fails before it reads a briefing. Scope:
- * a person limited to some businesses may send only a briefing of their own business; the group-wide
- * briefing needs a group-wide person (fail closed). One delivery per briefing: a second call replays the
+ * the business is REQUIRED and is the tool's scope, so the gateway refuses, for the person who asks, a business they
+ * may not act for BEFORE anything is parked (an approval runs under the approver's authority, so the requester's scope
+ * must be enforced at request time). The group-wide briefing has no tool in v1. One delivery per briefing: a second call replays the
  * recorded result and sends nothing.
  */
 final class SendOwnerTelegramBriefTool implements Tool
@@ -55,7 +57,8 @@ final class SendOwnerTelegramBriefTool implements Tool
             riskTier: RiskTier::R4,
             permission: 'hq.briefing.deliver',
             auditAction: 'tool.briefing_send_owner_telegram',
-            scope: ToolScope::Hq,
+            scope: ToolScope::Business,
+            scopeFrom: 'business:args.business_slug',
             readWrite: ReadWrite::Write,
             agentExecutable: false,
             idempotent: true,
@@ -65,6 +68,7 @@ final class SendOwnerTelegramBriefTool implements Tool
             channel: Channel::Internal,
             reversibility: Reversibility::Irreversible,
             dataClass: DataClass::Internal,
+            cardinality: ToolCardinality::OnePerBusiness,
         );
     }
 
@@ -76,6 +80,7 @@ final class SendOwnerTelegramBriefTool implements Tool
                 'business_slug' => ['type' => 'string', 'maxLength' => 64],
                 'date' => ['type' => 'string', 'maxLength' => 10],
             ],
+            'required' => ['business_slug'],
             'additionalProperties' => false,
         ];
     }

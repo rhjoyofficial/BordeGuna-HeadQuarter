@@ -19,6 +19,7 @@ use App\OwnerConsole\Brief\UnavailableOwnerChannel;
 use App\OwnerConsole\Flag;
 use Database\Seeders\DomainSeeder;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -103,7 +104,7 @@ it('fails before reading anything while the flag is off', function () {
     expect($done->ok())->toBeFalse()->and($this->fake->sent)->toBe([])->and(OwnerBriefDelivery::count())->toBe(0);
 });
 
-it('lets a restricted person send only a briefing of their own business, never the group briefing or another business', function () {
+it('refuses at request time a business the person may not act for, and has no group briefing tool in v1', function () {
     $restricted = $this->hqUser('operator');
     UserBusinessScope::create(['user_id' => $restricted->id, 'business_id' => $this->lld->id]);
     $bnc = Brand::where('code', 'BNC')->sole()->business;
@@ -112,11 +113,12 @@ it('lets a restricted person send only a briefing of their own business, never t
 
     foreach ([['business_slug' => $bnc->slug], ['date' => $this->args['date']]] as $args) {
         $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($restricted, 'briefing.send_owner_telegram', $args, null));
-        if ($outcome->approvalId !== null) {
-            app(ApprovalExecutor::class)->approveAndExecute(Approval::findOrFail($outcome->approvalId), $this->approver);
-        }
+        expect($outcome->status->pending())->toBeFalse();
     }
-    expect($this->fake->sent)->toBe([]);
+    expect(Approval::count())->toBe(0)->and($this->fake->sent)->toBe([]);
+
+    $own = app(ToolGateway::class)->execute(ToolRequest::forOperator($restricted, 'briefing.send_owner_telegram', $this->args, $this->lld->id));
+    expect($own->status->pending())->toBeTrue();
 });
 
 it('uses the narrative only when the stored unsourced-number check passed with every figure sourced', function () {
@@ -149,10 +151,12 @@ it('sends to the configured chat only, reports uncertain on a timeout and never 
     expect($sent->ok)->toBeTrue()->and($sent->ref)->toBe('77');
     Http::assertSent(fn ($r) => $r['chat_id'] === '123456789' && $r['text'] === 'hello owner' && str_contains($r->url(), 'sendMessage'));
 
+    Http::swap(new Factory);
     Http::fake(['api.telegram.org/*' => fn () => throw new ConnectionException('timeout with secret-token-xyz')]);
     $unsure = (new TelegramOwnerChannel)->send('again');
     expect($unsure->uncertain)->toBeTrue()->and($unsure->ok)->toBeFalse()->and((string) $unsure->error)->not->toContain('secret-token-xyz');
 
+    Http::swap(new Factory);
     Http::fake(['api.telegram.org/*' => Http::response(['ok' => false], 403)]);
     $refused = (new TelegramOwnerChannel)->send('x');
     expect($refused->error)->toContain('403')->and($refused->error)->not->toContain('secret-token-xyz');
