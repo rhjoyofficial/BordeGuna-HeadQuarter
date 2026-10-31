@@ -135,11 +135,31 @@ export function humanKey(key: string | null | undefined): string {
     return words.join(' ');
 }
 
-/** "$0.0042" for a cost in US dollars, "free" for zero. */
-export function humanUsd(amount: number | string | null | undefined): string {
-    const n = Number(amount ?? 0);
-    if (!n) return 'free';
-    return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+/** "1,245.50", English digits; an amount under one paisa or one cent keeps four places so it does not read 0.00. */
+function moneyFigure(n: number): string {
+    if (n !== 0 && Math.abs(n) < 0.01) return n.toFixed(4);
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export type AiCostParts = { main: string; secondary: string | null; zero: boolean };
+
+/**
+ * A model cost (stored in USD) as text, BDT first (Joy's rule: amounts always in BDT) and USD kept as the
+ * secondary figure: `main` "BDT 1,245.50", `secondary` "USD 9.58". The rate comes from the server
+ * (`money.usd_bdt_rate`); without one, `main` is the USD figure and nothing is guessed. Display only.
+ */
+export function aiCostParts(amount: number | string | null | undefined, rate: number | null | undefined): AiCostParts {
+    const parsed = Number(amount ?? 0);
+    const n = Number.isFinite(parsed) ? parsed : 0;
+    const usd = `USD ${moneyFigure(n)}`;
+    if (typeof rate !== 'number' || !(rate > 0)) return { main: usd, secondary: null, zero: n === 0 };
+    return { main: `BDT ${moneyFigure(n * rate)}`, secondary: usd, zero: n === 0 };
+}
+
+/** "BDT 1,245.50 (USD 9.58)" for a model cost stored in USD; "USD 9.58" alone when no rate is set. */
+export function humanBdtFromUsd(amount: number | string | null | undefined, rate: number | null | undefined): string {
+    const { main, secondary } = aiCostParts(amount, rate);
+    return secondary ? `${main} (${secondary})` : main;
 }
 
 /** Shorten a long sentence for a table cell. */

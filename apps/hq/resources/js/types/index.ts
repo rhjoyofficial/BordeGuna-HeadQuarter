@@ -25,6 +25,8 @@ export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
+    /** BDT per USD for showing a model cost in BDT; null when none is configured (then USD alone). */
+    money?: { usd_bdt_rate: number | null };
     [key: string]: unknown;
 }
 
