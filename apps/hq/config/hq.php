@@ -560,6 +560,9 @@ return [
         'gmail' => ['base_url' => 'https://gmail.googleapis.com/gmail/v1'],
         // The mailbox for an application token (`users/{upn}`); empty means `me` (a delegated token).
         'graph' => ['base_url' => 'https://graph.microsoft.com/v1.0', 'user' => ''],
+        // Ruling 31 Oct item 10 (docs/147-r2): a future OCR or model-assisted bill extractor needs the flag `ingestion.model_extraction`
+        // (no row: off) AND this evaluation gate naming it (null: none passed). Until both, the rule-based extractor reads every bill.
+        'model_extraction' => ['eval_passed_extractor' => null],
     ],
 
     // Phase 7 (docs/88 A point 6, stream U): speech. ⛔ Nothing here switches anything on: the providers

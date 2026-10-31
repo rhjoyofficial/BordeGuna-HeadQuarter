@@ -13,6 +13,7 @@ use App\Erp\Write\HttpErpDraftBillWriter;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\OutcomeClass;
+use App\Ingestion\Extraction\BillChecks;
 use App\Models\Business;
 use App\Models\IngestedDocument;
 use App\Support\Audit\Auditor;
@@ -126,6 +127,14 @@ final class CreateDraftBillTool extends ConnectorTool implements PreviewableTool
         }
         if ($document->status !== IngestedDocument::REVIEWED) {
             return ToolResult::failed('Only a document a person has reviewed can be sent as a draft bill.', [], OutcomeClass::PolicyDenied);
+        }
+        // Ruling 31 Oct item 10, checked again here (defence in depth): every field confirmed by the reviewer, and the deterministic
+        // arithmetic, total, tax and currency checks passing on the stored extraction.
+        if (array_diff(IngestedDocument::REVIEW_FIELDS, (array) $document->review_confirmations) !== []) {
+            return ToolResult::failed('Every field must be confirmed by the reviewer before a draft bill is asked for.', [], OutcomeClass::PolicyDenied);
+        }
+        if (! (new BillChecks)->run((array) $document->extracted)['passed']) {
+            return ToolResult::failed('A deterministic check failed on this document, so no draft bill is asked for.', [], OutcomeClass::PolicyDenied);
         }
         try {
             $bill = $this->bill($business, $document);

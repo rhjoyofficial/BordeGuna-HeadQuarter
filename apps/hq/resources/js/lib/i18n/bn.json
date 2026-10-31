@@ -2143,5 +2143,13 @@
     "image": "ছবি",
     "voice": "ভয়েস",
     "avatar": "অ্যাভাটার",
-    "other": "অন্যান্য"
+    "other": "অন্যান্য",
+    "Page {page}, characters {start} to {end}": "পৃষ্ঠা {page}, অক্ষর {start} থেকে {end}",
+    "The arithmetic checks passed": "হিসাবের যাচাই সফল হয়েছে",
+    "An arithmetic check failed": "একটি হিসাবের যাচাই ব্যর্থ হয়েছে",
+    "A document whose checks fail cannot be marked reviewed or sent to the ERP.": "যে ডকুমেন্টের যাচাই ব্যর্থ, সেটি যাচাই করা হিসেবে চিহ্নিত করা বা ERP-তে পাঠানো যায় না।",
+    "I checked each of these against the document": "আমি এগুলোর প্রতিটি ডকুমেন্টের সঙ্গে মিলিয়ে দেখেছি",
+    "Amounts": "পরিমাণ",
+    "Tax": "কর",
+    "Payment details": "পেমেন্টের বিবরণ"
 }

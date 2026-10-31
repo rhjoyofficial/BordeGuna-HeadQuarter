@@ -6,7 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Ruling 31 Oct 2026 item 12 (docs/147-r2): the per-business monthly media spending cap, in BDT, and its ledger.
+ * Ruling 31 Oct 2026 item 12 (docs/147-r2): the per-business monthly media spending cap, in BDT, and its ledger. Also item 10: the
+ * column holding a reviewer's field-by-field confirmations on a supplier document.
  *
  * ⛔ Seeds NOTHING. A business with no `media_budgets` row has a limit of BDT 0, and BDT 0 means no paid media generation or
  * operation may run. Only the owner sets a limit (screen, audited); no tool, job or agent can. The ledger keeps the ESTIMATE
@@ -56,6 +57,11 @@ return new class extends Migration
             $table->index(['business_id', 'period', 'state']);
         });
 
+        // Ruling 31 Oct item 10: the fields a reviewer confirmed, one by one, before a supplier document could be marked reviewed.
+        Schema::table('ingested_documents', function (Blueprint $table) {
+            $table->jsonb('review_confirmations')->nullable();
+        });
+
         if (DB::getDriverName() === 'pgsql') {
             DB::statement("ALTER TABLE media_budgets ADD CONSTRAINT media_budgets_limit_nonnegative CHECK (monthly_limit_bdt >= 0)");
             DB::statement("ALTER TABLE media_budget_ledger ADD CONSTRAINT media_budget_ledger_state CHECK (state IN ('reserved','committed','released','reconciled'))");
@@ -67,6 +73,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        Schema::table('ingested_documents', function (Blueprint $table) {
+            $table->dropColumn('review_confirmations');
+        });
         Schema::dropIfExists('media_budget_ledger');
         Schema::dropIfExists('media_budgets');
     }

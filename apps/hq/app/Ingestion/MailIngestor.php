@@ -9,6 +9,7 @@ use App\Context\Provenance;
 use App\Ingestion\Extraction\BillExtractor;
 use App\Ingestion\Extraction\DocumentTextExtractor;
 use App\Ingestion\Extraction\ExtractionVerifier;
+use App\Ingestion\Extraction\ExtractorGate;
 use App\Ingestion\Extraction\RuleBasedBillExtractor;
 use App\Ingestion\Mailbox\Exceptions\MailboxRefused;
 use App\Ingestion\Mailbox\InboundAttachment;
@@ -134,7 +135,10 @@ final class MailIngestor
             return false;
         }
 
-        $extracted = $this->verifier->verify($this->extractor->extract($text), $text);
+        // Ruling 31 Oct item 10: the deterministic extractor is the default; any other (OCR, model) runs only behind its own flag AND a
+        // passed evaluation gate (ExtractorGate), and its output passes the same verifier and checks.
+        $extractor = app(ExtractorGate::class)->select($this->extractor);
+        $extracted = $this->verifier->verify($extractor->extract($text), $text);
         if ($extracted['invoice_number'] === null && $extracted['total'] === null && $extracted['lines'] === []) {
             $row->rejected_reason = 'This does not read as a supplier bill.';
             $row->save();
@@ -145,7 +149,7 @@ final class MailIngestor
 
         $document = IngestedDocument::create([
             'uuid' => (string) Str::uuid(), 'business_id' => $business->id, 'mail_message_id' => $message->id, 'mail_attachment_id' => $row->id,
-            'kind' => 'supplier_bill', 'status' => IngestedDocument::DRAFT, 'source_text' => $text, 'extracted' => $extracted, 'extractor' => $this->extractor->key(),
+            'kind' => 'supplier_bill', 'status' => IngestedDocument::DRAFT, 'source_text' => $text, 'extracted' => $extracted, 'extractor' => $extractor->key(),
         ]);
         $this->auditor->recordSystem('ingestion.draft_created', $document, null, ['business_id' => $business->id, 'kind' => 'supplier_bill', 'warnings' => count($extracted['warnings'])]);
 

@@ -14,6 +14,9 @@ final class DocumentTextExtractor
 {
     public const MAX_CHARS = 200000;
 
+    /** The form feed character that separates PDF pages in the extracted text (ruling 31 Oct item 10). */
+    public const PAGE_BREAK = "\f";
+
     public function text(string $bytes, string $mime): ?string
     {
         $text = match (true) {
@@ -34,7 +37,14 @@ final class DocumentTextExtractor
     private function pdf(string $bytes): ?string
     {
         try {
-            return (new Parser)->parseContent($bytes)->getText();
+            // Ruling 31 Oct item 10: pages are joined with a form feed on its own line, so every citation can name the PAGE it came
+            // from (ExtractionVerifier::pageAt). A page with no text still counts, so page numbers match the document.
+            $pages = [];
+            foreach ((new Parser)->parseContent($bytes)->getPages() as $page) {
+                $pages[] = $page === null ? '' : trim(str_replace(self::PAGE_BREAK, ' ', $page->getText()));
+            }
+
+            return implode("\n".self::PAGE_BREAK."\n", $pages);
         } catch (Throwable) {
             return null; // a damaged or protected PDF is unreadable, not an error to retry
         }

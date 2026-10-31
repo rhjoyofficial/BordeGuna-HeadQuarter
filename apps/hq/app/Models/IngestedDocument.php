@@ -14,6 +14,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class IngestedDocument extends Model
 {
+    /** Ruling 31 Oct item 10: each is confirmed explicitly by the reviewer before a document may be marked reviewed. */
+    public const REVIEW_FIELDS = ['supplier', 'invoice_number', 'invoice_date', 'lines', 'amounts', 'tax', 'currency', 'payment_details'];
+
     public const DRAFT = 'draft';
 
     public const REVIEWED = 'reviewed';
@@ -25,11 +28,11 @@ class IngestedDocument extends Model
     public const ERP_FAILED = 'erp_failed';
 
     protected $fillable = ['uuid', 'business_id', 'mail_message_id', 'mail_attachment_id', 'kind', 'status', 'source_text', 'extracted', 'extractor',
-        'reviewed_by', 'reviewed_at', 'review_note', 'erp_draft_ref', 'erp_draft_error'];
+        'reviewed_by', 'reviewed_at', 'review_note', 'review_confirmations', 'erp_draft_ref', 'erp_draft_error'];
 
     protected function casts(): array
     {
-        return ['extracted' => 'array', 'reviewed_at' => 'datetime'];
+        return ['extracted' => 'array', 'reviewed_at' => 'datetime', 'review_confirmations' => 'array'];
     }
 
     public function message(): BelongsTo
