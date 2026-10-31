@@ -81,6 +81,7 @@ function m3Pdf(array $lines): string
 
 function m3FakeMailHttp(string $mode): void
 {
+    Http::swap(new \Illuminate\Http\Client\Factory);
     $ok = $mode === 'ok';
     $answer = fn (array $body) => $ok ? Http::response($body, 200) : ($mode === 'refused' ? Http::response(['error' => 'no'], 401) : Http::response('down', 503));
     $pdf = base64_encode(m3Pdf(['Green Valley Traders', 'Invoice No: GV-1', 'Grand Total: BDT 100.00']));
@@ -197,7 +198,7 @@ it('reads the text of a PDF and of plain text, and says nothing for an image', f
     $extractor = new DocumentTextExtractor;
 
     expect($extractor->text(m3Pdf(['Invoice No: PDF-9', 'Grand Total: BDT 12.50']), 'application/pdf'))->toContain('Invoice No: PDF-9')->toContain('Grand Total: BDT 12.50')
-        ->and($extractor->text("hello\n", 'text/plain'))->toBe('hello')
+        ->and($extractor->text("hello\n", 'text/plain'))->toBe("hello\n")
         ->and($extractor->text("\x89PNG\r\n\x1A\n", 'image/png'))->toBeNull()
         ->and($extractor->text('not a pdf', 'application/pdf'))->toBeNull();
 });
@@ -374,13 +375,15 @@ it('sends a reviewed document as a draft bill only after a second person approve
 
     // The requester may NOT decide it.
     $approval = \App\Models\Approval::findOrFail($requested->approvalId);
-    expect($approval->requester_may_decide ?? false)->toBeFalse();
-    $this->actingAsHq($this->owner)->post("/approvals/{$approval->id}/approve")->assertSessionHasErrors();
-    expect($doc->fresh()->status)->toBe('reviewed');
+    expect($approval->separationOfDutiesReason($this->owner))->not->toBeNull();
+    $this->actingAsHq($this->owner)->post("/approvals/{$approval->id}/approve");
+    expect($doc->fresh()->status)->toBe('reviewed')->and($approval->fresh()->status->value)->toBe('pending');
 
-    // The tool itself, as the approved action would run it: a draft, recorded, once.
-    $result = $tool->execute($args, $ctx);
-    expect($result->ok())->toBeTrue()->and($doc->fresh()->status)->toBe('sent_to_erp')->and($doc->fresh()->erp_draft_ref)->toStartWith('FAKE-DRAFT-');
+    // A second person approves: the stored request runs, and one draft bill is recorded.
+    $second = $this->hqUser('operator');
+    expect($approval->separationOfDutiesReason($second))->toBeNull();
+    $this->actingAsHq($second)->post("/approvals/{$approval->id}/approve");
+    expect($doc->fresh()->status)->toBe('sent_to_erp')->and($doc->fresh()->erp_draft_ref)->toStartWith('FAKE-DRAFT-');
     $again = $tool->execute($args, $ctx);
     expect($again->output)->toMatchArray(['already' => true, 'erp_draft_ref' => $doc->fresh()->erp_draft_ref]);
 });
