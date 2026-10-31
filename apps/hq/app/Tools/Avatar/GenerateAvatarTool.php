@@ -3,6 +3,7 @@
 namespace App\Tools\Avatar;
 
 use App\Avatar\AvatarGenerations;
+use App\Avatar\AvatarProvider;
 use App\Gateway\Descriptor\DataClass;
 use App\Gateway\Descriptor\MonetaryImpact;
 use App\Gateway\Descriptor\ReadWrite;
@@ -11,21 +12,25 @@ use App\Gateway\Descriptor\RiskTier;
 use App\Gateway\Descriptor\ToolCardinality;
 use App\Gateway\Descriptor\ToolDescriptor;
 use App\Gateway\Descriptor\ToolScope;
+use App\Gateway\OutcomeClass;
+use App\Media\Budget\MediaBudgetRefused;
+use App\Media\Budget\MediaBudgets;
 use App\Models\AvatarConsent;
 use App\Models\User;
 use App\Research\ResearchRefused;
 use App\Tools\Tool;
 use App\Tools\ToolContext;
 use App\Tools\ToolResult;
+use Throwable;
 
 /**
  * `avatar.generate` (docs/20, docs/145-b): one avatar video or voice clip from a script, on a recorded
  * consent. R4 (an outside provider does the work), so every call waits for a person's approval; permanently
  * human-only, because generating a real person's likeness is never an agent's decision.
  *
- * ⛔ DECLARED, NOT REGISTERED (`PhaseEightTools`), held by no agent, and refused four times over today:
- * not in `config('hq.tools')`, the flag `avatar.generation` is off, no `AvatarProvider` is bound, and no
- * consent is recorded. The consent itself is checked by `AvatarGenerations`, inside a lock, before and after
+ * ⛔ Ruling 31 Oct item 7: ALWAYS REGISTERED (`hq.flagged_tools`), AVAILABLE only while the flag `avatar.generation` is on (it is
+ * off: no row), held by no agent, and refused today four times over: the flag, no `AvatarProvider` bound, no consent recorded,
+ * and (item 12) the business's media budget, BDT 0 by default. The consent itself is checked by `AvatarGenerations`, inside a lock, before and after
  * the provider call, so an approval given days ago never outlives a revocation.
  */
 final class GenerateAvatarTool implements Tool
@@ -108,6 +113,21 @@ final class GenerateAvatarTool implements Tool
             return ToolResult::failed('HQ holds no such consent in this business. No consent, no generation.');
         }
 
+        // Ruling 31 Oct item 12 (R2): avatar generation is paid media. With a provider bound, its estimate is RESERVED against this
+        // business's monthly media budget before anything else runs (BDT 0, an unknown price or an unknown rate refuses), then
+        // committed if the provider was called, released if it was not. Without a provider the generation service refuses as before.
+        $budget = app(MediaBudgets::class);
+        $reservation = null;
+        if (app()->bound(AvatarProvider::class)) {
+            $provider = app(AvatarProvider::class)->name();
+            try {
+                $reservation = $budget->reserve((int) $consent->business_id, 'avatar', $provider, self::KEY, 'avatar:'.$context->idempotencyKey,
+                    $budget->estimate($provider, 1), $context->actorUserId);
+            } catch (MediaBudgetRefused $e) {
+                return ToolResult::failed($e->getMessage(), ['budget' => 'refused'], OutcomeClass::PolicyDenied);
+            }
+        }
+
         try {
             $row = $this->generations->generate(
                 $context->actorUserId !== null ? User::query()->find($context->actorUserId) : null,
@@ -118,7 +138,18 @@ final class GenerateAvatarTool implements Tool
                 (string) ($payload['script'] ?? ''),
             );
         } catch (ResearchRefused $e) {
+            // Refused before the provider was called (pause, flag, consent): nothing was spent.
+            $reservation !== null && $budget->release($reservation);
+
             return ToolResult::failed($e->getMessage());
+        } catch (Throwable $e) {
+            // Unknown whether the provider ran: the estimate stays spent until reconciled.
+            $reservation !== null && $budget->commit($reservation);
+
+            throw $e;
+        }
+        if ($reservation !== null) {
+            in_array($row->status, ['refused', 'failed'], true) ? $budget->release($reservation) : $budget->commit($reservation);
         }
 
         if ($row->status !== 'generated') {

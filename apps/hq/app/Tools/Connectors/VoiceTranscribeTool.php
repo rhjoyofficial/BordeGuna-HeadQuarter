@@ -21,6 +21,7 @@ use App\Voice\Exceptions\SpeechProviderUnavailable;
 use App\Voice\Providers\GoogleSpeechToText;
 use App\Voice\Providers\OpenAiCompatibleSpeechToText;
 use App\Voice\SpeechToText;
+use App\Voice\SttBenchmarkGate;
 use Illuminate\Support\Str;
 
 /**
@@ -93,6 +94,12 @@ final class VoiceTranscribeTool extends ConnectorTool
             return ToolResult::failed($e->getMessage(), [], OutcomeClass::PolicyDenied);
         }
 
+        // Ruling 31 Oct item 8: no speech-to-text production default until a provider passes the Bangla bake-off. Refused here, before
+        // the recording is read or any provider is resolved.
+        if (($gate = app(SttBenchmarkGate::class))->passedProvider() === null) {
+            return ToolResult::failed((string) $gate->refusalFor(''), ['connector_state' => 'benchmark_pending'], OutcomeClass::CapabilityUnavailable);
+        }
+
         $attachment = ChatAttachment::query()->where('uuid', $payload['attachment_uuid'])->where('user_id', $context->actorUserId)
             ->where('kind', 'audio')->where('status', '!=', 'purged')->first();
         if ($attachment === null) {
@@ -104,6 +111,9 @@ final class VoiceTranscribeTool extends ConnectorTool
         $stt = $resolution->resolvedOk() ? $registry->adapter($resolution) : null;
         if (! $stt instanceof SpeechToText) {
             return ToolResult::failed('Not connected yet: '.($resolution->reason ?? $resolution->outcome->value), ['connector_state' => $resolution->outcome->value], OutcomeClass::CapabilityUnavailable);
+        }
+        if (($refusal = $gate->refusalFor($stt->key())) !== null) {
+            return ToolResult::failed($refusal, ['connector_state' => 'benchmark_pending'], OutcomeClass::CapabilityUnavailable);
         }
         $audio = $attachment->asset === null ? null : app(MediaAssetService::class)->contents($attachment->asset);
         if ($audio === null) {

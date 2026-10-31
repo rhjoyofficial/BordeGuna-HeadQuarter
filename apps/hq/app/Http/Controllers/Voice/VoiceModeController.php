@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Voice;
 
 use App\Connectors\ConnectorHub;
 use App\Http\Controllers\Controller;
+use App\Models\Business;
+use App\Support\Authorization\BusinessScope;
+use App\Voice\SttBenchmarkGate;
 use App\Voice\SpeechProviders;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -19,7 +22,7 @@ use Inertia\Response;
  */
 class VoiceModeController extends Controller
 {
-    public function __invoke(Request $request, SpeechProviders $providers, ConnectorHub $hub): Response
+    public function __invoke(Request $request, SpeechProviders $providers, ConnectorHub $hub, BusinessScope $scope): Response
     {
         $family = collect($hub->families($request->user()))->firstWhere('key', 'voice');
         $state = (string) ($family['state'] ?? 'off');
@@ -34,7 +37,12 @@ class VoiceModeController extends Controller
                 'can_use' => $request->user()->can('hq.voice.use'),
                 'phase' => 'Phase 7',
                 'speech_provider_registered' => ! $providers->isEmpty(),
+                // Ruling 31 Oct item 8: no speech-to-text provider is a production default until the Bangla bake-off passes.
+                'stt_benchmark_passed' => app(SttBenchmarkGate::class)->passedProvider() !== null,
             ],
+            // Ruling 31 Oct item 12: reading aloud is paid from one business's media budget; only businesses this person may use.
+            'businesses' => Business::query()->orderBy('name')->get(['id', 'slug', 'name'])
+                ->filter(fn (Business $b) => $scope->allows($request->user(), (int) $b->id))->values()->map(fn (Business $b) => ['slug' => $b->slug, 'name' => $b->name])->all(),
         ]);
     }
 }

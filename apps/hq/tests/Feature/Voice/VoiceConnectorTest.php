@@ -24,6 +24,8 @@ use App\Voice\SpeechToText;
 use App\Voice\TextToSpeech;
 use App\Voice\VoiceKind;
 use Database\Seeders\DomainSeeder;
+use App\Models\MediaBudgetEntry;
+use Tests\Support\Media\Budgets;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -123,8 +125,24 @@ it('says it is not connected yet, and stores nothing, while the switch is off', 
     expect(ChatAttachment::count())->toBe(0)->and(MediaAsset::count())->toBe(0);
 });
 
+it('refuses every transcription, before any audio leaves HQ, until a provider passes the Bangla bake-off (ruling 31 Oct item 8)', function () {
+    m3SandboxConnectors(['connectors.voice']);
+    expect(config('hq.voice.stt.benchmark_passed_provider'))->toBeNull();
+
+    $this->actingAsHq($this->owner)->postJson('/voice/transcribe', ['audio' => m3Recording(), 'language' => 'bn'])
+        ->assertStatus(409)->assertJson(['state' => 'benchmark_pending']);
+    expect(ChatAttachment::where('status', '!=', 'purged')->count())->toBe(0)->and(VoiceTranscript::count())->toBe(0);
+
+    // A passed provider other than the one the registry resolves is refused too: only the bake-off winner transcribes.
+    config(['hq.voice.stt.benchmark_passed_provider' => 'google_speech']);
+    $this->actingAsHq($this->owner)->postJson('/voice/transcribe', ['audio' => m3Recording()])->assertStatus(409)->assertJson(['state' => 'benchmark_pending']);
+    expect(ChatAttachment::where('status', '!=', 'purged')->count())->toBe(0);
+});
+
 it('transcribes a recording, deletes it at once, and keeps no transcript unless the person agreed', function () {
     m3SandboxConnectors(['connectors.voice']);
+    // R2: the sandbox fake stands in for a provider that passed the bake-off.
+    config(['hq.voice.stt.benchmark_passed_provider' => 'fake_stt']);
 
     $this->actingAsHq($this->owner)->postJson('/voice/transcribe', ['audio' => m3Recording(), 'language' => 'bn'])
         ->assertOk()->assertJson(['text' => FakeSpeechToText::TEXT, 'provenance' => 'untrusted', 'transcript_uuid' => null]);
@@ -145,7 +163,7 @@ it('refuses a file that is not audio, and a person without the voice permission'
 
     $viewer = $this->hqUser('finance_viewer');
     $this->actingAsHq($viewer)->postJson('/voice/transcribe', ['audio' => m3Recording()])->assertForbidden();
-    $this->actingAsHq($viewer)->postJson('/voice/speak', ['text' => 'hello'])->assertForbidden();
+    $this->actingAsHq($viewer)->postJson('/voice/speak', ['text' => 'hello', 'business_slug' => 'laladia'])->assertForbidden();
 });
 
 it('is refused while Pause All AI is on, and the recording does not outlive the refusal', function () {
@@ -153,7 +171,7 @@ it('is refused while Pause All AI is on, and the recording does not outlive the 
     app(AiPauseSwitch::class)->pause($this->owner, 'test');
 
     $this->actingAsHq($this->owner)->postJson('/voice/transcribe', ['audio' => m3Recording()])->assertStatus(409);
-    $this->actingAsHq($this->owner)->postJson('/voice/speak', ['text' => 'hello'])->assertStatus(409);
+    $this->actingAsHq($this->owner)->postJson('/voice/speak', ['text' => 'hello', 'business_slug' => 'laladia'])->assertStatus(409);
 
     expect(ChatAttachment::where('status', '!=', 'purged')->count())->toBe(0)->and(MediaAsset::count())->toBe(0);
 });
@@ -168,10 +186,20 @@ it('lets a person name only their own recording', function () {
     expect($outcome->ok())->toBeFalse()->and($theirs->fresh()->status)->toBe('stored');
 });
 
-it('reads an answer aloud for the person alone, as a day-long file only they can open', function () {
+it('refuses to read aloud while the business\'s media budget is BDT 0, the default (ruling 31 Oct item 12)', function () {
     m3SandboxConnectors(['connectors.voice']);
 
-    $res = $this->actingAsHq($this->owner)->postJson('/voice/speak', ['text' => 'আপনার অর্ডার তৈরি', 'language' => 'bn-BD'])->assertOk();
+    $this->actingAsHq($this->owner)->postJson('/voice/speak', ['text' => 'আপনার অর্ডার তৈরি', 'language' => 'bn-BD', 'business_slug' => 'laladia'])
+        ->assertStatus(409)->assertJsonPath('error', fn (string $e) => str_contains($e, 'BDT 0'));
+    expect(MediaAsset::count())->toBe(0)->and(MediaBudgetEntry::count())->toBe(0);
+});
+
+it('reads an answer aloud for the person alone, as a day-long file only they can open', function () {
+    m3SandboxConnectors(['connectors.voice']);
+    Budgets::grant(Business::where('slug', 'laladia')->value('id'), '100.00');
+
+    $res = $this->actingAsHq($this->owner)->postJson('/voice/speak', ['text' => 'আপনার অর্ডার তৈরি', 'language' => 'bn-BD', 'business_slug' => 'laladia'])->assertOk();
+    expect(MediaBudgetEntry::sole())->state->toBe('committed')->kind->toBe('voice')->provider->toBe('fake_tts');
     $uuid = $res->json('attachment_uuid');
     $attachment = ChatAttachment::where('uuid', $uuid)->sole();
     expect($attachment->business_id)->toBeNull()->and($attachment->kind)->toBe('audio')->and($attachment->expires_at->isBefore(now()->addDays(2)))->toBeTrue();

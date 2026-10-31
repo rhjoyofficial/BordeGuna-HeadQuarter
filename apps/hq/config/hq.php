@@ -528,6 +528,29 @@ return [
         'scan_required' => false,
         'limits' => ['image_mb' => 10, 'video_mb' => 60, 'document_mb' => 15, 'text_mb' => 2, 'audio_mb' => 10],
         'veo' => ['base_url' => 'https://generativelanguage.googleapis.com/v1beta', 'model' => 'veo-3.1-fast-generate-preview', 'timeout' => 30, 'download_timeout' => 120],
+
+        // Ruling 31 Oct item 12 (docs/147-r2): the per-business monthly media budget (`App\Media\Budget\MediaBudgets`). The LIMIT
+        // is the owner's, per business, on the Connectors screen (no row = BDT 0 = no paid media). What is here is how a cost is
+        // estimated and converted. ⛔ A price left null is UNKNOWN, and an unknown price refuses the operation: Joy fills a real
+        // provider's price from its billing page when he connects it, in a reviewed release. No env() on purpose.
+        'budget' => [
+            // Provider billing currency to BDT. A currency missing here, or an empty rate, refuses (no rate is guessed).
+            'fx_to_bdt' => ['USD' => '130.00'],
+            // Added on top of the rate, and the result is rounded UP to the paisa: the BDT figure never understates a cost.
+            'fx_safety_margin_percent' => '5',
+            // price per `per` units of `unit`, in `currency`. Keyed by the provider's own key (adapter key() / name()).
+            'prices' => [
+                'veo' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => null],
+                'azure_speech' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                'elevenlabs' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => null],
+                'openai_compatible_tts' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                // Sandbox fakes (reachable only under HQ_CONNECTORS_SANDBOX, which nothing sets): a nominal price so the budget
+                // path is exercised exactly as a paid one would be. Never a production provider.
+                'fake_video' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => '0.10'],
+                'fake_tts' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => '0.01'],
+                'sandbox' => ['unit' => 'generation', 'per' => '1', 'currency' => 'USD', 'price' => '1.00'],
+            ],
+        ],
     ],
 
     // docs/144-email-ingestion.
@@ -566,7 +589,11 @@ return [
             'language_code' => null,
             'timeout' => 60,
         ],
-        // docs/144-voice-provider: the default speech provider is any OpenAI-compatible audio API.
+        // Applied ruling 31 Oct item 8: speech to text has NO production default. `benchmark_passed_provider` names the one provider
+        // key that passed the 50-note Bangla bake-off (docs/147-r2-voice-bakeoff-plan.md); null refuses every transcription. Setting
+        // it is a reviewed release with the bake-off evidence committed beside it. No env() on purpose.
+        'stt' => ['benchmark_passed_provider' => null],
+        // An OpenAI-compatible speech-to-text candidate for the bake-off (not a default; an OpenAI-compatible API is no evidence of Bangla quality).
         'openai_compatible' => [
             'base_url' => 'https://api.openai.com/v1',
             'stt_model' => 'gpt-4o-transcribe',
@@ -575,7 +602,8 @@ return [
             'timeout' => 60,
         ],
         // The stock voice used when a request names none, by speech provider key.
-        'default_voice' => ['openai_compatible_tts' => 'alloy', 'azure_speech' => 'bn-BD-NabanitaNeural', 'fake_tts' => 'sandbox'],
+        // Ruling 31 Oct item 8: Azure bn-BD is the preferred TTS (Nabanita default, Pradeep the other approved voice); ElevenLabs the alternative.
+        'default_voice' => ['azure_speech' => 'bn-BD-NabanitaNeural', 'fake_tts' => 'sandbox'],
         // A transcript a person agreed to keep is deleted after this many days.
         'transcript_retention_days' => 30,
         'azure' => [

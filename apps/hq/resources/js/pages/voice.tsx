@@ -13,7 +13,10 @@ type VoiceData = {
     can_use: boolean;
     phase: string;
     speech_provider_registered: boolean;
+    stt_benchmark_passed?: boolean;
 };
+
+type BusinessOption = { slug: string; name: string };
 
 type Phase = 'idle' | 'recording' | 'sending';
 type Line = { who: 'you' | 'hq'; text: string };
@@ -29,13 +32,15 @@ type Line = { who: 'you' | 'hq'; text: string };
  * ⛔ A spoken request adds no authority: the transcript lands in the question box on Ask HQ and the person sends it
  * from there, through the same gateway, approvals and business scope as typed text. Nothing is acted on by voice alone.
  */
-export default function Voice({ voice }: { voice: VoiceData }) {
+export default function Voice({ voice, businesses = [] }: { voice: VoiceData; businesses?: BusinessOption[] }) {
     const t = useT();
     const [phase, setPhase] = useState<Phase>('idle');
     const [language, setLanguage] = useState<'bn' | 'en'>('bn');
     const [keep, setKeep] = useState(false);
     const [lines, setLines] = useState<Line[]>([]);
     const [notice, setNotice] = useState<string | null>(null);
+    // Ruling 31 Oct item 12: reading aloud is paid voice generation, paid from one business's media budget.
+    const [payer, setPayer] = useState<string>(businesses[0]?.slug ?? '');
     const recorder = useRef<MediaRecorder | null>(null);
     const chunks = useRef<Blob[]>([]);
     const stream = useRef<MediaStream | null>(null);
@@ -100,7 +105,7 @@ export default function Voice({ voice }: { voice: VoiceData }) {
     };
 
     const readAloud = async (text: string) => {
-        const r = await postForm<{ url: string }>('/voice/speak', { text, language: language === 'bn' ? 'bn-BD' : 'en-US' });
+        const r = await postForm<{ url: string }>('/voice/speak', { text, language: language === 'bn' ? 'bn-BD' : 'en-US', business_slug: payer });
         if (!r.ok) {
             setNotice(r.error);
             return;
@@ -257,6 +262,22 @@ export default function Voice({ voice }: { voice: VoiceData }) {
                                 <Volume2 className="size-4" aria-hidden />
                                 {t('Read it back')}
                             </button>
+                            {businesses.length > 0 && (
+                                <label className="text-muted-foreground inline-flex min-h-11 items-center gap-2 text-sm">
+                                    {t('Paid from the media budget of')}
+                                    <select
+                                        className="hq-glass rounded-full px-3 py-2 text-sm"
+                                        value={payer}
+                                        onChange={(e) => setPayer(e.target.value)}
+                                    >
+                                        {businesses.map((b) => (
+                                            <option key={b.slug} value={b.slug}>
+                                                {b.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
                         </div>
                     )}
                 </section>
