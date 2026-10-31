@@ -47,6 +47,8 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'conversation.read_thread', 'messaging.send_reply',
         // M7 (docs/80 C.1): composes and stores the Executive Briefing's evidence bundle. No job runs it yet.
         'briefing.compose',
+        // docs/143 D: owner-only Telegram brief, R4, approval-required, flag OFF.
+        'briefing.send_owner_telegram',
         // Phase 4 read side (docs/81 C.5): five live ERP reads, R2, read-only, held by no agent.
         'erp.lookup_product', 'erp.lookup_sku', 'erp.read_price', 'erp.read_availability', 'erp.check_order_eligibility',
         // Phase 4 order write (docs/83 C.3, docs/88 A point 3): R4, approval-required, held by no agent, no store admitted.
@@ -63,6 +65,12 @@ it('keeps the production tool keys unchanged, because scheduled_jobs rows point 
         'outcomes.attribute',
         // docs/126 (ruling docs/120 item 36): the reviewed cross-business repair, R3, permanently human-only, held by no agent.
         'customers.quarantine.repair',
+        // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, R3, permanently human-only, held by no agent.
+        'customers.identity_conflicts.resolve',
+        // R2 (ruling 31 Oct item 7): the flag-gated tools, always registered, each available only while its flag is ON
+        // (all OFF as shipped). docs/144 connectors, docs/145-b avatar. No scheduled job names any of them.
+        'courier.track_parcel', 'courier.poll_parcels', 'voice.transcribe', 'voice.synthesize', 'media.draft_reel', 'media.check_draft',
+        'mail.poll_inbox', 'erp.create_draft_bill', 'ads.create_draft', 'meta.check_token_health', 'avatar.generate',
     ];
 
     expect(app(ToolRegistry::class)->keys())->toEqualCanonicalizing($live);

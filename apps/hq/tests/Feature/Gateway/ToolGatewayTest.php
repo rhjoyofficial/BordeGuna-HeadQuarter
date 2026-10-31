@@ -390,7 +390,10 @@ it('gives no tool to an agent, and registers exactly one R4 tool with no externa
     // docs/83 C.3: `commerce.take_order` is the second, not agent-executable (asserted above) and inert:
     // no store is admitted, so the gateway refuses every call. docs/88 A point 3: its compensating
     // tool `commerce.cancel_sales_order` is the third, inert under the same empty list.
-    expect($r4OrAbove)->toBe(['demo.request_approval', 'commerce.take_order', 'commerce.cancel_sales_order'])
+    // R2 pin edit (ruling 31 Oct item 7): the flag-gated tools are ALWAYS registered now, so their R4 descriptors are in the
+    // catalogue: three connector tools (docs/144), the owner Telegram brief (docs/143 D) and avatar.generate (docs/145-b). Each
+    // ships with its flag OFF, is refused `feature_disabled` by the gateway while off, and is not agent-executable.
+    expect($r4OrAbove)->toBe(['demo.request_approval', ...['commerce.take_order', 'commerce.cancel_sales_order', 'media.draft_reel', 'erp.create_draft_bill', 'ads.create_draft', 'briefing.send_owner_telegram', 'avatar.generate']])
         ->and(gateway()->descriptors()['commerce.take_order']->supportedStores)->toBe([])
         ->and(gateway()->descriptors()['commerce.cancel_sales_order']->supportedStores)->toBe([]);
 });

@@ -12,6 +12,8 @@ use App\Observe\Dashboards\CostDashboard;
 use App\Observe\Dashboards\DashboardWindow;
 use App\Observe\Dashboards\PlatformDashboard;
 use App\Observe\Dashboards\PostureDashboard;
+use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -59,13 +61,20 @@ final class ObserveController extends Controller
         return Inertia::render('observe/posture', $dashboard->build($request->user()));
     }
 
-    public function platform(PlatformDashboard $dashboard): Response
+    public function platform(Request $request, PlatformDashboard $dashboard, BusinessScope $scope): Response
     {
+        // docs/136: queues, events, credentials and retention across every business; group-wide by nature.
+        abort_if($scope->isRestricted($request->user()), 403, 'This screen is group-wide and your access is limited to some businesses.');
+
         return Inertia::render('observe/platform', $dashboard->build());
     }
 
-    public function alerts(AlertEngine $engine): Response
+    public function alerts(Request $request, AlertEngine $engine, BusinessScope $scope): Response
     {
+        // docs/136: an alert carries no business; the screen is group-wide by nature, so a person whose
+        // access is limited to some businesses is refused it with the reason (ADR-035 section 4, fail closed).
+        abort_if($scope->isRestricted($request->user()), 403, 'This screen is group-wide and your access is limited to some businesses.');
+
         $row = fn (Alert $a) => [
             'id' => $a->id,
             'rule' => $a->rule,
@@ -82,17 +91,18 @@ final class ObserveController extends Controller
             'resolved_at' => $a->resolved_at?->toIso8601String(),
         ];
 
+        $resolved = ListPage::paginate(Alert::query()
+            ->whereNotNull('resolved_at')
+            ->where('resolved_at', '>=', now()->subDays(7))
+            ->latest('resolved_at'), $request, 'resolved_page');
+
         return Inertia::render('observe/alerts', [
             'open' => Alert::open()
                 ->orderByRaw("case severity when 'critical' then 0 when 'warning' then 1 else 2 end")
                 ->orderBy('first_seen_at')
                 ->get()->map($row)->all(),
-            'resolved' => Alert::query()
-                ->whereNotNull('resolved_at')
-                ->where('resolved_at', '>=', now()->subDays(7))
-                ->latest('resolved_at')
-                ->limit(50)
-                ->get()->map($row)->all(),
+            'resolved' => $resolved->getCollection()->map($row)->all(),
+            'resolvedPagination' => $resolved->meta(),
             'rules' => array_map(fn ($rule) => ['key' => $rule->key(), 'paged_by' => $rule->pagedBy()], $engine->rules()),
         ]);
     }

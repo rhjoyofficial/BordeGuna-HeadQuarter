@@ -10,6 +10,7 @@ use App\Models\AutonomyEvidencePolicyEvent;
 use App\Models\AutonomyEvidenceRequirement;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\GroupWideAuthority;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -39,7 +40,10 @@ final class EvidencePolicies
     /** The levels a requirement may name. A0 needs no evidence; A5 is unreachable (ADR-020). */
     public const LEVELS = ['a1', 'a2', 'a3', 'a4'];
 
-    public function __construct(private readonly Auditor $auditor) {}
+    public function __construct(
+        private readonly Auditor $auditor,
+        private readonly GroupWideAuthority $authority,
+    ) {}
 
     public function active(): ?AutonomyEvidencePolicy
     {
@@ -131,6 +135,9 @@ final class EvidencePolicies
             $refusals[] = "user {$by->email} is disabled";
         } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
             $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
+        } elseif (($groupWide = $this->authority->refusal($by, self::PERMISSION)) !== null) {
+            // docs/138 ruling 13: the one active version acts on every business.
+            $refusals[] = $groupWide;
         }
 
         if (trim((string) $reason) === '') {
@@ -207,7 +214,8 @@ final class EvidencePolicies
             $policy->refresh()->load(['requirements', 'hardChecks']);
             $this->event($policy, 'activated', $by, $reason);
             $this->auditor->record('autonomy.evidence_policy.activated', $policy,
-                before: ['active_version' => $previous?->version], after: $this->snapshot($policy), reason: $reason, actorUserId: $by->getKey());
+                before: ['active_version' => $previous?->version], after: $this->snapshot($policy), reason: $reason, actorUserId: $by->getKey(),
+                context: $this->authority->auditContext(self::PERMISSION, $by));
 
             return $policy;
         });
@@ -238,6 +246,9 @@ final class EvidencePolicies
                 $refusals[] = "user {$by->email} is disabled";
             } elseif (! $by->hasPermissionTo(self::PERMISSION)) {
                 $refusals[] = "user {$by->email} does not hold ".self::PERMISSION;
+            } elseif (($groupWide = $this->authority->refusal($by, self::PERMISSION)) !== null) {
+                // docs/138 ruling 13: the one active version acts on every business.
+                $refusals[] = $groupWide;
             }
             if (trim((string) $reason) === '') {
                 $refusals[] = 'no reason given (--reason)';
@@ -247,7 +258,8 @@ final class EvidencePolicies
             }
 
             $this->retireRow($fresh, $by, $reason);
-            $this->auditor->record('autonomy.evidence_policy.retired', $fresh, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey());
+            $this->auditor->record('autonomy.evidence_policy.retired', $fresh, before: ['status' => 'active'], after: ['status' => 'retired'], reason: $reason, actorUserId: $by->getKey(),
+                context: $this->authority->auditContext(self::PERMISSION, $by));
 
             return $fresh;
         });

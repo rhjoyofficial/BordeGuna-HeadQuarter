@@ -92,6 +92,8 @@ beforeEach(function () {
     $this->seed(DomainSeeder::class);
     $this->seed(AgentSeeder::class);
     voicePage();
+    // R2 (ruling 31 Oct item 8): the recorded evaluation provider stands in for the bake-off winner, so the pipeline is exercised.
+    config(['hq.voice.stt.benchmark_passed_provider' => RecordedSpeechToText::PROVIDER]);
     // Nothing in this file may reach the internet; a request with no fake registered fails the test.
     Http::preventStrayRequests();
 });

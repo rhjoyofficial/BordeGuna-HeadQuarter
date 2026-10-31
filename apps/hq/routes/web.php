@@ -1,24 +1,40 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\AiPauseController;
 use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
 use App\Http\Controllers\Ask\AskController;
+use App\Http\Controllers\Connectors\AdsDraftController;
+use App\Http\Controllers\Connectors\ChatMediaController;
+use App\Http\Controllers\Connectors\ConnectorsController;
+use App\Http\Controllers\Connectors\IngestionController;
+use App\Http\Controllers\Connectors\MediaBudgetController;
+use App\Http\Controllers\Connectors\MediaDraftController;
+use App\Http\Controllers\Connectors\ParcelController;
+use App\Http\Controllers\Connectors\VoiceController;
 use App\Http\Controllers\FollowUps\FollowUpController;
 use App\Http\Controllers\Identity\CustomerConsentController;
 use App\Http\Controllers\Identity\CustomerController;
+use App\Http\Controllers\Identity\CustomerIdentityConflictController;
 use App\Http\Controllers\Identity\CustomerQuarantineController;
 use App\Http\Controllers\Inbox\InboxController;
 use App\Http\Controllers\Observe\BriefingController;
 use App\Http\Controllers\Observe\DecisionCorpusController;
 use App\Http\Controllers\Observe\ObserveController;
+use App\Http\Controllers\OwnerConsole\BatchApprovalController;
+use App\Http\Controllers\OwnerConsole\DoPlanController;
+use App\Http\Controllers\OwnerConsole\EventWatchController;
+use App\Http\Controllers\OwnerConsole\ReplyOptionController;
 use App\Http\Controllers\Playbooks\PlaybookController;
 use App\Http\Controllers\Scheduling\NlScheduleController;
 use App\Http\Controllers\Scheduling\ScheduledJobController;
 use App\Http\Controllers\Security\SessionsController;
 use App\Http\Controllers\Security\TwoFactorChallengeController;
 use App\Http\Controllers\Security\TwoFactorController;
+use App\Http\Controllers\Voice\VoiceModeController;
+use App\Http\Middleware\EnsureDoModeActive;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'))->name('home');
@@ -40,6 +56,52 @@ Route::middleware(['auth'])->group(function () {
 // Everything else requires password + confirmed 2FA + a verified challenge this session.
 Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::get('dashboard', [AdminController::class, 'dashboard'])->middleware('permission:hq.dashboard.view')->name('dashboard');
+    // docs/135 W-UI5: voice mode, drawn and INERT (Phase 7, needs a speech provider and a ruling). One GET, the
+    // console's own permission; no microphone, no upload, no other method.
+    Route::get('voice', VoiceModeController::class)->middleware('permission:hq.dashboard.view')->name('voice');
+    // docs/144-voice-provider: push to talk. Two POSTs behind `hq.voice.use`; each goes through the Tool Gateway as the person,
+    // and a recording is uploaded only because the person clicked to send it.
+    Route::post('voice/transcribe', [VoiceController::class, 'transcribe'])->middleware(['permission:hq.voice.use', 'throttle:20,1'])->name('voice.transcribe');
+    Route::post('voice/speak', [VoiceController::class, 'speak'])->middleware(['permission:hq.voice.use', 'throttle:20,1'])->name('voice.speak');
+
+    // docs/144-*: the HQ-completion connector screens. Each action is a request to the Tool Gateway as the signed-in person
+    // (permission, feature flag, approval, audit and business scope all apply); none takes a tool key from the browser.
+    Route::get('connectors', [ConnectorsController::class, 'index'])->middleware('permission:hq.connectors.view')->name('connectors.index');
+    Route::post('connectors/meta/check', [ConnectorsController::class, 'checkToken'])->middleware('permission:hq.tools.meta.health')->name('connectors.meta.check');
+    // Ruling 31 Oct item 12 (docs/147-r2): the owner sets a business's monthly media budget (BDT) and records a provider's billed
+    // cost. A person's acts behind `hq.media.budget.manage`; the service also requires the owner role and the business in scope.
+    Route::post('connectors/media-budget/entries/{entry}/reconcile', [MediaBudgetController::class, 'reconcile'])->whereUuid('entry')
+        ->middleware(['permission:hq.media.budget.manage', 'throttle:20,1'])->name('connectors.media_budget.reconcile');
+    Route::post('connectors/media-budget/{business}', [MediaBudgetController::class, 'setLimit'])
+        ->middleware(['permission:hq.media.budget.manage', 'throttle:20,1'])->name('connectors.media_budget.set');
+
+    Route::get('parcels', [ParcelController::class, 'index'])->middleware('permission:hq.customers.view')->name('parcels.index');
+    Route::post('parcels/track', [ParcelController::class, 'track'])->middleware(['permission:hq.tools.courier.read', 'throttle:30,1'])->name('parcels.track');
+    Route::get('orders/{order}', [ParcelController::class, 'order'])->whereNumber('order')->middleware('permission:hq.customers.view')->name('orders.show');
+
+    Route::get('media/{uuid}', [ChatMediaController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.ask.use')->name('media.show');
+
+    Route::prefix('ingestion')->name('ingestion.')->group(function () {
+        Route::get('/', [IngestionController::class, 'index'])->middleware('permission:hq.ingestion.review')->name('index');
+        Route::post('poll', [IngestionController::class, 'poll'])->middleware(['permission:hq.tools.mail.ingest', 'throttle:10,1'])->name('poll');
+        Route::get('{uuid}', [IngestionController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.ingestion.review')->name('show');
+        Route::post('{uuid}/decide', [IngestionController::class, 'decide'])->whereUuid('uuid')->middleware('permission:hq.ingestion.review')->name('decide');
+        Route::post('{uuid}/send-to-erp', [IngestionController::class, 'sendToErp'])->whereUuid('uuid')->middleware('permission:hq.tools.erp.draft_bill')->name('send-to-erp');
+    });
+
+    Route::prefix('media-drafts')->name('media-drafts.')->middleware('permission:hq.tools.media.draft')->group(function () {
+        Route::get('/', [MediaDraftController::class, 'index'])->name('index');
+        Route::post('/', [MediaDraftController::class, 'store'])->middleware('throttle:10,1')->name('store');
+        Route::post('{uuid}/refresh', [MediaDraftController::class, 'refresh'])->whereUuid('uuid')->name('refresh');
+        Route::post('{uuid}/decide', [MediaDraftController::class, 'decide'])->whereUuid('uuid')->name('decide');
+        Route::get('{uuid}/video', [MediaDraftController::class, 'video'])->whereUuid('uuid')->name('video');
+    });
+
+    Route::prefix('ads-drafts')->name('ads-drafts.')->middleware('permission:hq.tools.ads.draft')->group(function () {
+        Route::get('/', [AdsDraftController::class, 'index'])->name('index');
+        Route::post('check', [AdsDraftController::class, 'check'])->middleware('throttle:60,1')->name('check');
+        Route::post('/', [AdsDraftController::class, 'store'])->middleware('throttle:10,1')->name('store');
+    });
 
     Route::get('settings/sessions', [SessionsController::class, 'index'])->name('sessions.index');
     Route::delete('settings/sessions/others', [SessionsController::class, 'destroyOthers'])->name('sessions.destroy-others');
@@ -64,7 +126,7 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
 
     // Phase 2 M1: what HQ can do, and the audited runtime kill switch (docs/48 D.2).
     Route::get('tools', [ToolRegistryController::class, 'index'])->middleware('permission:hq.tools.view')->name('tools.index');
-    Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware('permission:hq.tools.manage')->name('tools.toggle');
+    Route::post('tools/{key}/toggle', [ToolRegistryController::class, 'toggle'])->middleware(['permission:hq.tools.manage', 'group.wide:hq.tools.manage'])->name('tools.toggle');
 
     // Phase 2 M3: the Approval Center (docs/48 G, docs/51).
     //
@@ -73,6 +135,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // the stored, hashed payload a human read.
     Route::prefix('approvals')->name('approvals.')->group(function () {
         Route::get('/', [ApprovalController::class, 'index'])->middleware('permission:hq.approvals.view')->name('index');
+        // docs/143 B as ruled 31 Oct (ruling 2, flag console.batch_approval OFF): a READ-ONLY overview of waiting customer
+        // messages. Each is opened and decided on its own page through the one approve route below, then "next". There is
+        // no multi-approval route and no approve-in-place route (ruling 3); tests/Feature/OwnerConsole/ApprovalPathStructureTest.
+        Route::get('batch', [BatchApprovalController::class, 'index'])->middleware('permission:hq.approvals.decide')->name('batch');
         Route::get('{approval}', [ApprovalController::class, 'show'])->middleware('permission:hq.approvals.view')->name('show');
         Route::post('{approval}/approve', [ApprovalController::class, 'approve'])->middleware('permission:hq.approvals.decide')->name('approve');
         Route::post('{approval}/reject', [ApprovalController::class, 'reject'])->middleware('permission:hq.approvals.decide')->name('reject');
@@ -96,6 +162,9 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     Route::prefix('ask')->name('ask.')->middleware('permission:hq.ask.use')->group(function () {
         Route::get('/', [AskController::class, 'index'])->name('index');
         Route::post('/', [AskController::class, 'store'])->middleware('throttle:20,1')->name('store');
+        // docs/144-media-in-chat: attach a photo, video or file (flag `connectors.media_upload`, business-scoped, retained, scanned).
+        Route::post('media', [ChatMediaController::class, 'store'])->middleware('throttle:30,1')->name('media.store');
+        Route::post('{conversation:uuid}/attachments', [ChatMediaController::class, 'attach'])->middleware('throttle:30,1')->name('media.attach');
         Route::get('{conversation:uuid}', [AskController::class, 'show'])->name('show');
     });
 
@@ -116,6 +185,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         // docs/78 B.1: a person remembers a fact about the customer, or closes one. Never the agent.
         Route::post('{conversation:uuid}/remember', [InboxController::class, 'remember'])->middleware('permission:hq.inbox.manage')->name('remember');
         Route::post('{conversation:uuid}/memory/{memory}/forget', [InboxController::class, 'forget'])->middleware('permission:hq.inbox.manage')->name('forget');
+        // docs/143 E (flag support.reply_options, OFF): Support's A/B/C drafts; a person picks and edits one, only that one is sent.
+        Route::post('{conversation:uuid}/reply-options', [ReplyOptionController::class, 'store'])->middleware('permission:hq.inbox.manage')->name('reply-options.store');
+        Route::post('{conversation:uuid}/reply-options/{optionSet:uuid}/choose', [ReplyOptionController::class, 'choose'])->middleware('permission:hq.inbox.manage')->name('reply-options.choose');
+        Route::post('{conversation:uuid}/reply-options/{optionSet:uuid}/discard', [ReplyOptionController::class, 'discard'])->middleware('permission:hq.inbox.manage')->name('reply-options.discard');
         // P3-G3 pairing (docs/78 B.1): a person's verdict on a proposal beside what was actually sent.
         Route::post('{conversation:uuid}/comparisons/{comparison}/verdict', [InboxController::class, 'verdict'])->middleware('permission:hq.inbox.manage')->name('verdict');
     });
@@ -138,13 +211,20 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         // tool `briefing.compose` through the gateway; nothing on these pages composes or narrates.
         Route::get('briefings', [BriefingController::class, 'index'])->middleware('permission:hq.tools.facts.read')->name('briefings');
         Route::get('briefings/{uuid}', [BriefingController::class, 'show'])->whereUuid('uuid')->middleware('permission:hq.tools.facts.read')->name('briefings.show');
+        // docs/143 D (flag console.telegram_brief, OFF): asks the gateway to PARK the owner-Telegram send on an approval. Sends nothing itself.
+        Route::post('briefings/{uuid}/send-telegram', [BriefingController::class, 'sendTelegram'])->whereUuid('uuid')->middleware(['permission:hq.tools.facts.read', 'permission:hq.briefing.deliver', 'throttle:10,1'])->name('briefings.send-telegram');
     });
 
     Route::get('audit', [AdminController::class, 'audit'])->middleware('permission:hq.audit.view')->name('audit.index');
 
     Route::get('flags', [AdminController::class, 'flags'])->middleware('permission:hq.flags.view')->name('flags.index');
-    Route::post('flags', [AdminController::class, 'storeFlag'])->middleware('permission:hq.flags.manage')->name('flags.store');
-    Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware('permission:hq.flags.manage')->name('flags.toggle');
+    Route::post('flags', [AdminController::class, 'storeFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.store');
+    Route::post('flags/{flag}/toggle', [AdminController::class, 'toggleFlag'])->middleware(['permission:hq.flags.manage', 'group.wide:hq.flags.manage'])->name('flags.toggle');
+
+    // docs/138 ruling 7, docs/141: Pause All AI. Two routes, two permissions: the pause route can only pause,
+    // and re-enabling is its own operation. Both act on every business, so both need group-wide authority.
+    Route::post('ai/pause', [AiPauseController::class, 'pause'])->middleware(['permission:hq.ai.pause', 'group.wide:hq.ai.pause'])->name('ai.pause');
+    Route::post('ai/resume', [AiPauseController::class, 'resume'])->middleware(['permission:hq.ai.resume', 'group.wide:hq.ai.resume'])->name('ai.resume');
 
     Route::get('credentials', [AdminController::class, 'credentials'])->middleware('permission:hq.credentials.view')->name('credentials.index');
     Route::post('credentials', [AdminController::class, 'storeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.store');
@@ -162,6 +242,10 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // tool customers.quarantine.repair as the signed-in person), and assign a business to a memory it withheld.
     Route::post('customers/quarantine/repair', [CustomerQuarantineController::class, 'repair'])->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.repair');
     Route::post('customers/quarantine/memories/{memory}/assign', [CustomerQuarantineController::class, 'assignMemory'])->whereNumber('memory')->middleware('permission:hq.customers.quarantine.repair')->name('customers.quarantine.memories.assign');
+    // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): open identity conflicts per business, and a person's evidence-backed
+    // resolution of one (a gateway request for the human-only tool customers.identity_conflicts.resolve). Before customers/{customer}.
+    Route::get('customers/identity-conflicts', [CustomerIdentityConflictController::class, 'index'])->middleware('permission:hq.customers.quarantine.review')->name('customers.identity-conflicts');
+    Route::post('customers/identity-conflicts/{conflict}/resolve', [CustomerIdentityConflictController::class, 'resolve'])->whereNumber('conflict')->middleware('permission:hq.customers.identity_conflicts.resolve')->name('customers.identity-conflicts.resolve');
     Route::get('customers/{customer}', [CustomerController::class, 'show'])->middleware('permission:hq.customers.view')->name('customers.show');
     Route::post('customers/merge', [CustomerController::class, 'merge'])->middleware('permission:hq.customers.manage')->name('customers.merge');
     Route::post('customers/candidates/{candidate}/dismiss', [CustomerController::class, 'dismiss'])->middleware('permission:hq.customers.manage')->name('customers.candidates.dismiss');
@@ -184,6 +268,29 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{version:uuid}/retire', [PlaybookController::class, 'retire'])->middleware('permission:hq.playbooks.activate')->name('retire');
     });
 
+    // docs/143 A (flag console.do_mode, OFF; docs/138 ruling 1 says not now): plans of gateway steps. Starting a plan approves
+    // nothing; every effectful step waits for its own approval in the Approval Center. A plan of another business is a 404.
+    // Ruling 31 Oct item 1: Do mode stays DARK. `EnsureDoModeActive` makes every one of these a 404 until a separate activation
+    // record exists in code (DoModeActivation::ACTIVATION_RULING, null), whatever the console.do_mode flag row says.
+    Route::prefix('do-plans')->name('do-plans.')->middleware([EnsureDoModeActive::class, 'permission:hq.do.propose|hq.do.start'])->group(function () {
+        Route::get('/', [DoPlanController::class, 'index'])->name('index');
+        Route::post('/', [DoPlanController::class, 'store'])->middleware(['permission:hq.do.propose', 'throttle:20,1'])->name('store');
+        Route::get('{plan:uuid}', [DoPlanController::class, 'show'])->name('show');
+        Route::post('{plan:uuid}/start', [DoPlanController::class, 'start'])->middleware('permission:hq.do.start')->name('start');
+        Route::post('{plan:uuid}/advance', [DoPlanController::class, 'advance'])->middleware('permission:hq.do.start')->name('advance');
+        Route::post('{plan:uuid}/cancel', [DoPlanController::class, 'cancel'])->middleware('permission:hq.do.start')->name('cancel');
+    });
+
+    // docs/143 F (flag console.event_watches, OFF; docs/138 ruling 12: proposals only). A watch is proposed, enabled by a named person,
+    // and can only ever PROPOSE an action. Per-business; a watch of another business is a 404.
+    Route::prefix('watches')->name('watches.')->middleware('permission:hq.watches.propose|hq.watches.enable')->group(function () {
+        Route::get('/', [EventWatchController::class, 'index'])->name('index');
+        Route::post('/', [EventWatchController::class, 'store'])->middleware(['permission:hq.watches.propose', 'throttle:20,1'])->name('store');
+        Route::post('{watch:uuid}/enable', [EventWatchController::class, 'enable'])->middleware('permission:hq.watches.enable')->name('enable');
+        Route::post('{watch:uuid}/disable', [EventWatchController::class, 'disable'])->middleware('permission:hq.watches.enable')->name('disable');
+        Route::post('{watch:uuid}/reject', [EventWatchController::class, 'reject'])->middleware('permission:hq.watches.enable')->name('reject');
+    });
+
     // docs/113 (S4 part 1): follow-ups and opportunities, proposal-only. Every POST is a state transition
     // of an HQ-owned row by a named person; approval starts a WorkflowEngine run that only waits for a
     // person. No route takes a message, a tool key or a provider; nothing here reaches a customer.
@@ -199,6 +306,9 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
         Route::post('{followUp:uuid}/complete', [FollowUpController::class, 'complete'])->middleware('permission:hq.followups.decide')->name('complete');
         Route::post('{followUp:uuid}/cancel', [FollowUpController::class, 'cancel'])->middleware('permission:hq.followups.decide')->name('cancel');
     });
+
+    // docs/145 (HQ completion, agent M4): Phases 6, 8, 9 and 10, inside this same authenticated, 2FA-verified group.
+    require __DIR__.'/completion.php';
 });
 
 require __DIR__.'/settings.php';

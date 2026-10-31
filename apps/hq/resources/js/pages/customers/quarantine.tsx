@@ -1,8 +1,11 @@
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader, SectionHeader } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
@@ -67,6 +70,7 @@ type HeldMemory = {
 type Repair = { id: number; key: string; business: string | null; status: string; started_at: string | null; verified_at: string | null; splits: number };
 type Props = {
     flags: Flag[];
+    pagination: ListMeta;
     decisions: string[];
     can_repair: boolean;
     batches: Batch[];
@@ -82,7 +86,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Cross-business review', href: '/customers/quarantine' },
 ];
 
-export default function CustomerQuarantine({ flags, decisions, can_repair, batches, ambiguous, held_memories, repairs }: Props) {
+export default function CustomerQuarantine({ flags, pagination, decisions, can_repair, batches, ambiguous, held_memories, repairs }: Props) {
     const t = useT();
     const [open, setOpen] = useState<number | null>(null);
     const form = useForm({ decision: decisions[0] ?? '', note: '' });
@@ -122,16 +126,16 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 />
 
                 <section className="flex flex-col gap-2">
-                    <SectionHeader title={t('Flags')} aside={t('{count} flags', { count: flags.length })} />
+                    <SectionHeader title={t('Flags')} aside={t('{count} flags', { count: pagination.total })} />
                     {flags.length === 0 ? (
                         <EmptyState
                             title={t('Nothing is flagged')}
                             description={t('No relationship crossing a business boundary has been flagged for review.')}
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
                                         <th className="px-3 py-2 font-medium">#</th>
                                         <th className="px-3 py-2 font-medium">{t('Kind')}</th>
@@ -203,6 +207,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                             </table>
                         </div>
                     )}
+                    <Pagination meta={pagination} />
                 </section>
 
                 <section className="flex flex-col gap-2">
@@ -222,7 +227,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {ambiguous.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Not repaired: the business cannot be established')} aside={t('{count} rows', { count: ambiguous.length })} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                        <ul className="hq-card flex flex-col divide-y text-xs">
                             {ambiguous.map((a) => (
                                 <li key={`${a.subject}-${a.reason}`} className="flex flex-col gap-1 px-3 py-2">
                                     <span className="font-mono break-all">{a.subject}</span>
@@ -237,7 +242,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {held_memories.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Memories held until a person assigns a business')} aside={t('{count} memories', { count: held_memories.length })} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-sm">
+                        <ul className="hq-card flex flex-col divide-y text-sm">
                             {held_memories.map((m) => (
                                 <HeldMemoryRow key={m.memory_id} memory={m} canAssign={can_repair} />
                             ))}
@@ -248,7 +253,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                 {repairs.length > 0 && (
                     <section className="flex flex-col gap-2">
                         <SectionHeader title={t('Repair history')} />
-                        <ul className="bg-card flex flex-col divide-y rounded-xl border text-xs">
+                        <ul className="hq-card flex flex-col divide-y text-xs">
                             {repairs.map((r) => (
                                 <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                                     <span className="font-mono">#{r.id}</span>
@@ -265,9 +270,14 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                     </section>
                 )}
 
-                {open !== null && (
-                    <section className="bg-card flex flex-col gap-4 rounded-xl border p-4">
-                        <SectionHeader title={t('Review flag #{id}', { id: open })} />
+                <Dialog open={open !== null} onOpenChange={(o) => !o && setOpen(null)}>
+                    <DialogContent className="sm:max-w-xl">
+                        <DialogHeader>
+                            <DialogTitle>{t('Review flag #{id}', { id: open ?? 0 })}</DialogTitle>
+                            <DialogDescription>
+                                {t('Your review is recorded and audited; it does not undo, move or delete anything.')}
+                            </DialogDescription>
+                        </DialogHeader>
                         <form
                             className="flex flex-col gap-4"
                             onSubmit={(e) => {
@@ -299,7 +309,7 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                                 </Field>
                             </FormRow>
                             <Field label={t('Note')} htmlFor="note" error={form.errors.note}>
-                                <textarea
+                                <Textarea
                                     id="note"
                                     value={form.data.note}
                                     onChange={(e) => form.setData('note', e.target.value)}
@@ -307,17 +317,19 @@ export default function CustomerQuarantine({ flags, decisions, can_repair, batch
                                     minLength={3}
                                     maxLength={1000}
                                     required
-                                    className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                                 />
                             </Field>
-                            <div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                                <Button type="button" variant="outline" onClick={() => setOpen(null)}>
+                                    {t('Cancel')}
+                                </Button>
                                 <Button type="submit" disabled={form.processing}>
                                     {t('Record review')}
                                 </Button>
                             </div>
                         </form>
-                    </section>
-                )}
+                    </DialogContent>
+                </Dialog>
             </div>
         </AppLayout>
     );
@@ -329,7 +341,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
     const errors = form.errors as Record<string, string | undefined>;
 
     return (
-        <div className="bg-card flex flex-col gap-3 rounded-xl border p-4 text-sm">
+        <div className="hq-card flex flex-col gap-3 p-4 text-sm">
             <div className="flex flex-wrap items-center gap-2">
                 <strong>{t('Batch for {business}', { business: batch.business })}</strong>
                 <StatusBadge tone={batch.authorized ? 'ok' : 'warn'} dot={false}>
@@ -339,7 +351,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
             </div>
             <ul className="flex flex-col gap-2">
                 {batch.splits.map((s) => (
-                    <li key={s.key} className="flex flex-col gap-1 rounded-md border px-3 py-2 text-xs">
+                    <li key={s.key} className="border-glass-border bg-muted flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs">
                         <span>
                             {t('From customer #{from} ({business}) to {target}', {
                                 from: s.from_customer_id,
@@ -375,7 +387,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                             })}
                         </span>
                         {s.review.unreviewed_rows.length > 0 && (
-                            <span className="font-mono break-all text-amber-700 dark:text-amber-300">{s.review.unreviewed_rows.join(', ')}</span>
+                            <span className="font-mono break-all text-tone-pending">{s.review.unreviewed_rows.join(', ')}</span>
                         )}
                     </li>
                 ))}
@@ -389,7 +401,7 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                     }}
                 >
                     <Field label={t('Why (recorded on the batch, every move and the audit)')} htmlFor={`reason-${batch.key}`} error={errors.reason ?? errors.repair}>
-                        <textarea
+                        <Textarea
                             id={`reason-${batch.key}`}
                             value={form.data.reason}
                             onChange={(e) => form.setData('reason', e.target.value)}
@@ -397,7 +409,6 @@ function RepairBatch({ batch, canRepair }: { batch: Batch; canRepair: boolean })
                             minLength={10}
                             maxLength={2000}
                             required
-                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>
@@ -451,7 +462,7 @@ function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: b
                         </Field>
                     </FormRow>
                     <Field label={t('Note')} htmlFor={`note-${memory.memory_id}`} error={errors.note}>
-                        <textarea
+                        <Textarea
                             id={`note-${memory.memory_id}`}
                             value={form.data.note}
                             onChange={(e) => form.setData('note', e.target.value)}
@@ -459,7 +470,6 @@ function HeldMemoryRow({ memory, canAssign }: { memory: HeldMemory; canAssign: b
                             minLength={3}
                             maxLength={1000}
                             required
-                            className="border-input bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
                         />
                     </Field>
                     <div>

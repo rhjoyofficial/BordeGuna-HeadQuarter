@@ -62,7 +62,7 @@ export default function ControlPlane(props: Props) {
                         label="Approvals waiting"
                         value={props.approvals_pending}
                         detail={
-                            <Link href="/approvals" className="underline">
+                            <Link href="/approvals" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                                 Open approvals
                             </Link>
                         }
@@ -121,7 +121,7 @@ export default function ControlPlane(props: Props) {
                     <Panel
                         title="Tools switched off"
                         aside={
-                            <Link href="/tools?state=disabled" className="underline">
+                            <Link href="/tools?state=disabled" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                                 Tools screen
                             </Link>
                         }
@@ -159,7 +159,7 @@ export default function ControlPlane(props: Props) {
                 <Panel
                     title="Feature flags"
                     aside={
-                        <Link href="/flags" className="underline">
+                        <Link href="/flags" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                             Flags screen
                         </Link>
                     }

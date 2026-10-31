@@ -26,12 +26,16 @@ use App\Listeners\RecordAuthenticationEvents;
 use App\Media\LocalStorageDriver;
 use App\Media\MediaAssetService;
 use App\Outcomes\FollowUps\LedgerFollowUpOutcomeLink;
+use App\OwnerConsole\Brief\OwnerChannel;
+use App\OwnerConsole\Brief\TelegramOwnerChannel;
+use App\OwnerConsole\Brief\UnavailableOwnerChannel;
 use App\Platform\CapabilityResolver;
 use App\Platform\Contracts\StorageDriver;
 use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
+use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 use App\Voice\SpeechProviders;
 use App\Workflow\HqWorkflowEngine;
@@ -53,7 +57,9 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(config('hq.tools', [])));
+        // Applied ruling 31 Oct item 7: the flag-gated tools are ALWAYS registered (descriptors in the catalogue); their flag is checked
+        // live by ToolAvailability on every call, so a long-lived worker never holds a stale "registered while ON" state.
+        $this->app->singleton(ToolRegistry::class, fn () => new ToolRegistry(array_values(array_unique([...config('hq.tools', []), ...app(FlaggedTools::class)->all()]))));
         // docs/102: the workflow seam. Only listed definitions can start, and no listed definition has a
         // tool step (docs/120 item 17, ListedWorkflowDefinitionsStructureTest).
         $this->app->singleton(WorkflowDefinitions::class, fn () => new WorkflowDefinitions(config('hq.workflows.definitions', [])));
@@ -78,6 +84,12 @@ class AppServiceProvider extends ServiceProvider
 
         // ── Phase 2.5 shared foundation ──────────────────────────────────────────────────────
         //
+        // docs/143 D: the owner's own device. Shipped as `none`, so nothing can be sent until a person configures a driver.
+        $this->app->singleton(OwnerChannel::class, fn () => match ((string) config('hq.owner_console.driver', 'none')) {
+            'telegram' => new TelegramOwnerChannel,
+            default => new UnavailableOwnerChannel,
+        });
+
         // ⚠ The platform registry ships EMPTY, and that is the correct state: no provider is
         // implemented yet. `CapabilityResolver` fails closed on an unknown platform, so "we have no
         // code for this" and "this account may do anything" can never be the same answer.

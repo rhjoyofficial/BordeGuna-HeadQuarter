@@ -48,3 +48,10 @@ Schedule::command('horizon:snapshot')->everyFiveMinutes();
 // Housekeeping.
 Schedule::command('model:prune')->daily();
 Schedule::command('queue:prune-failed --hours=168')->daily();
+
+// ChatGPT ruling 17 (31 Oct 2026): lapse, one-way, every ladder autonomy grant whose conditions fail. Only ever
+// removes autonomy; with no ladder grant (the shipped state) it does nothing.
+Schedule::command('hq:autonomy:lapse-sweep')->everyMinute()->withoutOverlapping(5)->runInBackground();
+
+// docs/143 A: running Do plans read back decided approvals. Inert (a no-op) while the flag console.do_mode is OFF.
+Schedule::command('hq:do-plans:advance')->everyMinute()->withoutOverlapping(5)->runInBackground();

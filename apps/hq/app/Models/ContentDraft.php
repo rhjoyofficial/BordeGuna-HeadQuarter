@@ -18,6 +18,8 @@ class ContentDraft extends Model
         'uuid', 'business_id', 'brand_id', 'brief_id', 'research_artifact_id', 'parent_draft_id', 'platform',
         'variant', 'text', 'text_provenance', 'assets', 'product_facts', 'claim_refs', 'checks', 'status',
         'content_digest', 'created_by', 'reviewed_by', 'reviewed_at',
+        // ChatGPT ruling 13 and 15 (31 Oct 2026): the testimonial quoted, and a sole reviewer's own approval.
+        'testimonial_id', 'self_decided', 'self_decided_reason', 'self_decided_at',
     ];
 
     protected function casts(): array
@@ -28,6 +30,8 @@ class ContentDraft extends Model
             'claim_refs' => 'array',
             'checks' => 'array',
             'reviewed_at' => 'datetime',
+            'self_decided' => 'boolean',
+            'self_decided_at' => 'datetime',
         ];
     }
 

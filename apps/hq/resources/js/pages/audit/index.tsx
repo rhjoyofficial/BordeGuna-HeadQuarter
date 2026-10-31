@@ -1,6 +1,7 @@
 import { EmptyState } from '@/components/empty-state';
+import { Field } from '@/components/form/field';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
-import { Pagination, type PageLink } from '@/components/pagination';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/app-layout';
@@ -23,7 +24,7 @@ type Log = {
     before: unknown;
     after: unknown;
 };
-type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Audit log', href: '/audit' }];
 
@@ -52,14 +53,17 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                     description="Everything that changed, who changed it, and why. Append-only: nothing here can be edited or deleted, by database rule."
                     actions={<span className="text-muted-foreground text-sm">{logs.total.toLocaleString('en-US')} entries</span>}
                 >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Input
-                            className="w-64"
-                            placeholder="Action starts with, e.g. approval"
-                            value={action}
-                            onChange={(e) => setAction(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && apply({ action })}
-                        />
+                    <div className="flex flex-wrap items-end gap-2">
+                        <Field label="Filter by action" htmlFor="audit-action" className="w-full sm:w-64">
+                            <Input
+                                id="audit-action"
+                                placeholder="Action starts with, e.g. approval"
+                                value={action}
+                                onChange={(e) => setAction(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && apply({ action })}
+                            />
+                        </Field>
+                        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Actor">
                         {ACTORS.map((a) => (
                             <Button
                                 key={a.key || 'all'}
@@ -70,15 +74,20 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                                 {a.label}
                             </Button>
                         ))}
+                        </div>
                     </div>
                 </PageHeader>
 
                 {logs.data.length === 0 ? (
-                    <EmptyState icon={ScrollText} title="Nothing recorded for that filter" description="Clear the action or pick another actor." />
+                    <EmptyState
+                        icon={ScrollText}
+                        title="Nothing recorded for that filter"
+                        description="Every change is recorded here, so an empty list means no entry matches this action or actor. Clear the action or pick another actor."
+                    />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">When</th>
                                     <th className="px-3 py-2 font-medium">What happened</th>
@@ -122,7 +131,7 @@ export default function AuditIndex({ logs, filters }: { logs: Paginated<Log>; fi
                         </table>
                     </div>
                 )}
-                <Pagination links={logs.links} total={logs.total} noun="entries" />
+                <Pagination meta={logs} />
             </div>
         </AppLayout>
     );

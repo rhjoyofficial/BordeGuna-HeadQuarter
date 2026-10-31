@@ -1,5 +1,7 @@
+import { Notice } from '@/components/ui/notice';
 import { type Tone } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 
 /** What both approval screens need to say the same way. */
 
@@ -40,9 +42,10 @@ export function approvalStatus(a: { status: string; execution_status: string | n
 
 /** What the action would do, as a short list rather than a JSON block. */
 export function PreviewList({ preview }: { preview: ApprovalPreview }) {
+    const t = useT();
     if (!preview) return null;
     if (preview.available === false) {
-        return <p className="text-muted-foreground text-xs">No preview: {preview.reason}</p>;
+        return <p className="text-muted-foreground text-xs">{t('No preview: {reason}', { reason: preview.reason })}</p>;
     }
     const entries = Object.entries(preview.result ?? {});
     if (entries.length === 0) return null;
@@ -64,26 +67,31 @@ export function PreviewList({ preview }: { preview: ApprovalPreview }) {
  * the natural response is to click it again.
  */
 export function OutcomeBanner({ status, outcome, error }: { status?: string | null; outcome?: ApprovalOutcome | null; error?: string }) {
+    const t = useT();
     if (error) {
         return (
-            <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-                <strong>The decision could not be applied.</strong> {error}
-            </div>
+            <Notice tone="danger" alert>
+                <strong>{t('The decision could not be applied.')}</strong> {error}
+            </Notice>
         );
     }
     if (!status || !outcome) return null;
     if (status === 'approval-executed' && outcome.status === 'succeeded') {
         return (
-            <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-                <strong>Approved and executed.</strong> The action ran once
-                {outcome.tool_call_id ? ` and was recorded as tool call #${outcome.tool_call_id}` : ''}.
-            </div>
+            <Notice tone="ok">
+                <strong>{t('Approved and executed.')}</strong>{' '}
+                {outcome.tool_call_id
+                    ? t('The action ran once and was recorded as tool call #{id}.', { id: outcome.tool_call_id })
+                    : t('The action ran once.')}
+            </Notice>
         );
     }
     return (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-            <strong>Nothing ran.</strong> {outcome.error ?? 'The gateway refused the call.'}
-            <div className="mt-1 text-xs">Authority is re-checked at execution time, so a change since the request was made can refuse it here.</div>
-        </div>
+        <Notice tone="pending">
+            <strong>{t('Nothing ran.')}</strong> {outcome.error ?? t('The gateway refused the call.')}
+            <div className="mt-1 text-xs">
+                {t('Authority is re-checked at execution time, so a change since the request was made can refuse it here.')}
+            </div>
+        </Notice>
     );
 }

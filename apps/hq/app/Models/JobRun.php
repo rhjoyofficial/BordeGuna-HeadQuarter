@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Scheduling\Enums\RunStatus;
+use App\Support\Authorization\BusinessScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,6 +33,16 @@ class JobRun extends Model
             'output' => 'array',
             'attempts' => 'array',
         ];
+    }
+
+    /** A run is visible when its job is (docs/136): `job_runs` carries no business of its own. */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if (! app(BusinessScope::class)->isRestricted($user)) {
+            return $query;
+        }
+
+        return $query->whereHas('job', fn (Builder $job) => $job->visibleTo($user));
     }
 
     public function job(): BelongsTo

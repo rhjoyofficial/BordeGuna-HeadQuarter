@@ -4,11 +4,19 @@ namespace App\Http\Controllers\Observe;
 
 use App\Briefing\EvidenceBundle;
 use App\Briefing\ExecutiveBriefingContract;
+use App\Gateway\ToolGateway;
+use App\Gateway\ToolRequest;
 use App\Http\Controllers\Controller;
 use App\Models\Briefing;
+use App\Models\OwnerBriefDelivery;
+use App\OwnerConsole\Flag;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
+use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,10 +35,12 @@ final class BriefingController extends Controller
     public function index(Request $request, BusinessScope $scope): Response
     {
         $briefings = $this->visible(Briefing::query()->with('business:id,slug,name'), $scope->all($request->user()))
-            ->latest('id')->limit(60)->get();
+            ->latest('id');
+        $page = ListPage::paginate($briefings, $request);
 
         return Inertia::render('observe/briefings', [
-            'briefings' => $briefings->map(fn (Briefing $b) => $this->summary($b))->all(),
+            'briefings' => $page->getCollection()->map(fn (Briefing $b) => $this->summary($b))->all(),
+            'pagination' => $page->meta(),
             'contract' => app(ExecutiveBriefingContract::class)->toArray(),
         ]);
     }
@@ -52,7 +62,33 @@ final class BriefingController extends Controller
                 'bundle_intact' => $briefing->bundle === null ? null : EvidenceBundle::digestOf($briefing->bundle) === $briefing->bundle_digest,
             ],
             'bundle' => $briefing->bundle,
+            // docs/143 D: the owner-Telegram brief. Shown only with the flag on; a briefing of a business only (the tool needs one).
+            'telegram' => [
+                'enabled' => Flag::on(Flag::TELEGRAM_BRIEF),
+                'can' => $request->user()->can('hq.briefing.deliver') && $briefing->business_id !== null,
+                'deliveries' => OwnerBriefDelivery::query()->where('briefing_id', $briefing->id)->latest('id')->limit(5)->get()
+                    ->map(fn ($d) => ['state' => $d->state, 'at' => ($d->sent_at ?? $d->created_at)?->toIso8601String(), 'error' => $d->error])->all(),
+            ],
         ]);
+    }
+
+    /**
+     * docs/143 D: asks the gateway to send this briefing to the owner's Telegram. The tool is tier R4, so the call is PARKED on an
+     * approval and nothing is sent here; the destination is not an argument. A briefing the person may not see is a 404.
+     */
+    public function sendTelegram(Request $request, BusinessScope $scope, ToolGateway $gateway, string $uuid): RedirectResponse
+    {
+        $briefing = $this->visible(Briefing::query()->with('business:id,slug,name'), $scope->all($request->user()))->where('uuid', $uuid)->firstOrFail();
+
+        $outcome = $gateway->execute(ToolRequest::forOperator($request->user(), SendOwnerTelegramBriefTool::KEY, array_filter([
+            'business_slug' => $briefing->business?->slug, 'date' => $briefing->briefing_date->toDateString(),
+        ]), $briefing->business_id));
+
+        if (! $outcome->status->pending() && ! $outcome->ok()) {
+            throw ValidationException::withMessages(['briefing' => $outcome->error ?? $outcome->policyReason ?? 'The gateway refused the request.']);
+        }
+
+        return back()->with('status', $outcome->status->pending() ? 'briefing-send-awaiting-approval' : 'briefing-sent');
     }
 
     /** @param  list<int>|null  $permitted  the viewer's own restriction, null for group-wide */

@@ -22,6 +22,9 @@ use Normalizer;
  */
 final readonly class ClaimsPolicy
 {
+    /** The pseudo product line `ClaimsRulebook` puts the `ClaimsFloor` under; it applies to every draft. */
+    public const FLOOR_LINE = '!floor';
+
     /**
      * @param  array<string, array{label?: string, forbidden?: list<array{id: string, phrases: list<string>, reason?: string}>, allowed?: list<string>}>  $lines
      * @param  list<string>  $bannedWords
@@ -55,7 +58,8 @@ final readonly class ClaimsPolicy
         $haystack = self::fold($text);
         $found = [];
 
-        foreach (array_values(array_unique(array_merge(['*'], $productLines))) as $line) {
+        // docs/145-a: the floor (`ClaimsFloor`, under FLOOR_LINE) is read last, so the owner's own rule is named first.
+        foreach (array_values(array_unique(array_merge(['*'], $productLines, [self::FLOOR_LINE]))) as $line) {
             foreach ($this->lines[$line]['forbidden'] ?? [] as $rule) {
                 foreach ((array) ($rule['phrases'] ?? []) as $phrase) {
                     if (self::contains($haystack, self::fold((string) $phrase))) {

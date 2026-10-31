@@ -23,6 +23,7 @@ use App\Models\FollowUp;
 use App\Models\Opportunity;
 use App\Models\User;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
@@ -82,8 +83,9 @@ final class FollowUpController extends Controller
             ->when($state === 'due', fn ($q) => $q->where('state', FollowUpState::Scheduled->value)->where('due_at', '<=', now()))
             ->when(! in_array($state, ['open', 'due', 'all'], true), fn ($q) => $q->where('state', $state))
             ->orderByRaw("CASE WHEN state = 'proposed' THEN 0 WHEN state = 'scheduled' THEN 1 ELSE 2 END")
-            ->orderBy('due_at')->orderByDesc('id')
-            ->limit(200)->get();
+            ->orderBy('due_at')->orderByDesc('id');
+        $followUpsPage = ListPage::paginate($followUps, $request);
+        $followUps = $followUpsPage->getCollection();
         $credits = $this->credits($followUps, $user);
         // docs/122 Q3, docs/126: a phone the Customer 360 page withholds (it may have come from another business) is
         // withheld here too; the rule is the one SQL condition every customer screen applies.
@@ -123,8 +125,9 @@ final class FollowUpController extends Controller
             ->when($opportunityState === 'active', fn ($q) => $q->whereIn('state', [OpportunityState::Proposed->value, OpportunityState::Open->value]))
             ->when(! in_array($opportunityState, ['active', 'all'], true), fn ($q) => $q->where('state', $opportunityState))
             ->orderByRaw("CASE WHEN state = 'proposed' THEN 0 WHEN state = 'open' THEN 1 ELSE 2 END")
-            ->orderBy('expected_at')->orderByDesc('id')
-            ->limit(200)->get();
+            ->orderBy('expected_at')->orderByDesc('id');
+        $opportunitiesPage = ListPage::paginate($opportunities, $request, 'opportunities_page');
+        $opportunities = $opportunitiesPage->getCollection();
         $withheldOpportunityPhones = CrossBusinessSuppression::withheldPhoneCustomerIds($opportunities->pluck('customer_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all());
         $opportunities = $opportunities
             ->map(fn (Opportunity $o) => [
@@ -168,6 +171,8 @@ final class FollowUpController extends Controller
         return Inertia::render('follow-ups/index', [
             'followUps' => $followUps,
             'opportunities' => $opportunities,
+            'followUpsPagination' => $followUpsPage->meta(),
+            'opportunitiesPagination' => $opportunitiesPage->meta(),
             'filters' => ['state' => $state, 'opportunity_state' => $opportunityState],
             'counts' => [
                 'proposed' => FollowUp::query()->visibleTo($user)->where('state', FollowUpState::Proposed->value)->count(),

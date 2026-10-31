@@ -1,4 +1,8 @@
+import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
+import { StatusBadge } from '@/components/ui/status-badge';
+import InputError from '@/components/input-error';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -26,15 +30,17 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Two-factor authentication" />
-            <div className="mx-auto flex max-w-2xl flex-col gap-6 p-4">
+            <div className="flex max-w-3xl flex-col gap-6 p-4 md:p-6">
+                <PageHeader
+                    title="Two-factor authentication (TOTP)"
+                    description="Use Google Authenticator, Authy, 1Password or any TOTP app."
+                    actions={<StatusBadge tone={enabled ? 'ok' : pending ? 'pending' : 'warn'}>{enabled ? 'on' : pending ? 'setting up' : 'not set up'}</StatusBadge>}
+                />
                 {flash?.status === 'two-factor-required' && (
-                    <div className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
-                        Two-factor authentication is mandatory in HQ. Set it up to continue.
-                    </div>
+                    <Notice tone="pending">Two-factor authentication is mandatory in HQ. Set it up to continue.</Notice>
                 )}
-                <div className="rounded-xl border p-4">
-                    <h1 className="text-lg font-semibold">Two-factor authentication (TOTP)</h1>
-                    <p className="text-muted-foreground mt-1 text-sm">Use Google Authenticator, Authy, 1Password or any TOTP app.</p>
+                <div className="hq-card p-5">
+                    <h2 className="text-[0.9375rem] font-semibold tracking-tight">{enabled ? 'Your authenticator app' : 'Set up your authenticator app'}</h2>
 
                     {!enabled && !pending && (
                         <Button className="mt-4" onClick={() => router.post('/security/two-factor/enable')}>
@@ -45,7 +51,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                     {pending && (
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                             <div className="flex flex-col items-center gap-2">
-                                {qrSvg && <div className="rounded bg-white p-2" dangerouslySetInnerHTML={{ __html: qrSvg }} />}
+                                {qrSvg && <div className="rounded-xl bg-white p-3" dangerouslySetInnerHTML={{ __html: qrSvg }} />}
                                 <div className="text-muted-foreground text-center text-xs">
                                     Cannot scan? Enter this key: <span className="font-mono break-all">{secret}</span>
                                 </div>
@@ -67,7 +73,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                                     value={confirm.data.code}
                                     onChange={(e) => confirm.setData('code', e.target.value)}
                                 />
-                                {confirm.errors.code && <div className="text-sm text-red-600">{confirm.errors.code}</div>}
+                                <InputError message={confirm.errors.code} />
                                 <Button type="submit" disabled={confirm.processing}>
                                     Confirm and enable
                                 </Button>
@@ -77,14 +83,14 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
 
                     {enabled && (
                         <div className="mt-4 text-sm">
-                            <div className="text-green-700">Enabled{confirmedAt ? ` since ${new Date(confirmedAt).toLocaleString('en-GB')}` : ''}.</div>
+                            <div className="text-tone-ok">Enabled{confirmedAt ? ` since ${new Date(confirmedAt).toLocaleString('en-GB')}` : ''}.</div>
                         </div>
                     )}
 
                     {recoveryCodes && (
-                        <div className="mt-4 rounded-md border border-amber-400 bg-amber-50 p-3">
-                            <div className="text-sm font-medium text-amber-900">Recovery codes. Save them now; they are shown once.</div>
-                            <ul className="mt-2 grid grid-cols-2 gap-1 font-mono text-sm">
+                        <div className="bg-tone-pending-bg border-tone-pending-line text-tone-pending mt-4 rounded-xl border p-4">
+                            <div className="text-sm font-medium">Recovery codes. Save them now; they are shown once.</div>
+                            <ul className="mt-2 grid grid-cols-1 gap-1 font-mono text-sm min-[420px]:grid-cols-2">
                                 {recoveryCodes.map((c) => (
                                     <li key={c}>{c}</li>
                                 ))}
@@ -100,14 +106,14 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                                 e.preventDefault();
                                 regen.post('/security/two-factor/recovery-codes', { onSuccess: () => regen.reset() });
                             }}
-                            className="rounded-xl border p-4"
+                            className="hq-card p-4"
                         >
                             <div className="text-sm font-medium">Regenerate recovery codes</div>
                             <Label htmlFor="rp" className="mt-3 block">
                                 Current password
                             </Label>
                             <PasswordInput id="rp" value={regen.data.password} onChange={(e) => regen.setData('password', e.target.value)} />
-                            {regen.errors.password && <div className="text-sm text-red-600">{regen.errors.password}</div>}
+                            <InputError message={regen.errors.password} />
                             <Button className="mt-3" variant="outline" type="submit" disabled={regen.processing}>
                                 Regenerate
                             </Button>
@@ -117,7 +123,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                                 e.preventDefault();
                                 disable.delete('/security/two-factor');
                             }}
-                            className="rounded-xl border p-4"
+                            className="hq-card p-4"
                         >
                             <div className="text-sm font-medium">Disable and re-enrol</div>
                             <p className="text-muted-foreground mt-1 text-xs">
@@ -127,7 +133,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
                                 Current password
                             </Label>
                             <PasswordInput id="dp" value={disable.data.password} onChange={(e) => disable.setData('password', e.target.value)} />
-                            {disable.errors.password && <div className="text-sm text-red-600">{disable.errors.password}</div>}
+                            <InputError message={disable.errors.password} />
                             <Button className="mt-3" variant="destructive" type="submit" disabled={disable.processing}>
                                 Disable
                             </Button>

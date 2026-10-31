@@ -135,11 +135,28 @@ export function humanKey(key: string | null | undefined): string {
     return words.join(' ');
 }
 
-/** "$0.0042" for a cost in US dollars, "free" for zero. */
-export function humanUsd(amount: number | string | null | undefined): string {
-    const n = Number(amount ?? 0);
-    if (!n) return 'free';
-    return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+/** "1,245.50", English digits; an amount under one paisa or one cent keeps four places so it does not read 0.00. */
+function moneyFigure(n: number): string {
+    if (n !== 0 && Math.abs(n) < 0.01) return n.toFixed(4);
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export type AiCostCurrency = 'BDT' | 'USD';
+
+/**
+ * A model cost (stored in USD) as text in ONE currency: "BDT 159.90" or "USD 1.23". BDT is the default
+ * (Joy's rule: amounts always in BDT); the person may switch to USD. The rate comes from the server
+ * (`money.usd_bdt_rate`); without one the text is USD whatever was chosen, and nothing is guessed.
+ */
+export function aiCostText(
+    amount: number | string | null | undefined,
+    rate: number | null | undefined,
+    currency: AiCostCurrency = 'BDT',
+): { text: string; zero: boolean } {
+    const parsed = Number(amount ?? 0);
+    const n = Number.isFinite(parsed) ? parsed : 0;
+    const text = currency === 'BDT' && typeof rate === 'number' && rate > 0 ? `BDT ${moneyFigure(n * rate)}` : `USD ${moneyFigure(n)}`;
+    return { text, zero: n === 0 };
 }
 
 /** Shorten a long sentence for a table cell. */

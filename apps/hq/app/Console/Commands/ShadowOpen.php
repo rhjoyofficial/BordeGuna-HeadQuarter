@@ -66,7 +66,8 @@ class ShadowOpen extends Command
             try {
                 $periods->assertOpener($user?->getKey());
             } catch (RuntimeException $e) {
-                $openerRefusal = $user === null ? $e->getMessage() : "[{$email}] is disabled, so nothing opens on their word.";
+                // docs/138 ruling 13: a restricted person is refused with the group-wide reason itself.
+                $openerRefusal = $user === null || ! str_contains($e->getMessage(), 'is disabled') ? $e->getMessage() : "[{$email}] is disabled, so nothing opens on their word.";
             }
         }
         $this->line('  opener: '.($user === null ? 'none named (--by)' : "{$user->email} (user #{$user->getKey()})")

@@ -3,6 +3,7 @@
 namespace App\Gateway\Registry;
 
 use App\Models\ToolRegistration;
+use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 
 /**
@@ -25,18 +26,37 @@ use App\Tools\ToolRegistry;
  */
 final class ToolAvailability
 {
-    public function __construct(private readonly ToolRegistry $registry) {}
+    /** The typed reason a flag-gated tool is refused while its flag is off (ruling 31 Oct item 7). */
+    public const FEATURE_DISABLED = 'feature_disabled';
+
+    private readonly FlaggedTools $flagged;
+
+    public function __construct(private readonly ToolRegistry $registry, ?FlaggedTools $flagged = null)
+    {
+        $this->flagged = $flagged ?? app(FlaggedTools::class);
+    }
 
     public function registered(string $key): bool
     {
         return $this->registry->has($key);
     }
 
-    /** @return array{available: bool, reason: ?string} */
+    /**
+     * Three switches, by AND: registered in code, its feature flag ON (for a flag-gated tool, read live, ruling 31 Oct item 7),
+     * and not disabled at runtime in the `tools` table. A flag off answers `feature_disabled`, a typed refusal distinct from an
+     * unknown tool. A flag ON adds nothing but this one AND: permission, policy, consent, credentials and approval still decide.
+     *
+     * @return array{available: bool, reason: ?string, feature_disabled?: bool, flag?: string}
+     */
     public function check(string $key, ?int $businessId = null): array
     {
         if (! $this->registry->has($key)) {
             return ['available' => false, 'reason' => "Unknown tool [{$key}]: it is not registered in config/hq.php."];
+        }
+
+        $flag = $this->flagged->flagFor($key);
+        if ($flag !== null && ! $this->flagged->flagOn($key, $businessId)) {
+            return ['available' => false, 'reason' => "Tool [{$key}] is switched off: its feature flag [{$flag}] is off.", self::FEATURE_DISABLED => true, 'flag' => $flag];
         }
 
         $switch = $this->switches()[$key] ?? null;

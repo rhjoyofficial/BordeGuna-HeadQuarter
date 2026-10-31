@@ -373,9 +373,13 @@ it('reports why each registered tool is out of agent hands, not merely that it i
     //   - docs/126 (ruling docs/120 A3, item 36): changing who an identity, an order or a thread belongs to is the
     //     act the incident forbids any lookup from doing silently; only a person's evidence-backed, reviewed
     //     authorization may do it, so the repair is permanently human-only.
+    //   - docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an identity conflict decides who an identity belongs
+    //     to; "No agent may resolve conflicts", so the resolution tool is permanently human-only.
     // Sorted, so the order tools are registered in cannot move this pin.
     sort($never);
-    expect($never)->toBe(['consent.lift_restriction', 'customers.quarantine.repair', 'outcomes.attribute']);
+    //   - R2 (ruling 31 Oct item 7): `avatar.generate` (docs/145-b) is now always registered; generating a real person's
+    //     likeness is never an agent's decision, so it is permanently human-only.
+    expect($never)->toBe(['avatar.generate', 'consent.lift_restriction', 'customers.identity_conflicts.resolve', 'customers.quarantine.repair', 'outcomes.attribute']);
     expect($notYet)->toContain('erp.poll_overview', 'commerce.reconcile_facts', 'demo.request_approval');
 });
 
@@ -396,7 +400,10 @@ it('keeps every tool out of agent hands, and allows exactly one R4 registration'
     // docs/83 C.3: `commerce.take_order` is the second, not agent-executable (asserted above) and inert:
     // no store is admitted, so the gateway refuses every call. docs/88 A point 3: its compensating
     // tool `commerce.cancel_sales_order` is the third, inert under the same empty list.
-    expect($r4OrAbove)->toBe(['demo.request_approval', 'commerce.take_order', 'commerce.cancel_sales_order'])
+    // R2 pin edit (ruling 31 Oct item 7): the flag-gated tools are ALWAYS registered now, so their R4 descriptors are in the
+    // catalogue: three connector tools (docs/144), the owner Telegram brief (docs/143 D) and avatar.generate (docs/145-b). Each
+    // ships with its flag OFF, is refused `feature_disabled` by the gateway while off, and is not agent-executable.
+    expect($r4OrAbove)->toBe(['demo.request_approval', ...['commerce.take_order', 'commerce.cancel_sales_order', 'media.draft_reel', 'erp.create_draft_bill', 'ads.create_draft', 'briefing.send_owner_telegram', 'avatar.generate']])
         ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([])
         ->and(app(ToolGateway::class)->descriptors()['commerce.cancel_sales_order']->supportedStores)->toBe([]);
 });

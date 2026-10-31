@@ -13,9 +13,26 @@ function isActive(url: string, current: string): boolean {
     return current === url || current.startsWith(`${url}/`) || current.startsWith(`${url}?`);
 }
 
+/**
+ * The one entry to light for this URL: the longest matching URL wins, so `/customers/quarantine` lights the
+ * cross-business review and not Customers as well (docs/135 (c)).
+ */
+function activeUrl(sections: NavSection[], current: string): string | null {
+    let best: string | null = null;
+    for (const section of sections) {
+        for (const item of section.items) {
+            if (!item.external && isActive(item.url, current) && (best === null || item.url.length > best.length)) {
+                best = item.url;
+            }
+        }
+    }
+    return best;
+}
+
 export function NavMain({ sections = [] }: { sections: NavSection[] }) {
     const page = usePage();
     const t = useT();
+    const active = activeUrl(sections, page.url);
     return (
         <>
             {sections.map((section) => (
@@ -24,7 +41,7 @@ export function NavMain({ sections = [] }: { sections: NavSection[] }) {
                     <SidebarMenu>
                         {section.items.map((item) => (
                             <SidebarMenuItem key={item.title}>
-                                <SidebarMenuButton asChild isActive={isActive(item.url, page.url)} tooltip={t(item.title)}>
+                                <SidebarMenuButton asChild isActive={item.url === active} tooltip={t(item.title)}>
                                     {item.external ? (
                                         <a href={item.url} target="_blank" rel="noopener noreferrer">
                                             {item.icon && <item.icon />}

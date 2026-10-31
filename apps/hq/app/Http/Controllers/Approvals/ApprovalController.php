@@ -11,6 +11,8 @@ use App\Models\Approval;
 use App\Models\Business;
 use App\Models\Store;
 use App\Models\User;
+use App\OwnerConsole\Flag;
+use App\Support\Http\ListPage;
 use App\Support\Notifications\Notifier;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
@@ -45,7 +47,8 @@ final class ApprovalController extends Controller
         $status = (string) $request->query('status', 'pending');
         // `resultingToolCall` is loaded because the card's label depends on whether the action
         // actually ran, not merely on whether the approval was spent.
-        $query = Approval::query()->with([
+        // docs/136: only the businesses this person may see; a row with no business only for a group-wide person.
+        $query = Approval::query()->visibleTo($request->user())->with([
             'requestedBy:id,email', 'enabledBy:id,email', 'decidedBy:id,email', 'delegatedTo:id,email',
             'resultingToolCall:id,status,error',
         ]);
@@ -54,7 +57,8 @@ final class ApprovalController extends Controller
             $query->where('status', $status);
         }
 
-        $approvals = $query->latest('id')->limit(100)->get()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + $this->people($a) + [
+        $page = ListPage::paginate($query->latest('id'), $request);
+        $approvals = $page->getCollection()->map(fn (Approval $a) => $a->toCard() + $this->readable($a) + $this->people($a) + [
             'decided_by' => $a->decidedBy?->email,
             'delegated_to' => $a->delegatedTo?->email,
             'decidable' => $request->user() !== null && $a->status->isOpen() && $a->isDecidableBy($request->user()),
@@ -62,10 +66,11 @@ final class ApprovalController extends Controller
 
         return Inertia::render('approvals/index', [
             'approvals' => $approvals,
+            'pagination' => $page->meta(),
             'filters' => ['status' => $status],
             'counts' => [
-                'pending' => Approval::pending()->count(),
-                'overdue' => Approval::pastSla()->count(),
+                'pending' => Approval::pending()->visibleTo($request->user())->count(),
+                'overdue' => Approval::pastSla()->visibleTo($request->user())->count(),
             ],
             'channels' => $this->notifier->channelStatus(),
             'approvers' => User::query()->get(['id', 'email'])
@@ -77,6 +82,8 @@ final class ApprovalController extends Controller
 
     public function show(Request $request, Approval $approval): Response
     {
+        $this->assertVisible($request, $approval);
+
         return Inertia::render('approvals/show', [
             'approval' => $approval->toCard() + $this->readable($approval) + $this->people($approval) + [
                 'decided_by' => $approval->decidedBy?->email,
@@ -86,7 +93,36 @@ final class ApprovalController extends Controller
                 'payload_intact' => $approval->payloadIntact(),
                 'superseded_by' => Approval::where('supersedes_id', $approval->id)->value('id'),
             ],
+            'queue' => $request->query('queue') === 'messages' ? $this->messageQueue($request, $approval) : null,
         ]);
+    }
+
+    /**
+     * docs/143 B as ruled 31 Oct (ruling 2): the batch overview is a SEQUENCE, never a shared authorization. Opened from
+     * `/approvals/batch`, this page shows where the message sits in the queue of waiting customer messages the person may
+     * see, and offers the next one only AFTER this one is no longer pending. Navigation only: it decides nothing, and the
+     * one way to approve stays the single `approve` action below (one approval, one hash, one gateway pre-check, one
+     * executor call, one audit result).
+     *
+     * @return array{enabled: bool, remaining: int, next_href: string|null, overview_href: string}|null
+     */
+    private function messageQueue(Request $request, Approval $approval): ?array
+    {
+        if (! Flag::on(Flag::BATCH_APPROVAL)) {
+            return null;
+        }
+        $waiting = Approval::query()->visibleTo($request->user())->where('status', ApprovalStatus::Pending->value)
+            ->whereKeyNot($approval->getKey())->orderBy('id')->limit(200)->get(['id', 'tool_key'])
+            ->filter(fn (Approval $a) => $this->registry->has($a->tool_key) && $this->registry->get($a->tool_key)->descriptor()->customerFacing)
+            ->values();
+        $next = $approval->status === ApprovalStatus::Pending ? null : $waiting->first();
+
+        return [
+            'enabled' => true,
+            'remaining' => $waiting->count(),
+            'next_href' => $next === null ? null : "/approvals/{$next->id}?queue=messages",
+            'overview_href' => '/approvals/batch',
+        ];
     }
 
     /**
@@ -140,6 +176,7 @@ final class ApprovalController extends Controller
      */
     public function approve(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
         $this->assertDecidable($request, $approval);
 
         $data = $request->validate([
@@ -175,6 +212,7 @@ final class ApprovalController extends Controller
 
     public function reject(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
         $this->assertDecidable($request, $approval);
         $data = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
 
@@ -187,6 +225,8 @@ final class ApprovalController extends Controller
 
     public function cancel(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
+
         if (! $approval->status->isOpen()) {
             throw ValidationException::withMessages(['approval' => "This approval is {$approval->status->label()} and can no longer be cancelled."]);
         }
@@ -208,8 +248,15 @@ final class ApprovalController extends Controller
 
     public function delegate(Request $request, Approval $approval): RedirectResponse
     {
+        $this->assertVisible($request, $approval);
+
         $data = $request->validate(['user_id' => ['required', 'integer', 'exists:users,id']]);
         $to = User::findOrFail($data['user_id']);
+        // A delegate who could not open the approval could never decide it, and handing it over would
+        // tell them it exists (docs/136).
+        if (! Approval::query()->visibleTo($to)->whereKey($approval->getKey())->exists()) {
+            throw ValidationException::withMessages(['user_id' => 'That person may not see this business, so the approval cannot be handed to them.']);
+        }
 
         try {
             $this->approvals->delegate($approval, $to, $request->user());
@@ -218,6 +265,17 @@ final class ApprovalController extends Controller
         }
 
         return back()->with('status', 'approval-delegated');
+    }
+
+    /**
+     * docs/136 (rulings docs/120 A4, docs/131 §1): an approval of a business this person may not see is
+     * not there. 404, not 403, as on the agent, inbox and customer screens: its existence is a disclosure.
+     */
+    private function assertVisible(Request $request, Approval $approval): void
+    {
+        if (! Approval::query()->visibleTo($request->user())->whereKey($approval->getKey())->exists()) {
+            abort(404);
+        }
     }
 
     private function assertDecidable(Request $request, Approval $approval): void

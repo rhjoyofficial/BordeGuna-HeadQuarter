@@ -3,6 +3,7 @@
 namespace App\Support\Events;
 
 use App\Models\DomainEvent;
+use App\OwnerConsole\Watches\EventWatchService;
 use App\Scheduling\EventTriggeredJobs;
 use App\Workflow\WorkflowEvents;
 use Illuminate\Console\Command;
@@ -23,7 +24,7 @@ final class ProcessDomainEvents extends Command
 
     protected $description = 'Deliver pending domain events to their registered handlers.';
 
-    public function handle(EventTriggeredJobs $eventJobs, WorkflowEvents $workflows): int
+    public function handle(EventTriggeredJobs $eventJobs, WorkflowEvents $workflows, EventWatchService $watches): int
     {
         // docs/132: the operator pause. Checked before the lock and before any read, so a paused drain
         // claims nothing, increments no attempt and leaves every row exactly as it was recorded.
@@ -73,6 +74,8 @@ final class ProcessDomainEvents extends Command
                     // docs/102: the event reaches open workflow runs correlated with its aggregate, as a
                     // signal keyed by the event's uuid, so a retried event signals nothing twice.
                     $workflows->deliver($event);
+                    // docs/143 F: event watches (flag console.event_watches, OFF) record a firing and at most PROPOSE an action for approval; never throws.
+                    $watches->deliver($event);
                     $event->forceFill(['status' => DomainEvent::STATUS_PROCESSED, 'processed_at' => now(), 'last_error' => null])->save();
                     $processed++;
                 } catch (Throwable $e) {

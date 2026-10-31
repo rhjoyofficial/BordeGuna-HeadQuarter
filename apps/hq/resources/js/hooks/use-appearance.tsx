@@ -38,8 +38,8 @@ export function useAppearance() {
     useEffect(() => {
         const savedAppearance = localStorage.getItem('appearance') as Appearance | null;
         updateAppearance(savedAppearance || 'system');
-
-        return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+        // No clean-up: the device-theme listener belongs to initializeTheme() and lives for the whole page. Removing it
+        // here, as before, switched "System" off for good as soon as any screen holding a theme switch unmounted.
     }, []);
 
     return { appearance, updateAppearance };

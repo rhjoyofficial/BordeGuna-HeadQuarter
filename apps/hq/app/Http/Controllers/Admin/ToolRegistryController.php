@@ -9,6 +9,8 @@ use App\Gateway\Registry\ToolSwitch;
 use App\Gateway\ToolGateway;
 use App\Http\Controllers\Controller;
 use App\Models\ToolCall;
+use App\Support\Authorization\BusinessScope;
+use App\Support\Authorization\GroupWideAuthority;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,6 +32,8 @@ final class ToolRegistryController extends Controller
         private readonly ToolAvailability $availability,
         private readonly ToolSwitch $switch,
         private readonly PolicyRepository $policies,
+        private readonly BusinessScope $businessScope,
+        private readonly GroupWideAuthority $authority,
     ) {}
 
     public function index(Request $request): Response
@@ -39,7 +43,9 @@ final class ToolRegistryController extends Controller
 
         // One grouped query rather than three per tool: the screen lists every registered tool and
         // a per-tool count each would be a query multiplied by the registry's size.
-        $recent = ToolCall::query()
+        // docs/136: the calls of the businesses this person may see; a call with no business only for a group-wide person.
+        $calls = fn () => $this->businessScope->restrict(ToolCall::query(), $request->user());
+        $recent = $calls()
             ->where('created_at', '>=', now()->subDay())
             ->selectRaw('tool_key, count(*) as calls, sum(case when status in (?, ?) then 1 else 0 end) as ok, max(created_at) as last_at', [
                 OutcomeStatus::Succeeded->value, OutcomeStatus::Replayed->value,
@@ -61,7 +67,7 @@ final class ToolRegistryController extends Controller
                 'input_schema' => $tool->inputSchema(),
                 'output_schema' => $tool->outputSchema(),
                 'governing_policy' => $this->governingPolicy($key),
-                'recent' => ToolCall::query()
+                'recent' => $calls()
                     ->where('tool_key', $key)
                     ->latest('id')
                     ->limit(5)
@@ -87,6 +93,8 @@ final class ToolRegistryController extends Controller
             'orphans' => $this->availability->orphans(),
             'environment' => app()->environment(),
             'filters' => ['q' => $filter, 'state' => $only],
+            // docs/138 ruling 13: whether this person may throw the switch at all, and why not.
+            'switch' => $this->authority->screenProps($request->user(), ToolSwitch::PERMISSION),
         ]);
     }
 
@@ -110,21 +118,25 @@ final class ToolRegistryController extends Controller
 
     public function toggle(Request $request, string $key): RedirectResponse
     {
+        // docs/138 ruling 13: the switch acts on every business. The route's `group.wide` middleware
+        // refuses first; this and ToolSwitch check again so no single layer is the only guard.
+        $this->authority->assert($request->user(), ToolSwitch::PERMISSION);
+
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
 
-        if ($data['enabled']) {
-            $this->switch->enable($key, $data['reason'] ?? null, $request->user());
-
-            return back()->with('status', 'tool-enabled');
+        if (trim((string) ($data['reason'] ?? '')) === '') {
+            throw ValidationException::withMessages(['reason' => $data['enabled']
+                ? 'Say why this tool is being turned back on. It acts on every business, and the record has to answer that question later.'
+                : 'Say why this tool is being disabled. The record has to answer that question later.']);
         }
 
-        // Disabling without a reason is refused here as well as in the service, so the screen can
-        // say why rather than showing a 500 from an exception the user cannot act on.
-        if (trim((string) ($data['reason'] ?? '')) === '') {
-            throw ValidationException::withMessages(['reason' => 'Say why this tool is being disabled. The record has to answer that question later.']);
+        if ($data['enabled']) {
+            $this->switch->enable($key, (string) $data['reason'], $request->user());
+
+            return back()->with('status', 'tool-enabled');
         }
 
         $this->switch->disable($key, (string) $data['reason'], $request->user());

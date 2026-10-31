@@ -6,6 +6,7 @@ use App\Ai\ModelRuntime;
 use App\Ai\ModelTier;
 use App\Ai\Providers\AnthropicProvider;
 use App\Ai\Providers\OpenAiProvider;
+use App\Ai\ProviderSelection;
 use App\Ai\ServingProvider;
 use App\Ai\TaskType;
 use App\Models\Agent;
@@ -17,6 +18,7 @@ use App\Models\User;
 use Database\Seeders\ModelTierSeeder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Permission;
 use Tests\Support\Ai\FixtureProvider;
 
 /*
@@ -45,7 +47,12 @@ function selActive(): array
 
 function selPerson(array $attributes = []): User
 {
-    return User::factory()->create($attributes + ['email' => 'joy@example.test']);
+    $user = User::factory()->create($attributes + ['email' => 'joy@example.test']);
+    // docs/138 ruling 13: selecting the provider is AI activation for every business, so the person
+    // holds the `ai.runtime` switch's permission and has no business restriction.
+    $user->givePermissionTo(Permission::findOrCreate(ProviderSelection::PERMISSION, 'web'));
+
+    return $user;
 }
 
 it('names the provider that serves: one, none, or more than one', function () {

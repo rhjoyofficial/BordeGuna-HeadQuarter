@@ -67,6 +67,111 @@ final class ExecutionContextResolver
         return $this->intersect($agent, $requester, $entryPoint, $businessId, $brandId, requireActive: false);
     }
 
+    /**
+     * The authority a delegated piece of work would have (docs/89 Phase 9, docs/95 V11, docs/145-c).
+     *
+     * Delegation can only NARROW. The target agent is resolved by the same intersection as any run, for the
+     * SAME accountable person who asked the parent (never "as enabled", which would swap in the target's own
+     * enabling user), and then:
+     *
+     *   businesses = target AND parent                 (never a business the parent could not touch)
+     *   brands     = target AND parent
+     *   tools      = target's tools AND the skill's required tools, whose permission the PARENT's
+     *                enabling user also holds (so neither enabling user lends the other anything)
+     *
+     * Nothing is ever added: a term that is null on one side takes the other side's list, and an empty
+     * result refuses. The result is an ordinary context; nothing here starts a run (`Delegations` records it).
+     *
+     * @param  list<string>  $skillTools
+     */
+    public function resolveDelegated(EffectiveExecutionContext $parent, Agent $target, array $skillTools, ?int $businessId = null, ?int $brandId = null): EffectiveExecutionContext
+    {
+        if (! $parent->allowsBusiness($businessId)) {
+            throw new ExecutionContextRefused("Business {$businessId} is outside what the delegating run [{$parent->agent->key}] may touch, so nothing is delegated about it.");
+        }
+        if (! $parent->allowsBrand($brandId)) {
+            throw new ExecutionContextRefused("Brand {$brandId} is outside what the delegating run [{$parent->agent->key}] may touch.");
+        }
+
+        // The same accountable person as the parent, named explicitly.
+        $requester = Requester::onBehalfOf((int) $parent->requesterUser->getKey(), 'delegated by agent:'.$parent->agent->key.' ('.$parent->requester->basis.')');
+        $child = $this->resolve($target, $requester, 'delegation:'.$parent->agent->key, $businessId, $brandId);
+
+        $narrowed = $child->narrowed;
+
+        $businessIds = self::meet($child->businessIds, $parent->businessIds);
+        if ($parent->businessIds !== null) {
+            $narrowed[] = ['term' => 'business', 'by' => 'delegating_run', 'why' => 'the delegating run is limited to business ids ['.implode(', ', $parent->businessIds).']'];
+        }
+        if ($businessIds === []) {
+            throw new ExecutionContextRefused("The delegating run [{$parent->agent->key}] and [{$target->key}] share no business, so nothing can be delegated.");
+        }
+
+        $brandIds = self::meet($child->brandIds, $parent->brandIds);
+        if ($brandIds === []) {
+            throw new ExecutionContextRefused("The delegating run [{$parent->agent->key}] and [{$target->key}] share no brand, so nothing can be delegated.");
+        }
+
+        $skillTools = array_values(array_unique(array_map('strval', $skillTools)));
+        $tools = [];
+        $permissions = [];
+        foreach ($child->toolKeys as $key) {
+            if (! in_array($key, $skillTools, true)) {
+                $narrowed[] = ['term' => 'tool', 'by' => 'skill', 'why' => "[{$key}] is not one of the skill's required tools"];
+
+                continue;
+            }
+            $permission = (string) $this->registry->get($key)->descriptor()->permission;
+            if ($permission === '' || ! $parent->enabler->can($permission)) {
+                $narrowed[] = ['term' => 'tool_permission', 'by' => 'delegating_enabler', 'why' => "[{$key}] needs [{$permission}], which the delegating run's enabling user does not hold"];
+
+                continue;
+            }
+            $tools[] = $key;
+            $permissions[] = $permission;
+        }
+        if ($tools === []) {
+            throw new ExecutionContextRefused("Nothing is left for [{$target->key}] to do: none of its tools is both one of the skill's and held by everyone this delegation rests on.");
+        }
+        $permissions = array_values(array_unique($permissions));
+        sort($permissions);
+
+        return new EffectiveExecutionContext(
+            requester: $child->requester,
+            requesterUser: $child->requesterUser,
+            enabler: $child->enabler,
+            agent: $target,
+            entryPoint: $child->entryPoint,
+            environment: $child->environment,
+            businessId: $businessId,
+            brandId: $brandId,
+            businessIds: $businessIds,
+            brandIds: $brandIds,
+            toolKeys: $tools,
+            permissions: $permissions,
+            narrowed: $narrowed,
+        );
+    }
+
+    /**
+     * Two scope lists meet: null (nothing narrowed) takes the other side; two lists intersect.
+     *
+     * @param  list<int>|null  $a
+     * @param  list<int>|null  $b
+     * @return list<int>|null
+     */
+    private static function meet(?array $a, ?array $b): ?array
+    {
+        if ($a === null) {
+            return $b;
+        }
+        if ($b === null) {
+            return $a;
+        }
+
+        return array_values(array_intersect($a, $b));
+    }
+
     /** Store the context on the run and write its audit row. Called once, by the runner. */
     public function record(AgentRun $run, EffectiveExecutionContext $context): void
     {

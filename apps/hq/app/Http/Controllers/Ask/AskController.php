@@ -7,8 +7,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AskConversation;
 use App\Models\AskMessage;
 use App\Models\Business;
+use App\Models\ChatAttachment;
 use App\Models\ToolCall;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Features\Features;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -81,6 +83,8 @@ final class AskController extends Controller
                 'content' => $m->content,
                 'structured' => $m->structured,
                 'created_at' => $m->created_at?->toIso8601String(),
+                'attachments' => ChatAttachment::query()->visibleTo($user)->where('ask_message_id', $m->id)->get(['uuid', 'original_name', 'kind'])
+                    ->map(fn ($a) => ['uuid' => $a->uuid, 'name' => $a->original_name, 'kind' => $a->kind])->all(),
                 'run' => $m->agentRun === null ? null : [
                     'uuid' => $m->agentRun->uuid,
                     'id' => $m->agentRun->id,
@@ -120,6 +124,8 @@ final class AskController extends Controller
                 ->when($businessScope !== null, fn ($q) => $q->whereIn('id', $businessScope))
                 ->orderBy('name')->get(['id', 'name'])->map(fn (Business $b) => ['id' => $b->id, 'name' => $b->name])->all(),
             'runtime_on' => $this->ask->runtimeOn(),
+            'uploads_on' => app(Features::class)->enabled('connectors.media_upload'),
+            'voice_on' => app(Features::class)->enabled('connectors.voice'),
             'max_question' => AskHq::MAX_QUESTION,
         ]);
     }

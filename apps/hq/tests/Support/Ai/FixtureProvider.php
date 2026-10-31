@@ -7,6 +7,7 @@ use App\Ai\Exceptions\ProviderUnavailable;
 use App\Ai\Providers\ModelProvider;
 use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ModelResponse;
+use Closure;
 use Throwable;
 
 /**
@@ -25,7 +26,13 @@ class FixtureProvider implements ModelProvider
 {
     public const KEY = 'fixture';
 
-    /** @var array<string, list<ModelResponse|Throwable>> answers in order; the last one repeats */
+    /**
+     * Answers in order; the last one repeats. A Closure is called with the request and its result (a
+     * response, or a Throwable to throw) is the answer, so a test can act DURING a call (docs/141: a
+     * person pausing all AI while a provider is answering).
+     *
+     * @var array<string, list<ModelResponse|Throwable|Closure>>
+     */
     public static array $scripts = [];
 
     /** @var array<string, int> */
@@ -112,6 +119,10 @@ class FixtureProvider implements ModelProvider
         $answer = $script[$index] ?? ($script === [] ? self::reply('ok') : $script[array_key_last($script)]);
 
         self::$calls[$key] = $index + 1;
+
+        if ($answer instanceof Closure) {
+            $answer = $answer($request);
+        }
 
         if ($answer instanceof Throwable) {
             throw $answer;
