@@ -15,7 +15,7 @@ Voice stays inert after that too, until its own flag (`connectors.voice`), its c
 | `google_speech` | Google Cloud Speech-to-Text v2 | Chirp 3, `bn-BD` | `GoogleSpeechToText` (built; set `hq.voice.google.model`) |
 | `elevenlabs_scribe` | ElevenLabs | Scribe | not built: a small adapter behind `SpeechToText`, built only for the bake-off run |
 | `openai_compatible_stt` | OpenAI | current transcription model | `OpenAiCompatibleSpeechToText` (built) |
-| `gemini_stt` | Google Gemini API | audio understanding, transcription prompt fixed in code | not built: as for Scribe |
+| `google_genai_stt` | Google Gemini API | audio understanding, transcription prompt fixed in code | not built: as for Scribe |
 
 Every candidate answers the same `SpeechToText` contract and its transcript is untrusted (`Provenance::Customer`). Build-vs-integrate
 (docs/96): the two missing adapters are thin HTTP clients over the providers' published APIs, not hand-rolled recognition.

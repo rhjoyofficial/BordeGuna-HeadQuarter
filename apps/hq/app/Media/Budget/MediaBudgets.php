@@ -181,7 +181,7 @@ final class MediaBudgets
      * Record what the provider reported for a committed line. The estimate is kept; the line now counts at the actual. Refused when
      * the currency cannot be converted safely (the line keeps counting at its estimate).
      */
-    public function reconcile(MediaBudgetEntry $entry, MediaCost $actual, ?User $by): MediaBudgetEntry
+    public function reconcileActual(MediaBudgetEntry $entry, MediaCost $actual, ?User $by): MediaBudgetEntry
     {
         // A reconciled line counts at its actual, which can free headroom, so recording it is the owner's act, like the limit.
         if ($by !== null && (! $by->hasRole('owner') || ! $by->can(self::PERMISSION_MANAGE))) {

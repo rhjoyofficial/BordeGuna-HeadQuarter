@@ -67,7 +67,7 @@ it('reserves within the limit, refuses what would exceed it, gives back a releas
     $b = $this->budgets->reserve($this->laladia->id, 'voice', 'p', 't', 'r3', new MediaCost('50.00', 'BDT'));
     $this->budgets->commit($b);
     $owner = $this->hqUser('owner');
-    $this->budgets->reconcile($b->fresh(), new MediaCost('20.00', 'BDT'), $owner);
+    $this->budgets->reconcileActual($b->fresh(), new MediaCost('20.00', 'BDT'), $owner);
     $b->refresh();
     expect($b->state)->toBe('reconciled')->and((string) $b->estimate_bdt)->toBe('50.00')->and((string) $b->actual_bdt)->toBe('20.00')
         ->and($this->budgets->usedBdt($this->laladia->id))->toBe('20.00')
@@ -163,7 +163,7 @@ it('gives no tool, job, agent or model path a way to change a budget', function 
         }
         $source = (string) file_get_contents($file->getPathname());
         // setLimit and reconcile are the only writers of a limit or an actual; MediaBudget is written nowhere else.
-        if (preg_match('/->setLimit\s*\(|->reconcile\s*\(\s*\$\w+\s*,\s*new MediaCost|MediaBudget::(query\(\)->)?(create|update|updateOrCreate|insert)/', $source) === 1) {
+        if (preg_match('/->setLimit\s*\(|->reconcileActual\s*\(|MediaBudget::(query\(\)->)?(create|update|updateOrCreate|insert)/', $source) === 1) {
             $offenders[] = $path;
         }
     }

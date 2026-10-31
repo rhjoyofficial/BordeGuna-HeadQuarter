@@ -44,7 +44,7 @@ final class MediaBudgetController extends ConnectorController
         abort_if($row === null, 404);
 
         try {
-            $budgets->reconcile($row, new MediaCost((string) $data['actual_amount'], strtoupper((string) $data['actual_currency']), 'provider reported'), $request->user());
+            $budgets->reconcileActual($row, new MediaCost((string) $data['actual_amount'], strtoupper((string) $data['actual_currency']), 'provider reported'), $request->user());
         } catch (MediaBudgetRefused $e) {
             throw ValidationException::withMessages(['media_budget' => $e->getMessage()]);
         }

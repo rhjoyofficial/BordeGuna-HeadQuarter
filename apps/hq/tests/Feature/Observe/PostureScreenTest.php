@@ -220,6 +220,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST ingestion/poll', 'POST ingestion/{uuid}/decide', 'POST ingestion/{uuid}/send-to-erp',
         'POST media-drafts', 'POST media-drafts/{uuid}/refresh', 'POST media-drafts/{uuid}/decide',
         'POST ads-drafts/check', 'POST ads-drafts',
+        // R2 (ruling 31 Oct item 12, docs/147-r2): the OWNER sets a business's monthly media budget and records a provider's billed
+        // cost. HQ-owned rows only, audited, owner role + permission + business scope; no tool, job or agent reaches either.
+        'POST connectors/media-budget/{business}', 'POST connectors/media-budget/entries/{entry}/reconcile',
     ];
 
     $web = collect(Route::getRoutes()->getRoutes())

@@ -14,8 +14,8 @@ namespace App\Voice;
  */
 final class SttBenchmarkGate
 {
-    /** The provider keys the ruling lists for the bake-off. Only one of these may ever be named as passed. */
-    public const CANDIDATES = ['google_speech', 'elevenlabs_scribe', 'openai_compatible_stt', 'gemini_stt'];
+    /** The provider keys the ruling lists for the bake-off (Google Chirp 3 bn-BD, ElevenLabs Scribe, OpenAI, Gemini). */
+    public const CANDIDATES = ['google_speech', 'elevenlabs_scribe', 'openai_compatible_stt', 'google_genai_stt'];
 
     public function passedProvider(): ?string
     {
