@@ -5,7 +5,12 @@ namespace App\Connectors;
 use App\Ai\Providers\ModelProvider;
 use App\Commerce\Contracts\CommercePlatform;
 use App\Conversation\Channels\OutboundChannelAdapter;
+use App\Ads\Draft\AdsDraftPlatform;
+use App\Courier\CourierConnector;
 use App\Erp\ErpPlatform;
+use App\Erp\Write\ErpDraftBillWriter;
+use App\Ingestion\Mailbox\MailboxConnector;
+use App\Media\Pipeline\MediaPipeline;
 use App\Platform\Contracts\AdsReadPlatform;
 use App\Platform\Contracts\CommentChannel;
 use App\Platform\Contracts\PublishingPlatform;
@@ -65,7 +70,36 @@ final class Capabilities
 
     public const VOICE_CALL = 'voice.call';
 
-    public const COURIER_TRACK = 'courier.track';
+    /**
+     * Courier tracking, one capability PER courier (docs/144-courier-connectors): which courier carries a
+     * parcel is a fact about the parcel, not a choice between providers of one service, exactly as
+     * `messaging.whatsapp.send` and `messaging.messenger.send` are two capabilities. A parcel is tracked by
+     * the capability of its own courier, so no vendor is ever picked by a caller.
+     */
+    public const COURIER_PATHAO_TRACK = 'courier.pathao.track';
+
+    public const COURIER_CARRYBEE_TRACK = 'courier.carrybee.track';
+
+    public const COURIER_STEADFAST_TRACK = 'courier.steadfast.track';
+
+    public const COURIER_REDX_TRACK = 'courier.redx.track';
+
+    /** Courier key => its capability. The only place a courier key becomes a capability name. */
+    public const COURIER_TRACK_BY_PROVIDER = [
+        'pathao' => self::COURIER_PATHAO_TRACK,
+        'carrybee' => self::COURIER_CARRYBEE_TRACK,
+        'steadfast' => self::COURIER_STEADFAST_TRACK,
+        'redx' => self::COURIER_REDX_TRACK,
+    ];
+
+    /** Inbound mailbox read (Gmail, Microsoft Graph, IMAP) for supplier documents (docs/144-email-ingestion). */
+    public const MAIL_INBOX_READ = 'mail.inbox.read';
+
+    /** HQ asks the ERP to create a DRAFT supplier bill (docs/144-erp-write-contract). Never a posted or paid one. */
+    public const ERP_DRAFT_BILL_CREATE = 'erp.draft_bill.create';
+
+    /** HQ prepares a PAUSED ad campaign draft at the platform (docs/144-meta-ads-drafts). Never an active one. */
+    public const ADS_DRAFT_CREATE = 'ads.draft.create';
 
     /**
      * Capability => the interface an adapter must implement.
@@ -89,14 +123,20 @@ final class Capabilities
         self::CONTENT_PUBLISH => PublishingPlatform::class,
         self::ADS_READ => AdsReadPlatform::class,
         self::STORAGE_OBJECT => StorageDriver::class,
+        self::MEDIA_VIDEO_GENERATE => MediaPipeline::class,
+        self::COURIER_PATHAO_TRACK => CourierConnector::class,
+        self::COURIER_CARRYBEE_TRACK => CourierConnector::class,
+        self::COURIER_STEADFAST_TRACK => CourierConnector::class,
+        self::COURIER_REDX_TRACK => CourierConnector::class,
+        self::MAIL_INBOX_READ => MailboxConnector::class,
+        self::ERP_DRAFT_BILL_CREATE => ErpDraftBillWriter::class,
+        self::ADS_DRAFT_CREATE => AdsDraftPlatform::class,
     ];
 
     /** Names settled, contracts not yet written (docs/97 §2 INTEGRATE rows). */
     public const RESERVED = [
         self::MEDIA_IMAGE_GENERATE,
-        self::MEDIA_VIDEO_GENERATE,
         self::VOICE_CALL,
-        self::COURIER_TRACK,
     ];
 
     public static function known(string $capability): bool
