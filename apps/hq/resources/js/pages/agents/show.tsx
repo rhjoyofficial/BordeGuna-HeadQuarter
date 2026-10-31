@@ -1,6 +1,6 @@
 import { ExecutionContextPanel, type ExecutionContext } from '@/components/agents/execution-context-panel';
 import { runStatus } from '@/components/agents/run-status';
-import { AiCost } from '@/components/ai-cost';
+import { AiCost, AiCostToggle } from '@/components/ai-cost';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
@@ -159,6 +159,7 @@ export default function AgentRunShow({
                             {run.autonomy_level ? ` · ${t('autonomy {level}', { level: run.autonomy_level.toUpperCase() })}` : ''}
                         </>
                     }
+                    actions={<AiCostToggle />}
                 />
 
                 {run.shadow && (

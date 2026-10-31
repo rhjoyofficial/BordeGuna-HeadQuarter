@@ -1,4 +1,4 @@
-import { AiCost } from '@/components/ai-cost';
+import { AiCost, AiCostToggle } from '@/components/ai-cost';
 import { AiPauseControl } from '@/components/ai-pause';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
@@ -8,16 +8,31 @@ import { type ReactNode } from 'react';
 import { ago } from './age';
 import { type ConsoleData } from './types';
 
-function Block({ title, href, linkLabel, children }: { title: string; href?: string; linkLabel?: string; children: ReactNode }) {
+function Block({
+    title,
+    href,
+    linkLabel,
+    extra,
+    children,
+}: {
+    title: string;
+    href?: string;
+    linkLabel?: string;
+    extra?: ReactNode;
+    children: ReactNode;
+}) {
     return (
         <section className="flex flex-col gap-2 border-t pt-3 first:border-t-0 first:pt-0">
-            <div className="flex items-baseline justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
                 <h3 className="text-muted-foreground text-[11px] font-medium tracking-[0.06em] uppercase">{title}</h3>
-                {href && linkLabel && (
-                    <Link href={href} className="text-hq-violet text-xs hover:underline">
-                        {linkLabel}
-                    </Link>
-                )}
+                <div className="flex items-center gap-2">
+                    {extra}
+                    {href && linkLabel && (
+                        <Link href={href} className="text-hq-violet text-xs hover:underline">
+                            {linkLabel}
+                        </Link>
+                    )}
+                </div>
             </div>
             {children}
         </section>
@@ -119,9 +134,9 @@ export function LivePanel({ live, generatedAt, permissions }: { live: ConsoleDat
             )}
 
             {cost !== null && (
-                <Block title={t('AI cost this month')} href="/observe/cost" linkLabel={t('Open')}>
+                <Block title={t('AI cost this month')} href="/observe/cost" linkLabel={t('Open')} extra={<AiCostToggle />}>
                     <div className="font-mono text-lg font-semibold tabular-nums">
-                        {/* BDT first, USD small; nothing spent reads BDT 0.00, never "free". */}
+                        {/* In the chosen currency; nothing spent reads BDT 0.00, never "free". */}
                         <AiCost usd={cost.spent_usd} free={false} />
                         {cost.cap_usd !== null && (
                             <span className="text-muted-foreground text-sm font-normal">
