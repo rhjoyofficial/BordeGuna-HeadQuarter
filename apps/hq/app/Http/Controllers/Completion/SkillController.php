@@ -7,7 +7,7 @@ use App\Models\AgentDelegation;
 use App\Models\Business;
 use App\Models\Skill;
 use App\Skills\Delegations;
-use App\Skills\SkillRegistry;
+use App\Skills\SkillCatalogue;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Features\Features;
 use App\Tools\ToolRegistry;
@@ -27,7 +27,7 @@ final class SkillController extends Controller
     use RefusesPolitely;
 
     public function __construct(
-        private readonly SkillRegistry $skills,
+        private readonly SkillCatalogue $skills,
         private readonly BusinessScope $scope,
         private readonly Features $features,
         private readonly ToolRegistry $tools,

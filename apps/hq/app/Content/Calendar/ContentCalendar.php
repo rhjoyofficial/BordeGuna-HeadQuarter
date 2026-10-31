@@ -12,8 +12,8 @@ use App\Models\ContentBrief;
 use App\Models\ContentCalendarEntry;
 use App\Models\ContentDraft;
 use App\Models\User;
+use App\Playbooks\PlaybookGuidance;
 use App\Playbooks\PlaybookKind;
-use App\Playbooks\Playbooks;
 use App\Research\ResearchRefused;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
@@ -45,7 +45,7 @@ final class ContentCalendar
         private readonly Auditor $auditor,
         private readonly Features $features,
         private readonly ContentDraftService $drafts,
-        private readonly Playbooks $playbooks,
+        private readonly PlaybookGuidance $guidance,
         private readonly ClaimsRulebook $rulebook,
         private readonly AiPause $pause,
     ) {}
@@ -170,14 +170,7 @@ final class ContentCalendar
         $brand = $entry->brand;
         $brief = $this->latestBrief((int) $entry->brand_id);
 
-        $playbooks = [];
-        foreach (self::playbookKinds() as $kind) {
-            $version = $this->playbooks->activeFor((int) $entry->business_id, (int) $entry->brand_id, $kind)
-                ?? $this->playbooks->activeFor((int) $entry->business_id, null, $kind);
-            if ($version !== null) {
-                $playbooks[] = ['kind' => $kind->value, 'title' => (string) $version->title, 'body' => (string) $version->body];
-            }
-        }
+        $playbooks = $this->guidance->forBrand((int) $entry->business_id, (int) $entry->brand_id, self::playbookKinds());
 
         $forbidden = [];
         if ($brief !== null) {

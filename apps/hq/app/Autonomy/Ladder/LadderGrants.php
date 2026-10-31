@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Research\ResearchRefused;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Authorization\GroupWideAuthority;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -36,12 +37,16 @@ final class LadderGrants
 {
     public const LEVELS = ['a1', 'a2', 'a3', 'a4'];
 
+    /** Setting numbers and granting: a global switch (docs/138 ruling 13), so also group-wide authority. */
+    public const PERMISSION = 'hq.autonomy.grant';
+
     public function __construct(
         private readonly ToolEvidenceLadder $ladder,
         private readonly BusinessScope $scope,
         private readonly Auditor $auditor,
         private readonly AiPause $pause,
         private readonly ToolRegistry $tools,
+        private readonly GroupWideAuthority $authority,
     ) {}
 
     /** @param  array{tool_key: string, max_level: string, min_approved_succeeded: int, max_error_permille: int, max_rejection_permille: int, window_days: int, reason: string}  $data */
@@ -184,8 +189,8 @@ final class LadderGrants
 
     private function groupWide(User $by): void
     {
-        if ($this->scope->isRestricted($by)) {
-            throw new ResearchRefused('Thresholds and grants of autonomy need group-wide authority (docs/138 ruling 13).');
+        if (($refusal = $this->authority->refusal($by, self::PERMISSION)) !== null) {
+            throw new ResearchRefused('Thresholds and grants of autonomy need group-wide authority (docs/138 ruling 13): '.$refusal);
         }
     }
 

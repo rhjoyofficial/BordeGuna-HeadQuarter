@@ -8,7 +8,6 @@ use App\Content\Calendar\ContentCalendar;
 use App\Content\ClaimsFloor;
 use App\Content\ClaimsRules;
 use App\Content\ContentDraftService;
-use App\Content\Publishing\PublicationService;
 use App\Http\Controllers\Controller;
 use App\Models\Brand;
 use App\Models\Business;
@@ -101,7 +100,8 @@ final class ContentController extends Controller
                 'ai_drafting' => $this->features->enabled(ContentCalendar::AI_FLAG),
                 'drafter_connected' => app()->bound(CaptionDrafter::class),
                 'ai_paused' => $this->pause->isPaused(),
-                'publishing' => $this->features->enabled(PublicationService::FLAG),
+                // The publication flag by name: the publishing service is reached only by its gateway tool.
+                'publishing' => $this->features->enabled('publishing.write'),
             ],
             'options' => ['platforms' => ContentCalendar::PLATFORMS, 'occasions' => ContentCalendar::OCCASIONS, 'brands' => $brands, 'businesses' => $businesses],
             'can' => [

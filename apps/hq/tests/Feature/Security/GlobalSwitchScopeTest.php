@@ -39,13 +39,19 @@ const GLOBAL_SWITCH_ROUTES = [
     // docs/138 ruling 7, docs/141: Pause All AI, two routes with two permissions.
     'ai.pause' => 'hq.ai.pause',
     'ai.resume' => 'hq.ai.resume',
+    // docs/145-d: the autonomy ladder. Setting numbers and granting autonomy act for the whole group's control plane;
+    // revoking (hq.autonomy.revoke) is the safe direction and deliberately not a global switch.
+    'autonomy.thresholds.store' => 'hq.autonomy.grant',
+    'autonomy.thresholds.retire' => 'hq.autonomy.grant',
+    'autonomy.grants.store' => 'hq.autonomy.grant',
 ];
 
 /** Permissions whose every write route is, by definition, a global switch. */
-const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage', 'hq.ai.pause', 'hq.ai.resume'];
+const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage', 'hq.ai.pause', 'hq.ai.resume', 'hq.autonomy.grant'];
 
 /** The services a global switch reaches; each checks the authority itself, so no caller can skip it. */
 const GLOBAL_SWITCH_SERVICES = [
+    'app/Autonomy/Ladder/LadderGrants.php',
     'app/Gateway/Registry/ToolSwitch.php',
     'app/Ai/ProviderSelection.php',
     'app/Agents/Shadow/ShadowPeriods.php',

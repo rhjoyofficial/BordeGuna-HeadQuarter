@@ -10,6 +10,7 @@ use App\Models\AutonomyGrant;
 use App\Models\AutonomyLadderThreshold;
 use App\Models\Business;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Authorization\GroupWideAuthority;
 use App\Tools\ToolRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -36,6 +37,7 @@ final class AutonomyController extends Controller
         private readonly BusinessScope $scope,
         private readonly ToolRegistry $tools,
         private readonly AiPause $pause,
+        private readonly GroupWideAuthority $authority,
     ) {}
 
     public function index(Request $request): Response
@@ -99,6 +101,7 @@ final class AutonomyController extends Controller
 
     public function storeThreshold(Request $request): RedirectResponse
     {
+        $this->authority->assert($request->user(), LadderGrants::PERMISSION);
         $data = $request->validate([
             'business_id' => ['required', 'integer'],
             'tool_key' => ['required', 'string', 'max:64'],
@@ -117,6 +120,7 @@ final class AutonomyController extends Controller
 
     public function retireThreshold(Request $request, AutonomyLadderThreshold $threshold): RedirectResponse
     {
+        $this->authority->assert($request->user(), LadderGrants::PERMISSION);
         $this->inScope($threshold, (int) $threshold->business_id);
         $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
 
@@ -125,6 +129,7 @@ final class AutonomyController extends Controller
 
     public function grant(Request $request): RedirectResponse
     {
+        $this->authority->assert($request->user(), LadderGrants::PERMISSION);
         $data = $request->validate([
             'business_id' => ['required', 'integer'],
             'tool_key' => ['required', 'string', 'max:64'],

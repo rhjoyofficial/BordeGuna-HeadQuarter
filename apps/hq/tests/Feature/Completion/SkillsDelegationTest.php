@@ -8,7 +8,7 @@ use App\Models\Business;
 use App\Models\Skill;
 use App\Models\User;
 use App\Skills\Delegations;
-use App\Skills\SkillRegistry;
+use App\Skills\SkillCatalogue;
 use App\Support\Authorization\BusinessScope;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
@@ -38,7 +38,7 @@ beforeEach(function () {
 
 function sdSkill(array $tools, ?Business $business = null, string $key = 'sales_snapshot'): Skill
 {
-    $registry = app(SkillRegistry::class);
+    $registry = app(SkillCatalogue::class);
     $skill = $registry->propose(test()->owner, $business, ['key' => $key, 'name' => 'Sales snapshot', 'purpose' => 'Read orders and report.', 'required_tools' => $tools]);
     $registry->approve(test()->owner, $skill, 'read it');
 
@@ -160,7 +160,7 @@ it('refuses a delegation about a business the parent run cannot touch, an inacti
     $bionicSkill = sdSkill(['facts.query_orders'], $this->bionic, 'bionic_only');
     expect(app(Delegations::class)->delegate($parent, $this->analytics, $bionicSkill, $this->laladia->id)->refusal_reason)->toContain('another business');
 
-    app(SkillRegistry::class)->suspend($this->owner, $skill->fresh(), 'stop');
+    app(SkillCatalogue::class)->suspend($this->owner, $skill->fresh(), 'stop');
     expect(app(Delegations::class)->delegate($parent, $this->analytics, $skill->fresh())->refusal_reason)->toContain('suspended');
 });
 

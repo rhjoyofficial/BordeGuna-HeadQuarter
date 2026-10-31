@@ -28,7 +28,7 @@ use Throwable;
  * permission, policy, approval and consent. A skill may not list a permanently human-only tool, and a tool
  * that is not registered is refused at proposal time.
  */
-final class SkillRegistry
+final class SkillCatalogue
 {
     public const STATUSES = ['proposed', 'approved', 'active', 'suspended', 'retired'];
 
