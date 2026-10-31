@@ -52,7 +52,6 @@ type Props = {
 };
 
 function ReasonForm({ action, label, hint, field = 'reason', extra, variant = 'default' }: { action: string; label: string; hint?: string; field?: string; extra?: Record<string, string>; variant?: 'default' | 'outline' | 'destructive' }) {
-    const t = useT();
     const form = useForm<Record<string, string>>({ [field]: '', ...(extra ?? {}) });
     const { errors } = usePage<{ errors: Record<string, string> }>().props;
 
