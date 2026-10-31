@@ -8,6 +8,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { humanKey, humanMillis, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { postForm } from '@/lib/post-form';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
@@ -51,8 +52,9 @@ type Props = {
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Ask HQ', href: '/ask' }];
 
 function Answer({ message }: { message: Message }) {
+    const t = useT();
     if (message.status === 'pending') {
-        return <p className="text-muted-foreground text-sm italic">The agent is working on it. This page refreshes by itself.</p>;
+        return <p className="text-muted-foreground text-sm italic">{t('The agent is working on it. This page refreshes by itself.')}</p>;
     }
 
     const run = message.run;
@@ -61,18 +63,21 @@ function Answer({ message }: { message: Message }) {
         <div className="flex flex-col gap-2">
             {run?.shadow && (
                 <Notice tone="pending" className="text-xs">
-                    <strong>Shadow.</strong> The agent runs at autonomy {run.autonomy_level?.toUpperCase() ?? 'A0'}, so what follows is not HQ&apos;s
-                    answer. It is a proposal for a person to review, and nothing was done because of it.
+                    <strong>{t('Shadow.')}</strong>{' '}
+                    {t(
+                        "The agent runs at autonomy {level}, so what follows is not HQ's answer. It is a proposal for a person to review, and nothing was done because of it.",
+                        { level: run.autonomy_level?.toUpperCase() ?? 'A0' },
+                    )}
                 </Notice>
             )}
-            <p className="text-sm whitespace-pre-line">{message.content || 'The agent gave no text.'}</p>
+            <p className="text-sm whitespace-pre-line">{message.content || t('The agent gave no text.')}</p>
             {run && (
                 <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <StatusBadge status={run.status} />
-                    {run.stop_reason && <span>stopped: {humanKey(run.stop_reason)}</span>}
-                    <span>{run.tool_calls.length} tool call(s)</span>
+                    {run.stop_reason && <span>{t('stopped: {reason}', { reason: t(humanKey(run.stop_reason)) })}</span>}
+                    <span>{t('{count} tool call(s)', { count: run.tool_calls.length })}</span>
                     <Link href={`/agents/runs/${run.id}`} className="touch:min-h-11 inline-flex items-center underline underline-offset-4">
-                        Open the run
+                        {t('Open the run')}
                     </Link>
                 </div>
             )}
@@ -81,17 +86,17 @@ function Answer({ message }: { message: Message }) {
                     <table className="w-full text-xs">
                         <thead className="text-left">
                             <tr>
-                                <th className="px-2 py-1 font-medium">Tool</th>
-                                <th className="px-2 py-1 font-medium">Policy</th>
-                                <th className="px-2 py-1 font-medium">Result</th>
-                                <th className="px-2 py-1 text-right font-medium">Took</th>
+                                <th className="px-2 py-1 font-medium">{t('Tool')}</th>
+                                <th className="px-2 py-1 font-medium">{t('Policy')}</th>
+                                <th className="px-2 py-1 font-medium">{t('Result')}</th>
+                                <th className="px-2 py-1 text-right font-medium">{t('Took')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {run.tool_calls.map((c) => (
                                 <tr key={c.id} className="border-t">
                                     <td className="px-2 py-1 font-mono">{c.tool_key}</td>
-                                    <td className="px-2 py-1">{c.policy_result ?? '-'}</td>
+                                    <td className="px-2 py-1">{c.policy_result ? t(c.policy_result) : '-'}</td>
                                     <td className="px-2 py-1">
                                         <StatusBadge status={c.status} />
                                     </td>
@@ -112,6 +117,7 @@ export default function AskIndex(props: Props) {
 }
 
 function AskPage({ conversation, messages, conversations, agents, businesses, runtime_on, uploads_on, voice_on, max_question }: Props) {
+    const t = useT();
     const firstAskable = agents.find((a) => a.refusal === null)?.key ?? agents[0]?.key ?? 'executive';
     const form = useForm({
         question: '',
@@ -185,14 +191,16 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Ask HQ" />
+            <Head title={t('Ask HQ')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title="Ask HQ"
-                    description="Put a question to an agent. It answers through the same runner, tools and policies as everywhere else, with only what you and its enabling user may both do, under its own ceiling; this page holds no power of its own."
+                    title={t('Ask HQ')}
+                    description={t(
+                        'Put a question to an agent. It answers through the same runner, tools and policies as everywhere else, with only what you and its enabling user may both do, under its own ceiling; this page holds no power of its own.',
+                    )}
                     actions={
                         <StatusBadge tone={runtime_on ? 'warn' : 'neutral'}>
-                            {runtime_on ? 'AI runtime on' : 'AI runtime off: nothing is asked'}
+                            {runtime_on ? t('AI runtime on') : t('AI runtime off: nothing is asked')}
                         </StatusBadge>
                     }
                 />
@@ -201,13 +209,13 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                     <aside className="flex min-w-0 flex-col gap-2">
                         <Button variant="outline" size="sm" asChild>
                             <Link href="/ask">
-                                <MessageSquarePlus className="size-4" aria-hidden /> New conversation
+                                <MessageSquarePlus className="size-4" aria-hidden /> {t('New conversation')}
                             </Link>
                         </Button>
                         {conversations.length === 0 ? (
-                            <p className="text-muted-foreground text-xs">No conversations yet. Asking a question starts one.</p>
+                            <p className="text-muted-foreground text-xs">{t('No conversations yet. Asking a question starts one.')}</p>
                         ) : (
-                            <nav className="flex flex-col gap-1" aria-label="Conversations">
+                            <nav className="flex flex-col gap-1" aria-label={t('Conversations')}>
                                 {conversations.map((c) => (
                                     <Link
                                         key={c.uuid}
@@ -231,8 +239,10 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                         {messages.length === 0 ? (
                             <EmptyState
                                 icon={Sparkles}
-                                title={conversation ? conversation.title : 'Ask a question'}
-                                description="For example: what needs my attention today, or how did the group do yesterday. Every figure in an answer names its source."
+                                title={conversation ? conversation.title : t('Ask a question')}
+                                description={t(
+                                    'For example: what needs my attention today, or how did the group do yesterday. Every figure in an answer names its source.',
+                                )}
                             />
                         ) : (
                             <ol className="flex flex-col gap-3">
@@ -249,7 +259,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                         <div className="text-muted-foreground mb-1 flex flex-wrap items-center gap-2 text-xs">
                                             <span className="font-medium">
                                                 {m.role === 'user'
-                                                    ? 'You'
+                                                    ? t('You')
                                                     : m.role === 'assistant'
                                                       ? humanKey(String(m.structured?.agent_key ?? 'agent'))
                                                       : 'HQ'}
@@ -275,20 +285,20 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                         )}
 
                         <form onSubmit={submit} className="hq-card flex flex-col gap-3 p-4">
-                            <Field label="Your question" htmlFor="ask-question">
+                            <Field label={t('Your question')} htmlFor="ask-question">
                                 <Textarea
                                     id="ask-question"
                                     value={form.data.question}
                                     onChange={(e) => form.setData('question', e.target.value)}
                                     rows={3}
                                     maxLength={max_question}
-                                    placeholder="Your question, in Bangla or English"
-                                    aria-label="Your question"
+                                    placeholder={t('Your question, in Bangla or English')}
+                                    aria-label={t('Your question')}
                                 />
                             </Field>
                             <InputError message={form.errors.question} />
                             <FormRow>
-                                <Field label="Agent" htmlFor="ask-agent" error={form.errors.agent_key}>
+                                <Field label={t('Agent')} htmlFor="ask-agent" error={form.errors.agent_key}>
                                     <NativeSelect
                                         id="ask-agent"
                                         value={form.data.agent_key}
@@ -301,13 +311,13 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                         ))}
                                     </NativeSelect>
                                 </Field>
-                                <Field label="Business" htmlFor="ask-business" error={form.errors.business_id}>
+                                <Field label={t('Business')} htmlFor="ask-business" error={form.errors.business_id}>
                                     <NativeSelect
                                         id="ask-business"
                                         value={form.data.business_id}
                                         onChange={(e) => form.setData('business_id', e.target.value)}
                                     >
-                                        <option value="">Whole group</option>
+                                        <option value="">{t('Whole group')}</option>
                                         {businesses.map((b) => (
                                             <option key={b.id} value={String(b.id)}>
                                                 {b.name}
@@ -318,7 +328,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                             </FormRow>
                             {chosen?.refusal && <Notice tone="pending">{chosen.refusal}</Notice>}
                             {files.length > 0 && (
-                                <ul className="flex flex-wrap gap-2 text-xs" aria-label="Attached files">
+                                <ul className="flex flex-wrap gap-2 text-xs" aria-label={t('Attached files')}>
                                     {files.map((f) => (
                                         <li key={f.uuid} className="border-glass-border rounded-full border px-2.5 py-1">
                                             {f.name}
@@ -329,7 +339,7 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                             {uploadError && <InputError message={uploadError} />}
                             <div className="flex flex-wrap items-center gap-3">
                                 <Button type="submit" disabled={form.processing || form.data.question.trim() === '' || chosen?.refusal !== null}>
-                                    Ask
+                                    {t('Ask')}
                                 </Button>
                                 {uploads_on && (
                                     <>
@@ -342,29 +352,30 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                             accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,application/pdf,text/plain,text/csv"
                                         />
                                         <Button type="button" variant="outline" onClick={() => picker.current?.click()}>
-                                            <Paperclip className="size-4" aria-hidden /> Attach a photo, video or file
+                                            <Paperclip className="size-4" aria-hidden /> {t('Attach a photo, video or file')}
                                         </Button>
                                     </>
                                 )}
                                 {voice_on && (
                                     <Button type="button" variant="outline" asChild>
                                         <Link href="/voice">
-                                            <Mic className="size-4" aria-hidden /> Talk
+                                            <Mic className="size-4" aria-hidden /> {t('Talk')}
                                         </Link>
                                     </Button>
                                 )}
                             </div>
                             {uploads_on && (
                                 <p className="text-muted-foreground text-xs">
-                                    Attached files are kept for a limited time, for the people of this business. The agent does not read them: they
-                                    are for people.
+                                    {t(
+                                        'Attached files are kept for a limited time, for the people of this business. The agent does not read them: they are for people.',
+                                    )}
                                 </p>
                             )}
                             {!runtime_on && (
                                 <InertNotice
-                                    title="Answers from an agent"
-                                    reason="The AI runtime is off, so the question is recorded and not asked."
-                                    gate="A person switches the AI runtime on. Until then no agent answers and nothing is done."
+                                    title={t('Answers from an agent')}
+                                    reason={t('The AI runtime is off, so the question is recorded and not asked.')}
+                                    gate={t('A person switches the AI runtime on. Until then no agent answers and nothing is done.')}
                                 />
                             )}
                         </form>

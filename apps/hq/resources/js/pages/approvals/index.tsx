@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Inbox } from 'lucide-react';
@@ -84,6 +85,7 @@ export default function ApprovalsIndex({
         flash: { status?: string | null; outcome?: Outcome | null };
         errors: Record<string, string>;
     }>().props;
+    const t = useT();
     const canDecide = auth.permissions.includes('hq.approvals.decide');
     const canDelegate = auth.permissions.includes('hq.approvals.delegate');
     const [busy, setBusy] = useState<number | null>(null);
@@ -107,28 +109,26 @@ export default function ApprovalsIndex({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Approvals" />
+            <Head title={t('Approvals')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title="Approvals"
+                    title={t('Approvals')}
                     description={
                         <>
-                            Actions that need a person before they run. Ignoring one lets it expire; nothing here is ever approved by default.
-                            {activeChannels.length > 0 ? (
-                                <> You are notified by {activeChannels.join(' and ')}.</>
-                            ) : (
-                                <> No notification channel is configured, so check this screen yourself.</>
-                            )}
+                            {t('Actions that need a person before they run. Ignoring one lets it expire; nothing here is ever approved by default.')}{' '}
+                            {activeChannels.length > 0
+                                ? t('You are notified by {channels}.', { channels: activeChannels.join(` ${t('and')} `) })
+                                : t('No notification channel is configured, so check this screen yourself.')}
                         </>
                     }
                     actions={
                         <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge tone="pending">{counts.pending} waiting</StatusBadge>
-                            {counts.overdue > 0 && <StatusBadge tone="warn">{counts.overdue} past deadline</StatusBadge>}
+                            <StatusBadge tone="pending">{t('{count} waiting', { count: counts.pending })}</StatusBadge>
+                            {counts.overdue > 0 && <StatusBadge tone="warn">{t('{count} past deadline', { count: counts.overdue })}</StatusBadge>}
                         </div>
                     }
                 >
-                    <Toolbar label="Filter by status">
+                    <Toolbar label={t('Filter by status')}>
                         {STATUS_FILTERS.map((s) => (
                             <Button
                                 key={s.key}
@@ -136,7 +136,7 @@ export default function ApprovalsIndex({
                                 variant={filters.status === s.key ? 'default' : 'outline'}
                                 onClick={() => router.get('/approvals', { status: s.key }, { preserveState: true, replace: true })}
                             >
-                                {s.label}
+                                {t(s.label)}
                             </Button>
                         ))}
                     </Toolbar>
@@ -147,11 +147,11 @@ export default function ApprovalsIndex({
                 {approvals.length === 0 ? (
                     <EmptyState
                         icon={Inbox}
-                        title={filters.status === 'pending' ? 'Nothing is waiting for a decision' : 'Nothing here'}
+                        title={filters.status === 'pending' ? t('Nothing is waiting for a decision') : t('Nothing here')}
                         description={
                             filters.status === 'pending'
-                                ? 'When a tool needs a human before it may run, the request appears here with what it would do.'
-                                : 'No approval has this status. Try another filter.'
+                                ? t('When a tool needs a human before it may run, the request appears here with what it would do.')
+                                : t('No approval has this status. Try another filter.')
                         }
                     />
                 ) : (
@@ -174,7 +174,7 @@ export default function ApprovalsIndex({
                                                     </StatusBadge>
                                                 )}
                                                 {a.escalated_at && <StatusBadge status="escalated" />}
-                                                {overdue && <StatusBadge status="overdue">past deadline</StatusBadge>}
+                                                {overdue && <StatusBadge status="overdue">{t('past deadline')}</StatusBadge>}
                                             </div>
                                             {a.reason && <p className="mt-1 text-sm">{a.reason}</p>}
 
@@ -186,49 +186,58 @@ export default function ApprovalsIndex({
                                                     </span>
                                                 )}
                                                 {a.agent_key && (
-                                                    <span className="text-tone-pending">proposed by the {a.agent_key} agent</span>
+                                                    <span className="text-tone-pending">
+                                                        {t('proposed by the {agent} agent', { agent: a.agent_key })}
+                                                    </span>
                                                 )}
-                                                {a.requested_by && !a.agent_key && <span>asked by {a.requested_by}</span>}
-                                                {a.requested_by && a.agent_key && a.requester_recorded && <span>asked by {a.requested_by}</span>}
+                                                {a.requested_by && !a.agent_key && <span>{t('asked by {name}', { name: a.requested_by })}</span>}
+                                                {a.requested_by && a.agent_key && a.requester_recorded && (
+                                                    <span>{t('asked by {name}', { name: a.requested_by })}</span>
+                                                )}
                                                 {a.delegated_to && (
-                                                    <span className="text-tone-info">delegated to {a.delegated_to}</span>
+                                                    <span className="text-tone-info">{t('delegated to {name}', { name: a.delegated_to })}</span>
                                                 )}
                                                 {a.decided_by && (
                                                     <span>
-                                                        decided by {a.decided_by} {a.decided_at ? timeAgo(a.decided_at) : ''}
+                                                        {t('decided by {name}', { name: a.decided_by })} {a.decided_at ? timeAgo(a.decided_at) : ''}
                                                     </span>
                                                 )}
-                                                {a.created_at && <span title={formatDateTime(a.created_at)}>requested {timeAgo(a.created_at)}</span>}
+                                                {a.created_at && (
+                                                    <span title={formatDateTime(a.created_at)}>
+                                                        {t('requested {when}', { when: timeAgo(a.created_at) })}
+                                                    </span>
+                                                )}
                                                 {a.status === 'pending' && a.sla_due_at && (
-                                                    <span
-                                                        title={formatDateTime(a.sla_due_at)}
-                                                        className={overdue ? 'text-tone-warn' : ''}
-                                                    >
-                                                        decide {timeAgo(a.sla_due_at)}
+                                                    <span title={formatDateTime(a.sla_due_at)} className={overdue ? 'text-tone-warn' : ''}>
+                                                        {t('decide {when}', { when: timeAgo(a.sla_due_at) })}
                                                     </span>
                                                 )}
                                                 {a.status === 'pending' && a.expires_at && (
-                                                    <span title={formatDateTime(a.expires_at)}>expires {timeAgo(a.expires_at)}</span>
+                                                    <span title={formatDateTime(a.expires_at)}>
+                                                        {t('expires {when}', { when: timeAgo(a.expires_at) })}
+                                                    </span>
                                                 )}
                                             </div>
 
                                             {a.preview && (
                                                 <div className="bg-muted mt-3 rounded-lg p-3">
-                                                    <div className="hq-eyebrow mb-1">Would do</div>
+                                                    <div className="hq-eyebrow mb-1">{t('Would do')}</div>
                                                     <PreviewList preview={a.preview} />
                                                 </div>
                                             )}
                                             {a.decision_note && (
-                                                <p className="text-muted-foreground mt-2 text-xs italic">Reason given: {a.decision_note}</p>
+                                                <p className="text-muted-foreground mt-2 text-xs italic">
+                                                    {t('Reason given: {note}', { note: a.decision_note })}
+                                                </p>
                                             )}
                                             {a.execution_error && (
-                                                <p className="mt-2 text-xs text-tone-warn">
-                                                    Refused at execution: {a.execution_error}
+                                                <p className="text-tone-warn mt-2 text-xs">
+                                                    {t('Refused at execution: {error}', { error: a.execution_error })}
                                                 </p>
                                             )}
 
                                             <div className="mt-3">
-                                                <TechnicalDetail summary={`Technical detail · ${a.tool_key} v${a.tool_version}`}>
+                                                <TechnicalDetail summary={`${t('Technical detail')} · ${a.tool_key} v${a.tool_version}`}>
                                                     <JsonBlock value={a.payload} />
                                                 </TechnicalDetail>
                                             </div>
@@ -243,7 +252,7 @@ export default function ApprovalsIndex({
                                                             disabled={busy === a.id}
                                                             onClick={() => setDecision({ kind: 'approve', approval: a })}
                                                         >
-                                                            Approve
+                                                            {t('Approve')}
                                                         </Button>
                                                         <Button
                                                             size="sm"
@@ -251,7 +260,7 @@ export default function ApprovalsIndex({
                                                             disabled={busy === a.id}
                                                             onClick={() => setDecision({ kind: 'reject', approval: a })}
                                                         >
-                                                            Reject
+                                                            {t('Reject')}
                                                         </Button>
                                                     </>
                                                 )}
@@ -262,7 +271,7 @@ export default function ApprovalsIndex({
                                                         disabled={busy === a.id}
                                                         onClick={() => setDecision({ kind: 'delegate', approval: a })}
                                                     >
-                                                        Delegate
+                                                        {t('Delegate')}
                                                     </Button>
                                                 )}
                                                 <Button
@@ -271,7 +280,7 @@ export default function ApprovalsIndex({
                                                     disabled={busy === a.id}
                                                     onClick={() => setDecision({ kind: 'cancel', approval: a })}
                                                 >
-                                                    Withdraw
+                                                    {t('Withdraw')}
                                                 </Button>
                                             </div>
                                         )}
@@ -286,11 +295,12 @@ export default function ApprovalsIndex({
             <ConfirmDialog
                 open={decision?.kind === 'approve'}
                 onOpenChange={(o) => !o && setDecision(null)}
-                title={`Approve and run: ${decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key)}`}
+                title={t('Approve and run: {action}', { action: decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key) })}
                 description={
-                    decision?.approval.reason ?? 'The action runs once, exactly as shown on the card. Authority is checked again at execution time.'
+                    decision?.approval.reason ??
+                    t('The action runs once, exactly as shown on the card. Authority is checked again at execution time.')
                 }
-                confirmLabel="Approve and run"
+                confirmLabel={t('Approve and run')}
                 busy={busy !== null}
                 onConfirm={() => decision && submit(decision.approval, 'approve')}
             >
@@ -304,21 +314,21 @@ export default function ApprovalsIndex({
             <ConfirmDialog
                 open={decision?.kind === 'reject'}
                 onOpenChange={(o) => !o && setDecision(null)}
-                title={`Reject: ${decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key)}`}
-                description="Nothing runs. Whoever proposed this receives your reason as feedback."
-                confirmLabel="Reject"
+                title={t('Reject: {action}', { action: decision?.approval.tool_title ?? humanKey(decision?.approval.tool_key) })}
+                description={t('Nothing runs. Whoever proposed this receives your reason as feedback.')}
+                confirmLabel={t('Reject')}
                 destructive
                 busy={busy !== null}
-                reason={{ label: 'Why', placeholder: 'What is wrong with it, or what should happen instead.', required: true }}
+                reason={{ label: t('Why'), placeholder: t('What is wrong with it, or what should happen instead.'), required: true }}
                 onConfirm={(reason) => decision && submit(decision.approval, 'reject', { reason })}
             />
 
             <ConfirmDialog
                 open={decision?.kind === 'cancel'}
                 onOpenChange={(o) => !o && setDecision(null)}
-                title="Withdraw this request?"
-                description="The request is closed without a decision. Nothing runs, and a fresh request is needed to try again."
-                confirmLabel="Withdraw"
+                title={t('Withdraw this request?')}
+                description={t('The request is closed without a decision. Nothing runs, and a fresh request is needed to try again.')}
+                confirmLabel={t('Withdraw')}
                 busy={busy !== null}
                 onConfirm={() => decision && submit(decision.approval, 'cancel')}
             />
@@ -326,14 +336,19 @@ export default function ApprovalsIndex({
             <ConfirmDialog
                 open={decision?.kind === 'delegate'}
                 onOpenChange={(o) => !o && setDecision(null)}
-                title="Delegate to another approver"
-                description="They decide instead of you. The delegation is recorded on the approval."
-                confirmLabel="Delegate"
+                title={t('Delegate to another approver')}
+                description={t('They decide instead of you. The delegation is recorded on the approval.')}
+                confirmLabel={t('Delegate')}
                 busy={busy !== null || delegateTo === ''}
                 onConfirm={() => decision && submit(decision.approval, 'delegate', { user_id: Number(delegateTo) })}
             >
-                <Field label="Approver" htmlFor="delegate-approver">
-                    <NativeSelect id="delegate-approver" value={delegateTo} onChange={(e) => setDelegateTo(e.target.value)} aria-label="Approver">
+                <Field label={t('Approver')} htmlFor="delegate-approver">
+                    <NativeSelect
+                        id="delegate-approver"
+                        value={delegateTo}
+                        onChange={(e) => setDelegateTo(e.target.value)}
+                        aria-label={t('Approver')}
+                    >
                         {approvers.map((u) => (
                             <option key={u.id} value={u.id}>
                                 {u.email}
