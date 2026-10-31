@@ -11,6 +11,7 @@ use App\Models\Brand;
 use App\Models\ContentBrief;
 use App\Models\ContentCalendarEntry;
 use App\Models\ContentDraft;
+use App\Models\ContentTestimonial;
 use App\Models\User;
 use App\Playbooks\PlaybookGuidance;
 use App\Playbooks\PlaybookKind;
@@ -115,10 +116,13 @@ final class ContentCalendar
         return $entry;
     }
 
-    /** A person's own words become a checked draft for the entry. */
-    public function draftByPerson(User $by, ContentCalendarEntry $entry, string $text): ContentDraft
+    /**
+     * A person's own words become a checked draft for the entry. A person may quote a recorded testimonial
+     * (ChatGPT ruling 13): it is judged with the draft, and only a person's words can carry one.
+     */
+    public function draftByPerson(User $by, ContentCalendarEntry $entry, string $text, ?ContentTestimonial $testimonial = null, bool $testimonialEdited = false): ContentDraft
     {
-        return $this->draft($by, $entry, $text, Provenance::Business->value, null);
+        return $this->draft($by, $entry, $text, Provenance::Business->value, null, $testimonial, $testimonialEdited);
     }
 
     /** A connected caption drafter writes the words from the playbooks; they are labelled generated and checked the same way. */
@@ -144,8 +148,12 @@ final class ContentCalendar
         return $this->draft($by, $entry, $text, Provenance::Generated->value, $drafter->name());
     }
 
-    /** A person's review of the entry's draft. Only a checked draft can be approved; the words never change. */
-    public function review(User $by, ContentCalendarEntry $entry, string $verdict, ?string $note = null): ContentCalendarEntry
+    /**
+     * A person's review of the entry's draft. Only a checked draft can be approved; the words never change.
+     * Ruling 15 (31 Oct 2026): the writer approves their own draft only as the sole eligible reviewer, with a
+     * reason, recorded as self-decided; approval never authorises publication.
+     */
+    public function review(User $by, ContentCalendarEntry $entry, string $verdict, ?string $note = null, ?string $selfReason = null, ?string $confirmedDigest = null): ContentCalendarEntry
     {
         $this->mayAct($by, (int) $entry->business_id);
         $draft = $entry->draft;
@@ -153,11 +161,13 @@ final class ContentCalendar
             throw new ResearchRefused('Only an entry with a draft waiting for review can be reviewed.');
         }
 
-        return DB::transaction(function () use ($by, $entry, $draft, $verdict, $note): ContentCalendarEntry {
-            $this->drafts->review($draft, $verdict, $by);
+        return DB::transaction(function () use ($by, $entry, $draft, $verdict, $note, $selfReason, $confirmedDigest): ContentCalendarEntry {
+            $draft = $this->drafts->review($draft, $verdict, $by, $selfReason, $confirmedDigest);
             $entry->forceFill(['status' => $verdict === 'approved' ? 'approved' : 'planned', 'draft_id' => $verdict === 'approved' ? $draft->getKey() : null])->save();
             $this->auditor->record('content.calendar.reviewed', $entry,
-                after: ['verdict' => $verdict, 'draft' => $draft->uuid, 'self_reviewed' => (int) $draft->created_by === (int) $by->getKey()],
+                after: ['verdict' => $verdict, 'draft' => $draft->uuid, 'self_reviewed' => (int) $draft->created_by === (int) $by->getKey(),
+                    'self_decided' => (bool) $draft->self_decided, 'self_decided_reason' => $draft->self_decided_reason,
+                    'self_decided_at' => $draft->self_decided_at?->toIso8601String(), 'publication_authorised' => false],
                 reason: $note, actorUserId: $by->getKey());
 
             return $entry;
@@ -200,7 +210,7 @@ final class ContentCalendar
         return ContentBrief::query()->where('brand_id', $brandId)->whereNotNull('approved_at')->orderByDesc('version')->first();
     }
 
-    private function draft(User $by, ContentCalendarEntry $entry, string $text, string $provenance, ?string $drafter): ContentDraft
+    private function draft(User $by, ContentCalendarEntry $entry, string $text, string $provenance, ?string $drafter, ?ContentTestimonial $testimonial = null, bool $testimonialEdited = false): ContentDraft
     {
         $this->mayAct($by, (int) $entry->business_id);
         if (! in_array($entry->status, ['planned', 'drafted'], true)) {
@@ -211,7 +221,7 @@ final class ContentCalendar
             throw new ResearchRefused('This brand has no approved content brief, so no draft can be checked. A brief is the owner\'s to write.');
         }
 
-        return DB::transaction(function () use ($by, $entry, $text, $provenance, $drafter, $brief): ContentDraft {
+        return DB::transaction(function () use ($by, $entry, $text, $provenance, $drafter, $brief, $testimonial, $testimonialEdited): ContentDraft {
             $parent = $entry->status === 'drafted' && $entry->draft_id !== null ? (int) $entry->draft_id : null;
             $draft = $this->drafts->create([
                 'brief_id' => $brief->getKey(),
@@ -221,10 +231,12 @@ final class ContentCalendar
                 'product_lines' => array_values((array) $entry->product_lines),
                 'product_facts' => [],
                 'parent_draft_id' => $parent,
+                'testimonial_id' => $testimonial?->getKey(),
+                'testimonial_edited' => $testimonialEdited,
             ], $by);
             $entry->forceFill(['status' => 'drafted', 'draft_id' => $draft->getKey()])->save();
             $this->auditor->record('content.calendar.drafted', $entry,
-                after: ['draft' => $draft->uuid, 'text_provenance' => $provenance, 'drafter' => $drafter, 'checks_passed' => $draft->status === 'checked'],
+                after: ['draft' => $draft->uuid, 'text_provenance' => $provenance, 'drafter' => $drafter, 'checks_passed' => $draft->status === 'checked', 'testimonial' => $testimonial?->uuid],
                 actorUserId: $by->getKey());
 
             return $draft;

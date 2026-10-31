@@ -24,6 +24,10 @@ use Throwable;
  * not, leaves one append-only `agent_delegations` row and one audit line.
  *
  * ⛔ Off: the flag `agents.delegation` has no row, and Pause All AI refuses it too.
+ *
+ * ChatGPT ruling 16 (31 Oct 2026): RECORD-ONLY until Phase 9 evidence and a separate activation ruling.
+ * `DelegatedRunStarter` is not to be built or bound; this class, and nothing else in HQ, starts another
+ * agent's execution from a delegation (a structural test pins it). No cross-agent runtime authority.
  */
 final class Delegations
 {

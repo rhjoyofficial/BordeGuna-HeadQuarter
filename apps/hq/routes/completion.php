@@ -24,6 +24,9 @@ Route::prefix('content')->name('content.')->group(function () {
     Route::post('calendar/{entry}/skip', [ContentController::class, 'skip'])->middleware('permission:hq.content.plan')->name('skip');
     Route::post('claims-rules', [ContentController::class, 'storeRule'])->middleware('permission:hq.content.claims.manage')->name('claims.store');
     Route::post('claims-rules/{rule}/retire', [ContentController::class, 'retireRule'])->middleware('permission:hq.content.claims.manage')->name('claims.retire');
+    // Ruling 13 (31 Oct 2026): recorded testimonials, written and withdrawn by a person who manages the claims rules.
+    Route::post('testimonials', [ContentController::class, 'storeTestimonial'])->middleware('permission:hq.content.claims.manage')->name('testimonials.store');
+    Route::post('testimonials/{testimonial}/revoke', [ContentController::class, 'revokeTestimonial'])->middleware('permission:hq.content.claims.manage')->name('testimonials.revoke');
 });
 
 // Phase 6: research digests, assembled from filed, cited research.

@@ -109,7 +109,7 @@ it('refuses a grant above the threshold\'s level, for a human-only tool, or whil
     expect(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0);
 });
 
-it('makes a ladder grant absent the moment the evidence stops meeting the numbers, and revokes it when the threshold is retired', function () {
+it('lapses a ladder grant, one-way, the moment the evidence stops meeting the numbers; it stays lapsed when the evidence recovers', function () {
     alEvidence($this->laladia);
     $this->actingAsHq($this->owner)->post('/autonomy/thresholds', alThreshold())->assertSessionHasNoErrors();
     $this->actingAsHq($this->owner)->post('/autonomy/grants', ['business_id' => $this->laladia->id, 'tool_key' => AL_TOOL, 'level' => 'a2', 'reason' => 'earned'])->assertSessionHasNoErrors();
@@ -117,19 +117,24 @@ it('makes a ladder grant absent the moment the evidence stops meeting the number
 
     // One failed run: 1 error in 4 executed is 250 per 1,000, above the 100 allowed.
     M4::proposal($this->laladia->id, AL_TOOL, 'consumed', 'failed');
-    expect(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0);
+    expect(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0)
+        ->and(AutonomyGrant::query()->sole()->status)->toBe('lapsed')
+        ->and(AutonomyGrant::query()->sole()->lapse_code)->toBe('evidence_below_threshold');
 
+    // Ruling 17 (31 Oct 2026): the evidence recovering does NOT bring the grant back.
     foreach (range(1, 20) as $i) {
         M4::proposal($this->laladia->id, AL_TOOL, 'consumed', 'succeeded');
     }
-    expect(alLevel($this->laladia->id))->toBe(AutonomyLevel::A2);
+    expect(app(ToolEvidenceLadder::class)->judge($this->laladia->id, AL_TOOL)['met'])->toBeTrue()
+        ->and(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0)
+        ->and(AutonomyGrant::query()->sole()->status)->toBe('lapsed');
 
     $threshold = AutonomyLadderThreshold::query()->sole();
     expect(fn () => DB::transaction(fn () => AutonomyLadderThreshold::query()->whereKey($threshold->id)->update(['min_approved_succeeded' => 1])))->toThrow(QueryException::class)
         ->and(fn () => DB::transaction(fn () => AutonomyLadderThreshold::query()->whereKey($threshold->id)->delete()))->toThrow(QueryException::class);
 
     $this->actingAsHq($this->owner)->post("/autonomy/thresholds/{$threshold->uuid}/retire", ['reason' => 'rethink'])->assertSessionHasNoErrors();
-    expect(AutonomyGrant::query()->sole()->status)->toBe('revoked')->and(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0);
+    expect(AutonomyGrant::query()->sole()->status)->toBe('lapsed')->and(alLevel($this->laladia->id))->toBe(AutonomyLevel::A0);
 });
 
 it('counts only agent proposals of this tool in this business inside the window; a person\'s own requests are not evidence', function () {

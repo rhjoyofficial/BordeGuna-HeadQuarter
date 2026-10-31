@@ -2,12 +2,14 @@
 
 namespace App\Ai\Pause;
 
+use App\Autonomy\Ladder\LadderGrantLapse;
 use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\GroupWideAuthority;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * Pause All AI and turning it back on (docs/138 ruling 7 and section 3, docs/141). Two operations, never
@@ -27,6 +29,9 @@ use InvalidArgumentException;
  * approval, pause or resume a scheduled job, change `ai.runtime`, an agent's status or a grant, reset a
  * circuit breaker or restart a provider. It writes the one row and the audit row. Re-enabling likewise
  * writes only the row: it does not turn `ai.runtime` on, and every other switch is exactly where it was.
+ *
+ * The one exception (ChatGPT ruling 17, 31 Oct 2026): pausing LAPSES every autonomy grant made through the
+ * evidence ladder, one-way (`LadderGrantLapse`). Re-enabling restores none of them; a person grants anew.
  */
 final class AiPauseSwitch
 {
@@ -63,6 +68,13 @@ final class AiPauseSwitch
                 ? DB::table(AiPause::TABLE)->where('id', AiPause::ROW)->update($values)
                 : DB::table(AiPause::TABLE)->insert(['id' => AiPause::ROW] + $values);
         });
+
+        // Ruling 17: ladder grants lapse, one-way. A failure here never undoes the pause; the resolver and the
+        // sweep lapse any grant left behind at their next look.
+        try {
+            app(LadderGrantLapse::class)->lapseAll('ai_paused', 'Pause All AI was turned on: '.$reason);
+        } catch (Throwable) {
+        }
 
         $after = $this->reader->state();
         $this->auditor->record('ai.paused', AiPause::TABLE, before: $this->forAudit($before), after: $this->forAudit($after), reason: $reason,

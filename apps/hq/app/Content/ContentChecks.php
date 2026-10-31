@@ -10,6 +10,7 @@ use App\Briefing\Freshness;
 use App\Briefing\NarrativeNumberCheck;
 use App\Models\Brand;
 use App\Models\ContentBrief;
+use App\Models\ContentTestimonial;
 use Carbon\CarbonImmutable;
 
 /**
@@ -24,6 +25,11 @@ use Carbon\CarbonImmutable;
  * 3. **Banned words** of the brief.
  * 4. (docs/145-a) the owner's active `content_claims_rules` for the business and the `ClaimsFloor`
  *    (no unproven health claim, no testimonial), merged into the policy by `ClaimsRulebook`; each only adds.
+ * 5. (ChatGPT ruling 13, 31 Oct 2026) a draft that names a recorded testimonial is judged by
+ *    `ContentTestimonials::judge()`. Only when every condition holds is the floor's `floor.testimonial`
+ *    phrase rule waived, for that draft only. Every other rule (the health floor, the owner's rules,
+ *    banned words, numbers) still runs on the whole text, quote included. A named testimonial that does
+ *    not qualify fails the draft.
  *
  * ⛔ A draft that fails goes to a person marked failed. Nothing here, or anywhere, corrects the text.
  */
@@ -34,14 +40,16 @@ final class ContentChecks
     public function __construct(
         private readonly NarrativeNumberCheck $numbers,
         private readonly ClaimsRulebook $rulebook,
+        private readonly ContentTestimonials $testimonials,
     ) {}
 
     /**
      * @param  list<string>  $productLines
      * @param  list<ProductFact>  $facts
      * @param  list<array<string, mixed>>  $citedClaims  research claims the draft relies on
+     * @param  array{testimonial: ContentTestimonial, text_provenance: string, platform: string, assets: list<array{media_asset_id: int, role: string}>, edited: bool}|null  $quote
      */
-    public function run(string $text, ContentBrief $brief, array $productLines, array $facts, array $citedClaims, ?string $business = null, ?string $brand = null): array
+    public function run(string $text, ContentBrief $brief, array $productLines, array $facts, array $citedClaims, ?string $business = null, ?string $brand = null, ?array $quote = null): array
     {
         // docs/145-a: the brief's policy, plus the owner's active rules for the business, plus the floor.
         $policy = $this->rulebook->policyFor($brief, (int) Brand::query()->whereKey($brief->brand_id)->value('business_id'));
@@ -50,9 +58,21 @@ final class ContentChecks
         $violations = $policy->violations($text, $productLines);
         $banned = $policy->bannedWordsIn($text);
 
+        // Ruling 13: the narrow testimonial exception. It can only remove the floor's testimonial phrase rule;
+        // a testimonial that does not qualify keeps every violation and fails the draft by itself.
+        $testimonial = null;
+        if ($quote !== null) {
+            $testimonial = $this->testimonials->judge($quote['testimonial'], $text, (string) $quote['text_provenance'],
+                (int) Brand::query()->whereKey($brief->brand_id)->value('business_id'), (int) $brief->brand_id,
+                (string) $quote['platform'], (array) ($quote['assets'] ?? []), (bool) ($quote['edited'] ?? false));
+            if ($testimonial['applies']) {
+                $violations = array_values(array_filter($violations, static fn (array $v): bool => $v['rule'] !== ContentTestimonials::WAIVABLE_RULE));
+            }
+        }
+
         $numbers = $this->numbers->check($text, self::bundle($facts, $citedClaims, $business, $brand));
 
-        $claimsPassed = $uncovered === [] && $productLines !== [] && $violations === [];
+        $claimsPassed = $uncovered === [] && $productLines !== [] && $violations === [] && ($testimonial === null || $testimonial['applies']);
 
         return [
             'passed' => $numbers->passed() && $claimsPassed && $banned === [],
@@ -70,7 +90,9 @@ final class ContentChecks
                 'product_lines' => $productLines,
                 'uncovered_product_lines' => $uncovered,
                 'violations' => $violations,
+                'testimonial' => $testimonial,
                 'why' => match (true) {
+                    $testimonial !== null && ! $testimonial['applies'] => 'The quoted testimonial does not qualify: '.implode(' ', $testimonial['reasons']),
                     $productLines === [] => 'The draft names no product line, so no claims policy can be applied to it.',
                     $uncovered !== [] => 'No claims policy covers '.implode(', ', $uncovered).'. HQ never infers what may be claimed about a product.',
                     $violations !== [] => 'The copy uses a phrase the owner\'s claims policy forbids.',

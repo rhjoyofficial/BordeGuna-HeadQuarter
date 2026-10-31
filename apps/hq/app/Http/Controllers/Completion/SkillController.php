@@ -46,6 +46,8 @@ final class SkillController extends Controller
                 'required_tools' => array_values((array) $s->required_tools), 'business' => $s->business?->name ?? null, 'group_wide' => $s->business_id === null,
                 'proposer_type' => $s->proposer_type, 'status' => $s->status, 'status_reason' => $s->status_reason,
                 'self_decided' => $s->approved_by !== null && (int) $s->approved_by === (int) $s->created_by,
+                // Ruling 15: the viewer cannot approve or activate a skill they wrote.
+                'own' => SkillCatalogue::isAuthor((int) $user->getKey(), $s),
             ]);
 
         $delegations = AgentDelegation::query()->when($restricted, fn ($q) => $q->visibleTo($user))->orderByDesc('id')->limit(100)->get()

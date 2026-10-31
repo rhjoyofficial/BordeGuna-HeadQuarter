@@ -7,6 +7,7 @@ use App\Content\ContentDigest;
 use App\Content\ProductFact;
 use App\Models\ContentBrief;
 use App\Models\ContentDraft;
+use App\Models\ContentTestimonial;
 use App\Models\ContentPublication;
 use App\Models\PlatformAccount;
 use App\Models\ResearchArtifact;
@@ -209,7 +210,14 @@ final class PublicationService
         }
 
         $lines = (array) ($draft->checks['claims_policy']['product_lines'] ?? []);
-        $result = $this->checks->run((string) $draft->text, $brief, $lines, $liveFacts, $cited);
+        // Ruling 13 (31 Oct 2026): a quoted testimonial is judged again now, so a withdrawn or lapsed consent stops publication.
+        $quote = null;
+        if ($draft->testimonial_id !== null) {
+            $quote = ['testimonial' => ContentTestimonial::query()->findOrFail($draft->testimonial_id), 'text_provenance' => (string) $draft->text_provenance,
+                'platform' => (string) $draft->platform, 'assets' => (array) $draft->assets,
+                'edited' => (bool) ($draft->checks['claims_policy']['testimonial']['edited'] ?? false)];
+        }
+        $result = $this->checks->run((string) $draft->text, $brief, $lines, $liveFacts, $cited, null, null, $quote);
         if (! $result['passed']) {
             throw new ResearchRefused('The checks fail against live product facts (a price or a fact changed since approval, or the policy changed). The owner decides again.');
         }

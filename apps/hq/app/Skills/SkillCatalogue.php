@@ -18,8 +18,9 @@ use Throwable;
  * A skill is a named procedure limited to the tools it lists. Its life:
  *
  *   proposed  (a person, or an agent's proposal recorded by a person's tool; never self-activating)
- *   approved  (a person with hq.skills.activate read it)
- *   active    (a person with hq.skills.activate switched it on; one active version per key)
+ *   approved  (a person with hq.skills.activate read it, who is NOT its author)
+ *   active    (a person with hq.skills.activate switched it on, who is NOT its author, after an approval by
+ *              someone who is not its author either; one active version per key)
  *   suspended (anyone who may manage skills, at once: the safe direction)
  *   retired
  *
@@ -27,6 +28,11 @@ use Throwable;
  * (`ExecutionContextResolver::resolveDelegated`); every call still goes through the gateway with its own
  * permission, policy, approval and consent. A skill may not list a permanently human-only tool, and a tool
  * that is not registered is refused at proposal time.
+ *
+ * ChatGPT ruling 15 (31 Oct 2026): skills influence agent behaviour, so they need stronger review than a
+ * draft. The author (the person who proposed it, or recorded an agent's proposal, and the named owner) may
+ * create and edit a draft but can NEVER approve or activate it, not even as the only reviewer. A separate
+ * eligible reviewer is required; until one exists the skill stays an inactive draft.
  */
 final class SkillCatalogue
 {
@@ -83,11 +89,18 @@ final class SkillCatalogue
 
     public function approve(User $by, Skill $skill, string $note): Skill
     {
+        $this->notAuthor($by, $skill, 'approve');
+
         return $this->move($by, $skill, ['proposed'], 'approved', $note, ['approved_by' => $by->getKey(), 'approved_at' => now()]);
     }
 
     public function activate(User $by, Skill $skill, string $note): Skill
     {
+        $this->notAuthor($by, $skill, 'activate');
+        // An approval recorded by the author (before the 31 Oct ruling) is not an independent review.
+        if ($skill->approved_by === null || self::isAuthor((int) $skill->approved_by, $skill)) {
+            throw new ResearchRefused('This skill has no approval by an independent reviewer, so it stays inactive. A person other than its author approves it first.');
+        }
         // The tools are read again: a tool unregistered or made human-only since approval stops activation.
         $this->checkTools((array) $skill->required_tools);
 
@@ -133,6 +146,20 @@ final class SkillCatalogue
 
             return $locked;
         });
+    }
+
+    /** Ruling 15: the author of a skill never approves or activates it. */
+    private function notAuthor(User $by, Skill $skill, string $act): void
+    {
+        if (self::isAuthor((int) $by->getKey(), $skill)) {
+            throw new ResearchRefused("You are the author of this skill, so you cannot {$act} it. A separate eligible reviewer must; until then it stays inactive.");
+        }
+    }
+
+    public static function isAuthor(int $userId, Skill $skill): bool
+    {
+        return ($skill->created_by !== null && (int) $skill->created_by === $userId)
+            || ($skill->owner_user_id !== null && (int) $skill->owner_user_id === $userId);
     }
 
     /** @return list<string> */
