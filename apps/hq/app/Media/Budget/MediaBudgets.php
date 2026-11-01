@@ -8,6 +8,8 @@ use App\Models\MediaBudgetEntry;
 use App\Models\User;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Money\FxRates;
+use App\Support\Money\FxRateUnavailable;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -21,8 +23,9 @@ use Illuminate\Support\Str;
  *  - A paid provider call RESERVES its estimate first. The reservation locks the business's budget row (`SELECT ... FOR UPDATE`),
  *    sums the month's ledger and refuses if the estimate would take it over the limit, all in one transaction, so concurrent
  *    reservations are serialised and can never add up to more than the limit.
- *  - The estimate is converted to BDT conservatively (configured rate plus a safety margin, rounded UP to the paisa). An unknown
- *    price, an unknown currency or an empty rate is a refusal, never a guess.
+ *  - The estimate is converted to BDT conservatively: the owner's dated RESERVE rate (`FxRates`, ruling 1 Nov 2026), rounded UP
+ *    to the paisa, and the ledger line records which rate row it used. An unknown price, a currency other than BDT or USD, or a
+ *    missing, expired or invalid rate is a refusal, never a guess.
  *  - After the call: COMMIT (spent, or uncertain), RELEASE (the provider definitely did not run it), and later RECONCILE against the
  *    provider's reported cost. Estimate and actual stay side by side; a reconciled line counts at its actual.
  *  - No borrowing: a reservation is counted only against its own business. No AI path changes a limit: `setLimit()` takes a person
@@ -38,7 +41,7 @@ final class MediaBudgets
 
     private const SCALE = 6;
 
-    public function __construct(private readonly Auditor $auditor, private readonly BusinessScope $scope) {}
+    public function __construct(private readonly Auditor $auditor, private readonly BusinessScope $scope, private readonly FxRates $fx) {}
 
     /** The Asia/Dhaka business month, YYYY-MM. */
     public function period(?CarbonInterface $at = null): string
@@ -89,9 +92,10 @@ final class MediaBudgets
     }
 
     /**
-     * Converts a provider cost to BDT conservatively: rate plus the safety margin, rounded UP to the paisa.
+     * Converts a provider cost to BDT conservatively: the owner's reserve rate, rounded UP to the paisa. A USD cost with a missing,
+     * expired or invalid rate is refused (fail closed); a currency other than BDT or USD has no rate at all and is refused.
      *
-     * @return array{rate: string, bdt: string}
+     * @return array{rate: string, bdt: string, fx_rate_id: int|null}
      */
     public function toBdt(MediaCost $cost): array
     {
@@ -100,19 +104,18 @@ final class MediaBudgets
             throw new MediaBudgetRefused('The cost of this media operation cannot be established, so it is refused.');
         }
         if ($currency === 'BDT') {
-            return ['rate' => '1.000000', 'bdt' => self::ceilMoney($cost->amount)];
+            return ['rate' => '1.000000', 'bdt' => self::ceilMoney($cost->amount), 'fx_rate_id' => null];
         }
-        $rate = config("hq.media.budget.fx_to_bdt.{$currency}");
-        if ($rate === null || $rate === '' || ! is_numeric((string) $rate) || bccomp((string) $rate, '0', self::SCALE) <= 0) {
-            throw new MediaBudgetRefused("No safe {$currency} to BDT rate is configured, so the cost cannot be converted and the operation is refused.");
+        if ($currency !== FxRates::BASE) {
+            throw new MediaBudgetRefused("HQ keeps no {$currency} to BDT rate (only USD has an owner-set rate), so the cost cannot be converted and the operation is refused.");
         }
-        $margin = (string) config('hq.media.budget.fx_safety_margin_percent', '5');
-        if (! is_numeric($margin) || bccomp($margin, '0', self::SCALE) < 0) {
-            throw new MediaBudgetRefused('The currency safety margin is not valid, so the cost cannot be converted safely.');
+        try {
+            ['rate' => $rate, 'fx_rate_id' => $rateId] = $this->fx->reserveRate();
+        } catch (FxRateUnavailable $e) {
+            throw new MediaBudgetRefused('Paid media is refused: '.$e->getMessage());
         }
-        $conservative = bcmul((string) $rate, bcadd('1', bcdiv($margin, '100', self::SCALE), self::SCALE), self::SCALE);
 
-        return ['rate' => $conservative, 'bdt' => self::ceilMoney(bcmul($cost->amount, $conservative, self::SCALE))];
+        return ['rate' => $rate, 'bdt' => self::ceilMoney(bcmul($cost->amount, $rate, self::SCALE)), 'fx_rate_id' => $rateId];
     }
 
     /**
@@ -128,10 +131,10 @@ final class MediaBudgets
         if ($estimate === null) {
             throw new MediaBudgetRefused("The cost of [{$provider}] is not known (no price is configured), so this paid media operation is refused.");
         }
-        ['rate' => $rate, 'bdt' => $bdt] = $this->toBdt($estimate);
+        ['rate' => $rate, 'bdt' => $bdt, 'fx_rate_id' => $rateId] = $this->toBdt($estimate);
         $period = $this->period();
 
-        return DB::transaction(function () use ($businessId, $kind, $provider, $toolKey, $reference, $estimate, $userId, $rate, $bdt, $period): MediaBudgetEntry {
+        return DB::transaction(function () use ($businessId, $kind, $provider, $toolKey, $reference, $estimate, $userId, $rate, $rateId, $bdt, $period): MediaBudgetEntry {
             // The serialisation point: every reservation of this business takes this row lock first.
             $budget = MediaBudget::query()->where('business_id', $businessId)->lockForUpdate()->first();
 
@@ -152,6 +155,7 @@ final class MediaBudgets
             $values = [
                 'period' => $period, 'kind' => $kind, 'provider' => mb_substr($provider, 0, 64), 'tool_key' => mb_substr($toolKey, 0, 64),
                 'estimate_amount' => $estimate->amount, 'estimate_currency' => strtoupper($estimate->currency), 'fx_rate_to_bdt' => $rate,
+                'fx_rate_id' => $rateId,
                 'estimate_bdt' => $bdt, 'state' => MediaBudgetEntry::RESERVED, 'basis' => mb_substr($estimate->basis, 0, 255),
                 'requested_by_user_id' => $userId, 'actual_amount' => null, 'actual_currency' => null, 'actual_bdt' => null,
             ];

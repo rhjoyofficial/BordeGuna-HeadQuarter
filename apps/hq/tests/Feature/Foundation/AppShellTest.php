@@ -80,8 +80,9 @@ it('keeps every sidebar entry pointing at a real screen behind the permission it
     // docs/143's three flag-gated owner-console screens (Do plans, Batch review, Event watches), docs/145's five
     // (Content, Research digests, Avatar consent, Skills, Autonomy ladder) and docs/144's five connector screens
     // (Parcels, Supplier documents, Reel drafts, Paused ad drafts, Connectors). Recounted from the merged sidebar (docs/146).
-    expect($entries)->toHaveCount(39)
-        ->and(array_unique(array_column($entries, 'url')))->toHaveCount(39);
+    // 40 since the ruling of 1 Nov 2026 added the Exchange rate screen.
+    expect($entries)->toHaveCount(40)
+        ->and(array_unique(array_column($entries, 'url')))->toHaveCount(40);
 
     $routes = collect(Route::getRoutes()->getRoutes())->filter(fn ($r) => in_array('GET', $r->methods(), true));
 

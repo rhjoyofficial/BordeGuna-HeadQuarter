@@ -120,6 +120,9 @@ class RolesAndPermissionsSeeder extends Seeder
         // Ruling 31 Oct item 12 (R2, docs/147-r2): setting a business's monthly media budget and reconciling a provider's billed
         // cost. Held through '*' by owner and operator; `MediaBudgets::setLimit()` also requires the OWNER role.
         'hq.media.budget.manage',
+        // Ruling 1 Nov 2026: setting the owner's USD to BDT rate (the Exchange rate screen). It acts on every business, so it also
+        // needs group-wide authority, like Pause All AI. Owner and operator hold it through '*'; no other role is given it.
+        'hq.fx.manage',
     ];
 
     public const ROLES = [

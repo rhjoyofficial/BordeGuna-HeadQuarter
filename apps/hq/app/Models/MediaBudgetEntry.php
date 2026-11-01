@@ -24,7 +24,7 @@ class MediaBudgetEntry extends Model
     protected $table = 'media_budget_ledger';
 
     protected $fillable = ['uuid', 'business_id', 'period', 'kind', 'provider', 'tool_key', 'reference', 'estimate_amount', 'estimate_currency',
-        'fx_rate_to_bdt', 'estimate_bdt', 'actual_amount', 'actual_currency', 'actual_bdt', 'state', 'basis', 'requested_by_user_id',
+        'fx_rate_to_bdt', 'fx_rate_id', 'estimate_bdt', 'actual_amount', 'actual_currency', 'actual_bdt', 'state', 'basis', 'requested_by_user_id',
         'reconciled_by_user_id', 'reconciled_at'];
 
     protected function casts(): array

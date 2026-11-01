@@ -117,6 +117,9 @@ const BANGLA_SCREENS = [
     // R2 (ruling 31 Oct item 12): the media budget panel on the Connectors screen, and the Connectors screen itself.
     'js/components/connectors/media-budget-panel.tsx',
     'js/pages/connectors/index.tsx',
+    // Ruling 1 Nov 2026: the Exchange rate screen, and the cost component that states the rate and its date.
+    'js/pages/fx-rate/index.tsx',
+    'js/components/ai-cost.tsx',
 ];
 
 /** The literals a screen passes to `t()` or to a prop the shared components translate. */

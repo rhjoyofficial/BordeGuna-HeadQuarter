@@ -12,17 +12,19 @@ use App\Models\AiRun;
 use App\Models\AuditLog;
 use App\Models\EvaluationRun;
 use App\Support\Money\UsdBdtRate;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\OutputStyle;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\Support\Ai\FixtureProvider;
+use Tests\Support\Money\Fx;
 
 /*
  | Joy's rule, amounts always in BDT, applied to the text the SERVER writes about a model cost: the
  | briefing footer, the budget refusal, the operator commands. BDT comes first and the stored USD
  | figure sits beside it in brackets. Only the text changes: costs are still stored, capped and
- | compared in USD, and the rate is the one `UsdBdtRate` reads (default 130), never a second source.
+ | compared in USD, and the rate is the owner's dated reference rate (`FxRates`), never a second source.
  */
 
 beforeEach(function () {
@@ -30,7 +32,8 @@ beforeEach(function () {
     FixtureProvider::reset();
     aiProviders();
     enableAiRuntime();
-    config(['hq.ads.draft.usd_bdt_rate' => '130']);
+    // The owner's dated reference rate (ruling 1 Nov 2026); 130 keeps the arithmetic below easy to read.
+    Fx::set('130.00', '136.50');
 });
 
 it('writes BDT first with the USD figure in brackets, and USD alone when no rate is configured', function () {
@@ -38,7 +41,8 @@ it('writes BDT first with the USD figure in brackets, and USD alone when no rate
         ->and(UsdBdtRate::display(5.0, 6))->toBe('BDT 650.00 (USD 5.000000)')
         ->and(UsdBdtRate::display(null))->toBe('BDT 0.00 (USD 0.0000)');
 
-    config(['hq.ads.draft.usd_bdt_rate' => '']);
+    // A stale rate is not shown as BDT: the text falls back to the stored USD alone.
+    Fx::set('130.00', '136.50', CarbonImmutable::now()->subDays(40), CarbonImmutable::now()->subDay());
     expect(UsdBdtRate::display('0.887800'))->toBe('USD 0.8878');
 });
 

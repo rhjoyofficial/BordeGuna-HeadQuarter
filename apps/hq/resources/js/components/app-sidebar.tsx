@@ -21,6 +21,7 @@ import {
     GitCompareArrows,
     HeartPulse,
     KeyRound,
+    Landmark,
     Layers,
     LayoutGrid,
     ListChecks,
@@ -120,6 +121,8 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Connectors', url: '/connectors', icon: Plug, permission: 'hq.connectors.view' },
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
+            // Ruling 1 Nov 2026: the owner's USD to BDT rate, dated and audited (media budgets reserve at it; AI costs show with it).
+            { title: 'Exchange rate', url: '/fx-rate', icon: Landmark, permission: 'hq.ai.cost.view' },
             { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
             // docs/145-c and 145-d: the skill registry and the evidence ladder.
             { title: 'Skills', url: '/skills', icon: Puzzle, permission: 'hq.skills.view' },
