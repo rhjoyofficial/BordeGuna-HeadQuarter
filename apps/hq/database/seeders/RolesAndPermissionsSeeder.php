@@ -146,6 +146,10 @@ class RolesAndPermissionsSeeder extends Seeder
             // docs/113 section 4: the person who hears a promise can record it.
             'hq.followups.view', 'hq.followups.propose'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view', 'hq.ai.cost.view'],
+        // docs/149 (architecture ruling 1 Nov 2026): the least-privilege second approver. Sees and decides approvals of
+        // its own businesses (App\Support\Authorization\ApproverRole: confirmed 2FA, business scope rows required, never
+        // its own proposal, and each category's domain permission assigned per person, never bundled here). Nothing else.
+        'approver' => ['hq.dashboard.view', 'hq.approvals.view', 'hq.approvals.decide'],
     ];
 
     public function run(): void

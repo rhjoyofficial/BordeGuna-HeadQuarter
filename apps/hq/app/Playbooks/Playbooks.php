@@ -8,6 +8,7 @@ use App\Models\PlaybookVersion;
 use App\Models\PlaybookVersionEvent;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\BusinessScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -145,6 +146,10 @@ final class Playbooks
      */
     public function review(User $by, PlaybookVersion $version, bool $approved, string $note): PlaybookVersion
     {
+        // docs/149: an `approver` reviews only in their businesses and never a version they drafted.
+        if (($barred = app(ApproverRole::class)->refusal($by, $version->business_id !== null ? (int) $version->business_id : null, [$version->drafted_by], self::REVIEW)) !== null) {
+            throw new InvalidArgumentException("Not reviewed: {$barred}");
+        }
         // A person without the permission is refused for that, by the transition, before independence is asked.
         $selfReview = $approved && (int) $version->drafted_by === (int) $by->getKey() && $this->personRefusals($by, self::REVIEW) === [];
         if ($selfReview && ($others = $this->otherEligibleReviewers($version, $by)) > 0) {

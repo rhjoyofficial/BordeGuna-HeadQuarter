@@ -6,6 +6,7 @@ use App\Ingestion\Extraction\BillChecks;
 use App\Models\Business;
 use App\Models\IngestedDocument;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\BusinessScope;
 use App\Support\Http\ListPage;
 use Illuminate\Http\RedirectResponse;
@@ -76,6 +77,10 @@ final class IngestionController extends ConnectorController
             'confirm' => ['nullable', 'array'], 'confirm.*' => ['string', Rule::in(IngestedDocument::REVIEW_FIELDS)]]);
         if (! in_array($d->status, [IngestedDocument::DRAFT, IngestedDocument::ERP_FAILED], true)) {
             throw ValidationException::withMessages(['decision' => 'This document has already been decided.']);
+        }
+        // docs/149: an `approver` decides only documents of their businesses, with hq.ingestion.review assigned.
+        if (($barred = app(ApproverRole::class)->refusal($request->user(), $d->business_id !== null ? (int) $d->business_id : null, [], 'hq.ingestion.review')) !== null) {
+            abort(403, $barred);
         }
 
         // Ruling 31 Oct item 10: marking a document reviewed needs an explicit confirmation of EVERY listed field (vendor, invoice
