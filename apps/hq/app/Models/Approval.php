@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Gateway\Approval\ApprovalStatus;
 use App\Gateway\Approval\CanonicalPayload;
 use App\Gateway\Descriptor\RiskTier;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\BusinessScope;
 use App\Tools\ToolRegistry;
 use Carbon\CarbonImmutable;
@@ -254,7 +255,41 @@ class Approval extends Model
             return 'This approval is delegated to somebody else.';
         }
 
-        return null;
+        return $this->approverRoleReason($user);
+    }
+
+    /**
+     * docs/149: the least-privilege `approver` role. Adds to the rules above, never replaces them, and says nothing
+     * for a person without the role. Its category is the tool's own domain permission, read from the deployed
+     * descriptor; a tool that cannot be described is not an approver's to decide.
+     */
+    private function approverRoleReason(User $user): ?string
+    {
+        if (! ApproverRole::holds($user)) {
+            return null;
+        }
+
+        $registry = app(ToolRegistry::class);
+        try {
+            $permission = $registry->has((string) $this->tool_key) ? $registry->get((string) $this->tool_key)->descriptor()->permission : null;
+        } catch (Throwable) {
+            $permission = null;
+        }
+        if ($permission === null) {
+            return 'This action is no longer described, so it is not an approver\'s to decide.';
+        }
+
+        $own = [$this->requested_by_user_id, $this->enabled_by_user_id];
+        if ($this->getKey() !== null) {
+            $plan = DoPlan::query()->whereIn('id', DoPlanStep::query()->where('approval_id', $this->getKey())->select('do_plan_id'))
+                ->first(['id', 'proposed_by_user_id', 'started_by_user_id']);
+            if ($plan !== null) {
+                $own[] = $plan->proposed_by_user_id;
+                $own[] = $plan->started_by_user_id;
+            }
+        }
+
+        return app(ApproverRole::class)->refusal($user, $this->business_id !== null ? (int) $this->business_id : null, $own, $permission);
     }
 
     public function isDecidableBy(User $user): bool

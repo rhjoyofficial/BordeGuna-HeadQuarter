@@ -17,6 +17,7 @@ use App\Models\WatchFiring;
 use App\OwnerConsole\Flag;
 use App\OwnerConsole\Refused;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\BusinessScope;
 use App\Tools\ToolRegistry;
 use Illuminate\Support\Facades\DB;
@@ -351,6 +352,12 @@ final class EventWatchService
         }
         if (! $this->mayActFor($by, $watch->business_id)) {
             throw new Refused('You may not act for that business.');
+        }
+        // docs/149: an `approver` decides only in their businesses and never a watch they proposed (enabling or rejecting
+        // a proposal is the decision; disabling only stops one). Says nothing for a person without the role.
+        $own = $to === 'disabled' ? [] : [$watch->proposed_by_user_id];
+        if (($barred = app(ApproverRole::class)->refusal($by, $watch->business_id !== null ? (int) $watch->business_id : null, $own, self::PERMISSION_ENABLE)) !== null) {
+            throw new Refused($barred);
         }
         $before = $watch->state;
         $moved = EventWatch::query()->whereKey($watch->getKey())->whereIn('state', $from)->update(array_filter([

@@ -12,6 +12,7 @@ use App\Models\ResearchArtifact;
 use App\Models\ResearchTask;
 use App\Models\User;
 use App\Research\ResearchRefused;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\EligibleReviewers;
 use App\Support\Features\Features;
 use Illuminate\Support\Facades\DB;
@@ -150,6 +151,12 @@ final class ContentDraftService
         }
         if ($verdict === 'approved' && $draft->status !== 'checked') {
             throw new ResearchRefused("A draft that is {$draft->status} cannot be approved. Edit it into a new draft, which is checked again.");
+        }
+
+        // docs/149: an `approver` reviews only in their businesses, only with hq.content.review assigned, and never their
+        // own draft (the sole-reviewer exception below is not theirs). Says nothing for a person without the role.
+        if (($barred = app(ApproverRole::class)->refusal($by, $draft->business_id !== null ? (int) $draft->business_id : null, [$draft->created_by], self::REVIEW_PERMISSION)) !== null) {
+            throw new ResearchRefused($barred);
         }
 
         $self = $draft->created_by !== null && (int) $draft->created_by === (int) $by->getKey();

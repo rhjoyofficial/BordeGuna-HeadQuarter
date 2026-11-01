@@ -14,6 +14,7 @@ use App\Models\FollowUp;
 use App\Models\Opportunity;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\ApproverRole;
 use App\Support\Authorization\BusinessScope;
 use App\Workflow\WorkflowEngine;
 use Carbon\Carbon;
@@ -367,6 +368,10 @@ final class FollowUpProposalService
         }
         if (! $this->scope->allows($by, $row->business_id)) {
             throw new AuthorizationException('This record belongs to a business outside your scope.');
+        }
+        // docs/149: an `approver` never decides their own proposal (the bootstrap self-decision is not theirs).
+        if (($barred = app(ApproverRole::class)->refusal($by, $row->business_id !== null ? (int) $row->business_id : null, [$row->proposed_by_user_id], self::PERMISSION_DECIDE)) !== null) {
+            throw new AuthorizationException($barred);
         }
     }
 
