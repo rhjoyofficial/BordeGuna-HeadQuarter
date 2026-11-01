@@ -20,6 +20,7 @@ use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\AiRunReply;
 use App\Support\Features\Features;
+use App\Support\Money\UsdBdtRate;
 use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -393,8 +394,8 @@ final class ModelRuntime
             $this->notifier->budgetRefused($pressure);
 
             throw new BudgetExceeded(
-                "The AI spend cap for {$pressure['scope']} is USD {$pressure['cap']} and "
-                ."USD {$pressure['spent']} has been spent this period. This is a HARD cap, so the call was refused."
+                "The AI spend cap for {$pressure['scope']} is ".UsdBdtRate::display($pressure['cap'], 2).' and '
+                .UsdBdtRate::display($pressure['spent']).' has been spent this period. This is a HARD cap, so the call was refused.'
             );
         }
     }

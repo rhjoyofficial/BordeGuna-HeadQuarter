@@ -10,6 +10,7 @@ use App\Evaluation\EvaluationRunner;
 use App\Models\EvaluationResult;
 use App\Models\EvaluationRun;
 use App\Models\EvaluationSuite;
+use App\Support\Money\UsdBdtRate;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -127,8 +128,10 @@ class AgentEvaluate extends Command
         $cost = (array) $run->cost_attribution;
         $this->line(isset($cost['error'])
             ? '    cost   not attributed: '.$cost['error']
-            : sprintf('    cost   $%s (estimated $%s, provider-reported %s) over %d model call(s), %d retry attempt(s)%s',
-                $run->cost_usd, $run->cost_estimated_usd ?? '-', $run->cost_provider_usd === null ? 'none' : '$'.$run->cost_provider_usd,
+            : sprintf('    cost   %s; estimated %s; provider-reported %s; over %d model call(s), %d retry attempt(s)%s',
+                UsdBdtRate::display($run->cost_usd, 6),
+                $run->cost_estimated_usd === null ? '-' : UsdBdtRate::display($run->cost_estimated_usd, 6),
+                $run->cost_provider_usd === null ? 'none' : UsdBdtRate::display($run->cost_provider_usd, 6),
                 $cost['ai_runs'] ?? 0, $cost['retry_attempts'] ?? 0,
                 ($cost['complete'] ?? true) ? '' : ', INCOMPLETE: '.($cost['results_unaccounted'] ?? 0).' case(s) with no cost evidence'));
 

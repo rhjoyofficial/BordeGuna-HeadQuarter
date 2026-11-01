@@ -13,6 +13,7 @@ use App\Ai\RoutingContext;
 use App\Ai\ServingProvider;
 use App\Ai\TaskType;
 use App\Models\AiModel;
+use App\Support\Money\UsdBdtRate;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -86,7 +87,7 @@ class AiProbe extends Command
         $this->newLine();
         $this->line('<comment>Registered models</comment>');
         $this->table(
-            ['tier', 'provider', 'model', 'ctx', 'in $/M', 'out $/M', 'prio', 'active'],
+            ['tier', 'provider', 'model', 'ctx', 'in USD/M', 'out USD/M', 'prio', 'active'],
             $registered->map(fn (AiModel $m) => [
                 $m->tier, $m->provider, $m->model_id, number_format($m->context_window),
                 $m->input_price_per_mtok, $m->output_price_per_mtok, $m->priority,
@@ -97,10 +98,10 @@ class AiProbe extends Command
         $businessId = $this->option('business') !== null ? (int) $this->option('business') : null;
         $pressure = $budget->pressure($businessId);
         $this->line('<comment>Budget</comment>');
-        $this->line(sprintf('  scope %s: spent $%s of $%s (%d%%)%s',
+        $this->line(sprintf('  scope %s: spent %s of %s (%d%%)%s',
             $pressure['scope'],
-            number_format($pressure['spent'], 4),
-            is_finite($pressure['cap']) ? number_format($pressure['cap'], 2) : 'unbounded',
+            UsdBdtRate::display($pressure['spent']),
+            is_finite($pressure['cap']) ? UsdBdtRate::display($pressure['cap'], 2) : 'unbounded',
             $pressure['share_percent'],
             $pressure['downgrade'] ? '  DEGRADING' : ($pressure['refuse'] ? '  REFUSING' : ''),
         ));

@@ -4,15 +4,18 @@ use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\AgentRun;
 use App\Models\OwnerPreference;
 use App\Support\Money\UsdBdtRate;
+use Carbon\CarbonImmutable;
 use Database\Seeders\AgentSeeder;
 use Database\Seeders\DomainSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Str;
+use Tests\Support\Money\Fx;
 
 /*
  | Joy's rule, amounts always in BDT: every screen that shows a model cost shows BDT by default, and a
- | switch on each cost surface shows USD instead (one currency at a time). The rate is the server's (`hq.ads.draft.usd_bdt_rate`), shared on every page
- | as `money.usd_bdt_rate`; the browser converts for display only and never holds a rate of its own.
+ | switch on each cost surface shows USD instead (one currency at a time). The rate is the owner's dated reference rate
+ | (`fx_rates`, ruling 1 Nov 2026), shared on every page as `money.usd_bdt_rate` with its date and source; the browser converts
+ | for display only and never holds a rate of its own.
  */
 
 beforeEach(function () {
@@ -32,29 +35,40 @@ function bdtRateRun(): AgentRun
     ]);
 }
 
-it('shares the configured rate on every page that shows a model cost', function () {
+it('shares the owner\'s reference rate, with its date and source, on every page that shows a model cost', function () {
+    Fx::set('123.99', '136.50', CarbonImmutable::parse('2026-10-29 00:00:00', 'Asia/Dhaka'), CarbonImmutable::now()->addDays(20));
     $run = bdtRateRun();
 
     foreach (['/dashboard', '/agents', "/agents/runs/{$run->id}", '/observe/cost'] as $url) {
         $this->actingAsHq($this->owner)->get($url)
             ->assertOk()
-            ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', 130));
+            ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', 123.99)
+                ->where('money.rate_state', 'valid')
+                ->where('money.rate_as_of', '2026-10-28T18:00:00+00:00')
+                ->where('money.rate_source', 'test')
+                ->etc());
     }
 });
 
-it('follows the configuration, and shares null rather than a guessed rate when none is set', function () {
-    config(['hq.ads.draft.usd_bdt_rate' => '121.50']);
+it('follows the newest rate, and shares null rather than a stale rate', function () {
+    Fx::set('121.50', '130.00');
     $this->actingAsHq($this->owner)->get('/observe/cost')
-        ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', 121.5));
+        ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', 121.5)->etc());
 
-    foreach (['', 'abc', '0', '-5'] as $bad) {
-        config(['hq.ads.draft.usd_bdt_rate' => $bad]);
-        expect(UsdBdtRate::current())->toBeNull();
-    }
-
-    config(['hq.ads.draft.usd_bdt_rate' => '']);
+    Fx::set('121.50', '130.00', CarbonImmutable::now()->subDays(40), CarbonImmutable::now()->subDay());
+    expect(UsdBdtRate::current())->toBeNull();
     $this->actingAsHq($this->owner)->get('/observe/cost')
-        ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', null));
+        ->assertInertia(fn ($page) => $page->where('money.usd_bdt_rate', null)->where('money.rate_state', 'expired')
+            ->whereType('money.rate_valid_until', 'string')->etc());
+});
+
+it('labels a BDT cost an estimate and states the rate and its date, or why there is none', function () {
+    $component = file_get_contents(resource_path('js/components/ai-cost.tsx'));
+
+    expect($component)->toContain("'Estimate at BDT {rate} per USD, rate as of {date}.'")
+        ->and($component)->toContain('money?.rate_as_of')
+        ->and($component)->toContain("'The BDT rate expired on {date}, so AI costs show in USD until the owner sets a new one.'")
+        ->and($component)->toContain("title={currency === 'BDT' && estimate ? estimate : undefined}");
 });
 
 it('keeps the rate out of the browser code, no dollar sign, and a currency switch on every cost surface', function () {

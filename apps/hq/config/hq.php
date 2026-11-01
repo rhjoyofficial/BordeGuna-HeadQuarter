@@ -232,7 +232,8 @@ return [
         'draft' => [
             // Joy's rule: every campaign is USD 5 a day at most.
             'max_daily_usd' => '5.00',
-            // BDT per USD, for the cap on a BDT account. Empty = a BDT draft is refused (no rate is guessed).
+            // BDT per USD, for the cap on a BDT account. Empty = a BDT draft is refused (no rate is guessed). The ad drafts' own
+            // figure only: AI cost display and media budgets read the owner's dated rate (`fx_rates`, ruling 1 Nov 2026), not this.
             'usd_bdt_rate' => '130.00',
             'age_min' => 22,
             // Latin-script brand names an otherwise Bangla-only ad may contain.
@@ -534,10 +535,8 @@ return [
         // estimated and converted. ⛔ A price left null is UNKNOWN, and an unknown price refuses the operation: Joy fills a real
         // provider's price from its billing page when he connects it, in a reviewed release. No env() on purpose.
         'budget' => [
-            // Provider billing currency to BDT. A currency missing here, or an empty rate, refuses (no rate is guessed).
-            'fx_to_bdt' => ['USD' => '130.00'],
-            // Added on top of the rate, and the result is rounded UP to the paisa: the BDT figure never understates a cost.
-            'fx_safety_margin_percent' => '5',
+            // ⛔ No exchange rate here (ruling 1 Nov 2026): a USD cost converts at the owner's dated reserve rate (`fx_rates`, the
+            // Exchange rate screen). Missing or expired, paid media is refused. Any other currency has no rate and is refused.
             // price per `per` units of `unit`, in `currency`. Keyed by the provider's own key (adapter key() / name()).
             'prices' => [
                 'veo' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => null],

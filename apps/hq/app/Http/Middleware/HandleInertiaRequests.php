@@ -5,7 +5,7 @@ namespace App\Http\Middleware;
 use App\Ai\Pause\AiPauseScreen;
 use App\OwnerConsole\Do\DoModeActivation;
 use App\Support\Features\Features;
-use App\Support\Money\UsdBdtRate;
+use App\Support\Money\FxRates;
 use App\Support\Navigation\NavBadges;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -60,9 +60,10 @@ class HandleInertiaRequests extends Middleware
             // console and the posture screen. Read fresh on every page (never cached); whether this person
             // may pause or turn AI back on is the server's answer, never the permission list alone.
             'aiPause' => fn () => $request->user() === null ? null : app(AiPauseScreen::class)->for($request->user()),
-            // Joy's rule, amounts always in BDT: the one rate every screen uses to show a USD model cost
-            // in BDT (display only; stored values, caps and checks stay in USD). Null shows USD alone.
-            'money' => fn () => ['usd_bdt_rate' => UsdBdtRate::current()],
+            // Joy's rule, amounts always in BDT: the owner's dated reference rate (ruling 1 Nov 2026), used to show a USD model
+            // cost in BDT as an estimate, with its as-of date and source (display only; stored values, caps and checks stay in
+            // USD). A missing or stale rate shares null and the screens show USD alone.
+            'money' => fn () => app(FxRates::class)->shared(),
             // What is waiting, as counts next to the sidebar items. A closure, so a request that
             // does not render the shell does not pay for three counts it will not show.
             // `features` carries the switches that decide whether a navigation item exists at all.

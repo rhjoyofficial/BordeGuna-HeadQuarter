@@ -35,6 +35,7 @@ use App\Platform\PlatformRegistry;
 use App\Support\Audit\Auditor;
 use App\Support\Credentials\OAuthManager;
 use App\Support\Features\Features;
+use App\Support\Money\FxRates;
 use App\Tools\FlaggedTools;
 use App\Tools\ToolRegistry;
 use App\Voice\SpeechProviders;
@@ -71,6 +72,9 @@ class AppServiceProvider extends ServiceProvider
         // one instance or the scope the gateway opens is invisible to the connector that needs it.
         $this->app->singleton(CredentialVault::class);
         $this->app->singleton(Features::class);
+        // Ruling 1 Nov 2026: the owner's FX rate. Scoped, so a request or a queued job reads the table once for display and a
+        // long-lived worker never keeps a remembered rate between jobs (a reservation re-reads it anyway).
+        $this->app->scoped(FxRates::class);
         $this->app->singleton(OAuthManager::class);
         $this->app->singleton(CommerceRegistry::class);
 

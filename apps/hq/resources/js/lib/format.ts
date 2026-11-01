@@ -43,6 +43,15 @@ export function formatDateTime(value: string | null | undefined): string {
     return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+/** "29 Oct 2026" as a Dhaka calendar day (HQ's business dates are Asia/Dhaka), or "-" for nothing. */
+export function formatDate(value: string | null | undefined): string {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    // en-GB, never the browser's locale: English digits on every screen, in both languages (Joy's rule).
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Dhaka' });
+}
+
 /** Seconds as "5 min", "1 h 30 min", "2 days". */
 export function humanDuration(seconds: number | null | undefined): string {
     if (seconds === null || seconds === undefined) return '-';

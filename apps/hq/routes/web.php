@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\AiPauseController;
+use App\Http\Controllers\Admin\FxRateController;
 use App\Http\Controllers\Admin\ToolRegistryController;
 use App\Http\Controllers\Agents\AgentController;
 use App\Http\Controllers\Approvals\ApprovalController;
@@ -225,6 +226,11 @@ Route::middleware(['auth', '2fa.enabled', '2fa.verified'])->group(function () {
     // and re-enabling is its own operation. Both act on every business, so both need group-wide authority.
     Route::post('ai/pause', [AiPauseController::class, 'pause'])->middleware(['permission:hq.ai.pause', 'group.wide:hq.ai.pause'])->name('ai.pause');
     Route::post('ai/resume', [AiPauseController::class, 'resume'])->middleware(['permission:hq.ai.resume', 'group.wide:hq.ai.resume'])->name('ai.resume');
+
+    // Ruling 1 Nov 2026: the owner's USD to BDT rate, data with a date and a history. Anyone who may read AI cost sees it; setting a
+    // new one is `hq.fx.manage` with group-wide authority (it changes every business's media budget conversion) and a reason.
+    Route::get('fx-rate', [FxRateController::class, 'index'])->middleware('permission:hq.ai.cost.view')->name('fx-rate.index');
+    Route::post('fx-rate', [FxRateController::class, 'store'])->middleware(['permission:hq.fx.manage', 'group.wide:hq.fx.manage', 'throttle:10,1'])->name('fx-rate.store');
 
     Route::get('credentials', [AdminController::class, 'credentials'])->middleware('permission:hq.credentials.view')->name('credentials.index');
     Route::post('credentials', [AdminController::class, 'storeCredential'])->middleware('permission:hq.credentials.manage')->name('credentials.store');

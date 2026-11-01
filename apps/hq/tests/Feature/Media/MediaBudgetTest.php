@@ -24,6 +24,7 @@ use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
 use Tests\Support\Completion\M4;
 use Tests\Support\Media\Budgets;
+use Tests\Support\Money\Fx;
 
 /*
  | Ruling 31 Oct 2026 item 12 (docs/147-r2): a per-business monthly media spending cap in BDT. Default BDT 0 = no paid media;
@@ -74,16 +75,17 @@ it('reserves within the limit, refuses what would exceed it, gives back a releas
         ->and(AuditLog::query()->where('action', 'media.budget.reconciled')->count())->toBe(1);
 });
 
-it('converts conservatively (rate plus margin, rounded up) and refuses an unknown price, currency or rate', function () {
+it('converts conservatively (the owner reserve rate, rounded up) and refuses an unknown price, currency or rate', function () {
     Budgets::grant($this->laladia->id, '1000.00');
-    config(['hq.media.budget.fx_to_bdt' => ['USD' => '130.00'], 'hq.media.budget.fx_safety_margin_percent' => '5']);
+    $rate = Fx::set('130.00', '136.50');
 
-    expect($this->budgets->toBdt(new MediaCost('1.00', 'USD')))->toBe(['rate' => '136.500000', 'bdt' => '136.50'])
+    expect($this->budgets->toBdt(new MediaCost('1.00', 'USD')))->toBe(['rate' => '136.500000', 'bdt' => '136.50', 'fx_rate_id' => $rate->id])
         ->and($this->budgets->toBdt(new MediaCost('0.001', 'USD'))['bdt'])->toBe('0.14');
 
     expect(fn () => $this->budgets->reserve($this->laladia->id, 'video', 'p', 't', 'eur', new MediaCost('1.00', 'EUR')))->toThrow(MediaBudgetRefused::class, 'EUR')
         ->and(fn () => $this->budgets->reserve($this->laladia->id, 'video', 'veo', 't', 'np', $this->budgets->estimate('veo', 8)))->toThrow(MediaBudgetRefused::class, 'not known');
-    config(['hq.media.budget.fx_to_bdt' => ['USD' => '']]);
+    // An expired rate refuses a USD cost (the full stale and missing cases are in FxRateTest).
+    Fx::set('130.00', '136.50', CarbonImmutable::now()->subDays(40), CarbonImmutable::now()->subDay());
     expect(fn () => $this->budgets->reserve($this->laladia->id, 'video', 'p', 't', 'usd', new MediaCost('1.00', 'USD')))->toThrow(MediaBudgetRefused::class, 'rate');
 
     // The shipped real-provider prices are unknown, so every real paid provider is refused until Joy sets a price.

@@ -178,6 +178,9 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // docs/141 (ruling 7): Pause All AI. Pause can only turn AI off; resume is its own permission. Both need group-wide
         // authority, write one state row and one audit row, and reach no provider.
         'POST ai/pause', 'POST ai/resume',
+        // Ruling 1 Nov 2026: a new owner-set USD to BDT rate (a new history row, never an edit), behind hq.fx.manage, group-wide
+        // authority and a reason. Reaches no provider; media budgets reserve at it and refuse when it is stale.
+        'POST fx-rate',
         // docs/145 (HQ completion, M4). Phase 6: a person plans a post, writes or (behind a flag, a connected drafter and
         // Pause All AI) drafts its words, reviews them, skips it; the owner writes or retires a claims rule; a person builds
         // a research digest from filed research. None publishes, searches, fetches or reaches a customer.

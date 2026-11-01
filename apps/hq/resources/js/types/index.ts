@@ -25,8 +25,17 @@ export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
-    /** BDT per USD for showing a model cost in BDT; null when none is configured (then USD alone). */
-    money?: { usd_bdt_rate: number | null };
+    /**
+     * The owner's dated USD to BDT reference rate, for showing a model cost in BDT as an estimate (ruling 1 Nov 2026).
+     * `usd_bdt_rate` is null when the rate is missing or stale; the screens then show USD alone with a note.
+     */
+    money?: {
+        usd_bdt_rate: number | null;
+        rate_state?: 'valid' | 'missing' | 'expired' | 'not_yet' | 'invalid';
+        rate_as_of?: string | null;
+        rate_valid_until?: string | null;
+        rate_source?: string | null;
+    };
     [key: string]: unknown;
 }
 

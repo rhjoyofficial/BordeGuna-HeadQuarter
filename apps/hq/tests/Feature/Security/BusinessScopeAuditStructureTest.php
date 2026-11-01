@@ -24,6 +24,9 @@ const SCOPE_AUDIT_CONTROLLERS = [
     // docs/141: Pause All AI writes one group-wide row that belongs to no business; both routes need
     // group-wide authority (ruling 13), so a restricted person is refused before anything is read.
     'Admin/AiPauseController.php' => 'no business rows',
+    // Ruling 1 Nov 2026: the owner's USD to BDT rate is one group-wide history that belongs to no business; setting it needs
+    // group-wide authority, and reading it shows no business's rows.
+    'Admin/FxRateController.php' => 'no business rows',
     'Admin/ToolRegistryController.php' => 'scoped',
     'Agents/AgentController.php' => 'scoped',
     'Approvals/ApprovalController.php' => 'scoped',

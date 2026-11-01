@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { aiCostText, type AiCostCurrency } from '@/lib/format';
+import { aiCostText, formatDate, type AiCostCurrency } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
@@ -7,10 +7,30 @@ import { usePage } from '@inertiajs/react';
 import { ArrowLeftRight } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
 
-/** BDT per USD from the server (`money.usd_bdt_rate`, shared on every page); null when none is configured. */
+/** BDT per USD from the server (`money.usd_bdt_rate`, shared on every page); null when the rate is missing or stale. */
 export function useUsdBdtRate(): number | null {
     const rate = usePage<SharedData>().props.money?.usd_bdt_rate;
     return typeof rate === 'number' && rate > 0 ? rate : null;
+}
+
+/**
+ * The facts a cost surface states beside a BDT figure (ruling 1 Nov 2026): it is an estimate, at this rate, as of this date. When
+ * there is no usable rate, why: none set, or expired on a date.
+ */
+export function useAiCostRateNote(): { estimate: string | null; unavailable: string } {
+    const t = useT();
+    const money = usePage<SharedData>().props.money;
+    const rate = useUsdBdtRate();
+    const asOf = formatDate(money?.rate_as_of);
+    const estimate =
+        rate === null ? null : t('Estimate at BDT {rate} per USD, rate as of {date}.', { rate: rate.toFixed(2), date: asOf });
+    const unavailable =
+        money?.rate_state === 'expired'
+            ? t('The BDT rate expired on {date}, so AI costs show in USD until the owner sets a new one.', {
+                  date: formatDate(money?.rate_valid_until),
+              })
+            : t('No BDT rate is set on the server, so AI costs show in USD.');
+    return { estimate, unavailable };
 }
 
 /*
@@ -72,16 +92,23 @@ export function useAiCostCurrency(): { currency: AiCostCurrency; rate: number | 
 export function AiCost({ usd, free = true }: { usd: number | string | null | undefined; free?: boolean }) {
     const t = useT();
     const { currency, rate } = useAiCostCurrency();
+    const { estimate } = useAiCostRateNote();
     const { text, zero } = aiCostText(usd, rate, currency);
     if (free && zero) return <>{t('free')}</>;
 
-    return <span className="whitespace-nowrap">{text}</span>;
+    // A BDT figure is an estimate at a dated rate; the hover says so. A USD figure is the stored one.
+    return (
+        <span className="whitespace-nowrap" title={currency === 'BDT' && estimate ? estimate : undefined}>
+            {text}
+        </span>
+    );
 }
 
 /** The small switch between BDT and USD that sits in the header of every AI cost surface. */
 export function AiCostToggle({ className }: { className?: string }) {
     const t = useT();
     const { currency, canSwitch } = useAiCostCurrency();
+    const { estimate, unavailable } = useAiCostRateNote();
     const other: AiCostCurrency = currency === 'BDT' ? 'USD' : 'BDT';
 
     const button = (
@@ -90,7 +117,7 @@ export function AiCostToggle({ className }: { className?: string }) {
             onClick={() => setAiCostCurrency(other)}
             disabled={!canSwitch}
             aria-label={canSwitch ? t('AI costs in {current}. Show them in {other}', { current: currency, other }) : t('AI costs in USD')}
-            title={canSwitch ? t('Show AI costs in {other}', { other }) : undefined}
+            title={canSwitch ? `${t('Show AI costs in {other}', { other })}. ${estimate ?? ''}`.trim() : undefined}
             className={cn(
                 'border-input bg-background text-foreground hover:bg-accent focus-visible:ring-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60',
                 className,
@@ -112,7 +139,7 @@ export function AiCostToggle({ className }: { className?: string }) {
                         {button}
                     </span>
                 </TooltipTrigger>
-                <TooltipContent>{t('No BDT rate is set on the server, so AI costs show in USD.')}</TooltipContent>
+                <TooltipContent>{unavailable}</TooltipContent>
             </Tooltip>
         </TooltipProvider>
     );

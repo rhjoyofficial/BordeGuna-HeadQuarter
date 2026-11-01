@@ -44,10 +44,12 @@ const GLOBAL_SWITCH_ROUTES = [
     'autonomy.thresholds.store' => 'hq.autonomy.grant',
     'autonomy.thresholds.retire' => 'hq.autonomy.grant',
     'autonomy.grants.store' => 'hq.autonomy.grant',
+    // Ruling 1 Nov 2026: the owner's USD to BDT rate, which every business's media budget reserves at.
+    'fx-rate.store' => 'hq.fx.manage',
 ];
 
 /** Permissions whose every write route is, by definition, a global switch. */
-const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage', 'hq.ai.pause', 'hq.ai.resume', 'hq.autonomy.grant'];
+const GLOBAL_SWITCH_PERMISSIONS = ['hq.flags.manage', 'hq.tools.manage', 'hq.ai.pause', 'hq.ai.resume', 'hq.autonomy.grant', 'hq.fx.manage'];
 
 /** The services a global switch reaches; each checks the authority itself, so no caller can skip it. */
 const GLOBAL_SWITCH_SERVICES = [
@@ -58,6 +60,7 @@ const GLOBAL_SWITCH_SERVICES = [
     'app/Autonomy/Evidence/EvidencePolicies.php',
     'app/Conversation/Language/LanguagePolicies.php',
     'app/Ai/Pause/AiPauseSwitch.php',
+    'app/Support/Money/FxRates.php',
 ];
 
 beforeEach(function () {
