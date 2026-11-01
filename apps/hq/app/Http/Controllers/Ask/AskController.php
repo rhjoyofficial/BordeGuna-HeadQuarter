@@ -116,10 +116,11 @@ final class AskController extends Controller
                 ->map(fn (AskConversation $c) => ['uuid' => $c->uuid, 'title' => $c->title, 'agent_key' => $c->agent_key,
                     'last_activity_at' => $c->last_activity_at->toIso8601String()])
                 ->all(),
-            'agents' => collect($this->ask->askableAgents())->map(fn (string $key) => [
-                'key' => $key,
-                'refusal' => $this->ask->refusalFor($user, $key),
-            ])->all(),
+            'agents' => collect($this->ask->askableAgents())->map(function (string $key) use ($user) {
+                $refusal = $this->ask->refusalDetailFor($user, $key);
+
+                return ['key' => $key, 'refusal' => $refusal['message'] ?? null, 'refusal_code' => $refusal['code'] ?? null];
+            })->all(),
             'businesses' => Business::query()->where('is_active', true)
                 ->when($businessScope !== null, fn ($q) => $q->whereIn('id', $businessScope))
                 ->orderBy('name')->get(['id', 'name'])->map(fn (Business $b) => ['id' => $b->id, 'name' => $b->name])->all(),

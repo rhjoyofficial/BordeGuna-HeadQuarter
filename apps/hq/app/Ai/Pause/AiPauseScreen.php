@@ -19,12 +19,12 @@ final class AiPauseScreen
     ) {}
 
     /**
-     * @return array{paused: bool, readable: bool, paused_at: string|null, paused_by: string|null, reason: string|null, can_pause: bool, can_resume: bool, refusal: string|null}
+     * @return array{paused: bool, readable: bool, paused_at: string|null, paused_by: string|null, reason: string|null, can_pause: bool, can_resume: bool, refusal: string|null, refusal_code: string|null}
      */
     public function for(?User $user): array
     {
         $state = $this->pause->state();
-        $pauseRefusal = $this->authority->refusal($user, AiPauseSwitch::PAUSE_PERMISSION);
+        $pauseRefusal = $this->authority->refusalDetail($user, AiPauseSwitch::PAUSE_PERMISSION);
         $resumeRefusal = $this->authority->refusal($user, AiPauseSwitch::RESUME_PERMISSION);
         $holdsEither = $user !== null && ($this->holds($user, AiPauseSwitch::PAUSE_PERMISSION) || $this->holds($user, AiPauseSwitch::RESUME_PERMISSION));
 
@@ -40,7 +40,8 @@ final class AiPauseScreen
             'can_resume' => $resumeRefusal === null,
             // Only for a person who holds one of the permissions and is still refused (a business restriction):
             // they are told why there is no button. Everyone else simply sees the state.
-            'refusal' => $holdsEither && $pauseRefusal !== null ? $pauseRefusal : null,
+            'refusal' => $holdsEither && $pauseRefusal !== null ? $pauseRefusal['message'] : null,
+            'refusal_code' => $holdsEither && $pauseRefusal !== null ? $pauseRefusal['code'] : null,
         ];
     }
 

@@ -5,6 +5,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { useT } from '@/lib/i18n';
 import { router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
+import { ReasonText } from '@/components/reason-text';
 
 /** What HandleInertiaRequests shares as `aiPause` (docs/141). The server decides can_pause and can_resume. */
 export type AiPauseState = {
@@ -16,6 +17,7 @@ export type AiPauseState = {
     can_pause: boolean;
     can_resume: boolean;
     refusal: string | null;
+    refusal_code?: string | null;
 };
 
 export function useAiPause(): AiPauseState | null {
@@ -76,7 +78,11 @@ export function AiPauseControl() {
                     {t('Pause All AI')}
                 </Button>
             )}
-            {state.refusal && <p className="text-muted-foreground text-xs">{state.refusal}</p>}
+            {state.refusal && (
+                <div className="text-muted-foreground text-xs">
+                    <ReasonText reason={{ code: state.refusal_code, text: state.refusal }} />
+                </div>
+            )}
             <ConfirmDialog
                 open={open}
                 onOpenChange={setOpen}

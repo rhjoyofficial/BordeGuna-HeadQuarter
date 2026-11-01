@@ -6,6 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
+import { reasonLabel } from '@/lib/reasons';
 
 type AgentRow = { key: string; name: string; status: string; autonomy: string | null; has_enabling_user: boolean };
 type RunsByAgent = { agent_key: string; total: number; by_status: Record<string, number>; ended_normally_percent: number | null };
@@ -146,7 +147,7 @@ export default function AiHealth(props: Props) {
                             empty="No tool call failed or was refused in this period."
                             columns={[
                                 { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-                                { key: 'class', label: 'Whose fault', render: (r) => orDash(r.outcome_class && humanKey(r.outcome_class)) },
+                                { key: 'class', label: 'Whose fault', render: (r) => orDash(r.outcome_class && reasonLabel(r.outcome_class)) },
                                 { key: 'count', label: 'Calls', align: 'right', render: (r) => r.count },
                             ]}
                         />

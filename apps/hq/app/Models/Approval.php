@@ -257,6 +257,27 @@ class Approval extends Model
         return null;
     }
 
+    /**
+     * The stable reason code for each fixed sentence `decisionRefusalReason()` can give (ruling 1 Nov 2026):
+     * a screen shows the approved sentence for the code in the reader's language; the English sentence stays
+     * what a 403 says. Every sentence above is a literal, so the map is exact.
+     */
+    public const DECISION_REFUSAL_CODES = [
+        'This is a step of a Do plan you started or that an agent proposed under your authority, so somebody else decides it. You may still withdraw it.' => 'approval_do_plan_self',
+        'You asked for this, and this action must be decided by somebody other than the person who asked. You may still withdraw it.' => 'approval_requester_must_not_decide',
+        'You asked for this through an agent that acts under another person\'s authority, so the decision belongs to somebody else. You may still withdraw it.' => 'approval_acts_under_other_authority',
+        'You do not hold the permission to decide approvals.' => 'approval_permission_missing',
+        'This approval is delegated to somebody else.' => 'approval_delegated_elsewhere',
+    ];
+
+    /** Why this person may not decide it, as a stable code, or null when they may. */
+    public function decisionRefusalCode(User $user): ?string
+    {
+        $reason = $this->decisionRefusalReason($user);
+
+        return $reason === null ? null : (self::DECISION_REFUSAL_CODES[$reason] ?? 'approval_refused');
+    }
+
     public function isDecidableBy(User $user): bool
     {
         return $this->decisionRefusalReason($user) === null;

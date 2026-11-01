@@ -1,6 +1,7 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Notice } from '@/components/ui/notice';
@@ -81,7 +82,7 @@ export default function ToolsIndex({
     environment: string;
     filters: { q: string; state: string };
     /** docs/138 ruling 13: may this person throw a switch that acts on every business, and if not, why. */
-    switch: { allowed: boolean; refusal: string | null };
+    switch: { allowed: boolean; refusal: string | null; refusal_code?: string | null };
 }) {
     const t = useT();
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
@@ -162,10 +163,12 @@ export default function ToolsIndex({
 
                 {holdsPermission && !groupSwitch.allowed && (
                     <Notice tone="warn" title="Group-wide switch">
-                        {t(
-                            groupSwitch.refusal ??
-                                'This switch acts on every business, and your access is limited to some businesses. Only a person with group-wide access may change it.',
-                        )}
+                        <ReasonText
+                            reason={{
+                                code: groupSwitch.refusal_code ?? (groupSwitch.refusal ? null : 'group_switch_business_restricted'),
+                                text: groupSwitch.refusal,
+                            }}
+                        />
                     </Notice>
                 )}
 

@@ -5,7 +5,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, humanDuration, humanKey, humanMillis, timeAgo } from '@/lib/format';
+import { ageFromSeconds, formatDateTime, humanDuration, humanKey, humanMillis, timeAgo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
@@ -71,7 +71,7 @@ export default function Platform(props: Props) {
                     <Notice tone="warn" title="The scheduler is not ticking">
                         {scheduler.age_seconds === null
                             ? t('No tick has been recorded.') + ' '
-                            : t('The last tick was {ago} ago.', { ago: humanDuration(scheduler.age_seconds) }) + ' '}
+                            : t('The last tick was {ago}.', { ago: ageFromSeconds(scheduler.age_seconds) }) + ' '}
                         {t('Until it ticks again, alert checks, sweeps, the event drain and scheduled jobs do not run, so the alert list is not being refreshed.')}
                     </Notice>
                 )}

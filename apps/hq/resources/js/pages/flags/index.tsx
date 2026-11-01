@@ -2,6 +2,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,7 @@ import { Flag, Plus } from 'lucide-react';
 import { useState } from 'react';
 
 /** docs/138 ruling 13: may this person throw a switch that acts on every business, and if not, why. */
-type GroupSwitch = { allowed: boolean; refusal: string | null };
+type GroupSwitch = { allowed: boolean; refusal: string | null; refusal_code?: string | null };
 
 type FeatureFlag = { id: number; key: string; description: string | null; environment: string; enabled: boolean; rollout: unknown };
 
@@ -156,10 +157,12 @@ export default function FlagsIndex({ flags, environment, switch: groupSwitch }: 
 
                 {holdsPermission && !groupSwitch.allowed && (
                     <Notice tone="warn" title="Group-wide switch">
-                        {t(
-                            groupSwitch.refusal ??
-                                'This switch acts on every business, and your access is limited to some businesses. Only a person with group-wide access may change it.',
-                        )}
+                        <ReasonText
+                            reason={{
+                                code: groupSwitch.refusal_code ?? (groupSwitch.refusal ? null : 'group_switch_business_restricted'),
+                                text: groupSwitch.refusal,
+                            }}
+                        />
                     </Notice>
                 )}
 

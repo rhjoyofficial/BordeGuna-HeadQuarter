@@ -373,10 +373,11 @@ final class ConsoleReader
             'flag_on' => $flag,
             'runtime_on' => $runtime,
             'usable' => $usable,
-            'agents' => $usable ? collect($this->ask->askableAgents())->map(fn (string $key) => [
-                'key' => $key,
-                'refusal' => $this->ask->refusalFor($user, $key),
-            ])->values()->all() : [],
+            'agents' => $usable ? collect($this->ask->askableAgents())->map(function (string $key) use ($user) {
+                $refusal = $this->ask->refusalDetailFor($user, $key);
+
+                return ['key' => $key, 'refusal' => $refusal['message'] ?? null, 'refusal_code' => $refusal['code'] ?? null];
+            })->values()->all() : [],
             'businesses' => $usable ? Business::query()->where('is_active', true)
                 ->when($businessScope !== null, fn ($q) => $q->whereIn('id', $businessScope))
                 ->orderBy('name')->get(['id', 'name'])->map(fn (Business $b) => ['id' => $b->id, 'name' => $b->name])->all() : [],

@@ -3,6 +3,7 @@ import { DataTable, Note } from '@/components/observe/panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDateTime, humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { reasonLabel } from '@/lib/reasons';
 
 /**
  * Customer 360's follow-ups section (docs/120 item 14, docs/123 section 2). READ-ONLY: no form, no
@@ -114,7 +115,7 @@ export function FollowUpsBody({ data }: { data: CustomerFollowUps | null }) {
                     {
                         key: 'consent',
                         label: 'Consent',
-                        render: (f) => (f.consent_refusal ? t('refused: {class}', { class: humanKey(f.consent_refusal) }) : '-'),
+                        render: (f) => (f.consent_refusal ? t('refused: {class}', { class: reasonLabel(f.consent_refusal) }) : '-'),
                     },
                     { key: 'note', label: 'Completion note', render: (f) => (f.close_note ? <span className="whitespace-pre-wrap">{f.close_note}</span> : '-') },
                     { key: 'ledger', label: 'Outcome ledger', render: (f) => <Credits credits={f.ledger_credits} /> },

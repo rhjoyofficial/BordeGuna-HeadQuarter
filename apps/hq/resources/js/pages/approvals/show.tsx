@@ -1,6 +1,7 @@
 import { approvalStatus, type ApprovalOutcome as Outcome, OutcomeBanner, PreviewList, riskTone } from '@/components/approvals/shared';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -52,6 +53,8 @@ type Approval = {
     decided_by: string | null;
     delegated_to: string | null;
     decidable: boolean;
+    /** Ruling 1 Nov 2026: why this person may not decide it, as a stable code; null when they may. */
+    decision_refusal_code?: string | null;
     payload_intact: boolean;
     supersedes_id: number | null;
     superseded_by: number | null;
@@ -196,6 +199,11 @@ export default function ApprovalShow({ approval, queue = null }: { approval: App
                 />
 
                 <QueueBar queue={queue} pending={approval.status === 'pending'} />
+                {approval.status === 'pending' && !approval.decidable && approval.decision_refusal_code && (
+                    <Notice tone="pending">
+                        <ReasonText reason={{ code: approval.decision_refusal_code }} />
+                    </Notice>
+                )}
                 <OutcomeBanner status={flash?.status} outcome={flash?.outcome} error={errors?.approval} />
                 {flash?.status === 'approval-executed' && flash.outcome?.status === 'succeeded' && flash.outcome.output && (
                     <TechnicalDetail summary={t('What the action returned')}>

@@ -1,3 +1,4 @@
+import { ReasonText } from '@/components/reason-text';
 import { Notice } from '@/components/ui/notice';
 import { type Tone } from '@/components/ui/status-badge';
 import { humanKey } from '@/lib/format';
@@ -6,7 +7,13 @@ import { useT } from '@/lib/i18n';
 /** What both approval screens need to say the same way. */
 
 export type ApprovalPreview = { available?: boolean; reason?: string; result?: Record<string, unknown> } | null;
-export type ApprovalOutcome = { status?: string; error?: string | null; output?: Record<string, unknown> | null; tool_call_id?: number | null };
+export type ApprovalOutcome = {
+    status?: string;
+    error?: string | null;
+    outcome_class?: string | null;
+    output?: Record<string, unknown> | null;
+    tool_call_id?: number | null;
+};
 
 /** The risk tier as a badge tone: R4 and R5 are red, R3 orange, R2 blue, the rest quiet. */
 export function riskTone(tier: string | null | undefined): Tone {
@@ -88,7 +95,12 @@ export function OutcomeBanner({ status, outcome, error }: { status?: string | nu
     }
     return (
         <Notice tone="pending">
-            <strong>{t('Nothing ran.')}</strong> {outcome.error ?? t('The gateway refused the call.')}
+            <strong>{t('Nothing ran.')}</strong>{' '}
+            {outcome.outcome_class || outcome.error ? (
+                <ReasonText reason={{ code: outcome.outcome_class, text: outcome.error }} />
+            ) : (
+                t('The gateway refused the call.')
+            )}
             <div className="mt-1 text-xs">
                 {t('Authority is re-checked at execution time, so a change since the request was made can refuse it here.')}
             </div>

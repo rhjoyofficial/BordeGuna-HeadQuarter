@@ -1,5 +1,6 @@
 import { NativeSelect } from '@/components/form/field';
 import InputError from '@/components/input-error';
+import { ReasonText } from '@/components/reason-text';
 import { humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -150,7 +151,11 @@ export function Composer({ composer }: { composer: ComposerData }) {
 
                 <div id="console-composer-reason" className="flex flex-col gap-1 text-xs">
                     {blocked !== null && <p className={cn('text-hq-orange')}>{blocked}</p>}
-                    {chosen?.refusal && <p className="text-hq-orange">{chosen.refusal}</p>}
+                    {chosen?.refusal && (
+                        <div className="text-hq-orange">
+                            <ReasonText reason={{ code: chosen.refusal_code, text: chosen.refusal }} />
+                        </div>
+                    )}
                     <p className="text-muted-foreground">
                         {t('Ask only reads and answers; nothing reaches a customer or another system from here.')} {modeReason}
                     </p>

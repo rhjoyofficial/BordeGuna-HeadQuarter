@@ -78,7 +78,7 @@ it('is behind hq.ask.use, and only the owner and operator roles hold it', functi
             ->where('runtime_on', false)
             ->where('nav.features.ask_hq', true)
             ->where('nav.features.scheduler_nl', false)
-            ->where('agents', [['key' => 'executive', 'refusal' => null], ['key' => 'analytics', 'refusal' => null]]));
+            ->where('agents', [['key' => 'executive', 'refusal' => null, 'refusal_code' => null], ['key' => 'analytics', 'refusal' => null, 'refusal_code' => null]]));
 
     foreach (['brand_manager', 'support_agent', 'finance_viewer'] as $role) {
         $this->actingAsHq($this->hqUser($role))->get('/ask')->assertForbidden();
