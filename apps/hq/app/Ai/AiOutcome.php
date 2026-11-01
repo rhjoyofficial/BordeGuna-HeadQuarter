@@ -6,6 +6,7 @@ use App\Ai\ToolCalls\ProposedToolCall;
 use App\Ai\ToolCalls\ToolCallNormaliser;
 use App\Models\AiModel;
 use App\Models\AiRun;
+use App\Support\Money\UsdBdtRate;
 
 /**
  * What a model call produced, and the record of what it cost.
@@ -47,7 +48,7 @@ final readonly class AiOutcome
     {
         $line = "{$this->model->display_name} ({$this->model->provider}), "
             ."{$this->run->input_tokens} in / {$this->run->output_tokens} out, "
-            .'$'.number_format((float) $this->run->estimated_cost_usd, 4)
+            .UsdBdtRate::display($this->run->estimated_cost_usd)
             .", {$this->run->latency_ms} ms";
 
         return $this->degraded

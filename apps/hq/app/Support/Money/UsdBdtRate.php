@@ -21,4 +21,21 @@ final class UsdBdtRate
 
         return (float) $rate;
     }
+
+    /**
+     * A stored USD amount as text an operator reads: "BDT 115.41 (USD 0.8878)", BDT first by Joy's
+     * rule, the stored USD figure kept beside it so the ledger value is still visible. With no valid
+     * rate the text is "USD 0.8878" alone, never a guessed BDT. Display only: callers keep comparing,
+     * capping and storing the USD value.
+     */
+    public static function display(float|int|string|null $usd, int $usdDecimals = 4): string
+    {
+        $amount = (float) ($usd ?? 0);
+        $usdText = 'USD '.number_format($amount, $usdDecimals);
+        $rate = self::current();
+
+        return $rate === null
+            ? $usdText
+            : 'BDT '.number_format($amount * $rate, 2).' ('.$usdText.')';
+    }
 }

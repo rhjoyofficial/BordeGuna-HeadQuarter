@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Ai\Budget\AiBudget;
+use App\Support\Money\UsdBdtRate;
 use Illuminate\Console\Command;
 
 /**
@@ -24,8 +25,8 @@ class AiCost extends Command
         $report = $budget->report($period);
 
         $this->line("<comment>AI spend, {$report['period']} since {$report['since']}</comment>");
-        $this->line(sprintf('  %d runs, $%s total, %d ran degraded',
-            $report['runs'], number_format($report['total_usd'], 6), $report['degraded_runs']));
+        $this->line(sprintf('  %d runs, %s total, %d ran degraded',
+            $report['runs'], UsdBdtRate::display($report['total_usd'], 6), $report['degraded_runs']));
 
         if ($report['runs'] === 0) {
             $this->newLine();
@@ -41,22 +42,22 @@ class AiCost extends Command
 
             $this->newLine();
             $this->table(
-                [$label, 'runs', 'input', 'output', 'cache rd', 'cache wr', 'USD'],
+                [$label, 'runs', 'input', 'output', 'cache rd', 'cache wr', 'cost'],
                 array_map(fn (array $r) => [
                     $r['key'], $r['runs'],
                     number_format($r['input_tokens']), number_format($r['output_tokens']),
                     number_format($r['cached_tokens']), number_format($r['cache_write_tokens']),
-                    number_format($r['usd'], 6),
+                    UsdBdtRate::display($r['usd'], 6),
                 ], $report[$key]),
             );
         }
 
         $this->newLine();
         $pressure = $budget->pressure();
-        $this->line(sprintf('Cap (%s): $%s of $%s, %d%%',
+        $this->line(sprintf('Cap (%s): %s of %s, %d%%',
             $pressure['scope'],
-            number_format($pressure['spent'], 4),
-            is_finite($pressure['cap']) ? number_format($pressure['cap'], 2) : 'unbounded',
+            UsdBdtRate::display($pressure['spent']),
+            is_finite($pressure['cap']) ? UsdBdtRate::display($pressure['cap'], 2) : 'unbounded',
             $pressure['share_percent'],
         ));
 

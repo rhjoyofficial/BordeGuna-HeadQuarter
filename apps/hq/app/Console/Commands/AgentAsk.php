@@ -9,6 +9,7 @@ use App\Execution\RequesterKind;
 use App\Models\AiRun;
 use App\Models\Business;
 use App\Models\User;
+use App\Support\Money\UsdBdtRate;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -93,7 +94,7 @@ class AgentAsk extends Command
             ."  <comment>took</comment> {$run->duration_ms} ms");
 
         $cost = AiRun::where('correlation_id', $run->correlation_id)->sum('estimated_cost_usd');
-        $this->line('<comment>Model</comment> '.($run->model ?? 'none').'  <comment>cost</comment> $'.number_format((float) $cost, 4)
+        $this->line('<comment>Model</comment> '.($run->model ?? 'none').'  <comment>cost</comment> '.UsdBdtRate::display($cost)
             .'  <comment>prompt</comment> '.($run->prompt_version ?? 'none'));
 
         $this->newLine();

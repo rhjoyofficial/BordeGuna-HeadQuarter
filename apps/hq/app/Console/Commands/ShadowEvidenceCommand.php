@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Agents\Shadow\ShadowEvidence;
 use App\Agents\Shadow\ShadowPeriods;
 use App\Models\ShadowPeriod;
+use App\Support\Money\UsdBdtRate;
 use Illuminate\Console\Command;
 
 /**
@@ -75,7 +76,7 @@ class ShadowEvidenceCommand extends Command
             $this->line($this->option('json')
                 ? json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
                 : "period #{$period->id} {$period->agent_key} {$period->status}: ".$out['metrics']['runs']['total'].' run(s) today, '
-                    .count($violations).' violation(s), $'.$out['metrics']['cost_usd'].', '.$out['metrics']['review']['unreviewed'].' unreviewed, probes '
+                    .count($violations).' violation(s), '.UsdBdtRate::display($out['metrics']['cost_usd'], 6).', '.$out['metrics']['review']['unreviewed'].' unreviewed, probes '
                     .$out['metrics']['probes']['evidence'].' of '.$out['metrics']['probes']['expected'].' so far today.');
         }
 
