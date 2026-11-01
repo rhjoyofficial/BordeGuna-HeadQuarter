@@ -13,6 +13,7 @@ import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { useRef, useState } from 'react';
+import { reasonLabel } from '@/lib/reasons';
 
 /**
  * A customer's consent (docs/108 §7, S7; docs/114, the follow-ups). The grid is the same ledger answer the
@@ -146,14 +147,7 @@ export default function CustomerConsent({ customer, brands, identities, channels
     const brandLabel = (b: string | null) => b ?? t('All brands');
     const identityLabel = (i: string | null) => i ?? t('Whole customer');
     const refusalLabel = (r: string | null) =>
-        (({
-            consent_do_not_contact: t('Do not contact'),
-            consent_withdrawn: t('Withdrawn'),
-            consent_expired: t('Expired'),
-            consent_opt_in_missing: t('No opt-in'),
-            consent_not_recorded: t('Nothing recorded'),
-            consent_subject_unresolved: t('Unknown person'),
-        }) as Record<string, string>)[r ?? ''] ?? t('Refused');
+        r ? reasonLabel(r) : t('Refused');
     const actLabel = (a: string) =>
         ({
             withdraw: t('Withdraw consent'),

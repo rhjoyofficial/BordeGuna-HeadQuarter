@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, timeAgo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { reasonLabel } from '@/lib/reasons';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
 import { useState, type ReactNode } from 'react';
@@ -431,7 +432,7 @@ export default function AgentRunShow({
                                                     {p.tool ? humanKey(p.tool) : '-'}
                                                 </td>
                                                 <td className="text-muted-foreground px-3 py-2 text-xs whitespace-nowrap">
-                                                    {p.outcome_class ? humanKey(p.outcome_class).toLowerCase() : '-'}
+                                                    {reasonLabel(p.outcome_class)}
                                                 </td>
                                                 <td className="px-3 py-2">{p.reason ?? p.why ?? '-'}</td>
                                             </tr>
@@ -466,7 +467,7 @@ export default function AgentRunShow({
                                                 {c.policy_result ? humanKey(c.policy_result).toLowerCase() : ''}
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-xs" title={c.error ?? ''}>
-                                                {c.outcome_class ? humanKey(c.outcome_class).toLowerCase() : ''}
+                                                {c.outcome_class ? reasonLabel(c.outcome_class) : ''}
                                             </td>
                                             <td className="text-muted-foreground px-3 py-2 text-right text-xs whitespace-nowrap">
                                                 {humanMillis(c.duration_ms)}
@@ -556,7 +557,7 @@ export default function AgentRunShow({
                         <dt>prompt</dt>
                         <dd>{run.prompt_version ?? '-'}</dd>
                         <dt>stop reason</dt>
-                        <dd>{run.stop_reason ?? '-'}</dd>
+                        <dd>{run.stop_reason ? `${reasonLabel(run.stop_reason)} (${run.stop_reason})` : '-'}</dd>
                     </dl>
                 </TechnicalDetail>
             </div>

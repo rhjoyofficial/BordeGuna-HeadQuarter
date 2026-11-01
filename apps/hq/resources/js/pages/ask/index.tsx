@@ -2,6 +2,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import InputError from '@/components/input-error';
 import { PageHeader } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -10,6 +11,7 @@ import AppLayout from '@/layouts/app-layout';
 import { humanKey, humanMillis, timeAgo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import { postForm } from '@/lib/post-form';
+import { reasonLabel } from '@/lib/reasons';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
@@ -41,7 +43,7 @@ type Props = {
     conversation: { uuid: string; title: string; agent_key: string; business_id: number | null } | null;
     messages: Message[];
     conversations: { uuid: string; title: string; agent_key: string; last_activity_at: string }[];
-    agents: { key: string; refusal: string | null }[];
+    agents: { key: string; refusal: string | null; refusal_code?: string | null }[];
     businesses: { id: number; name: string }[];
     runtime_on: boolean;
     uploads_on?: boolean;
@@ -74,7 +76,7 @@ function Answer({ message }: { message: Message }) {
             {run && (
                 <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <StatusBadge status={run.status} />
-                    {run.stop_reason && <span>{t('stopped: {reason}', { reason: t(humanKey(run.stop_reason)) })}</span>}
+                    {run.stop_reason && <span>{t('stopped: {reason}', { reason: reasonLabel(run.stop_reason) })}</span>}
                     <span>{t('{count} tool call(s)', { count: run.tool_calls.length })}</span>
                     <Link href={`/agents/runs/${run.id}`} className="touch:min-h-11 inline-flex items-center underline underline-offset-4">
                         {t('Open the run')}
@@ -326,7 +328,11 @@ function AskPage({ conversation, messages, conversations, agents, businesses, ru
                                     </NativeSelect>
                                 </Field>
                             </FormRow>
-                            {chosen?.refusal && <Notice tone="pending">{chosen.refusal}</Notice>}
+                            {chosen?.refusal && (
+                                <Notice tone="pending">
+                                    <ReasonText reason={{ code: chosen.refusal_code, text: chosen.refusal }} />
+                                </Notice>
+                            )}
                             {files.length > 0 && (
                                 <ul className="flex flex-wrap gap-2 text-xs" aria-label={t('Attached files')}>
                                     {files.map((f) => (

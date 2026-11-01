@@ -1,9 +1,9 @@
 import { type Tone } from '@/components/ui/status-badge';
-import { humanKey } from '@/lib/format';
+import { reasonLabel } from '@/lib/reasons';
 
 /** What a run's state means to the reader, in one badge, said the same way on both agent screens. */
 export function runStatus(run: { status: string; stop_reason: string | null; shadow: boolean }): { tone: Tone; label: string } {
-    const why = run.stop_reason ? `, ${humanKey(run.stop_reason).toLowerCase()}` : '';
+    const why = run.stop_reason ? `, ${reasonLabel(run.stop_reason, 'en').toLowerCase()}` : '';
     if (run.status === 'failed') return { tone: 'danger', label: `failed${why}` };
     if (run.status === 'refused') return { tone: 'warn', label: 'refused' };
     if (run.status === 'clarified') return { tone: 'info', label: 'asked what the task is' };

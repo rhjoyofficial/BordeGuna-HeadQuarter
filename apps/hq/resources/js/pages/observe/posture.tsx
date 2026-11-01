@@ -8,6 +8,7 @@ import { formatDateTime, humanKey } from '@/lib/format';
 import { formatNumber, useT, type Translator } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
+import { reasonLabel } from '@/lib/reasons';
 
 type AgentRow = {
     key: string;
@@ -410,7 +411,7 @@ export default function Posture(props: Props) {
                         columns={[
                             { key: 'id', label: 'Call', align: 'right', render: (c) => `#${c.id}` },
                             { key: 'tool', label: 'Tool', render: (c) => <span className="font-mono text-xs">{c.tool_key}</span> },
-                            { key: 'class', label: 'Outcome', render: (c) => orDash(humanKey(c.outcome_class)) },
+                            { key: 'class', label: 'Outcome', render: (c) => orDash(c.outcome_class && reasonLabel(c.outcome_class)) },
                             { key: 'at', label: 'When', render: (c) => formatDateTime(c.at) },
                         ]}
                     />

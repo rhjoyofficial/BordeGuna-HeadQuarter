@@ -34,24 +34,41 @@ final class GroupWideAuthority
     /** Why this person may not throw this switch, or null when they may. */
     public function refusal(?User $user, string $permission): ?string
     {
+        return $this->refusalDetail($user, $permission)['message'] ?? null;
+    }
+
+    /** The stable reason code of the refusal (ruling 1 Nov 2026), or null when the person may throw the switch. */
+    public function refusalCode(?User $user, string $permission): ?string
+    {
+        return $this->refusalDetail($user, $permission)['code'] ?? null;
+    }
+
+    /**
+     * The refusal as a stable code and HQ's own English sentence. A screen shows the approved sentence for the
+     * code in the reader's language; the English sentence stays what a 403 and an audit row say.
+     *
+     * @return array{code: string, message: string}|null
+     */
+    public function refusalDetail(?User $user, string $permission): ?array
+    {
         if ($user === null) {
-            return 'This switch acts on every business, and no person was named, so nobody holds group-wide authority for it.';
+            return ['code' => 'group_switch_no_person', 'message' => 'This switch acts on every business, and no person was named, so nobody holds group-wide authority for it.'];
         }
         if ($user->is_active === false) {
-            return "This switch acts on every business, and the account {$user->email} is disabled.";
+            return ['code' => 'group_switch_account_disabled', 'message' => "This switch acts on every business, and the account {$user->email} is disabled."];
         }
 
         try {
             if (! $user->hasPermissionTo($permission)) {
-                return "This switch acts on every business and needs {$permission}, which {$user->email} does not hold.";
+                return ['code' => 'group_switch_permission_missing', 'message' => "This switch acts on every business and needs {$permission}, which {$user->email} does not hold."];
             }
             $restricted = $this->businessScope->isRestricted($user);
         } catch (Throwable) {
-            return 'This switch acts on every business, and your business scope could not be read, so it is refused.';
+            return ['code' => 'group_switch_scope_unreadable', 'message' => 'This switch acts on every business, and your business scope could not be read, so it is refused.'];
         }
 
         if ($restricted) {
-            return 'This switch acts on every business, and your access is limited to some businesses. Only a person with group-wide access may change it.';
+            return ['code' => 'group_switch_business_restricted', 'message' => 'This switch acts on every business, and your access is limited to some businesses. Only a person with group-wide access may change it.'];
         }
 
         return null;
@@ -89,12 +106,12 @@ final class GroupWideAuthority
     /**
      * The page props a switch screen needs: may this person throw it, and if not, why.
      *
-     * @return array{allowed: bool, refusal: string|null}
+     * @return array{allowed: bool, refusal: string|null, refusal_code: string|null}
      */
     public function screenProps(?User $user, string $permission): array
     {
-        $refusal = $this->refusal($user, $permission);
+        $refusal = $this->refusalDetail($user, $permission);
 
-        return ['allowed' => $refusal === null, 'refusal' => $refusal];
+        return ['allowed' => $refusal === null, 'refusal' => $refusal['message'] ?? null, 'refusal_code' => $refusal['code'] ?? null];
     }
 }

@@ -10,6 +10,7 @@ import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { reasonLabel } from '@/lib/reasons';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { useState } from 'react';
@@ -167,17 +168,7 @@ export default function FollowUpsIndex({
     const closeReasonLabel = (r: string) =>
         ({ converted: t('Converted'), lost: t('Lost'), no_response: t('No response'), duplicate: t('Duplicate'), other: t('Other') })[r] ?? r;
     const channelLabel = (c: string) => t(CHANNEL_NAMES[c] ?? c);
-    const refusalLabel = (r: string | null) =>
-        (
-            ({
-                consent_do_not_contact: t('Do not contact'),
-                consent_withdrawn: t('Withdrawn'),
-                consent_expired: t('Expired'),
-                consent_opt_in_missing: t('No opt-in'),
-                consent_not_recorded: t('Nothing recorded'),
-                consent_subject_unresolved: t('Unknown person'),
-            }) as Record<string, string>
-        )[r ?? ''] ?? t('Refused');
+    const refusalLabel = (r: string | null) => (r ? reasonLabel(r) : t('Refused'));
     const customerLabel = (c: Customer) => c.name ?? c.phone ?? t('Customer #{id}', { id: c.id });
     const flashLabel = (status: string | undefined) => {
         if (!status) {

@@ -240,40 +240,41 @@ final class ExecutionContextResolver
     {
         // 1. The two sentences the runner always said, unchanged, because surfaces show them.
         if ($requireActive && ! $agent->isActive()) {
-            throw new ExecutionContextRefused("Agent [{$agent->key}] is [{$agent->status}], so it will not run.");
+            throw new ExecutionContextRefused("Agent [{$agent->key}] is [{$agent->status}], so it will not run.", ExecutionContextRefused::AGENT_NOT_ACTIVE);
         }
 
         // 2. The enabling identity, read fresh. An agent has no authority of its own.
         if ($agent->enabling_user_id === null) {
             throw new ExecutionContextRefused(
                 "Agent [{$agent->key}] names no enabling user. An agent borrows a human's authority and has none of its own, "
-                .'so one must be set before it can run.'
+                .'so one must be set before it can run.',
+                ExecutionContextRefused::AGENT_NO_ENABLER,
             );
         }
         $enabler = User::query()->find($agent->enabling_user_id);
         if ($enabler === null) {
-            throw new ExecutionContextRefused("Agent [{$agent->key}] names an enabling user who no longer exists, so it has no authority to borrow.");
+            throw new ExecutionContextRefused("Agent [{$agent->key}] names an enabling user who no longer exists, so it has no authority to borrow.", ExecutionContextRefused::AGENT_ENABLER_MISSING);
         }
         if ($enabler->is_active === false) {
-            throw new ExecutionContextRefused("The enabling user of [{$agent->key}] (user #{$enabler->getKey()}) is disabled, so the agent has no authority to borrow.");
+            throw new ExecutionContextRefused("The enabling user of [{$agent->key}] (user #{$enabler->getKey()}) is disabled, so the agent has no authority to borrow.", ExecutionContextRefused::AGENT_ENABLER_DISABLED);
         }
 
         // 3. The requester. No default: an entry point that does not say who asks gets no run.
         if ($requester === null) {
-            throw new ExecutionContextRefused("The request for [{$agent->key}] names no requester. Every run states who is asking; there is no default.");
+            throw new ExecutionContextRefused("The request for [{$agent->key}] names no requester. Every run states who is asking; there is no default.", ExecutionContextRefused::REQUESTER_MISSING);
         }
         if ($requester->asEnabled) {
             $requesterUser = $enabler;
         } else {
             if ($requester->userId === null) {
-                throw new ExecutionContextRefused("Nobody accountable is recorded for this request ({$requester->basis}), so nothing runs in nobody's name.");
+                throw new ExecutionContextRefused("Nobody accountable is recorded for this request ({$requester->basis}), so nothing runs in nobody's name.", ExecutionContextRefused::REQUESTER_UNACCOUNTABLE);
             }
             $requesterUser = (int) $requester->userId === (int) $enabler->getKey() ? $enabler : User::query()->find($requester->userId);
             if ($requesterUser === null) {
-                throw new ExecutionContextRefused("The requester (user #{$requester->userId}, {$requester->basis}) no longer exists, and nobody takes their place.");
+                throw new ExecutionContextRefused("The requester (user #{$requester->userId}, {$requester->basis}) no longer exists, and nobody takes their place.", ExecutionContextRefused::REQUESTER_GONE);
             }
             if ($requesterUser->is_active === false) {
-                throw new ExecutionContextRefused("The requester (user #{$requesterUser->getKey()}) is disabled, so nothing runs in their name.");
+                throw new ExecutionContextRefused("The requester (user #{$requesterUser->getKey()}) is disabled, so nothing runs in their name.", ExecutionContextRefused::REQUESTER_DISABLED);
             }
         }
 
@@ -298,7 +299,8 @@ final class ExecutionContextResolver
 
             if ($businessIds === []) {
                 throw new ExecutionContextRefused(
-                    "The requester, the enabling user of [{$agent->key}] and the agent's own scope share no business, so there is nothing this run could be about."
+                    "The requester, the enabling user of [{$agent->key}] and the agent's own scope share no business, so there is nothing this run could be about.",
+                    ExecutionContextRefused::NO_SHARED_BUSINESS,
                 );
             }
         }
@@ -309,7 +311,7 @@ final class ExecutionContextResolver
                 throw new ExecutionContextRefused("The run names business {$businessId}, which does not exist.");
             }
             if ($businessIds !== null && ! in_array($businessId, $businessIds, true)) {
-                throw new ExecutionContextRefused("Business {$businessId} is outside what the requester and the enabling user of [{$agent->key}] may both read.");
+                throw new ExecutionContextRefused("Business {$businessId} is outside what the requester and the enabling user of [{$agent->key}] may both read.", ExecutionContextRefused::BUSINESS_OUTSIDE_SCOPE);
             }
         }
 
@@ -347,7 +349,8 @@ final class ExecutionContextResolver
         if ($grantable > 0 && $toolKeys === []) {
             throw new ExecutionContextRefused(
                 "The requester and the enabling user of [{$agent->key}] hold in common none of the permissions its tools need, "
-                .'so none of the tools could run and the question is not put to it.'
+                .'so none of the tools could run and the question is not put to it.',
+                ExecutionContextRefused::NO_COMMON_TOOL_PERMISSIONS,
             );
         }
 

@@ -111,7 +111,7 @@ export type ComposerData = {
     flag_on: boolean;
     runtime_on: boolean;
     usable: boolean;
-    agents: { key: string; refusal: string | null }[];
+    agents: { key: string; refusal: string | null; refusal_code?: string | null }[];
     businesses: { id: number; name: string }[];
     max_question: number;
 };

@@ -75,15 +75,26 @@ final class AskHq
      */
     public function refusalFor(User $user, string $agentKey, ?int $businessId = null): ?string
     {
+        return $this->refusalDetailFor($user, $agentKey, $businessId)['message'] ?? null;
+    }
+
+    /**
+     * The same answer as `refusalFor()`, with its stable reason code (ruling 1 Nov 2026), so a screen can show
+     * the approved sentence in the reader's language and keep the code for operators.
+     *
+     * @return array{code: string, message: string}|null
+     */
+    public function refusalDetailFor(User $user, string $agentKey, ?int $businessId = null): ?array
+    {
         $agent = Agent::query()->where('key', $agentKey)->first();
         if ($agent === null) {
-            return "There is no agent with the key [{$agentKey}].";
+            return ['code' => 'agent_unknown', 'message' => "There is no agent with the key [{$agentKey}]."];
         }
 
         try {
             $this->contexts->preview($agent, Requester::human($user, 'ask: the signed-in person'), 'operator', $businessId);
         } catch (ExecutionContextRefused $e) {
-            return $e->getMessage();
+            return ['code' => $e->reasonCode, 'message' => $e->getMessage()];
         }
 
         return null;

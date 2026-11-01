@@ -89,6 +89,8 @@ final class ApprovalController extends Controller
                 'decided_by' => $approval->decidedBy?->email,
                 'delegated_to' => $approval->delegatedTo?->email,
                 'decidable' => $request->user() !== null && $approval->status->isOpen() && $approval->isDecidableBy($request->user()),
+                // Ruling 1 Nov 2026: why this person may not decide it, as a stable code the screen localizes.
+                'decision_refusal_code' => $request->user() !== null && $approval->status->isOpen() ? $approval->decisionRefusalCode($request->user()) : null,
                 // Shown so a reviewer can see the guarantee, not so they can verify it by eye.
                 'payload_intact' => $approval->payloadIntact(),
                 'superseded_by' => Approval::where('supersedes_id', $approval->id)->value('id'),

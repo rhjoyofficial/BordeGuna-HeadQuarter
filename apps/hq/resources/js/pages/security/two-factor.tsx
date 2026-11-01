@@ -6,6 +6,7 @@ import InputError from '@/components/input-error';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
+import { formatDateTime } from '@/lib/format';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
@@ -83,7 +84,7 @@ export default function TwoFactor({ enabled, pending, qrSvg, secret, recoveryCod
 
                     {enabled && (
                         <div className="mt-4 text-sm">
-                            <div className="text-tone-ok">Enabled{confirmedAt ? ` since ${new Date(confirmedAt).toLocaleString('en-GB')}` : ''}.</div>
+                            <div className="text-tone-ok">Enabled{confirmedAt ? ` since ${formatDateTime(confirmedAt)}` : ''}.</div>
                         </div>
                     )}
 
