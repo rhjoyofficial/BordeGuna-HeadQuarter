@@ -7,8 +7,9 @@ use Illuminate\Console\Command;
 
 /**
  * Checks every active ladder autonomy grant and lapses each one whose governing conditions no longer hold
- * (ChatGPT ruling 17, 31 Oct 2026). The resolver already lapses a failing grant at its next decision; this
- * makes the lapse happen even when no decision is asked for.
+ * (ChatGPT ruling 17, 31 Oct 2026). The resolver already refuses and lapses a failing grant at its next
+ * decision; this makes the lapse happen even when no decision is asked for, and first writes every lapse that
+ * was decided but could not be written (docs/150). It is recovery, not the safety boundary.
  *
  * ⚠ It only ever lapses. It cannot grant, renew, reactivate or widen anything, and with no ladder grant
  * (the shipped state) it does nothing.

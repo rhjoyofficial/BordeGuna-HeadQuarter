@@ -10,6 +10,7 @@ use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
 use App\Auth\ActiveUserProvider;
+use App\Autonomy\Ladder\PendingLapses;
 use App\Briefing\BriefingNarrator;
 use App\Briefing\NoNarrator;
 use App\Commerce\Support\CommerceRegistry;
@@ -71,6 +72,8 @@ class AppServiceProvider extends ServiceProvider
         // one instance or the scope the gateway opens is invisible to the connector that needs it.
         $this->app->singleton(CredentialVault::class);
         $this->app->singleton(Features::class);
+        // docs/150: lapses decided but not yet durably written are remembered for the life of the process.
+        $this->app->singleton(PendingLapses::class);
         $this->app->singleton(OAuthManager::class);
         $this->app->singleton(CommerceRegistry::class);
 

@@ -51,9 +51,13 @@ final class Auditor
         );
     }
 
-    public function recordSystem(string $action, Model|string|null $target = null, ?array $before = null, ?array $after = null, ?string $reason = null, ?string $correlationId = null, array $context = []): AuditLog
+    /**
+     * `$connection` names another database connection to write the row on (docs/150: the durable autonomy
+     * lapse commits its audit row on its own session, outside any caller's transaction). Null = the default.
+     */
+    public function recordSystem(string $action, Model|string|null $target = null, ?array $before = null, ?array $after = null, ?string $reason = null, ?string $correlationId = null, array $context = [], ?string $connection = null): AuditLog
     {
-        return $this->write('system', null, 'system', $action, $target, $before, $after, $reason, $context, $correlationId);
+        return $this->write('system', null, 'system', $action, $target, $before, $after, $reason, $context, $correlationId, $connection);
     }
 
     public function recordAgent(string $agentKey, string $action, Model|string|null $target = null, ?array $before = null, ?array $after = null, ?string $reason = null, array $context = []): AuditLog
@@ -61,7 +65,7 @@ final class Auditor
         return $this->write('agent', null, $agentKey, $action, $target, $before, $after, $reason, $context);
     }
 
-    private function write(string $actorType, ?int $actorId, ?string $actorLabel, string $action, Model|string|null $target, ?array $before, ?array $after, ?string $reason, array $context, ?string $correlationId = null): AuditLog
+    private function write(string $actorType, ?int $actorId, ?string $actorLabel, string $action, Model|string|null $target, ?array $before, ?array $after, ?string $reason, array $context, ?string $correlationId = null, ?string $connection = null): AuditLog
     {
         [$targetType, $targetId] = match (true) {
             $target instanceof Model => [$target->getMorphClass(), (string) $target->getKey()],
@@ -69,7 +73,7 @@ final class Auditor
             default => [null, null],
         };
 
-        return AuditLog::create([
+        return ($connection === null ? AuditLog::query() : AuditLog::on($connection))->create([
             'occurred_at' => now(),
             'actor_type' => $actorType,
             'actor_id' => $actorId,
