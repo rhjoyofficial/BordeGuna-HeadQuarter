@@ -2426,5 +2426,13 @@
     "Reserve": "রিজার্ভ",
     "Source and reason": "উৎস ও কারণ",
     "the initial ruling": "প্রথম সিদ্ধান্ত",
-    "valid": "বৈধ"
+    "valid": "বৈধ",
+    "Review saved for flag #{id}": "চিহ্নিত রেকর্ড #{id}-এর পর্যালোচনা সংরক্ষিত হয়েছে",
+    "Recorded as: {decision}. The row below now shows it as the latest review.": "রেকর্ড হয়েছে: {decision}। নিচের সারিতে এখন এটিই সর্বশেষ পর্যালোচনা হিসেবে দেখাচ্ছে।",
+    "Saved just now": "এইমাত্র সংরক্ষিত",
+    "Review again": "আবার পর্যালোচনা",
+    "Repair batch for {business} applied and verified. It is listed under Repair history.": "{business}-এর মেরামত ব্যাচ প্রয়োগ ও যাচাই হয়েছে। এটি মেরামতের ইতিহাসে আছে।",
+    "Memory #{id} assigned to its business.": "মেমরি #{id} তার ব্যবসায় বরাদ্দ হয়েছে।",
+    "The review was not saved": "পর্যালোচনা সংরক্ষিত হয়নি",
+    "Saving...": "সংরক্ষণ হচ্ছে..."
 }

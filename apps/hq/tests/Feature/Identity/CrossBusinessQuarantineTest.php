@@ -354,3 +354,46 @@ it('lets a person with the permission record an audited review that changes noth
         ->assertInertia(fn ($page) => $page->where('quarantine.merges.0.review', 'confirmed_wrong')->where('quarantine.merges.0.flagged', true)
             ->where('observed.email', null)->where('inferred.orders_count', 1));
 });
+
+it('returns a saved review to the same list page with its new status, so the screen can confirm it on the row', function () {
+    ['merge' => $merge] = plantHistoricalCrossBusinessMerge($this->laladia, $this->bionic);
+    Artisan::call('hq:identity:cross-business', ['--flag' => true]);
+    $flag = CrossBusinessQuarantine::where('subject_table', 'customer_merges')->where('subject_id', $merge->id)->sole();
+
+    $this->actingAsHq($this->owner)
+        ->from('/customers/quarantine?page=1')
+        ->post("/customers/quarantine/{$flag->id}/review", ['decision' => 'needs_repair', 'note' => 'Two shops, one phone.'])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect('/customers/quarantine?page=1')
+        ->assertSessionHas('status', 'quarantine-reviewed');
+
+    $this->actingAsHq($this->owner)->get('/customers/quarantine?page=1')->assertOk()
+        ->assertInertia(fn ($page) => $page->where('flags', function ($flags) use ($flag) {
+            $row = collect($flags)->firstWhere('id', $flag->id);
+
+            return $row !== null && $row['review']['decision'] === 'needs_repair' && $row['review']['note'] === 'Two shops, one phone.' && $row['reviews'] === 1;
+        }));
+});
+
+it('opens the review form in front of the page, never at its foot (31 Oct: the owner did not see it and nothing was saved)', function () {
+    $screen = file_get_contents(resource_path('js/pages/customers/quarantine.tsx'));
+
+    // The form lives in a dialog that names the flag and puts the cursor on its first field.
+    expect($screen)->toContain('<Dialog')
+        ->toContain('onOpenAutoFocus')
+        ->toContain('decisionRef.current?.focus()')
+        // The row under review and the row just saved are highlighted, and a saved review is confirmed in words.
+        ->toContain("reviewing?.id === f.id && 'bg-tone-info-bg")
+        ->toContain("t('Review saved for flag #{id}'")
+        ->toContain('scrollIntoView')
+        // A refusal that is not about a field is shown inside the dialog, not lost.
+        ->toContain("t('The review was not saved')");
+
+    // Exactly one review form, and it is inside the dialog.
+    $dialogStart = strpos($screen, '<Dialog');
+    $dialogEnd = strpos($screen, '</Dialog>');
+    $reviewPost = strpos($screen, '/customers/quarantine/${id}/review');
+    expect(substr_count($screen, '/review`'))->toBe(1)
+        ->and($reviewPost)->toBeGreaterThan($dialogStart)
+        ->and($reviewPost)->toBeLessThan($dialogEnd);
+});
