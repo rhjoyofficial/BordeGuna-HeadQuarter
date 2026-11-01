@@ -10,6 +10,7 @@ use App\Ai\CircuitBreaker;
 use App\Ai\ModelRouter;
 use App\Ai\Providers\ProviderRegistry;
 use App\Auth\ActiveUserProvider;
+use App\Autonomy\Ladder\PendingLapses;
 use App\Briefing\BriefingNarrator;
 use App\Briefing\NoNarrator;
 use App\Commerce\Support\CommerceRegistry;
@@ -75,6 +76,8 @@ class AppServiceProvider extends ServiceProvider
         // Ruling 1 Nov 2026: the owner's FX rate. Scoped, so a request or a queued job reads the table once for display and a
         // long-lived worker never keeps a remembered rate between jobs (a reservation re-reads it anyway).
         $this->app->scoped(FxRates::class);
+        // docs/150: lapses decided but not yet durably written are remembered for the life of the process.
+        $this->app->singleton(PendingLapses::class);
         $this->app->singleton(OAuthManager::class);
         $this->app->singleton(CommerceRegistry::class);
 

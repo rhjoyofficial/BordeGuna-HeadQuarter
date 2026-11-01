@@ -181,10 +181,12 @@ final class LadderGrants
     private function retireLocked(User $by, AutonomyLadderThreshold $threshold, string $reason): AutonomyLadderThreshold
     {
         $threshold->forceFill(['status' => 'retired', 'retired_by' => $by->getKey(), 'retired_at' => now()])->save();
-        // Ruling 17: the grants that rested on it lapse, one-way, each with its own audit row.
+        // Ruling 17: the grants that rested on it lapse, one-way, each with its own audit row. Written in THIS
+        // transaction on purpose (docs/150): the retirement is what makes the condition true, so if it rolls
+        // back the threshold was never retired and the grants rightly stand; if it commits, both commit.
         $revoked = AutonomyGrant::query()->where('ladder_threshold_id', $threshold->getKey())->where('status', 'active')->lockForUpdate()->get();
         foreach ($revoked as $grant) {
-            $this->lapse->lapse($grant, 'threshold_retired', 'Its ladder threshold was retired: '.$reason);
+            $this->lapse->lapseWithCaller($grant, 'threshold_retired', 'Its ladder threshold was retired: '.$reason);
         }
         $this->auditor->record('autonomy.ladder.threshold_retired', $threshold, before: ['status' => 'active'], after: ['status' => 'retired', 'lapsed_grants' => $revoked->pluck('uuid')->all()],
             reason: $reason, actorUserId: $by->getKey());
