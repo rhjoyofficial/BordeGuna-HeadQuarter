@@ -48,3 +48,10 @@ Limitation, stated plainly: the production copy of this pipeline writes to `/roo
 - Source: the 31 October production dump. Restored: 69 migrations, 41 customers, 44 orders, 1 user.
 - Candidate `ea79564`: 9 new migrations up, rollback, up again, all clean; 82 permissions; only `scheduler.gateway` on.
 - Result: **PASS.** Detail: docs/148 section 11. Pre-release production dump for this release: `/backups/daily/hq-20261031-115119.dump`.
+
+## HQ (PostgreSQL 17 + pgvector) - release candidate 3 rehearsal, 1 November 2026
+
+- Target: throwaway container `hq-drill-rc3` (`pgvector/pgvector:pg17`, `POSTGRES_USER=hq` like production) on the VPS, bound to `127.0.0.1:55433`, reached by SSH tunnel; removed afterwards. Production untouched.
+- Source: the 1 November nightly production dump (78 migrations).
+- Candidate `c93bb2e`: 1 new migration up (79), rollback, up again, all clean; seeder twice = 83 permissions; `fx_rates` 1 row (136.50); approver role 3 permissions.
+- Result: **PASS.** Detail: docs/151 section 3. Pre-release production dump for this release: `/backups/daily/hq-20261101-130922.dump`.
