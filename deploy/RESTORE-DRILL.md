@@ -41,3 +41,10 @@ Limitation, stated plainly: the production copy of this pipeline writes to `/roo
 - `exec backup /backup.sh once`: `dump ok: /backups/daily/hq-20260905-114058.dump (190929 bytes, 32 tables)`.
 - `exec backup /restore.sh` into `hq_restore_drill`: restored, verification printed `tables=32 users=1 scheduled_jobs=0 job_runs=0 audit_logs=1 last_migration=2026_09_05_100400_add_two_factor_and_pgvector` (matches production at that moment). Scratch database dropped.
 - Result: **PASS.** Backups live in `/root/backups/bordeguna-hq` on the VPS only (ADR-014).
+
+## HQ (PostgreSQL 17 + pgvector) - release candidate 2 rehearsal, 31 October 2026
+
+- Target: throwaway container `hq-drill-rc2` (`pgvector/pgvector:pg17`) on the VPS, bound to `127.0.0.1:55432`, reached by SSH tunnel; removed afterwards. Production untouched.
+- Source: the 31 October production dump. Restored: 69 migrations, 41 customers, 44 orders, 1 user.
+- Candidate `ea79564`: 9 new migrations up, rollback, up again, all clean; 82 permissions; only `scheduler.gateway` on.
+- Result: **PASS.** Detail: docs/148 section 11. Pre-release production dump for this release: `/backups/daily/hq-20261031-115119.dump`.

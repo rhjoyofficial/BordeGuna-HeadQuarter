@@ -211,3 +211,32 @@ From docs/147 (R2):
 
 From this walk:
 10. Relative times stay English on Bangla screens (existing decision) and server-written reasons stay English until a message-code layer exists.
+
+## 10. What happened at release (31 October 2026)
+
+Order as run, each step a separate authorisation by Joy:
+
+1. CI on the exact candidate: run 41194489004 green on `ea79564` (Pest + Pint + TypeScript + Vite, backup invariant, production image). Tag `hq-rc-2026-10-31b` = `ea79564b9357d51bd1c1335ee12a031dda659c6f`; `hq-rc-*` tags are locked by a ruleset.
+2. Wave 4 identity repair before this release (ruling 18): 7 flags written, review and repair batch #1 applied on the quarantine screen, verified read-only (nothing crosses a business, 0 open conflicts).
+3. Processing resumed on `828bf42` (script 3, ~10:54 UTC): drain pause removed, scheduler started after 14 days stopped, verified dump `/backups/daily/hq-20261031-105427.dump`. 116 events processed; 30 went dead, all `UnknownOrderException` (the orders never reached HQ: shop tokens invalid since 22 Sep and the shop host's outbound IP cannot reach the VPS). Fix order: new shop tokens, reconcile, replay.
+4. Restore rehearsal on this candidate: section 11 below.
+5. Release (`rc2-release.sh`, ~11:51-11:54 UTC): verified pre-release dump `/backups/daily/hq-20261031-115119.dump`, checkout `ea79564`, `deploy.sh --keep-scheduler-stopped`, seeder `--class` only, `hq:tools:sync`, 0 pending migrations, scheduler started, `deploy.sh --no-pull` recorded the release.
+6. Verified read-only afterwards: 78 migrations, 82 permissions, only `scheduler.gateway` on (on since 8 Sep), 0 autonomy grants, `ai_pause_state` 1 row, no cross-business rows, no new log errors, `/up` 200, health ok, all 7 containers running. Owner dashboard shows the chat-first UI and the AI cost card in BDT with the BDT/USD toggle.
+
+Rollback for this release: `deploy/restore.sh` with the pre-release dump above, then checkout `828bf42`.
+
+Known after release, not caused by it:
+- Shops `credential_invalid` (laladia.com, bionic.garden) and the 30 dead events: waiting for new shop tokens.
+- ERP snapshots 349 hours old: not a token fault (`hq:erp:probe` ok, business 4, 1 visible business). The polls are daily scheduled jobs (`erp.poll_overview` 04:00, `erp.poll_low_stock` 04:05 Asia/Dhaka) and the scheduler was stopped from 17 to 31 October; the first run after release refreshes them.
+- 1,416 shadow runs unread: left for the shadow week.
+
+## 11. Restore rehearsal on this candidate
+
+Docker on the developer PC was not usable (virtualisation off in firmware, no WSL) and local Postgres 17.2 has no pgvector, so the rehearsal ran on the VPS in a throwaway container, isolated from production:
+
+- Container `hq-drill-rc2`, image `pgvector/pgvector:pg17`, bound to `127.0.0.1:55432` only, reached through an SSH tunnel; removed afterwards. Production database untouched.
+- Source: that day's production dump. Restore OK: 69 migrations, 41 customers, 44 orders, 1 user.
+- Candidate code against the restored copy: the 9 new migrations up, rollback, up again, all clean; seeder gave 82 permissions; only `scheduler.gateway` on, every new flag off.
+- The local copy of the dump was deleted after the drill.
+
+Result: **PASS.** Also recorded in `deploy/RESTORE-DRILL.md`.
