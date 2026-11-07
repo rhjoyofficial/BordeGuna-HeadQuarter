@@ -2,6 +2,7 @@
 
 namespace App\Evaluation;
 
+use App\Agents\AgentRunner;
 use App\Models\EvaluationCase;
 use App\Models\EvaluationResult;
 use App\Models\EvaluationRun;
@@ -130,7 +131,9 @@ final readonly class EvaluationRunner
                     'checks' => array_fill_keys(DeterministicGrader::CHECKS, GradeResult::NOT_APPLICABLE),
                     'expected' => $case->expectation,
                     'actual' => $observation->toArray(),
-                    'reason' => 'unmeasured: the model provider refused the run ('.($observation->stopReason ?? 'provider_refused').'); this is not evidence about the agent',
+                    'reason' => $observation->stopReason === AgentRunner::STOP_AI_PAUSED
+                        ? 'unmeasured: Pause All AI was on, so the agent was not asked; this is not evidence about the agent'
+                        : 'unmeasured: the model provider refused the run ('.($observation->stopReason ?? 'provider_refused').'); this is not evidence about the agent',
                     'latency_ms' => $observation->latencyMs,
                     'ai_run_id' => $observation->aiRunId,
                     'correlation_id' => $observation->correlationId,

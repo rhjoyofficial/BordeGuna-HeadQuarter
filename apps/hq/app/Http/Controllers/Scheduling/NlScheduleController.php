@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Scheduling;
 use App\Http\Controllers\Controller;
 use App\Models\Business;
 use App\Scheduling\Nl\NlScheduling;
+use App\Support\Authorization\BusinessScope;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -23,15 +24,19 @@ final class NlScheduleController extends Controller
 {
     public function __construct(private readonly NlScheduling $nl) {}
 
-    public function create(Request $request): Response
+    public function create(Request $request, BusinessScope $scope): Response
     {
         abort_unless($this->nl->enabled(), 404);
+        // docs/136: the picker offers only the businesses this person may schedule for.
+        $permitted = $scope->all($request->user());
 
         return Inertia::render('scheduler/nl', [
             'runtime_on' => $this->nl->runtimeOn(),
             'result' => $request->session()->get('nl_result'),
             'text' => $request->session()->get('nl_text', ''),
-            'businesses' => Business::query()->where('is_active', true)->orderBy('name')->get(['id', 'name'])
+            'businesses' => Business::query()->where('is_active', true)
+                ->when($permitted !== null, fn ($q) => $q->whereIn('id', $permitted))
+                ->orderBy('name')->get(['id', 'name'])
                 ->map(fn (Business $b) => ['id' => $b->id, 'name' => $b->name])->all(),
             'max_text' => NlScheduling::MAX_TEXT,
         ]);

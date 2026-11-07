@@ -126,9 +126,16 @@ const SS_TOOL_CALL_SITES = [
     'app/Console/Commands/FactsReconcile.php' => ['$gateway->execute'],
     'app/Console/Commands/IdentityRepair.php' => ['$gateway->execute'],                       // human-only repair tool, docs/126 (twin: GatewayCoverageStructureTest)
     'app/Http/Controllers/Identity/CustomerQuarantineController.php' => ['$this->gateway->execute'], // repair from the quarantine screen, docs/126
+    'app/Http/Controllers/Identity/CustomerIdentityConflictController.php' => ['$this->gateway->execute'], // human-only conflict resolution, docs/140 (twin: GatewayCoverageStructureTest)
+    'app/Http/Controllers/Completion/AvatarController.php' => ['$this->gateway->execute'], // avatar.generate, R4 + approval + human-only, docs/145-b (twin: GatewayCoverageStructureTest)
     'app/Scheduling/Commands/SchedulerTick.php' => ['$workflows->reconcile'],
     'app/Content/Publishing/PublicationService.php' => ['$this->reconcile'],
     'app/Ask/AskHq.php' => ['$this->contexts->preview'],
+    // docs/143 (owner console, all flags OFF; twin: GatewayCoverageStructureTest): gateway calls as a named person.
+    'app/OwnerConsole/Do/DoPlanService.php' => ['$this->gateway->execute'],
+    'app/OwnerConsole/Watches/EventWatchService.php' => ['$this->gateway->execute'],
+    'app/OwnerConsole/Replies/ReplyOptionService.php' => ['$this->gateway->execute'],
+    'app/Http/Controllers/Observe/BriefingController.php' => ['$gateway->execute'],
     'app/Http/Controllers/Scheduling/NlScheduleController.php' => ['$this->nl->preview'],
 ];
 const SS_EFFECT_SERVICES = [
@@ -141,6 +148,9 @@ const SS_EFFECT_SERVICES = [
     '/->(createSalesOrderDraft|recordSalesOrder|cancelSalesOrder)\s*\(/' => ['app/Tools/Commerce/TakeOrderTool.php', 'app/Tools/Commerce/CancelSalesOrderTool.php'],
     '/FactsErpSnapshot::(create|updateOrCreate|firstOrCreate|insert|upsert|updateOrInsert)\s*\(/' => ['app/Tools/Erp/PollErpTool.php'],
     '/->liftDoNotContact\s*\(/' => ['app/Tools/Consent/LiftRestrictionTool.php'],
+    // docs/140: the only writer of an identity-conflict resolution is reached from its human-only tool.
+    '/->resolveConflict\s*\(/' => ['app/Tools/Identity/ResolveIdentityConflictTool.php'],
+    '/\bConflictResolver\b/' => ['app/Tools/Identity/ResolveIdentityConflictTool.php', 'app/Identity/Conflicts/ConflictResolver.php'],
 ];
 
 function ssToolGateway(array $sources): array
@@ -199,6 +209,8 @@ const SS_CONSENT_ALLOWED = [
     'app/Gateway/ToolGateway.php',                            // the ConsentGate check every effectful send passes (docs/108)
     'app/Identity/Repair/RepairPlanner.php',                  // lists standing restrictions for the human re-record list, reads only (docs/126, A3 point 9)
     'app/Identity/Repair/RepairApplier.php',                  // re-records do-not-contact/withdrawn on the target via ConsentLedger, never a grant (docs/126, A3 point 9)
+    'app/Identity/Conflicts/ConflictResolver.php',            // re-records an identity's do-not-contact/withdrawn on its new owner via ConsentLedger, never a grant (docs/140)
+    'app/Identity/Conflicts/ReleaseEvidence.php',             // counts consent rows of the identity's own business as release evidence, reads only (docs/140)
 ];
 
 function ssConsentReaders(array $sources): array

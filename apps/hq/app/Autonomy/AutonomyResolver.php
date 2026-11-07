@@ -2,6 +2,7 @@
 
 namespace App\Autonomy;
 
+use App\Autonomy\Ladder\LadderGrantLapse;
 use App\Gateway\Descriptor\AutonomyLevel;
 use App\Models\AutonomyGrant;
 use Illuminate\Support\Carbon;
@@ -167,10 +168,33 @@ final class AutonomyResolver
             if (! $this->hasEvaluationEvidence($grant, $request)) {
                 continue;
             }
+            if (! $this->ladderStillStands($grant)) {
+                continue;
+            }
             $matching[] = $grant;
         }
 
         return $matching;
+    }
+
+    /**
+     * docs/145-d as amended by ChatGPT ruling 17 (31 Oct 2026): a grant made through the evidence ladder stands
+     * only while Pause All AI is off and readable, its threshold is still active, the evidence still meets it
+     * and every other governing condition holds, read fresh on every decision. When one fails, the grant is
+     * LAPSED persistently by `LadderGrantLapse` (one-way, audited), not merely skipped: recovering evidence,
+     * resuming AI or a new threshold never brings it back; only a new grant by a person does. A grant not made
+     * through the ladder is unaffected.
+     *
+     * The lapse service is taken from the container here, not the constructor, so this class still holds
+     * nothing that could execute (a test asserts the constructor stays empty). Lapsing only removes autonomy.
+     */
+    private function ladderStillStands(AutonomyGrant $grant): bool
+    {
+        if ($grant->ladder_threshold_id === null) {
+            return true;
+        }
+
+        return app(LadderGrantLapse::class)->stands($grant);
     }
 
     /** A grant covering up to "low" does not apply to a call that moves a "high" amount. */

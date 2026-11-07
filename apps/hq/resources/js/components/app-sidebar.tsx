@@ -10,26 +10,41 @@ import {
     BookOpen,
     Bot,
     Building2,
+    CalendarCheck,
     CalendarClock,
+    Clapperboard,
     Coins,
+    FileText,
+    Fingerprint,
     Flag,
     Gauge,
     GitCompareArrows,
     HeartPulse,
     KeyRound,
+    Landmark,
+    Layers,
     LayoutGrid,
+    ListChecks,
+    Megaphone,
     MessageSquare,
     Newspaper,
+    Package,
+    Plug,
+    Puzzle,
+    Radar,
     Scale,
+    ScanFace,
     ScrollText,
     Server,
+    ShieldAlert,
     ShieldCheck,
     SlidersHorizontal,
     Sparkles,
     Stamp,
+    Telescope,
+    TrendingUp,
     Users,
     Wrench,
-    CalendarCheck,
 } from 'lucide-react';
 import AppLogo from './app-logo';
 
@@ -38,13 +53,15 @@ type SharedProps = { auth: { permissions: string[] }; nav?: { badges?: Record<st
 type GatedItem = NavItem & { permission?: string; badge?: string; external?: boolean; feature?: string };
 
 /**
- * The navigation, grouped by what the operator is doing rather than by table.
+ * The navigation, grouped by what the person is doing rather than by table (docs/135 (c)):
  *
- *   Work        what needs a person today
- *   Operations  the things HQ watches and runs
+ *   Work        what needs a person today: the brief, Ask HQ, decisions, conversations, follow-ups
+ *   Customers   one customer of one business, and the cross-business review
+ *   Operations  the things HQ runs: jobs, briefings, the agents and their shadow review, the businesses
  *   Control     what HQ is allowed to do, and the switches
- *   Observe     the record: alerts, the four dashboards (docs/48 N.3), the audit log, the queues
+ *   Observe     the record: alerts, the dashboards (docs/48 N.3), the audit log, the queues
  *
+ * Every entry keeps its exact title, URL, icon and permission from before the regrouping; screen tests read them.
  * A badge names the key in `nav.badges` the middleware shares; the count is computed inside the same
  * visibility scope the screen uses, so the sidebar never says more than the page would.
  */
@@ -54,27 +71,62 @@ const sections: { label: string; items: GatedItem[] }[] = [
         items: [
             { title: 'Today', url: '/dashboard', icon: LayoutGrid, permission: 'hq.dashboard.view' },
             { title: 'Ask HQ', url: '/ask', icon: Sparkles, permission: 'hq.ask.use', feature: 'ask_hq' },
-            { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
             { title: 'Approvals', url: '/approvals', icon: Stamp, permission: 'hq.approvals.view', badge: 'approvals' },
-            { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
+            { title: 'Inbox', url: '/inbox', icon: MessageSquare, permission: 'hq.inbox.view', badge: 'inbox' },
+            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
+            // docs/143: each appears only while its flag is on, and behind its own permission.
+            { title: 'Do plans', url: '/do-plans', icon: ListChecks, permission: 'hq.do.propose', feature: 'console_do_mode' },
+            { title: 'Batch review', url: '/approvals/batch', icon: Layers, permission: 'hq.approvals.decide', feature: 'console_batch_approval' },
+            { title: 'Event watches', url: '/watches', icon: Radar, permission: 'hq.watches.propose', feature: 'console_event_watches' },
+        ],
+    },
+    {
+        label: 'Customers',
+        items: [
+            { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
+            // docs/117 and docs/126: the cross-business review was reachable only from the customer list; a screen nobody can navigate to is a screen nobody uses.
+            { title: 'Parcels', url: '/parcels', icon: Package, permission: 'hq.customers.view' },
+            { title: 'Cross-business review', url: '/customers/quarantine', icon: ShieldAlert, permission: 'hq.customers.quarantine.review' },
+            // docs/140: open identity conflicts per business and their human resolution (the action is behind its own permission).
+            { title: 'Identity conflicts', url: '/customers/identity-conflicts', icon: Fingerprint, permission: 'hq.customers.quarantine.review' },
+        ],
+    },
+    {
+        // docs/145 (HQ completion, M4): Phase 6 content and research, Phase 8 avatar consent.
+        label: 'Growth',
+        items: [
+            { title: 'Content', url: '/content', icon: Megaphone, permission: 'hq.content.view' },
+            { title: 'Research digests', url: '/research/digests', icon: Telescope, permission: 'hq.research.view' },
+            { title: 'Avatar consent', url: '/avatar', icon: ScanFace, permission: 'hq.avatar.view' },
         ],
     },
     {
         label: 'Operations',
         items: [
             { title: 'Scheduler', url: '/scheduler', icon: CalendarClock, permission: 'hq.jobs.view', badge: 'scheduler' },
+            { title: 'Briefings', url: '/observe/briefings', icon: Newspaper, permission: 'hq.tools.facts.read' },
+            { title: 'Agents', url: '/agents', icon: Bot, permission: 'hq.agents.view', badge: 'agents' },
             { title: 'Businesses', url: '/businesses', icon: Building2, permission: 'hq.businesses.view' },
-            { title: 'Customers', url: '/customers', icon: Users, permission: 'hq.customers.view' },
-            { title: 'Follow-ups', url: '/follow-ups', icon: CalendarCheck, permission: 'hq.followups.view', badge: 'followups' },
+            // docs/144: the connector screens. Each is a draft or a read; none sends, publishes or switches anything on.
+            { title: 'Supplier documents', url: '/ingestion', icon: FileText, permission: 'hq.ingestion.review' },
+            { title: 'Reel drafts', url: '/media-drafts', icon: Clapperboard, permission: 'hq.tools.media.draft' },
+            { title: 'Paused ad drafts', url: '/ads-drafts', icon: Megaphone, permission: 'hq.tools.ads.draft' },
         ],
     },
     {
         label: 'Control',
         items: [
             { title: 'Tools', url: '/tools', icon: Wrench, permission: 'hq.tools.view' },
+            { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
+            { title: 'Connectors', url: '/connectors', icon: Plug, permission: 'hq.connectors.view' },
             { title: 'Credentials', url: '/credentials', icon: KeyRound, permission: 'hq.credentials.view' },
             { title: 'Feature flags', url: '/flags', icon: Flag, permission: 'hq.flags.view' },
-            { title: 'Playbooks', url: '/playbooks', icon: BookOpen, permission: 'hq.playbooks.view' },
+            // Ruling 1 Nov 2026: the owner's USD to BDT rate, dated and audited (media budgets reserve at it; AI costs show with it).
+            { title: 'Exchange rate', url: '/fx-rate', icon: Landmark, permission: 'hq.ai.cost.view' },
+            { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
+            // docs/145-c and 145-d: the skill registry and the evidence ladder.
+            { title: 'Skills', url: '/skills', icon: Puzzle, permission: 'hq.skills.view' },
+            { title: 'Autonomy ladder', url: '/autonomy', icon: TrendingUp, permission: 'hq.autonomy.view' },
         ],
     },
     {
@@ -86,9 +138,7 @@ const sections: { label: string; items: GatedItem[] }[] = [
             { title: 'Control plane', url: '/observe/control-plane', icon: SlidersHorizontal, permission: 'hq.tools.view' },
             { title: 'Autonomy evidence', url: '/observe/autonomy-evidence', icon: Scale, permission: 'hq.agents.view' },
             { title: 'Decision corpus', url: '/observe/decision-corpus', icon: GitCompareArrows, permission: 'hq.agents.view' },
-            { title: 'Activation posture', url: '/observe/posture', icon: Gauge, permission: 'hq.agents.view' },
             { title: 'Platform', url: '/observe/platform', icon: Server, permission: 'hq.horizon.view' },
-            { title: 'Briefings', url: '/observe/briefings', icon: Newspaper, permission: 'hq.tools.facts.read' },
             { title: 'Audit log', url: '/audit', icon: ScrollText, permission: 'hq.audit.view' },
             { title: 'Queues (Horizon)', url: '/horizon', icon: Activity, permission: 'hq.horizon.view', external: true },
         ],

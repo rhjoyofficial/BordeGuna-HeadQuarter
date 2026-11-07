@@ -1,7 +1,7 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader, SectionHeader } from '@/components/page-header';
-import { Pagination, type PageLink } from '@/components/pagination';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -25,7 +25,7 @@ type Customer = {
     quarantine_held?: boolean;
 };
 type Candidate = { id: number; confidence: string; reason: string; customer: Customer; candidate: Customer };
-type Paginated<T> = { data: T[]; links: PageLink[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Customers', href: '/customers' }];
 
@@ -49,10 +49,12 @@ function Person({ c }: { c: Customer }) {
 export default function CustomersIndex({
     customers,
     candidates,
+    candidatesPagination,
     filters,
 }: {
     customers: Paginated<Customer>;
     candidates: Candidate[];
+    candidatesPagination: ListMeta;
     filters: { q: string; business?: number | null };
 }) {
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
@@ -81,7 +83,7 @@ export default function CustomersIndex({
                     title="Customers"
                     description="One customer per person per business, matched on the phone number first, across every shop. A read model: the shops keep the transactional truth, and this can be rebuilt from them."
                     actions={
-                        <span className="flex items-center gap-3">
+                        <span className="flex flex-wrap items-center gap-3">
                             {canReview && (
                                 <Button asChild variant="outline" size="sm">
                                     <Link href="/customers/quarantine">Cross-business review</Link>
@@ -100,7 +102,14 @@ export default function CustomersIndex({
                         }}
                         className="flex flex-wrap items-center gap-2"
                     >
-                        <Input placeholder="Search name, email or phone" value={q} onChange={(e) => setQ(e.target.value)} className="w-72" />
+                        <Input
+                            type="search"
+                            aria-label="Search customers"
+                            placeholder="Search name, email or phone"
+                            value={q}
+                            onChange={(e) => setQ(e.target.value)}
+                            className="w-full max-w-72 sm:w-72"
+                        />
                         <Button type="submit" variant="outline">
                             Search
                         </Button>
@@ -118,8 +127,8 @@ export default function CustomersIndex({
 
                 {candidates.length > 0 && (
                     <section className="flex flex-col gap-2">
-                        <SectionHeader title="Are these the same person?" aside={`${candidates.length} to decide`} />
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <SectionHeader title="Are these the same person?" aside={`${candidatesPagination.total} to decide`} />
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
                                 <tbody>
                                     {candidates.map((c) => (
@@ -142,7 +151,7 @@ export default function CustomersIndex({
                                             </td>
                                             <td className="px-3 py-3 text-right">
                                                 {canManage && (
-                                                    <div className="flex justify-end gap-2">
+                                                    <div className="flex flex-wrap justify-end gap-2">
                                                         <Button size="sm" disabled={busy} onClick={() => setMerging(c)}>
                                                             Same person
                                                         </Button>
@@ -162,6 +171,7 @@ export default function CustomersIndex({
                                 </tbody>
                             </table>
                         </div>
+                        <Pagination meta={candidatesPagination} />
                     </section>
                 )}
 
@@ -172,9 +182,9 @@ export default function CustomersIndex({
                         description={filters.q ? 'Try a shorter name or the phone number.' : 'Customers appear as orders arrive from the shops.'}
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Customer</th>
                                     <th className="px-3 py-2 font-medium">Phone</th>
@@ -217,7 +227,7 @@ export default function CustomersIndex({
                         </table>
                     </div>
                 )}
-                <Pagination links={customers.links} total={customers.total} noun="customers" />
+                <Pagination meta={customers} />
             </div>
 
             <ConfirmDialog

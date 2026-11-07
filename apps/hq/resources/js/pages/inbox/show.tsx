@@ -1,11 +1,14 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { NativeSelect } from '@/components/form/field';
+import { ReplyOptions, type ReplyOptionSet } from '@/components/inbox/reply-options';
 import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, timeAgo } from '@/lib/format';
-import { formatNumber, useT } from '@/lib/i18n';
+import { formatNumber, type Translator, useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
@@ -91,22 +94,31 @@ type Dialog = { kind: 'resolve' | 'close' | 'discard'; run?: number } | null;
 
 const SENDING_NOTICE = 'Sending is not enabled yet (gate P3-G4): no messaging provider is registered, so every send is refused by the control plane.';
 
+/** A shadow-comparison verdict as a person reads it; the stored value stays the English key. */
+const VERDICT_LABELS: Record<string, string> = {
+    same: 'same',
+    better: 'better',
+    worse: 'worse',
+    different: 'different',
+    unmeasured: 'unmeasured',
+};
+
 function provenanceTone(m: Message) {
     if (m.direction === 'internal') return 'neutral' as const;
     return m.trusted ? ('ok' as const) : ('warn' as const);
 }
 
-function provenanceLabel(m: Message): string {
-    if (m.direction === 'internal') return 'internal note';
+function provenanceLabel(m: Message, t: Translator): string {
+    if (m.direction === 'internal') return t('internal note');
     switch (m.provenance) {
         case 'customer':
-            return 'customer, untrusted';
+            return t('customer, untrusted');
         case 'generated':
-            return 'agent, generated';
+            return t('agent, generated');
         case 'business':
-            return 'colleague';
+            return t('colleague');
         case 'system':
-            return 'system';
+            return t('system');
         default:
             return m.provenance;
     }
@@ -116,7 +128,7 @@ function provenanceLabel(m: Message): string {
 function HandoverCard({ handover }: { handover: Handover }) {
     const t = useT();
     return (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30" data-testid="handover-reason">
+        <section className="bg-tone-pending-bg border-tone-pending-line rounded-xl border p-4" data-testid="handover-reason">
             <SectionHeader title={t('Why a person is needed')} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusBadge tone="warn">{handover.reason ?? t('reason not recorded')}</StatusBadge>
@@ -136,14 +148,17 @@ function HandoverCard({ handover }: { handover: Handover }) {
 function RecentOrdersCard({ orders, known }: { orders: RecentOrder[]; known: boolean }) {
     const t = useT();
     return (
-        <section className="bg-card rounded-xl border p-4" data-testid="recent-orders">
-            <SectionHeader title={t('Recent orders')} aside={<span className="text-muted-foreground text-xs">{t('HQ order facts, newest first')}</span>} />
+        <section className="hq-card p-4" data-testid="recent-orders">
+            <SectionHeader
+                title={t('Recent orders')}
+                aside={<span className="text-muted-foreground text-xs">{t('HQ order facts, newest first')}</span>}
+            />
             {!known || orders.length === 0 ? (
                 <p className="text-muted-foreground mt-2 text-sm">{t('No known orders')}</p>
             ) : (
                 <ul className="mt-2 flex flex-col gap-2">
                     {orders.map((o) => (
-                        <li key={o.ref} className="rounded-md border p-2 text-sm">
+                        <li key={o.ref} className="bg-muted rounded-lg p-2.5 text-sm">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="font-medium">{o.ref}</span>
                                 <StatusBadge tone="neutral" dot={false}>
@@ -168,6 +183,7 @@ export default function InboxShow({
     thread,
     messages,
     proposals,
+    reply_options,
     handover,
     orders,
     memory,
@@ -182,6 +198,7 @@ export default function InboxShow({
     thread: Thread;
     messages: Message[];
     proposals: Proposal[];
+    reply_options: ReplyOptionSet[];
     handover: Handover | null;
     orders: RecentOrder[];
     memory: Remembered[];
@@ -194,6 +211,10 @@ export default function InboxShow({
     can: { manage: boolean };
 }) {
     const { flash, errors } = usePage<{ flash: { status?: string | null; outcome?: Outcome }; errors: Record<string, string> }>().props;
+    const t = useT();
+    const sendingNotice = t(SENDING_NOTICE);
+    const memoryKeyLabel = (key: string | null) => (key !== null && MEMORY_KEY_LABELS[key] ? t(MEMORY_KEY_LABELS[key]) : key);
+    const verdictLabel = (v: string) => (VERDICT_LABELS[v] ? t(VERDICT_LABELS[v]) : v);
     const [busy, setBusy] = useState(false);
     const [dialog, setDialog] = useState<Dialog>(null);
     const [text, setText] = useState('');
@@ -207,7 +228,7 @@ export default function InboxShow({
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Inbox', href: '/inbox' },
-        { title: customerLabel(thread), href: `/inbox/${thread.uuid}` },
+        { title: customerLabel(thread, t), href: `/inbox/${thread.uuid}` },
     ];
 
     const post = (action: string, body: Record<string, string | number | boolean | null> = {}, after?: () => void) => {
@@ -228,17 +249,17 @@ export default function InboxShow({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={`Inbox · ${customerLabel(thread)}`} />
+            <Head title={`${t('Inbox')} · ${customerLabel(thread, t)}`} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title={customerLabel(thread)}
+                    title={customerLabel(thread, t)}
                     description={
                         <>
                             {thread.business ?? ''}
                             {thread.brand ? ` · ${thread.brand}` : ''}
-                            {thread.platform_account ? ` · via ${thread.platform_account}` : ''}
+                            {thread.platform_account ? ` · ${t('via {account}', { account: thread.platform_account })}` : ''}
                             {` · ${thread.channel}`}
-                            {thread.opened_at ? ` · opened ${timeAgo(thread.opened_at)}` : ''}
+                            {thread.opened_at ? ` · ${t('opened {when}', { when: timeAgo(thread.opened_at) })}` : ''}
                         </>
                     }
                     actions={
@@ -249,70 +270,75 @@ export default function InboxShow({
                                     {languageLabel(thread.language)}
                                 </StatusBadge>
                             )}
-                            {thread.ai_disabled && <StatusBadge tone="neutral">agent off for this thread</StatusBadge>}
+                            {thread.ai_disabled && <StatusBadge tone="neutral">{t('agent off for this thread')}</StatusBadge>}
                         </div>
                     }
                 />
 
                 {errors?.state && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-                        <strong>That move is not allowed.</strong> {errors.state}
-                    </div>
+                    <Notice tone="danger" alert>
+                        <strong>{t('That move is not allowed.')}</strong> {errors.state}
+                    </Notice>
                 )}
                 {errors?.decision && (
-                    <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                    <Notice tone="danger" alert>
                         {errors.decision}
-                    </div>
+                    </Notice>
                 )}
                 {notSent && (
-                    <div className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-900 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200">
-                        <strong>Not sent.</strong> {outcome?.error ?? SENDING_NOTICE}
-                    </div>
+                    <Notice tone="warn" alert>
+                        <strong>{t('Not sent.')}</strong> {outcome?.error ?? sendingNotice}
+                    </Notice>
                 )}
                 {flash?.status === 'reply-sent' && (
-                    <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-                        <strong>Sent.</strong> The provider accepted it; delivery is verified separately.
-                    </div>
+                    <Notice tone="ok">
+                        <strong>{t('Sent.')}</strong> {t('The provider accepted it; delivery is verified separately.')}
+                    </Notice>
                 )}
                 {flash?.status === 'proposal-discarded' && (
-                    <div className="rounded-xl border p-4 text-sm">The proposal was discarded and the decision recorded.</div>
+                    <Notice tone="neutral">{t('The proposal was discarded and the decision recorded.')}</Notice>
                 )}
 
-                <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-                    <div className="flex flex-col gap-6">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="flex min-w-0 flex-col gap-6">
                         <section>
-                            <SectionHeader title="Conversation" aside={<span className="text-muted-foreground text-xs">{messages.length} messages</span>} />
+                            <SectionHeader
+                                title={t('Conversation')}
+                                aside={<span className="text-muted-foreground text-xs">{t('{count} messages', { count: messages.length })}</span>}
+                            />
                             <div className="mt-3 flex flex-col gap-3">
-                                {messages.length === 0 && <p className="text-muted-foreground text-sm">Nothing has been said yet.</p>}
+                                {messages.length === 0 && <p className="text-muted-foreground text-sm">{t('Nothing has been said yet.')}</p>}
                                 {messages.map((m) => (
                                     <div
                                         key={m.uuid}
                                         className={
                                             m.direction === 'internal'
-                                                ? 'bg-muted/60 rounded-xl border border-dashed p-3'
+                                                ? 'bg-muted border-glass-border rounded-xl border border-dashed p-3'
                                                 : m.direction === 'inbound'
-                                                  ? 'bg-card mr-8 rounded-xl border p-3'
-                                                  : 'bg-primary/5 ml-8 rounded-xl border p-3'
+                                                  ? 'hq-card mr-4 rounded-[22px_22px_22px_6px] p-3.5 sm:mr-8'
+                                                  : 'bg-accent border-glass-border ml-4 rounded-[22px_22px_6px_22px] border p-3.5 sm:ml-8'
                                         }
                                     >
                                         <div className="flex flex-wrap items-center gap-2 text-xs">
-                                            <span className="font-medium">{m.direction === 'inbound' ? 'Customer' : m.author}</span>
+                                            <span className="font-medium">{m.direction === 'inbound' ? t('Customer') : m.author}</span>
                                             <StatusBadge tone={provenanceTone(m)} dot={false}>
-                                                {provenanceLabel(m)}
+                                                {provenanceLabel(m, t)}
                                             </StatusBadge>
                                             {m.at && (
                                                 <span className="text-muted-foreground" title={formatDateTime(m.at)}>
                                                     {timeAgo(m.at)}
                                                 </span>
                                             )}
-                                            {m.direction === 'outbound' && <span className="text-muted-foreground">{m.status}</span>}
+                                            {m.direction === 'outbound' && <span className="text-muted-foreground">{t(m.status)}</span>}
                                         </div>
-                                        <p className="mt-1 text-sm whitespace-pre-wrap">{m.body || <span className="text-muted-foreground">(no text)</span>}</p>
+                                        <p className="mt-1 text-sm whitespace-pre-wrap">
+                                            {m.body || <span className="text-muted-foreground">{t('(no text)')}</span>}
+                                        </p>
                                         {m.attachments.length > 0 && (
                                             <ul className="text-muted-foreground mt-1 text-xs">
                                                 {m.attachments.map((a, i) => (
                                                     <li key={i}>
-                                                        attachment: {a.type} {a.ref ? `(${a.ref})` : ''}
+                                                        {t('attachment: {type}', { type: a.type })} {a.ref ? `(${a.ref})` : ''}
                                                     </li>
                                                 ))}
                                             </ul>
@@ -322,23 +348,34 @@ export default function InboxShow({
                             </div>
                         </section>
 
+                        <ReplyOptions
+                            sets={reply_options}
+                            conversation={thread.uuid}
+                            canManage={can.manage}
+                            recipient={[customerLabel(thread, t), thread.channel, thread.business].filter(Boolean).join(', ')}
+                        />
+
                         {proposals.length > 0 && (
                             <section>
-                                <SectionHeader title="The agent suggested" />
+                                <SectionHeader title={t('The agent suggested')} />
                                 <div className="mt-3 flex flex-col gap-3">
                                     {proposals.map((p) => (
-                                        <article key={p.run_id} className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+                                        <article key={p.run_id} className="hq-card border-tone-pending-line p-4">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
-                                                <span>proposed by the support agent</span>
+                                                <span>{t('proposed by the support agent')}</span>
                                                 {p.at && <span>{timeAgo(p.at)}</span>}
-                                                <Link href={`/agents/runs/${p.run_id}`} className="hover:underline">
-                                                    run #{p.run_id}
+                                                <Link
+                                                    href={`/agents/runs/${p.run_id}`}
+                                                    className="touch:inline-flex touch:min-h-11 touch:items-center underline-offset-4 hover:underline"
+                                                >
+                                                    {t('run #{id}', { id: p.run_id })}
                                                 </Link>
                                             </div>
                                             {p.why && <p className="mt-1 text-xs italic">{p.why}</p>}
                                             {can.manage ? (
-                                                <textarea
-                                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                                <Textarea
+                                                    className="mt-2"
+                                                    aria-label={t('Proposed reply')}
                                                     rows={3}
                                                     value={editing[p.run_id] ?? p.text}
                                                     onChange={(e) => setEditing({ ...editing, [p.run_id]: e.target.value })}
@@ -358,10 +395,15 @@ export default function InboxShow({
                                                             })
                                                         }
                                                     >
-                                                        {(editing[p.run_id] ?? p.text) === p.text ? 'Send as it is' : 'Send edited'}
+                                                        {(editing[p.run_id] ?? p.text) === p.text ? t('Send as it is') : t('Send edited')}
                                                     </Button>
-                                                    <Button size="sm" variant="outline" disabled={busy} onClick={() => setDialog({ kind: 'discard', run: p.run_id })}>
-                                                        Discard
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={busy}
+                                                        onClick={() => setDialog({ kind: 'discard', run: p.run_id })}
+                                                    >
+                                                        {t('Discard')}
                                                     </Button>
                                                 </div>
                                             )}
@@ -373,28 +415,45 @@ export default function InboxShow({
 
                         {comparisons.length > 0 && (
                             <section>
-                                <SectionHeader title="Shadow comparison" aside={<span className="text-muted-foreground text-xs">what the agent proposed, beside what was sent</span>} />
+                                <SectionHeader
+                                    title={t('Shadow comparison')}
+                                    aside={
+                                        <span className="text-muted-foreground text-xs">{t('what the agent proposed, beside what was sent')}</span>
+                                    }
+                                />
                                 <div className="mt-3 flex flex-col gap-3">
                                     {comparisons.map((c) => (
-                                        <article key={c.id} className="rounded-xl border p-4">
+                                        <article key={c.id} className="hq-card p-4">
                                             <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
                                                 {c.run_id !== null && (
-                                                    <Link href={`/agents/runs/${c.run_id}`} className="hover:underline">
-                                                        proposal, run #{c.run_id}
+                                                    <Link
+                                                        href={`/agents/runs/${c.run_id}`}
+                                                        className="touch:inline-flex touch:min-h-11 touch:items-center underline-offset-4 hover:underline"
+                                                    >
+                                                        {t('proposal, run #{id}', { id: c.run_id })}
                                                     </Link>
                                                 )}
-                                                {c.sent_at && <span>sent {timeAgo(c.sent_at)}</span>}
-                                                {c.identical && <span>identical text</span>}
-                                                {c.verdict && <StatusBadge tone={c.verdict === 'unmeasured' ? 'neutral' : 'ok'}>{c.verdict}</StatusBadge>}
+                                                {c.sent_at && <span>{t('sent {when}', { when: timeAgo(c.sent_at) })}</span>}
+                                                {c.identical && <span>{t('identical text')}</span>}
+                                                {c.verdict && (
+                                                    <StatusBadge tone={c.verdict === 'unmeasured' ? 'neutral' : 'ok'}>
+                                                        {verdictLabel(c.verdict)}
+                                                    </StatusBadge>
+                                                )}
                                             </div>
                                             <div className="mt-2 grid gap-3 sm:grid-cols-2">
                                                 <div>
-                                                    <div className="text-muted-foreground text-xs">the agent proposed</div>
-                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{c.proposed ?? '(the run no longer holds a proposal)'}</p>
+                                                    <div className="hq-eyebrow">{t('the agent proposed')}</div>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">
+                                                        {c.proposed ?? t('(the run no longer holds a proposal)')}
+                                                    </p>
                                                 </div>
                                                 <div>
-                                                    <div className="text-muted-foreground text-xs">what was actually sent</div>
-                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{c.sent ?? (c.verdict === 'unmeasured' ? '(nothing was sent within a day)' : '(no text)')}</p>
+                                                    <div className="hq-eyebrow">{t('what was actually sent')}</div>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">
+                                                        {c.sent ??
+                                                            (c.verdict === 'unmeasured' ? t('(nothing was sent within a day)') : t('(no text)'))}
+                                                    </p>
                                                 </div>
                                             </div>
                                             {can.manage && c.verdict !== 'unmeasured' && (
@@ -407,7 +466,7 @@ export default function InboxShow({
                                                             disabled={busy}
                                                             onClick={() => post(`comparisons/${c.id}/verdict`, { verdict: v })}
                                                         >
-                                                            {v}
+                                                            {verdictLabel(v)}
                                                         </Button>
                                                     ))}
                                                 </div>
@@ -420,22 +479,37 @@ export default function InboxShow({
 
                         {can.manage && (
                             <section>
-                                <SectionHeader title="Reply" />
-                                <p className="text-muted-foreground mt-1 text-xs">{SENDING_NOTICE}</p>
-                                <textarea
-                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                <SectionHeader title={t('Reply')} />
+                                <InertNotice
+                                    className="mt-2"
+                                    title={t('Sending to the customer')}
+                                    reason={sendingNotice}
+                                    gate={t('A messaging provider is registered and the channel is connected and verified (gate P3-G4).')}
+                                />
+                                <Textarea
+                                    className="mt-2"
+                                    aria-label={t('Reply')}
                                     rows={3}
-                                    placeholder="Write in the customer's language"
+                                    placeholder={t("Write in the customer's language")}
                                     value={text}
                                     onChange={(e) => setText(e.target.value)}
                                 />
                                 <div className="mt-2 flex flex-wrap items-center gap-3">
-                                    <Button size="sm" disabled={busy || text.trim() === ''} onClick={() => post('reply', { text, keep_as_note: keepAsNote }, () => setText(''))}>
-                                        Send through the control plane
+                                    <Button
+                                        size="sm"
+                                        disabled={busy || text.trim() === ''}
+                                        onClick={() => post('reply', { text, keep_as_note: keepAsNote }, () => setText(''))}
+                                    >
+                                        {t('Send through the control plane')}
                                     </Button>
-                                    <label className="flex items-center gap-2 text-xs">
-                                        <input type="checkbox" checked={keepAsNote} onChange={(e) => setKeepAsNote(e.target.checked)} />
-                                        keep as an internal note if it cannot be sent
+                                    <label className="touch:min-h-11 flex min-h-9 cursor-pointer items-center gap-2 text-xs">
+                                        <input
+                                            type="checkbox"
+                                            className="accent-hq-violet size-4"
+                                            checked={keepAsNote}
+                                            onChange={(e) => setKeepAsNote(e.target.checked)}
+                                        />
+                                        {t('keep as an internal note if it cannot be sent')}
                                     </label>
                                 </div>
                             </section>
@@ -443,17 +517,23 @@ export default function InboxShow({
 
                         {can.manage && (
                             <section>
-                                <SectionHeader title="Internal note" />
-                                <textarea
-                                    className="bg-background mt-2 w-full rounded-md border p-2 text-sm"
+                                <SectionHeader title={t('Internal note')} />
+                                <Textarea
+                                    className="mt-2"
+                                    aria-label={t('Internal note')}
                                     rows={2}
-                                    placeholder="Seen by colleagues only"
+                                    placeholder={t('Seen by colleagues only')}
                                     value={note}
                                     onChange={(e) => setNote(e.target.value)}
                                 />
                                 <div className="mt-2">
-                                    <Button size="sm" variant="outline" disabled={busy || note.trim() === ''} onClick={() => post('note', { body: note }, () => setNote(''))}>
-                                        Add note
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={busy || note.trim() === ''}
+                                        onClick={() => post('note', { body: note }, () => setNote(''))}
+                                    >
+                                        {t('Add note')}
                                     </Button>
                                 </div>
                             </section>
@@ -463,33 +543,37 @@ export default function InboxShow({
                     <aside className="flex flex-col gap-6">
                         {handover !== null && <HandoverCard handover={handover} />}
                         {thread.customer_id !== null && (
-                            <section className="bg-card rounded-xl border p-4">
-                                <SectionHeader title="Remembered about this customer" />
+                            <section className="hq-card p-4">
+                                <SectionHeader title={t('Remembered about this customer')} />
                                 <p className="text-muted-foreground mt-1 text-xs">
-                                    What a colleague chose to remember. Memory is not truth: the order facts win when they disagree, and the agent
-                                    is told the same.
+                                    {t(
+                                        'What a colleague chose to remember. Memory is not truth: the order facts win when they disagree, and the agent is told the same.',
+                                    )}
                                 </p>
                                 {memory.length === 0 ? (
-                                    <p className="text-muted-foreground mt-3 text-sm">Nothing remembered yet.</p>
+                                    <p className="text-muted-foreground mt-3 text-sm">{t('Nothing remembered yet.')}</p>
                                 ) : (
                                     <ul className="mt-3 flex flex-col gap-2">
                                         {memory.map((m) => (
-                                            <li key={m.id} className="rounded-md border p-2 text-sm">
+                                            <li key={m.id} className="bg-muted rounded-lg p-2.5 text-sm">
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div>
-                                                        {m.kind === 'structured' && (
-                                                            <span className="font-medium">{MEMORY_KEY_LABELS[m.key ?? ''] ?? m.key}: </span>
-                                                        )}
+                                                        {m.kind === 'structured' && <span className="font-medium">{memoryKeyLabel(m.key)}: </span>}
                                                         <span>{m.text}</span>
                                                     </div>
                                                     {can.manage && m.closable && (
-                                                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => post(`memory/${m.id}/forget`)}>
-                                                            Forget
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            disabled={busy}
+                                                            onClick={() => post(`memory/${m.id}/forget`)}
+                                                        >
+                                                            {t('Forget')}
                                                         </Button>
                                                     )}
                                                 </div>
                                                 <div className="text-muted-foreground mt-1 text-xs">
-                                                    {m.kind === 'structured' ? 'fact' : 'episode'} · {m.provenance}
+                                                    {m.kind === 'structured' ? t('fact') : t('episode')} · {m.provenance}
                                                     {m.source ? ` · ${m.source}` : ''}
                                                     {m.at ? ` · ${timeAgo(m.at)}` : ''}
                                                 </div>
@@ -500,30 +584,34 @@ export default function InboxShow({
                                 {can.manage && can_remember && (
                                     <div className="mt-3 flex flex-col gap-2">
                                         <div className="flex flex-wrap gap-2">
-                                            <NativeSelect value={memKind} onChange={(e) => setMemKind(e.target.value as 'structured' | 'episodic')}>
-                                                <option value="structured">A fact (replaces the previous one for its key)</option>
-                                                <option value="episodic">Something that happened (kept as it was)</option>
+                                            <NativeSelect
+                                                aria-label={t('Kind of memory')}
+                                                value={memKind}
+                                                onChange={(e) => setMemKind(e.target.value as 'structured' | 'episodic')}
+                                            >
+                                                <option value="structured">{t('A fact (replaces the previous one for its key)')}</option>
+                                                <option value="episodic">{t('Something that happened (kept as it was)')}</option>
                                             </NativeSelect>
                                             {memKind === 'structured' && (
-                                                <NativeSelect value={memKey} onChange={(e) => setMemKey(e.target.value)}>
+                                                <NativeSelect aria-label={t('Which fact')} value={memKey} onChange={(e) => setMemKey(e.target.value)}>
                                                     {memory_keys.map((k) => (
                                                         <option key={k} value={k}>
-                                                            {MEMORY_KEY_LABELS[k] ?? k}
+                                                            {memoryKeyLabel(k)}
                                                         </option>
                                                     ))}
                                                 </NativeSelect>
                                             )}
                                         </div>
-                                        <textarea
-                                            className="bg-background w-full rounded-md border p-2 text-sm"
+                                        <Textarea
+                                            aria-label={t('What to remember')}
                                             rows={2}
-                                            placeholder={memKind === 'structured' ? 'The fact, in a few words' : 'What happened, in a sentence'}
+                                            placeholder={memKind === 'structured' ? t('The fact, in a few words') : t('What happened, in a sentence')}
                                             value={memText}
                                             onChange={(e) => setMemText(e.target.value)}
                                         />
-                                        {errors.kind && <p className="text-destructive text-xs">{errors.kind}</p>}
-                                        {errors.value && <p className="text-destructive text-xs">{errors.value}</p>}
-                                        {errors.content && <p className="text-destructive text-xs">{errors.content}</p>}
+                                        {errors.kind && <p className="text-tone-danger text-xs">{errors.kind}</p>}
+                                        {errors.value && <p className="text-tone-danger text-xs">{errors.value}</p>}
+                                        {errors.content && <p className="text-tone-danger text-xs">{errors.content}</p>}
                                         <div>
                                             <Button
                                                 size="sm"
@@ -539,91 +627,111 @@ export default function InboxShow({
                                                     )
                                                 }
                                             >
-                                                Remember
+                                                {t('Remember')}
                                             </Button>
                                         </div>
                                     </div>
                                 )}
                                 {can.manage && !can_remember && (
-                                    <p className="text-muted-foreground mt-3 text-xs">A fact is remembered once the thread is resolved or closed.</p>
+                                    <p className="text-muted-foreground mt-3 text-xs">
+                                        {t('A fact is remembered once the thread is resolved or closed.')}
+                                    </p>
                                 )}
                             </section>
                         )}
-                        <section className="bg-card rounded-xl border p-4">
-                            <SectionHeader title="Customer" />
+                        <section className="hq-card p-4">
+                            <SectionHeader title={t('Customer')} />
                             {thread.customer ? (
                                 <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-                                    <dt className="text-muted-foreground">Name</dt>
-                                    <dd>{thread.customer.name ?? 'unknown'}</dd>
-                                    <dt className="text-muted-foreground">Phone</dt>
-                                    <dd>{thread.customer.phone ?? 'not linked'}</dd>
-                                    <dt className="text-muted-foreground">Identity</dt>
-                                    <dd>{thread.stranger ? 'a stranger until an order or a phone links them' : 'known'}</dd>
+                                    <dt className="text-muted-foreground">{t('Name')}</dt>
+                                    <dd>{thread.customer.name ?? t('unknown')}</dd>
+                                    <dt className="text-muted-foreground">{t('Phone')}</dt>
+                                    <dd>{thread.customer.phone ?? t('not linked')}</dd>
+                                    <dt className="text-muted-foreground">{t('Identity')}</dt>
+                                    <dd>{thread.stranger ? t('a stranger until an order or a phone links them') : t('known')}</dd>
                                     <dt className="text-muted-foreground">360</dt>
                                     <dd>
-                                        <Link href={`/customers/${thread.customer.id}`} className="hover:underline">
-                                            open the customer
+                                        <Link
+                                            href={`/customers/${thread.customer.id}`}
+                                            className="touch:inline-flex touch:min-h-11 touch:items-center underline underline-offset-4"
+                                        >
+                                            {t('open the customer')}
                                         </Link>
                                     </dd>
                                 </dl>
                             ) : (
-                                <p className="text-muted-foreground mt-2 text-sm">No person is linked to this thread.</p>
+                                <p className="text-muted-foreground mt-2 text-sm">{t('No person is linked to this thread.')}</p>
                             )}
                         </section>
 
                         <RecentOrdersCard orders={orders} known={thread.customer !== null && !thread.stranger} />
 
-                        <section className="bg-card rounded-xl border p-4">
-                            <SectionHeader title="Handling" />
+                        <section className="hq-card p-4">
+                            <SectionHeader title={t('Handling')} />
                             <div className="mt-2">
                                 <AgentNotice agent={agent} />
                             </div>
                             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-                                <dt className="text-muted-foreground">Assigned</dt>
-                                <dd>{thread.assignee ?? 'nobody'}</dd>
+                                <dt className="text-muted-foreground">{t('Assigned')}</dt>
+                                <dd>{thread.assignee ?? t('nobody')}</dd>
                             </dl>
                             {can.manage && (
                                 <div className="mt-3 flex flex-col gap-2">
                                     {may('human_active') && (
                                         <Button size="sm" disabled={busy} onClick={() => post('take-over')}>
-                                            Take over
+                                            {t('Take over')}
                                         </Button>
                                     )}
                                     {may('human_resolved') && (
                                         <Button size="sm" variant="outline" disabled={busy} onClick={() => setDialog({ kind: 'resolve' })}>
-                                            Resolve
+                                            {t('Resolve')}
                                         </Button>
                                     )}
                                     {may('ai_resumed') && (
-                                        <Button size="sm" variant="outline" disabled={busy || !agent.active || thread.ai_disabled} onClick={() => post('return-to-agent')}>
-                                            Return to the agent
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={busy || !agent.active || thread.ai_disabled}
+                                            onClick={() => post('return-to-agent')}
+                                        >
+                                            {t('Return to the agent')}
                                         </Button>
                                     )}
                                     {may('closed') && (
                                         <Button size="sm" variant="outline" disabled={busy} onClick={() => setDialog({ kind: 'close' })}>
-                                            Close
+                                            {t('Close')}
                                         </Button>
                                     )}
                                     {thread.status !== 'closed' && (
                                         <Button size="sm" variant="outline" disabled={busy} onClick={() => post('toggle-ai')}>
-                                            {thread.ai_disabled ? 'Allow the agent on this thread' : 'Keep the agent off this thread'}
+                                            {thread.ai_disabled ? t('Allow the agent on this thread') : t('Keep the agent off this thread')}
                                         </Button>
                                     )}
                                     {assignees.length > 0 && thread.status !== 'closed' && (
-                                        <div className="mt-2 flex items-center gap-2">
-                                            <NativeSelect value={assignTo} onChange={(e) => setAssignTo(e.target.value)}>
+                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <NativeSelect
+                                                aria-label={t('Assign to')}
+                                                className="min-w-0 flex-1"
+                                                value={assignTo}
+                                                onChange={(e) => setAssignTo(e.target.value)}
+                                            >
                                                 {assignees.map((u) => (
                                                     <option key={u.id} value={u.id}>
                                                         {u.email}
                                                     </option>
                                                 ))}
                                             </NativeSelect>
-                                            <Button size="sm" variant="outline" disabled={busy || assignTo === ''} onClick={() => post('assign', { user_id: Number(assignTo) })}>
-                                                Assign
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={busy || assignTo === ''}
+                                                onClick={() => post('assign', { user_id: Number(assignTo) })}
+                                            >
+                                                {t('Assign')}
                                             </Button>
                                         </div>
                                     )}
-                                    {errors?.user_id && <p className="text-xs text-red-700 dark:text-red-300">{errors.user_id}</p>}
+                                    {errors?.user_id && <p className="text-tone-danger text-xs">{errors.user_id}</p>}
                                 </div>
                             )}
                         </section>
@@ -634,33 +742,35 @@ export default function InboxShow({
             <ConfirmDialog
                 open={dialog?.kind === 'resolve'}
                 onOpenChange={(open) => !open && setDialog(null)}
-                title="Resolve this conversation"
-                description="The customer's matter is settled by a person. If they write again, the thread comes back."
-                confirmLabel="Resolve"
+                title={t('Resolve this conversation')}
+                description={t("The customer's matter is settled by a person. If they write again, the thread comes back.")}
+                confirmLabel={t('Resolve')}
                 busy={busy}
-                reason={{ label: 'What was done (optional)', placeholder: 'e.g. confirmed the parcel leaves tomorrow' }}
+                reason={{ label: t('What was done (optional)'), placeholder: t('e.g. confirmed the parcel leaves tomorrow') }}
                 onConfirm={(reason) => post('resolve', { note: reason || null })}
             />
             <ConfirmDialog
                 open={dialog?.kind === 'close'}
                 onOpenChange={(open) => !open && setDialog(null)}
-                title="Close this conversation"
-                description="A closed thread stays closed. The customer's next message opens a new one."
-                confirmLabel="Close"
+                title={t('Close this conversation')}
+                description={t("A closed thread stays closed. The customer's next message opens a new one.")}
+                confirmLabel={t('Close')}
                 busy={busy}
-                reason={{ label: 'Reason (optional)' }}
+                reason={{ label: t('Reason (optional)') }}
                 onConfirm={(reason) => post('close', { reason: reason || null })}
             />
             <ConfirmDialog
                 open={dialog?.kind === 'discard'}
                 onOpenChange={(open) => !open && setDialog(null)}
-                title="Discard the agent's proposal"
-                description="The suggestion is not sent. The decision is recorded beside the proposal, which is what the shadow gate reads."
-                confirmLabel="Discard"
+                title={t("Discard the agent's proposal")}
+                description={t('The suggestion is not sent. The decision is recorded beside the proposal, which is what the shadow gate reads.')}
+                confirmLabel={t('Discard')}
                 destructive
                 busy={busy}
-                reason={{ label: 'Why (optional)' }}
-                onConfirm={(reason) => dialog?.run !== undefined && post(`proposals/${dialog.run}/decide`, { decision: 'discard', reason: reason || null })}
+                reason={{ label: t('Why (optional)') }}
+                onConfirm={(reason) =>
+                    dialog?.run !== undefined && post(`proposals/${dialog.run}/decide`, { decision: 'discard', reason: reason || null })
+                }
             />
         </AppLayout>
     );

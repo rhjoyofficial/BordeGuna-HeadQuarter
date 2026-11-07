@@ -236,6 +236,7 @@ final class RetentionPolicy
                     OR EXISTS (SELECT 1 FROM conversation_messages m WHERE m.tool_call_id = t.id)
                     OR EXISTS (SELECT 1 FROM consent_events c WHERE c.tool_call_id = t.id)
                     OR EXISTS (SELECT 1 FROM workflow_steps w WHERE w.tool_call_id = t.id)
+                    OR EXISTS (SELECT 1 FROM do_plan_steps p WHERE p.tool_call_id = t.id)
                     OR EXISTS (SELECT 1 FROM outcome_attributions o WHERE o.tool_call_id = t.id)
                     OR (t.correlation_id IS NOT NULL AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.correlation_id = t.correlation_id::text))
                     SQL,

@@ -1,9 +1,12 @@
 import { EmptyState } from '@/components/empty-state';
-import { PageHeader } from '@/components/page-header';
+import { PageHeader, Toolbar } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, timeAgo, truncate } from '@/lib/format';
+import { translate, type Translator, useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { MessageSquare } from 'lucide-react';
@@ -70,48 +73,59 @@ export function languageLabel(language: string | null): string | null {
     }
 }
 
-export function customerLabel(t: ThreadCard): string {
-    if (t.customer === null) return 'Nobody yet';
-    if (t.stranger) return t.customer.name ? `${t.customer.name} (not yet linked)` : 'A stranger';
-    return t.customer.name ?? t.customer.phone ?? `Customer #${t.customer.id}`;
+const english: Translator = (text, params) => translate('en', text, params);
+
+/** Who the thread is with. Pass the page's translator so the fallback words follow the chosen language. */
+export function customerLabel(thread: ThreadCard, t: Translator = english): string {
+    if (thread.customer === null) return t('Nobody yet');
+    if (thread.stranger) return thread.customer.name ? t('{name} (not yet linked)', { name: thread.customer.name }) : t('A stranger');
+    return thread.customer.name ?? thread.customer.phone ?? t('Customer #{id}', { id: thread.customer.id });
 }
 
 export function AgentNotice({ agent }: { agent: AgentStatus }) {
+    const t = useT();
     return agent.active ? (
-        <p className="text-muted-foreground text-sm">The support agent is active. Threads it cannot keep come here.</p>
+        <Notice tone="info">{t('The support agent is active. Threads it cannot keep come here.')}</Notice>
     ) : (
-        <p className="text-muted-foreground text-sm">
-            The support agent is {agent.status ?? 'not seeded'}. Every thread comes to a person; nothing is answered automatically.
-        </p>
+        <InertNotice
+            title={t('Answers from the support agent')}
+            reason={t('The support agent is {status}. Every thread comes to a person; nothing is answered automatically.', {
+                status: agent.status ? t(agent.status) : t('not seeded'),
+            })}
+            gate={t('A person activates the support agent after its shadow review. Until then it can only propose.')}
+        />
     );
 }
 
 export default function InboxIndex({
     threads,
+    pagination,
     filter,
     counts,
     agent,
 }: {
     threads: ThreadCard[];
+    pagination: ListMeta;
     filter: string;
     counts: { needs_person: number; open: number };
     agent: AgentStatus;
 }) {
+    const t = useT();
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Inbox" />
+            <Head title={t('Inbox')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title="Inbox"
-                    description="Customer conversations from every channel the group listens on, and who is answering each one."
+                    title={t('Inbox')}
+                    description={t('Customer conversations from every channel the group listens on, and who is answering each one.')}
                     actions={
-                        <div className="flex items-center gap-2">
-                            <StatusBadge tone="warn">{counts.needs_person} need a person</StatusBadge>
-                            <StatusBadge tone="neutral">{counts.open} open</StatusBadge>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge tone="warn">{t('{count} need a person', { count: counts.needs_person })}</StatusBadge>
+                            <StatusBadge tone="neutral">{t('{count} open', { count: counts.open })}</StatusBadge>
                         </div>
                     }
                 >
-                    <div className="flex flex-wrap gap-2">
+                    <Toolbar label={t('Filter conversations')}>
                         {FILTERS.map((f) => (
                             <Button
                                 key={f.key}
@@ -119,10 +133,10 @@ export default function InboxIndex({
                                 variant={filter === f.key ? 'default' : 'outline'}
                                 onClick={() => router.get('/inbox', { filter: f.key }, { preserveState: true, replace: true })}
                             >
-                                {f.label}
+                                {t(f.label)}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
                 <AgentNotice agent={agent} />
@@ -130,58 +144,69 @@ export default function InboxIndex({
                 {threads.length === 0 ? (
                     <EmptyState
                         icon={MessageSquare}
-                        title={filter === 'needs_person' ? 'Nobody is waiting for a person' : 'No conversations here'}
+                        title={filter === 'needs_person' ? t('Nobody is waiting for a person') : t('No conversations here')}
                         description={
                             filter === 'needs_person'
-                                ? 'When a customer writes and the agent cannot or may not answer, the thread appears here.'
-                                : 'Try another filter. Conversations arrive through the channels connected to HQ; none is connected yet.'
+                                ? t('When a customer writes and the agent cannot or may not answer, the thread appears here.')
+                                : t('Try another filter. Conversations arrive through the channels connected to HQ; none is connected yet.')
                         }
                     />
                 ) : (
                     <div className="flex flex-col gap-3">
-                        {threads.map((t) => (
-                            <article key={t.id} className="bg-card rounded-xl border p-4">
+                        {threads.map((thread) => (
+                            <article key={thread.id} className="hq-card p-4">
                                 <div className="flex flex-wrap items-start justify-between gap-4">
                                     <div className="min-w-0 flex-1">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <Link href={`/inbox/${t.uuid}`} className="font-semibold hover:underline">
-                                                {customerLabel(t)}
+                                            <Link href={`/inbox/${thread.uuid}`} className="font-semibold hover:underline">
+                                                {customerLabel(thread, t)}
                                             </Link>
-                                            <StatusBadge tone={stateTone(t.state)}>{t.state_label}</StatusBadge>
+                                            <StatusBadge tone={stateTone(thread.state)}>{thread.state_label}</StatusBadge>
                                             <StatusBadge tone="neutral" dot={false}>
-                                                {t.channel}
+                                                {thread.channel}
                                             </StatusBadge>
-                                            {languageLabel(t.language) && (
+                                            {languageLabel(thread.language) && (
                                                 <StatusBadge tone="info" dot={false}>
-                                                    {languageLabel(t.language)}
+                                                    {languageLabel(thread.language)}
                                                 </StatusBadge>
                                             )}
                                         </div>
-                                        {t.last_message && (
+                                        {thread.last_message && (
                                             <p className="mt-1 text-sm">
-                                                <span className="text-muted-foreground">{t.last_message.direction === 'inbound' ? 'They wrote: ' : 'We wrote: '}</span>
-                                                {t.last_message.body ? truncate(t.last_message.body, 140) : '(no text)'}
+                                                <span className="text-muted-foreground">
+                                                    {thread.last_message.direction === 'inbound' ? t('They wrote:') : t('We wrote:')}{' '}
+                                                </span>
+                                                {thread.last_message.body ? truncate(thread.last_message.body, 140) : t('(no text)')}
                                             </p>
                                         )}
                                         <div className="text-muted-foreground mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                                            {(t.business || t.brand) && (
+                                            {(thread.business || thread.brand) && (
                                                 <span>
-                                                    {t.business ?? ''}
-                                                    {t.brand ? ` · ${t.brand}` : ''}
+                                                    {thread.business ?? ''}
+                                                    {thread.brand ? ` · ${thread.brand}` : ''}
                                                 </span>
                                             )}
-                                            {t.assignee ? <span>assigned to {t.assignee}</span> : <span>unassigned</span>}
-                                            {t.last_message_at && <span title={formatDateTime(t.last_message_at)}>last message {timeAgo(t.last_message_at)}</span>}
+                                            {thread.assignee ? (
+                                                <span>{t('assigned to {name}', { name: thread.assignee })}</span>
+                                            ) : (
+                                                <span>{t('unassigned')}</span>
+                                            )}
+                                            {thread.last_message_at && (
+                                                <span title={formatDateTime(thread.last_message_at)}>
+                                                    {t('last message {when}', { when: timeAgo(thread.last_message_at) })}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                     <Button asChild size="sm" variant="outline">
-                                        <Link href={`/inbox/${t.uuid}`}>Open</Link>
+                                        <Link href={`/inbox/${thread.uuid}`}>{t('Open')}</Link>
                                     </Button>
                                 </div>
                             </article>
                         ))}
                     </div>
                 )}
+                <Pagination meta={pagination} />
             </div>
         </AppLayout>
     );

@@ -114,6 +114,8 @@ it('exposes no endpoint that executes an arbitrary tool from the browser', funct
 
     expect($routes)->toEqualCanonicalizing([
         'approvals',
+        // docs/143 B as ruled 31 Oct (item 2): the read-only batch overview. No batch POST and no quick-approve (items 2 and 3).
+        'approvals/batch',
         'approvals/{approval}',
         'approvals/{approval}/approve',
         'approvals/{approval}/reject',

@@ -1,11 +1,14 @@
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingReason, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel, Stat, StatGrid, orDash } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
+import { InertNotice, Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
+import { useT, type Translator } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 
 type FreshnessInfo = { state: string; budget_minutes: number | null; age_minutes: number | null; in_future: boolean };
 
@@ -70,38 +73,41 @@ type Detail = BriefingSummary & {
     bundle_intact: boolean | null;
 };
 
-type Props = { briefing: Detail; bundle: Bundle | null };
+type Telegram = { enabled: boolean; can: boolean; deliveries: { state: string; at: string | null; error: string | null }[] };
+type Props = { briefing: Detail; bundle: Bundle | null; telegram?: Telegram };
 
 const FRESHNESS_TONE: Record<string, Tone> = { fresh: 'ok', live: 'ok', stale: 'warn', missing: 'danger', not_connected: 'neutral' };
 
 const SECTION_TONE: Record<string, Tone> = { ok: 'ok', empty: 'neutral', not_connected: 'neutral', withheld: 'warn', not_applicable: 'neutral' };
 
-function minutes(value: number | null): string {
+function minutes(t: Translator, value: number | null): string {
     if (value === null) {
         return '-';
     }
-    return value >= 120 ? `${Math.round(value / 60)} h` : `${value} min`;
+    return value >= 120 ? t('{n} h', { n: Math.round(value / 60) }) : t('{n} min', { n: value });
 }
 
 function FreshnessCell({ freshness }: { freshness: FreshnessInfo }) {
+    const t = useT();
+
     return (
         <div className="flex flex-col gap-0.5">
-            <StatusBadge tone={FRESHNESS_TONE[freshness.state] ?? 'neutral'}>{humanKey(freshness.state)}</StatusBadge>
+            <StatusBadge tone={FRESHNESS_TONE[freshness.state] ?? 'neutral'}>{t(humanKey(freshness.state))}</StatusBadge>
             {freshness.budget_minutes !== null && (
                 <span className="text-muted-foreground text-xs whitespace-nowrap">
-                    age {minutes(freshness.age_minutes)} of {minutes(freshness.budget_minutes)}
-                    {freshness.in_future ? ', as_of is in the future' : ''}
+                    {t('age {age} of {budget}', { age: minutes(t, freshness.age_minutes), budget: minutes(t, freshness.budget_minutes) })}
+                    {freshness.in_future ? t(', as_of is in the future') : ''}
                 </span>
             )}
         </div>
     );
 }
 
-function scopeText(scope: Scope): string {
-    return scope.store ?? scope.brand ?? scope.business ?? 'group';
+function scopeText(t: Translator, scope: Scope): string {
+    return scope.store ?? scope.brand ?? scope.business ?? t('group');
 }
 
-function valueText(item: Item): string {
+function valueText(t: Translator, item: Item): string {
     if (item.value === null) {
         return '-';
     }
@@ -109,23 +115,25 @@ function valueText(item: Item): string {
         return formatDateTime(item.value);
     }
     if (typeof item.value === 'boolean') {
-        return item.value ? 'yes' : 'no';
+        return item.value ? t('yes') : t('no');
     }
     return `${item.value}${['text', 'boolean', 'datetime'].includes(item.unit) ? '' : ` ${item.unit}`}`;
 }
 
 function LineageCell({ item }: { item: Item }) {
+    const t = useT();
+
     if (!item.lineage) {
-        return <span className="text-muted-foreground text-xs">read, not computed</span>;
+        return <span className="text-muted-foreground text-xs">{t('read, not computed')}</span>;
     }
     const rows = item.lineage.rows as { count?: number; mode?: string } | null;
     return (
         <div className="flex flex-col gap-1">
             <span className="font-mono text-xs">{item.lineage.formula}</span>
             <span className="text-muted-foreground text-xs">
-                {rows ? `${rows.count ?? 0} row(s) of ${item.lineage.table} (${rows.mode})` : null}
-                {item.lineage.input_items.length > 0 ? `${item.lineage.input_items.length} item(s)` : null}
-                {item.lineage.input_sources.length > 0 ? `${item.lineage.input_sources.length} source(s)` : null}
+                {rows ? t('{count} row(s) of {table} ({mode})', { count: rows.count ?? 0, table: item.lineage.table, mode: rows.mode }) : null}
+                {item.lineage.input_items.length > 0 ? t('{n} item(s)', { n: item.lineage.input_items.length }) : null}
+                {item.lineage.input_sources.length > 0 ? t('{n} source(s)', { n: item.lineage.input_sources.length }) : null}
             </span>
             <TechnicalDetail summary="Lineage">
                 <JsonBlock value={item.lineage} />
@@ -134,7 +142,10 @@ function LineageCell({ item }: { item: Item }) {
     );
 }
 
-export default function BriefingPage({ briefing, bundle }: Props) {
+export default function BriefingPage({ briefing, bundle, telegram }: Props) {
+    const t = useT();
+    const { flash } = usePage<{ flash?: { status?: string } }>().props;
+    const narration = (state: string): string => (NARRATION_LABEL[state] ? t(NARRATION_LABEL[state]) : state);
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Briefings', href: '/observe/briefings' },
         { title: briefing.briefing_date, href: `/observe/briefings/${briefing.uuid}` },
@@ -143,28 +154,51 @@ export default function BriefingPage({ briefing, bundle }: Props) {
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={`Briefing ${briefing.briefing_date}`} />
+            <Head title={t('Briefing {date}', { date: briefing.briefing_date })} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
-                    title={`Briefing for ${briefing.briefing_date}`}
-                    description={`${scopeLabel(briefing)}. Composed ${formatDateTime(briefing.generated_at)}. The evidence below is not business truth: it is what a narrator may speak from, each value with its source, its as_of, its freshness and how it was obtained.`}
-                    actions={<StatusBadge tone={STATE_TONE[briefing.state] ?? 'neutral'}>{briefing.state}</StatusBadge>}
+                    title={t('Briefing for {date}', { date: briefing.briefing_date })}
+                    description={t(
+                        '{scope}. Composed {when}. The evidence below is not business truth: it is what a narrator may speak from, each value with its source, its as_of, its freshness and how it was obtained.',
+                        { scope: briefing.business ?? t(scopeLabel(briefing)), when: formatDateTime(briefing.generated_at) },
+                    )}
+                    actions={
+                        <>
+                            <StatusBadge tone={STATE_TONE[briefing.state] ?? 'neutral'}>{briefing.state}</StatusBadge>
+                            {telegram?.enabled && telegram.can && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => router.post(`/observe/briefings/${briefing.uuid}/send-telegram`, {}, { preserveScroll: true })}
+                                >
+                                    {t('Ask to send to my Telegram')}
+                                </Button>
+                            )}
+                        </>
+                    }
                 />
+                {flash?.status === 'briefing-send-awaiting-approval' && (
+                    <Notice tone="pending">{t('The send is waiting in Approvals. Nothing has been sent to your Telegram yet.')}</Notice>
+                )}
+                {telegram?.enabled && telegram.deliveries.length > 0 && (
+                    <Notice tone="neutral">
+                        {t('Telegram deliveries')}: {telegram.deliveries.map((d) => `${d.state} ${formatDateTime(d.at)}`).join(', ')}
+                    </Notice>
+                )}
 
                 {/* Freshness first, before any number (docs/48 M.3). */}
                 {attention.length > 0 && (
-                    <div className="flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
-                        <div className="font-medium">Stale or missing sources</div>
+                    <Notice tone="pending" title="Stale or missing sources">
                         <ul className="flex flex-col gap-1 text-sm">
                             {attention.map((s) => (
                                 <li key={s.key}>
-                                    <span className="font-mono text-xs">{s.key}</span>: {humanKey(s.freshness.state)}
-                                    {s.as_of ? `, as of ${formatDateTime(s.as_of)}` : ''}
+                                    <span className="font-mono text-xs">{s.key}</span>: {t(humanKey(s.freshness.state))}
+                                    {s.as_of ? t(', as of {when}', { when: formatDateTime(s.as_of) }) : ''}
                                     {s.note ? `. ${s.note}` : ''}
                                 </li>
                             ))}
                         </ul>
-                    </div>
+                    </Notice>
                 )}
 
                 {briefing.degraded_reasons.length > 0 && (
@@ -178,7 +212,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                                 { key: 'code', label: 'Reason', render: (r) => <span className="font-mono text-xs">{r.code}</span> },
                                 { key: 'subject', label: 'About', render: (r) => <span className="font-mono text-xs">{orDash(r.subject)}</span> },
                                 { key: 'message', label: 'What it means', render: (r) => r.message },
-                                { key: 'blocks', label: 'Blocks narration', render: (r) => (r.blocks_narration ? 'yes' : 'no') },
+                                { key: 'blocks', label: 'Blocks narration', render: (r) => (r.blocks_narration ? t('yes') : t('no')) },
                             ]}
                         />
                     </Panel>
@@ -187,19 +221,33 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                 <StatGrid>
                     <Stat label="Evidence items" value={briefing.items} detail={briefing.bundle_version} />
                     <Stat label="Yesterday" value={orDash(bundle?.yesterday.date)} detail={briefing.timezone} />
-                    <Stat label="Narration" value={briefing.narration_state} detail={NARRATION_LABEL[briefing.narration_state]} />
+                    <Stat
+                        label="Narration"
+                        value={briefing.narration_state}
+                        detail={NARRATION_LABEL[briefing.narration_state] ? narration(briefing.narration_state) : undefined}
+                    />
                     <Stat
                         label="Stored bundle"
-                        value={briefing.bundle_intact === null ? 'none' : briefing.bundle_intact ? 'intact' : 'changed'}
-                        detail={briefing.bundle_digest ? `sha256 ${briefing.bundle_digest.slice(0, 16)}` : 'no bundle was collected'}
+                        value={briefing.bundle_intact === null ? t('none') : briefing.bundle_intact ? t('intact') : t('changed')}
+                        detail={briefing.bundle_digest ? `sha256 ${briefing.bundle_digest.slice(0, 16)}` : t('no bundle was collected')}
                     />
                 </StatGrid>
 
                 <Panel title="Narrative">
                     {briefing.narrative ? (
-                        <div className="bg-card rounded-xl border p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
+                        <div className="hq-card p-4 text-sm whitespace-pre-line">{briefing.narrative}</div>
+                    ) : briefing.narration_state === 'off' || briefing.narration_state === 'runtime_off' ? (
+                        <InertNotice
+                            title="Narration"
+                            reason={t('{why}. No narrative is stored.', { why: narration(briefing.narration_state) })}
+                            gate={
+                                briefing.narration_state === 'off'
+                                    ? 'A person switches the briefing.narration flag on.'
+                                    : 'A person switches the AI runtime on.'
+                            }
+                        />
                     ) : (
-                        <Note>{NARRATION_LABEL[briefing.narration_state] ?? briefing.narration_state}. No narrative is stored.</Note>
+                        <Note>{t('{why}. No narrative is stored.', { why: narration(briefing.narration_state) })}</Note>
                     )}
                     {briefing.narrative_check?.unsourced && briefing.narrative_check.unsourced.length > 0 && (
                         <DataTable
@@ -229,7 +277,7 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                                 empty="The bundle lists no source."
                                 columns={[
                                     { key: 'key', label: 'Source', render: (s) => <span className="font-mono text-xs">{s.key}</span> },
-                                    { key: 'scope', label: 'Scope', render: (s) => scopeText(s.scope) },
+                                    { key: 'scope', label: 'Scope', render: (s) => scopeText(t, s.scope) },
                                     { key: 'as_of', label: 'As of', render: (s) => (s.as_of ? formatDateTime(s.as_of) : '-') },
                                     { key: 'freshness', label: 'Freshness', render: (s) => <FreshnessCell freshness={s.freshness} /> },
                                     { key: 'rows', label: 'Rows held', align: 'right', render: (s) => orDash(s.rows_held) },
@@ -247,12 +295,12 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                                 <Panel
                                     key={section.key}
                                     title={section.title}
-                                    aside={<StatusBadge tone={SECTION_TONE[section.status] ?? 'neutral'}>{humanKey(section.status)}</StatusBadge>}
+                                    aside={<StatusBadge tone={SECTION_TONE[section.status] ?? 'neutral'}>{t(humanKey(section.status))}</StatusBadge>}
                                 >
                                     {section.reason && <Note>{section.reason}</Note>}
                                     {section.notes.map((note, i) => (
                                         <Note key={i}>
-                                            {humanKey(String(note.status ?? 'note'))}
+                                            {t(humanKey(String(note.status ?? 'note')))}
                                             {note.store ? ` (${String(note.store)})` : note.business ? ` (${String(note.business)})` : ''}:{' '}
                                             {String(note.reason ?? '')}
                                         </Note>
@@ -279,9 +327,9 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                                                     key: 'value',
                                                     label: 'Value',
                                                     align: 'right',
-                                                    render: (i) => <span className="font-medium">{valueText(i)}</span>,
+                                                    render: (i) => <span className="font-medium">{valueText(t, i)}</span>,
                                                 },
-                                                { key: 'scope', label: 'Scope', render: (i) => scopeText(i.scope) },
+                                                { key: 'scope', label: 'Scope', render: (i) => scopeText(t, i.scope) },
                                                 {
                                                     key: 'source',
                                                     label: 'Source',
@@ -307,8 +355,11 @@ export default function BriefingPage({ briefing, bundle }: Props) {
                 )}
 
                 <Note>
-                    Read-only. A stored briefing is never changed. Correlation id {briefing.correlation_id ?? 'none'}; capability{' '}
-                    {briefing.capability} {briefing.capability_version}.
+                    {t('Read-only. A stored briefing is never changed. Correlation id {id}; capability {capability} {version}.', {
+                        id: briefing.correlation_id ?? t('none'),
+                        capability: briefing.capability,
+                        version: briefing.capability_version,
+                    })}
                 </Note>
             </div>
         </AppLayout>

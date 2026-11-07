@@ -172,7 +172,37 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         // behind hq.customers.quarantine.repair; neither reaches a provider.
         'POST customers/quarantine/repair',
         'POST customers/quarantine/memories/{memory}/assign',
+        // docs/140 (ruling docs/131 item 3): a person's identity-conflict resolution, a gateway request for the human-only
+        // tool customers.identity_conflicts.resolve (HQ rows only), behind hq.customers.identity_conflicts.resolve.
+        'POST customers/identity-conflicts/{conflict}/resolve',
+        // docs/141 (ruling 7): Pause All AI. Pause can only turn AI off; resume is its own permission. Both need group-wide
+        // authority, write one state row and one audit row, and reach no provider.
+        'POST ai/pause', 'POST ai/resume',
+        // Ruling 1 Nov 2026: a new owner-set USD to BDT rate (a new history row, never an edit), behind hq.fx.manage, group-wide
+        // authority and a reason. Reaches no provider; media budgets reserve at it and refuse when it is stale.
+        'POST fx-rate',
+        // docs/145 (HQ completion, M4). Phase 6: a person plans a post, writes or (behind a flag, a connected drafter and
+        // Pause All AI) drafts its words, reviews them, skips it; the owner writes or retires a claims rule; a person builds
+        // a research digest from filed research. None publishes, searches, fetches or reaches a customer.
+        'POST content/calendar', 'POST content/calendar/{entry}/draft', 'POST content/calendar/{entry}/ai-draft', 'POST content/calendar/{entry}/review',
+        'POST content/calendar/{entry}/skip', 'POST content/claims-rules', 'POST content/claims-rules/{rule}/retire',
+        // Ruling 13 (31 Oct 2026): recorded testimonials, behind hq.content.claims.manage.
+        'POST content/testimonials', 'POST content/testimonials/{testimonial}/revoke', 'POST research/digests',
+        // Phase 8: record or revoke a written consent; a clip request is a gateway request for avatar.generate (R4, approval,
+        // permanently human-only, registered nowhere).
+        'POST avatar/consents', 'POST avatar/consents/{consent}/revoke', 'POST avatar/generate',
+        // Phase 9: a person proposes or moves a skill; nothing here starts a delegated run.
+        'POST skills', 'POST skills/{skill}/{action}',
+        // Phase 10: thresholds and grants need hq.autonomy.grant and group-wide authority; revoking only ever stops autonomy.
+        'POST autonomy/thresholds', 'POST autonomy/thresholds/{threshold}/retire', 'POST autonomy/grants', 'POST autonomy/grants/{grant}/revoke',
         'POST flags', 'POST flags/{flag}/toggle',
+        // docs/143 (owner console, every one behind a flag seeded OFF): plans, reply options, event watches and the Telegram brief
+        // request. Each supplies ids or a proposal; each goes through the gateway or the one approval path. The batch and one-click
+        // approval writes were removed by the 31 Oct ruling (items 2 and 3).
+        'POST do-plans', 'POST do-plans/{plan}/advance', 'POST do-plans/{plan}/cancel', 'POST do-plans/{plan}/start',
+        'POST watches', 'POST watches/{watch}/disable', 'POST watches/{watch}/enable', 'POST watches/{watch}/reject',
+        'POST inbox/{conversation}/reply-options', 'POST inbox/{conversation}/reply-options/{optionSet}/choose', 'POST inbox/{conversation}/reply-options/{optionSet}/discard',
+        'POST observe/briefings/{uuid}/send-telegram',
         // docs/113 (S4 part 1): a person proposes or decides on a follow-up or opportunity; each is a state
         // transition of an HQ-owned row. Approval starts a WorkflowEngine run that only waits for a person.
         // No route takes a message, a tool key or a provider; nothing reaches a customer.
@@ -189,6 +219,15 @@ it('adds no write path: every non-GET web route is one a reviewed screen already
         'POST security/two-factor/confirm', 'POST security/two-factor/enable', 'POST security/two-factor/recovery-codes',
         'POST tools/{key}/toggle',
         'POST two-factor/challenge',
+        // docs/144 (HQ-completion connectors): each is one person's click, answered through the Tool Gateway as that person
+        // (permission, flag, approval, audit, business scope) or a decision on an HQ-owned draft. None takes a tool key from the browser.
+        'POST ask/media', 'POST ask/{conversation}/attachments', 'POST voice/transcribe', 'POST voice/speak', 'POST connectors/meta/check', 'POST parcels/track',
+        'POST ingestion/poll', 'POST ingestion/{uuid}/decide', 'POST ingestion/{uuid}/send-to-erp',
+        'POST media-drafts', 'POST media-drafts/{uuid}/refresh', 'POST media-drafts/{uuid}/decide',
+        'POST ads-drafts/check', 'POST ads-drafts',
+        // R2 (ruling 31 Oct item 12, docs/147-r2): the OWNER sets a business's monthly media budget and records a provider's billed
+        // cost. HQ-owned rows only, audited, owner role + permission + business scope; no tool, job or agent reaches either.
+        'POST connectors/media-budget/{business}', 'POST connectors/media-budget/entries/{entry}/reconcile',
     ];
 
     $web = collect(Route::getRoutes()->getRoutes())

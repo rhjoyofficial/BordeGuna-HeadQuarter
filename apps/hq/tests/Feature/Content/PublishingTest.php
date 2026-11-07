@@ -14,6 +14,7 @@ use App\Models\ContentPublication;
 use App\Models\FeatureFlag;
 use App\Models\IntegrationCredential;
 use App\Models\PlatformAccount;
+use App\Models\User;
 use App\Platform\PlatformRegistry;
 use App\Research\ResearchRefused;
 use Illuminate\Http\Client\ConnectionException;
@@ -43,7 +44,7 @@ beforeEach(function () {
         'brief_id' => $this->brief->id, 'text' => 'সরিষার তেল, দাম ৪৫০ টাকা।', 'text_provenance' => 'business', 'platform' => 'facebook_page',
         'product_lines' => ['mustard_oil'], 'product_facts' => [PhaseSix::erpPrice('MO-1L', '450')],
     ], $this->w['user']);
-    app(ContentDraftService::class)->review($this->draft, 'approved', $this->w['user']);
+    app(ContentDraftService::class)->review($this->draft, 'approved', User::factory()->create()); // ruling 15: an independent reviewer
     $this->digest = ContentDigest::forPublication($this->draft->fresh(), $this->account->id);
     $this->live = [ProductFact::fromArray(PhaseSix::erpPrice('MO-1L', '450'))];
 });

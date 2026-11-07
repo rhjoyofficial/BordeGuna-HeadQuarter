@@ -6,6 +6,8 @@ use App\Scheduling\Enums\ApprovalState;
 use App\Scheduling\Enums\JobKind;
 use App\Scheduling\Enums\JobState;
 use App\Scheduling\Enums\MissedPolicy;
+use App\Support\Authorization\BusinessScope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -39,6 +41,15 @@ class ScheduledJob extends Model
             'next_run_at' => 'datetime',
             'last_run_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The rows this person may see (docs/136): their businesses only, and no row without a business
+     * when they are restricted (ADR-035 §4, fail closed). A no-op for a group-wide person.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        return app(BusinessScope::class)->restrict($query, $user, $query->qualifyColumn('business_id'));
     }
 
     /** HasUuids would otherwise treat `id` as the uuid column. */

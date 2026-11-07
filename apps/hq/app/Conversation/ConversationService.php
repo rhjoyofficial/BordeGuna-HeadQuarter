@@ -21,6 +21,7 @@ use App\Models\Customer;
 use App\Models\CustomerIdentity;
 use App\Models\PlatformAccount;
 use App\Support\Events\EventRecorder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -216,7 +217,15 @@ final readonly class ConversationService
         });
     }
 
-    /** Find the open thread for this platform conversation, or start one. */
+    /**
+     * Find the open thread for this platform conversation IN THIS BUSINESS, or start one.
+     *
+     * ⛔ Fail closed on a collision (docs/131 ruling 2, docs/140). The thread is created inside a savepoint; when the
+     * database refuses it on the thread key, the open thread is read again in THIS business only (a same-business
+     * replay or a concurrent worker that won the race), and when this business holds none, the reference is held by
+     * another business under the group-wide key: `ConversationThreadCollision`, and nothing is attached to the other
+     * business's conversation. With the business-scoped key deployed that case cannot arise; the handling stays.
+     */
     public function openOrFind(
         int $businessId,
         Channel $channel,
@@ -226,25 +235,45 @@ final readonly class ConversationService
     ): Conversation {
         $this->assertCustomerOf($businessId, $customerId);
 
-        return DB::transaction(function () use ($businessId, $channel, $externalThreadRef, $customerId, $attributes) {
-            if ($externalThreadRef !== null) {
-                $existing = Conversation::query()
-                    ->where('business_id', $businessId)
-                    ->where('channel', $channel->value)
-                    ->where('external_thread_ref', $externalThreadRef)
-                    ->where('status', '!=', 'closed')
-                    ->first();
-
-                if ($existing !== null) {
-                    // A later message may finally identify a person the first one could not.
-                    if ($customerId !== null && $existing->customer_id === null) {
-                        $existing->forceFill(['customer_id' => $customerId])->save();
-                    }
-
-                    return $existing;
-                }
+        $found = function () use ($businessId, $channel, $externalThreadRef, $customerId): ?Conversation {
+            if ($externalThreadRef === null) {
+                return null;
+            }
+            $existing = Conversation::query()
+                ->where('business_id', $businessId)
+                ->where('channel', $channel->value)
+                ->where('external_thread_ref', $externalThreadRef)
+                ->where('status', '!=', 'closed')
+                ->first();
+            // A later message may finally identify a person the first one could not.
+            if ($existing !== null && $customerId !== null && $existing->customer_id === null) {
+                $existing->forceFill(['customer_id' => $customerId])->save();
             }
 
+            return $existing;
+        };
+
+        if (($existing = $found()) !== null) {
+            return $existing;
+        }
+
+        try {
+            return $this->createThread($businessId, $channel, $externalThreadRef, $customerId, $attributes);
+        } catch (UniqueConstraintViolationException $e) {
+            if ($externalThreadRef === null || ! preg_match('/conversations_(business_)?channel_thread_unique/', $e->getMessage())) {
+                throw $e;
+            }
+            if (($existing = $found()) !== null) {
+                return $existing;
+            }
+            throw ConversationThreadCollision::for($businessId, $channel->value, $externalThreadRef, $e);
+        }
+    }
+
+    /** One new thread, in its own savepoint so a refused insert leaves the caller's transaction usable. */
+    private function createThread(int $businessId, Channel $channel, ?string $externalThreadRef, ?int $customerId, array $attributes): Conversation
+    {
+        return DB::transaction(function () use ($businessId, $channel, $externalThreadRef, $customerId, $attributes) {
             return Conversation::create([
                 'uuid' => (string) Str::uuid(),
                 'business_id' => $businessId,
@@ -305,7 +334,20 @@ final readonly class ConversationService
             return $existing;
         }
 
+        // The Page the echo came from names the business; a thread of any other business is never a candidate
+        // (docs/140). An echo from a Page HQ does not hold has no business, so there is nothing to record it on.
+        $businessId = PlatformAccount::query()
+            ->where('account_ref', $echo->platformAccountRef)
+            ->when(self::PLATFORM_FOR_CHANNEL[$echo->channel->value] ?? null, fn ($q, $platform) => $q->where('platform', $platform))
+            ->where('is_active', true)
+            ->with('brand')
+            ->first()?->brand?->business_id;
+        if ($businessId === null) {
+            return null;
+        }
+
         $conversation = Conversation::query()
+            ->where('business_id', $businessId)
             ->where('channel', $echo->channel->value)
             ->where('external_thread_ref', $echo->externalThreadRef)
             ->where('status', '!=', 'closed')

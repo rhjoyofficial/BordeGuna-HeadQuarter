@@ -261,7 +261,9 @@ it('has one resolver, one place that builds a context, and one place that turns 
     // A context is built by the resolver and by nothing else; a run is resolved by the runner and by nothing else.
     expect($filesWith('new EffectiveExecutionContext('))->toBe(['Execution/ExecutionContextResolver.php'])
         ->and($filesWith('->contexts->resolve('))->toBe(['Agents/AgentRunner.php'])
-        ->and($filesWith('ExecutionContextResolver $'))->toBe(['Agents/AgentRunner.php', 'Ask/AskHq.php', 'Gateway/ToolGateway.php']);
+        // docs/145-c: Delegations holds the resolver only to NARROW an existing run's context (resolveDelegated).
+        ->and($filesWith('ExecutionContextResolver $'))->toBe(['Agents/AgentRunner.php', 'Ask/AskHq.php', 'Gateway/ToolGateway.php', 'Skills/Delegations.php']);
+    expect($sources['Skills/Delegations.php'] ?? '')->toContain('->resolver->resolveDelegated(')->not->toContain('->resolver->resolve(')->not->toContain('->resolver->preview(');
 
     // Ask HQ previews and never resolves; the gateway only asks whether a context still stands.
     expect($sources['Ask/AskHq.php'])->toContain('->contexts->preview(')->not->toContain('->contexts->resolve(')

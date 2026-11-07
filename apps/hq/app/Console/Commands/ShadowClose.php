@@ -7,6 +7,7 @@ use App\Agents\Shadow\ShadowPeriods;
 use App\Models\ShadowPeriod;
 use App\Models\User;
 use Illuminate\Console\Command;
+use RuntimeException;
 
 /**
  * Close an agent's open shadow period by hand: the agent paused, `ai.runtime` off, the record closed
@@ -47,7 +48,14 @@ class ShadowClose extends Command
             }
         }
 
-        $period = $periods->close($period, $reason, $userId);
+        try {
+            // docs/138 ruling 13: a person named with --by needs group-wide authority.
+            $period = $periods->close($period, $reason, $userId);
+        } catch (RuntimeException $e) {
+            $this->error('Not closed. '.$e->getMessage());
+
+            return self::FAILURE;
+        }
         $days = $evidence->store($period->fresh());
         $this->info("Shadow period #{$period->id} closed; ".count($days).' day row(s) written.');
 

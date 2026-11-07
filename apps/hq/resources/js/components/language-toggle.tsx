@@ -20,7 +20,7 @@ export function LanguageToggle({ className }: { className?: string }) {
     };
 
     return (
-        <div role="group" aria-label="Language / ভাষা" className={cn('bg-muted inline-flex items-center rounded-md p-0.5 text-xs', className)}>
+        <div role="group" aria-label="Language / ভাষা" className={cn('bg-muted inline-flex items-center rounded-full p-0.5 text-xs', className)}>
             {(['en', 'bn'] as Locale[]).map((l) => (
                 <button
                     key={l}
@@ -29,7 +29,7 @@ export function LanguageToggle({ className }: { className?: string }) {
                     aria-pressed={locale === l}
                     onClick={() => choose(l)}
                     className={cn(
-                        'rounded px-2 py-1 font-medium transition-colors',
+                        'rounded-full px-2.5 py-1 font-medium transition-colors touch:min-h-11 touch:px-3.5',
                         locale === l ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                     )}
                 >

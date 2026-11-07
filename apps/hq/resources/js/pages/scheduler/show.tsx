@@ -1,11 +1,14 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { JsonBlock, PageHeader, SectionHeader, TechnicalDetail } from '@/components/page-header';
+import { type ListMeta, Pagination } from '@/components/pagination';
 import { jobState } from '@/components/scheduler/job-state';
 import { Button } from '@/components/ui/button';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanDuration, humanKey, humanMillis, humanSchedule, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
 import { type ReactNode, useState } from 'react';
@@ -47,7 +50,7 @@ type Run = {
     output: { output?: Record<string, unknown> } | null;
     attempts: { attempt: number; status: string; error: string | null; duration_ms: number }[] | null;
 };
-type Paginated<T> = { data: T[]; total: number };
+type Paginated<T> = ListMeta & { data: T[] };
 
 const MISSED: Record<string, string> = {
     skip: 'skip it',
@@ -56,10 +59,11 @@ const MISSED: Record<string, string> = {
 };
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
+    const t = useT();
     return (
         <div className="min-w-0">
-            <dt className="text-muted-foreground text-xs">{label}</dt>
-            <dd className="text-sm break-words">{children}</dd>
+            <dt className="hq-eyebrow">{t(label)}</dt>
+            <dd className="mt-0.5 text-sm break-words">{children}</dd>
         </div>
     );
 }
@@ -69,6 +73,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
     const canManage = auth.permissions.includes('hq.jobs.manage');
     const [confirmCancel, setConfirmCancel] = useState(false);
     const [busy, setBusy] = useState(false);
+    const t = useT();
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Scheduler', href: '/scheduler' },
         { title: job.name, href: `/scheduler/${job.id}` },
@@ -92,7 +97,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                     }
                     description={
                         <>
-                            {humanSchedule(job)} ({job.timezone}) · runs <span title={job.tool_key}>{humanKey(job.tool_key)}</span>
+                            {humanSchedule(job)} ({job.timezone}) · {t('runs')} <span title={job.tool_key}>{humanKey(job.tool_key)}</span>
                             {job.business ? ` · ${job.business.name}` : ''}
                             {job.brand ? ` · ${job.brand.name}` : ''}
                         </>
@@ -103,31 +108,31 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                 {job.approval_state === 'pending' && (
                                     <>
                                         <Button disabled={busy} onClick={() => act('approve')}>
-                                            Approve job
+                                            {t('Approve job')}
                                         </Button>
                                         <Button variant="outline" disabled={busy} onClick={() => act('reject')}>
-                                            Reject
+                                            {t('Reject')}
                                         </Button>
                                     </>
                                 )}
                                 {job.state !== 'cancelled' && job.approval_state === 'approved' && (
                                     <Button variant="outline" disabled={busy} onClick={() => act('run-now')}>
-                                        Run now
+                                        {t('Run now')}
                                     </Button>
                                 )}
                                 {job.state === 'active' && (
                                     <Button variant="outline" disabled={busy} onClick={() => act('pause')}>
-                                        Pause
+                                        {t('Pause')}
                                     </Button>
                                 )}
                                 {job.state === 'paused' && (
                                     <Button disabled={busy} onClick={() => act('resume')}>
-                                        Resume
+                                        {t('Resume')}
                                     </Button>
                                 )}
                                 {(job.state === 'active' || job.state === 'paused') && (
                                     <Button variant="destructive" disabled={busy} onClick={() => setConfirmCancel(true)}>
-                                        Cancel job
+                                        {t('Cancel job')}
                                     </Button>
                                 )}
                             </>
@@ -135,7 +140,13 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                     }
                 />
 
-                <section className="bg-card rounded-xl border p-4">
+                {job.approval_state === 'pending' && (
+                    <Notice tone="pending" title={t('Waiting for approval')}>
+                        {t('This job does not run until a person approves it. Nothing has been scheduled yet.')}
+                    </Notice>
+                )}
+
+                <section className="hq-card p-4">
                     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                         <Fact label="Next run">
                             {job.next_run_at ? (
@@ -144,7 +155,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                     <div className="text-muted-foreground text-xs">{formatDateTime(job.next_run_at)}</div>
                                 </>
                             ) : (
-                                <span className="text-muted-foreground">not scheduled</span>
+                                <span className="text-muted-foreground">{t('not scheduled')}</span>
                             )}
                         </Fact>
                         <Fact label="Last run">
@@ -156,21 +167,23 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                     </span>
                                 </div>
                             ) : (
-                                <span className="text-muted-foreground">never</span>
+                                <span className="text-muted-foreground">{t('never')}</span>
                             )}
                         </Fact>
-                        <Fact label="If a slot is missed">{MISSED[job.missed_policy] ?? job.missed_policy}</Fact>
+                        <Fact label="If a slot is missed">{MISSED[job.missed_policy] ? t(MISSED[job.missed_policy]) : job.missed_policy}</Fact>
                         <Fact label="Retries">
-                            {job.retry_max === 0 ? 'none' : `up to ${job.retry_max}, ${humanDuration(job.retry_backoff_seconds)} apart`}
+                            {job.retry_max === 0
+                                ? t('none')
+                                : t('up to {count}, {gap} apart', { count: job.retry_max, gap: humanDuration(job.retry_backoff_seconds) })}
                         </Fact>
                         <Fact label="Created">
                             {humanKey(job.created_from).toLowerCase()}
-                            {job.owner ? ` by ${job.owner.name || job.owner.email}` : ''}
+                            {job.owner ? ` ${t('by {name}', { name: job.owner.name || job.owner.email })}` : ''}
                         </Fact>
                         <Fact label="Approval">{humanKey(job.approval_state)}</Fact>
                     </dl>
                     <div className="mt-4">
-                        <TechnicalDetail summary={`Technical detail · ${job.tool_key} · ${job.uuid}`}>
+                        <TechnicalDetail summary={`${t('Technical detail')} · ${job.tool_key} · ${job.uuid}`}>
                             <dl className="text-muted-foreground mb-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 font-mono text-xs">
                                 <dt>kind</dt>
                                 <dd>{job.kind}</dd>
@@ -181,29 +194,29 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                         (job.interval_seconds ? `${job.interval_seconds}s` : (job.run_at ?? '-'))}
                                 </dd>
                             </dl>
-                            <div className="text-muted-foreground mb-1 text-xs">Payload</div>
+                            <div className="text-muted-foreground mb-1 text-xs">{t('Payload')}</div>
                             <JsonBlock value={job.payload ?? {}} />
                         </TechnicalDetail>
                     </div>
                 </section>
 
                 <section className="flex flex-col gap-2">
-                    <SectionHeader title="Run history" aside={`${runs.total} ${runs.total === 1 ? 'run' : 'runs'}`} />
+                    <SectionHeader title={t('Run history')} aside={t(runs.total === 1 ? '{count} run' : '{count} runs', { count: runs.total })} />
                     {runs.data.length === 0 ? (
                         <EmptyState
-                            title="No runs yet"
-                            description="The first run appears here when the schedule fires, or when you press Run now."
+                            title={t('No runs yet')}
+                            description={t('The first run appears here when the schedule fires, or when you press Run now.')}
                         />
                     ) : (
-                        <div className="bg-card overflow-x-auto rounded-xl border">
+                        <div className="hq-table-box">
                             <table className="w-full text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                                <thead className="text-left text-xs">
                                     <tr>
-                                        <th className="px-3 py-2 font-medium">Slot</th>
-                                        <th className="px-3 py-2 font-medium">Started by</th>
-                                        <th className="px-3 py-2 font-medium">Outcome</th>
-                                        <th className="px-3 py-2 font-medium">Attempts</th>
-                                        <th className="px-3 py-2 font-medium">Result</th>
+                                        <th className="px-3 py-2 font-medium">{t('Slot')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Started by')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Outcome')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Attempts')}</th>
+                                        <th className="px-3 py-2 font-medium">{t('Result')}</th>
                                         <th className="px-3 py-2"></th>
                                     </tr>
                                 </thead>
@@ -240,9 +253,9 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                             </td>
                                             <td className="max-w-md px-3 py-2 text-xs">
                                                 {r.error ? (
-                                                    <span className="text-red-700 dark:text-red-300">{r.error}</span>
+                                                    <span className="text-tone-danger">{r.error}</span>
                                                 ) : r.output?.output && Object.keys(r.output.output).length > 0 ? (
-                                                    <TechnicalDetail summary="Output">
+                                                    <TechnicalDetail summary={t('Output')}>
                                                         <JsonBlock value={r.output.output} />
                                                     </TechnicalDetail>
                                                 ) : (
@@ -264,7 +277,7 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                                                             );
                                                         }}
                                                     >
-                                                        Retry
+                                                        {t('Retry')}
                                                     </Button>
                                                 )}
                                             </td>
@@ -274,15 +287,17 @@ export default function SchedulerShow({ job, runs }: { job: Job; runs: Paginated
                             </table>
                         </div>
                     )}
+                    <Pagination meta={runs} />
                 </section>
             </div>
 
             <ConfirmDialog
                 open={confirmCancel}
                 onOpenChange={setConfirmCancel}
-                title={`Cancel ${job.name}?`}
-                description="The job stops for good and cannot be resumed; its run history stays. To stop it for a while, use Pause instead."
-                confirmLabel="Cancel the job"
+                title={t('Cancel {name}?', { name: job.name })}
+                description={t('The job stops for good and cannot be resumed; its run history stays. To stop it for a while, use Pause instead.')}
+                confirmLabel={t('Cancel the job')}
+                cancelLabel={t('Cancel')}
                 destructive
                 busy={busy}
                 onConfirm={() => {

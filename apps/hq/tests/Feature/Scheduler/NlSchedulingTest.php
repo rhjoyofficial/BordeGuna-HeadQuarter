@@ -277,3 +277,42 @@ it('shows the question for an ambiguous sentence and creates nothing', function 
 
     expect(ScheduledJob::count())->toBe(0);
 });
+
+it('refuses a restricted person a job that names no business, and makes no group-level job (decided 17 Oct)', function () {
+    nlFlag();
+    enableAiRuntime();
+    $user = $this->hqUser('brand_manager');
+    UserBusinessScope::create(['user_id' => $user->id, 'business_id' => Business::where('slug', 'bionic')->value('id')]);
+
+    // The store is theirs, but the job names no business, so it would be a group-level row they could not see.
+    FixtureProvider::script('fixture', [FixtureProvider::reply((string) json_encode(nlSpec(['store' => 'bionic.garden'])))]);
+    $this->actingAsHq($user)->post('/scheduler/nl/preview', ['text' => 'every morning at 8 check the facts'])->assertRedirect('/scheduler/nl');
+    $this->actingAsHq($user)->get('/scheduler/nl')->assertOk()
+        ->assertInertia(fn ($page) => $page->where('result.token', null)
+            ->where('result.questions.0', fn (string $q) => str_contains($q, 'HQ will not make this job: it names no business')
+                && str_contains($q, 'your access is limited to Bionic'))
+            ->where('businesses', fn ($b) => collect($b)->pluck('name')->all() === [Business::where('slug', 'bionic')->value('name')]));
+    expect(ScheduledJob::count())->toBe(0)
+        ->and(AuditLog::where('action', 'scheduler.nl_refused')->where('after->reason', 'group_level_for_restricted')->count())->toBe(1);
+
+    // Naming one of their businesses makes the job, for that business.
+    FixtureProvider::script('fixture', [FixtureProvider::reply((string) json_encode(nlSpec(['store' => 'bionic.garden', 'business' => 'bionic'])))]);
+    $this->actingAsHq($user)->post('/scheduler/nl/preview', ['text' => 'every morning at 8 check the bionic facts'])->assertRedirect();
+    $token = null;
+    $this->actingAsHq($user)->get('/scheduler/nl')->assertInertia(function ($page) use (&$token) {
+        $token = $page->toArray()['props']['result']['token'];
+    });
+    $this->actingAsHq($user)->post('/scheduler/nl/confirm', ['token' => $token])->assertRedirect();
+    expect(ScheduledJob::sole()->business_id)->toBe(Business::where('slug', 'bionic')->value('id'));
+
+    // A preview made before a restriction is checked again on confirm.
+    $later = $this->hqUser('owner');
+    FixtureProvider::script('fixture', [FixtureProvider::reply((string) json_encode(nlSpec()))]);
+    $this->actingAsHq($later)->post('/scheduler/nl/preview', ['text' => 'every morning at 8 check the facts'])->assertRedirect();
+    $this->actingAsHq($later)->get('/scheduler/nl')->assertInertia(function ($page) use (&$token) {
+        $token = $page->toArray()['props']['result']['token'];
+    });
+    UserBusinessScope::create(['user_id' => $later->id, 'business_id' => Business::where('slug', 'bionic')->value('id')]);
+    $this->actingAsHq($later)->post('/scheduler/nl/confirm', ['token' => $token])->assertSessionHasErrors('token');
+    expect(ScheduledJob::count())->toBe(1);
+});

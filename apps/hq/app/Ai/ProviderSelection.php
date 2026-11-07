@@ -8,6 +8,7 @@ use App\Models\AuditLog;
 use App\Models\ShadowPeriod;
 use App\Models\User;
 use App\Support\Audit\Auditor;
+use App\Support\Authorization\GroupWideAuthority;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -32,10 +33,17 @@ final class ProviderSelection
     /** The tiers a provider must cover before it can serve. */
     private const CHAT_TIERS = [ModelTier::Low, ModelTier::Medium, ModelTier::High];
 
+    /**
+     * docs/138 ruling 13: which provider serves is AI activation for every business, so the person
+     * needs the authority of the `ai.runtime` switch (`hq.flags.manage`) and no business restriction.
+     */
+    public const PERMISSION = 'hq.flags.manage';
+
     public function __construct(
         private readonly ProviderRegistry $providers,
         private readonly ServingProvider $serving,
         private readonly Auditor $auditor,
+        private readonly GroupWideAuthority $authority,
     ) {}
 
     /**
@@ -84,6 +92,8 @@ final class ProviderSelection
                 $out[] = "There is no HQ user with the email [{$email}].";
             } elseif ($active !== true) {
                 $out[] = "[{$email}] is disabled, so nothing changes on their word.";
+            } elseif (($refusal = $this->authority->refusal(User::query()->where('email', $email)->first(), self::PERMISSION)) !== null) {
+                $out[] = $refusal;
             }
         }
 
@@ -151,6 +161,7 @@ final class ProviderSelection
                 $reason,
                 actorUserId: (int) $user->getKey(),
                 actorLabel: (string) $user->email,
+                context: $this->authority->auditContext(self::PERMISSION, $user),
             );
         });
     }

@@ -14,22 +14,24 @@ import { type ReactNode } from 'react';
  */
 export type Tone = 'ok' | 'pending' | 'warn' | 'danger' | 'info' | 'neutral';
 
+// docs/135 (h), W-UI3: the tones are theme tokens (app.css), tinted chip plus hairline plus readable text, the same in
+// both themes by meaning and checked at 4.5:1 by ScreenRestyleTest.
 const TONES: Record<Tone, string> = {
-    ok: 'bg-emerald-100 text-emerald-900 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-900',
-    pending: 'bg-amber-100 text-amber-900 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900',
-    warn: 'bg-orange-100 text-orange-900 ring-orange-200 dark:bg-orange-950 dark:text-orange-200 dark:ring-orange-900',
-    danger: 'bg-red-100 text-red-900 ring-red-200 dark:bg-red-950 dark:text-red-200 dark:ring-red-900',
-    info: 'bg-sky-100 text-sky-900 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-900',
-    neutral: 'bg-muted text-muted-foreground ring-border',
+    ok: 'bg-tone-ok-bg text-tone-ok ring-tone-ok-line',
+    pending: 'bg-tone-pending-bg text-tone-pending ring-tone-pending-line',
+    warn: 'bg-tone-warn-bg text-tone-warn ring-tone-warn-line',
+    danger: 'bg-tone-danger-bg text-tone-danger ring-tone-danger-line',
+    info: 'bg-tone-info-bg text-tone-info ring-tone-info-line',
+    neutral: 'bg-tone-neutral-bg text-tone-neutral ring-tone-neutral-line',
 };
 
 const DOTS: Record<Tone, string> = {
-    ok: 'bg-emerald-600',
-    pending: 'bg-amber-500',
-    warn: 'bg-orange-500',
-    danger: 'bg-red-600',
-    info: 'bg-sky-600',
-    neutral: 'bg-muted-foreground/60',
+    ok: 'bg-tone-ok-dot',
+    pending: 'bg-tone-pending-dot',
+    warn: 'bg-tone-warn-dot',
+    danger: 'bg-tone-danger-dot',
+    info: 'bg-tone-info-dot',
+    neutral: 'bg-tone-neutral-dot',
 };
 
 /** The tone a status word carries, for the words HQ uses. Unknown words are neutral. */
@@ -108,7 +110,7 @@ export function StatusBadge({
     return (
         <span
             className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-inset',
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ring-1 ring-inset',
                 TONES[t],
                 className,
             )}

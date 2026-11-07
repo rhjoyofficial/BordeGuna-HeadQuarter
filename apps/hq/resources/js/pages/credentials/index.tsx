@@ -1,15 +1,15 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
-import { PageHeader } from '@/components/page-header';
+import { PageHeader, SectionHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
-import { formatDateTime, humanKey, timeAgo } from '@/lib/format';
-import { useT } from '@/lib/i18n';
+import { formatDate, humanKey, timeAgo } from '@/lib/format';
+import { currentLocale, translate, useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { KeyRound, Plus } from 'lucide-react';
@@ -65,9 +65,10 @@ function readinessTone(r: Readiness): Tone {
 
 /** What the provider last said, in a few words: "ok, 2 hours ago via tool call #763". */
 function lastResult(r: { last_result: Readiness['last_result'] }): string {
-    if (!r.last_result) return 'never verified';
-    const what = r.last_result.ok ? 'accepted' : humanKey(r.last_result.class ?? 'failed').toLowerCase();
-    return `${what} ${timeAgo(r.last_result.at)} via ${r.last_result.source.replace('_', ' ')}`;
+    const locale = currentLocale();
+    if (!r.last_result) return translate(locale, 'never verified');
+    const what = r.last_result.ok ? translate(locale, 'accepted') : humanKey(r.last_result.class ?? 'failed').toLowerCase();
+    return translate(locale, '{what} {ago} via {source}', { what, ago: timeAgo(r.last_result.at), source: r.last_result.source.replace('_', ' ') });
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Credentials', href: '/credentials' }];
@@ -76,11 +77,12 @@ const TYPES: Record<string, string> = { api_key: 'API key', token: 'Token', basi
 
 /** Expiry as the operator needs to read it: red once passed, orange inside two weeks. */
 function expiry(c: Credential): { tone: Tone; label: string } {
+    const locale = currentLocale();
     if (!c.expires_at) return { tone: 'neutral', label: 'no expiry' };
     const days = (new Date(c.expires_at).getTime() - Date.now()) / 86400000;
-    if (days < 0) return { tone: 'danger', label: `expired ${timeAgo(c.expires_at)}` };
-    if (days < 14) return { tone: 'warn', label: `expires ${timeAgo(c.expires_at)}` };
-    return { tone: 'neutral', label: `expires ${formatDateTime(c.expires_at).split(',')[0]}` };
+    if (days < 0) return { tone: 'danger', label: translate(locale, 'expired {ago}', { ago: timeAgo(c.expires_at) }) };
+    if (days < 14) return { tone: 'warn', label: translate(locale, 'expires {ago}', { ago: timeAgo(c.expires_at) }) };
+    return { tone: 'neutral', label: translate(locale, 'expires on {date}', { date: formatDate(c.expires_at) }) };
 }
 
 function NewCredentialDialog({
@@ -201,7 +203,7 @@ function NewCredentialDialog({
                             required
                         />
                     </Field>
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
@@ -228,6 +230,7 @@ export default function CredentialsIndex({
     readiness: Readiness[];
     kinds: Kind[];
 }) {
+    const t = useT();
     const incidents = readiness.filter((r) => r.incident);
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
     const canManage = auth.permissions.includes('hq.credentials.manage');
@@ -273,10 +276,10 @@ export default function CredentialsIndex({
                 />
 
                 <section className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <h2 className="text-base font-semibold">Readiness</h2>
-                            <p className="text-muted-foreground text-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 basis-72">
+                            <h2 className="text-[0.9375rem] font-semibold tracking-tight">Readiness</h2>
+                            <p className="text-muted-foreground mt-1 max-w-3xl text-sm leading-relaxed">
                                 For each store, ERP business and the model provider: whether HQ would send a call, and whether the provider last
                                 accepted the credential. Those are two facts: an unverified key, or an account with no credit, would still be tried
                                 and would not work. A store with no connector is unsupported by design, not an incident.
@@ -290,9 +293,9 @@ export default function CredentialsIndex({
                             <StatusBadge tone="ok">no incidents</StatusBadge>
                         )}
                     </div>
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Target</th>
                                     <th className="px-3 py-2 font-medium">Provider</th>
@@ -342,16 +345,17 @@ export default function CredentialsIndex({
                     </div>
                 </section>
 
+                <SectionHeader title="Stored credentials" aside={t('{count} active', { count: active.length })} />
                 {credentials.length === 0 ? (
                     <EmptyState
                         icon={KeyRound}
                         title="No credentials stored"
-                        description="Connectors that need a key refuse to run until one is stored here."
+                        description="Nothing has been stored yet. Connectors that need a key refuse to run until one is stored here."
                     />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Provider</th>
                                     <th className="px-3 py-2 font-medium">Used for</th>
@@ -385,7 +389,7 @@ export default function CredentialsIndex({
                                             <td className="px-3 py-2 whitespace-nowrap">
                                                 {c.status === 'active' ? (
                                                     <StatusBadge tone={ex.tone} dot={ex.tone !== 'neutral'}>
-                                                        {ex.label}
+                                                        {t(ex.label)}
                                                     </StatusBadge>
                                                 ) : (
                                                     <span className="text-muted-foreground text-xs">-</span>

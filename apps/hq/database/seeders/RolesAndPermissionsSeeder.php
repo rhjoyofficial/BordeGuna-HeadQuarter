@@ -86,6 +86,43 @@ class RolesAndPermissionsSeeder extends Seeder
         // gateway tool `customers.quarantine.repair`, and assigning a business to a memory the repair withheld.
         // Owner and operator hold it through '*'; no other role is given it.
         'hq.customers.quarantine.repair',
+        // docs/143 (owner console, all behind flags seeded OFF). Owner and operator hold them through '*'; no other role is given them.
+        // Do mode: propose a plan, and start one (starting approves no step). Telegram brief: the gateway tool's permission.
+        // Event watches: propose one, and enable/disable/reject one (enabling grants no authority for its action).
+        'hq.do.propose', 'hq.do.start', 'hq.briefing.deliver', 'hq.watches.propose', 'hq.watches.enable',
+
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): resolving an open identity conflict with evidence, through
+        // the human-only gateway tool `customers.identity_conflicts.resolve` only. Owner and operator hold it through
+        // '*'; no other role is given it.
+        'hq.customers.identity_conflicts.resolve',
+        // docs/138 ruling 7, docs/141: Pause All AI. `pause` can only turn AI execution off; `resume` is the
+        // distinct operation that turns it back on. Both also need group-wide authority (ruling 13). Owner and
+        // operator hold them through '*'; no other role is given either.
+        'hq.ai.pause', 'hq.ai.resume',
+        // docs/145 (HQ completion, agent M4). Phase 6: the content calendar (`plan` writes plans and drafts, `review` approves
+        // or rejects a draft), the owner's claims rules (`claims.manage`, owner/operator only), research digests.
+        'hq.content.view', 'hq.content.plan', 'hq.content.review', 'hq.content.claims.manage',
+        'hq.research.view', 'hq.research.digest',
+        // Phase 8: the avatar consent registry and the (unregistered, approval-gated) generation tool.
+        'hq.avatar.view', 'hq.avatar.consent.manage', 'hq.avatar.generate',
+        // Phase 9: the skill registry. `propose` records or suspends; `activate` approves, activates and retires.
+        'hq.skills.view', 'hq.skills.propose', 'hq.skills.activate',
+        // Phase 10: the evidence ladder. `grant` sets thresholds and grants (also needs group-wide authority);
+        // `revoke` only ever stops autonomy. Owner and operator hold all three through '*'; no other role.
+        'hq.autonomy.view', 'hq.autonomy.grant', 'hq.autonomy.revoke',
+        // docs/144: the HQ-completion connectors. Owner and operator hold them through '*'; no other role is given any.
+        // `connectors.view` reads the connector status screen; `courier.read` tracks parcels; `voice.use` speaks and
+        // listens; `media.draft` asks for and reviews video drafts; `mail.ingest` polls the supplier mailbox and
+        // `ingestion.review` decides on its drafts; `erp.draft_bill` asks the ERP for a draft bill (a second person
+        // approves); `ads.draft` prepares a paused ad draft; `meta.health` checks a Meta token.
+        'hq.connectors.view', 'hq.tools.courier.read', 'hq.voice.use', 'hq.tools.media.draft', 'hq.tools.mail.ingest',
+        'hq.ingestion.review', 'hq.tools.erp.draft_bill', 'hq.tools.ads.draft', 'hq.tools.meta.health',
+        // Ruling 31 Oct item 12 (R2, docs/147-r2): setting a business's monthly media budget and reconciling a provider's billed
+        // cost. Held through '*' by owner and operator; `MediaBudgets::setLimit()` also requires the OWNER role.
+        'hq.media.budget.manage',
+        // Ruling 1 Nov 2026: setting the owner's USD to BDT rate (the Exchange rate screen). It acts on every business, so it also
+        // needs group-wide authority, like Pause All AI. Owner and operator hold it through '*'; no other role is given it.
+        'hq.fx.manage',
     ];
 
     public const ROLES = [
@@ -100,6 +137,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'hq.playbooks.view', 'hq.playbooks.draft',
             // docs/113 section 4: may record a follow-up or an interest; deciding is owner/operator (Q4).
             'hq.followups.view', 'hq.followups.propose',
+            // docs/145-a: plans the brand's posts and writes drafts; reviewing them and the claims rules are not theirs.
+            'hq.content.view', 'hq.content.plan', 'hq.research.view',
         ],
         'support_agent' => ['hq.dashboard.view', 'hq.jobs.view', 'hq.businesses.view', 'hq.customers.view', 'hq.inbox.view', 'hq.inbox.manage',
             // The person who hears "stop messaging me" can record it; starting contact is not theirs.
@@ -107,6 +146,10 @@ class RolesAndPermissionsSeeder extends Seeder
             // docs/113 section 4: the person who hears a promise can record it.
             'hq.followups.view', 'hq.followups.propose'],
         'finance_viewer' => ['hq.dashboard.view', 'hq.audit.view', 'hq.businesses.view', 'hq.ai.cost.view'],
+        // docs/149 (architecture ruling 1 Nov 2026): the least-privilege second approver. Sees and decides approvals of
+        // its own businesses (App\Support\Authorization\ApproverRole: confirmed 2FA, business scope rows required, never
+        // its own proposal, and each category's domain permission assigned per person, never bundled here). Nothing else.
+        'approver' => ['hq.dashboard.view', 'hq.approvals.view', 'hq.approvals.decide'],
     ];
 
     public function run(): void

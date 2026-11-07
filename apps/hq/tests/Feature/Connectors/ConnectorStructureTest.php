@@ -1,6 +1,7 @@
 <?php
 
 use App\Connectors\Capabilities;
+use App\Models\FeatureFlag;
 use App\Platform\Contracts\PlatformProvider;
 
 /*
@@ -262,8 +263,14 @@ it('binds no provider adapter or adapter contract directly in a service provider
     expect($offenders)->toBe([]);
 });
 
-it('ships config/hq-connectors.php empty, so this release activates no provider', function () {
+it('ships config/hq-connectors.php with every row behind a flag that is OFF and no sandbox row (docs/144)', function () {
     $config = require config_path('hq-connectors.php');
 
-    expect($config)->toBe(['connectors' => []]);
+    expect($config['connectors'])->not->toBeEmpty();
+    foreach ($config['connectors'] as $row) {
+        expect($row['provider'])->not->toBe('sandbox')
+            ->and($row['enabled_by'])->toStartWith('flag:');
+        $flag = FeatureFlag::query()->where('key', substr($row['enabled_by'], 5))->first();
+        expect($flag)->not->toBeNull("{$row['enabled_by']} is not seeded")->and($flag->enabled)->toBeFalse();
+    }
 });

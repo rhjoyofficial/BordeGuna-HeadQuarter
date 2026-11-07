@@ -7,6 +7,7 @@ use App\Models\Alert;
 use App\Models\Approval;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Support\Money\UsdBdtRate;
 
 /**
  * Composes the messages HQ sends a person, and delivers them on every available channel.
@@ -77,7 +78,7 @@ final class Notifier
         $this->dispatch(
             "HQ AI spend at {$pressure['share_percent']}% of the cap ({$pressure['scope']})",
             implode("\n", [
-                'Spent this period: USD '.number_format($pressure['spent'], 2).' of '.number_format($pressure['cap'], 2).'.',
+                'Spent this period: '.UsdBdtRate::display($pressure['spent'], 2).' of '.UsdBdtRate::display($pressure['cap'], 2).'.',
                 $pressure['downgrade']
                     ? 'The cap is reached. HQ is now choosing a cheaper model tier rather than stopping, and anything that runs degraded says so on its face.'
                     : 'Nothing has changed yet. At 100 percent HQ moves to a cheaper model tier; it does not stop working.',
@@ -97,7 +98,7 @@ final class Notifier
         $this->dispatch(
             "HQ AI spend cap REACHED, work refused ({$pressure['scope']})",
             implode("\n", [
-                'Spent this period: USD '.number_format($pressure['spent'], 2).' against a HARD cap of '.number_format($pressure['cap'], 2).'.',
+                'Spent this period: '.UsdBdtRate::display($pressure['spent'], 2).' against a HARD cap of '.UsdBdtRate::display($pressure['cap'], 2).'.',
                 'A model call was refused and did not run. This cap refuses rather than degrades because it was set to `hard`.',
                 'Raise the limit or set the row to `soft` to have HQ downgrade instead of stopping.',
             ]),

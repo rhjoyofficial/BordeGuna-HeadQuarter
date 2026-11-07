@@ -1,4 +1,5 @@
 import AppLogoIcon from '@/components/app-logo-icon';
+import { useT } from '@/lib/i18n';
 import { type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 
@@ -9,6 +10,7 @@ interface AuthLayoutProps {
 }
 
 export default function AuthSplitLayout({ children, title, description }: AuthLayoutProps) {
+    const t = useT();
     const { name, quote } = usePage<SharedData>().props;
 
     return (
@@ -34,8 +36,8 @@ export default function AuthSplitLayout({ children, title, description }: AuthLa
                         <AppLogoIcon className="h-10 fill-current text-black sm:h-12" />
                     </Link>
                     <div className="flex flex-col items-start gap-2 text-left sm:items-center sm:text-center">
-                        <h1 className="text-xl font-medium">{title}</h1>
-                        <p className="text-muted-foreground text-sm text-balance">{description}</p>
+                        <h1 className="text-xl font-medium">{title && t(title)}</h1>
+                        <p className="text-muted-foreground text-sm text-balance">{description && t(description)}</p>
                     </div>
                     {children}
                 </div>

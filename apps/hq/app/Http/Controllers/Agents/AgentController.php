@@ -12,6 +12,7 @@ use App\Models\DecisionRecord;
 use App\Models\ToolCall;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -99,12 +100,11 @@ final class AgentController extends Controller
 
         $filter = (string) $request->query('filter', 'all');
 
-        $runs = $this->readable($request)
+        $page = ListPage::paginate($this->readable($request)
             ->when($filter === 'unreviewed', fn ($q) => $q->whereNull('reviewed_at')->where('shadow', true))
             ->when($filter !== 'all' && $filter !== 'unreviewed', fn ($q) => $q->where('agent_key', $filter))
-            ->latest('id')
-            ->limit(60)
-            ->get();
+            ->latest('id'), $request);
+        $runs = $page->getCollection();
 
         // One grouped query rather than a sum per row: `ai_runs` is the cost ledger and this screen
         // reads it rather than keeping a second copy that could disagree with it.
@@ -117,6 +117,7 @@ final class AgentController extends Controller
         return Inertia::render('agents/index', [
             'agents' => $agents,
             'runs' => $runs->map(fn (AgentRun $r) => $this->card($r, (float) ($costs[$r->correlation_id] ?? 0))),
+            'pagination' => $page->meta(),
             'filter' => $filter,
             'can' => [
                 'review' => $request->user()?->can('hq.agents.manage') ?? false,

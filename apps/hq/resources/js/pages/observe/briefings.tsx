@@ -2,21 +2,26 @@ import { EmptyState } from '@/components/empty-state';
 import { NARRATION_LABEL, STATE_TONE, scopeLabel, type BriefingSummary } from '@/components/observe/briefing';
 import { DataTable, Note, Panel } from '@/components/observe/panels';
 import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { Pagination, type ListMeta } from '@/components/pagination';
+import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import { Newspaper } from 'lucide-react';
 
-type Props = { briefings: BriefingSummary[]; contract: Record<string, unknown> };
+type Props = { briefings: BriefingSummary[]; pagination: ListMeta; contract: Record<string, unknown> };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Briefings', href: '/observe/briefings' }];
 
-export default function Briefings({ briefings, contract }: Props) {
+export default function Briefings({ briefings, pagination, contract }: Props) {
+    const t = useT();
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Briefings" />
+            <Head title={t('Briefings')} />
             <div className="flex flex-col gap-6 p-4 md:p-6">
                 <PageHeader
                     title="Briefings"
@@ -45,7 +50,7 @@ export default function Briefings({ briefings, contract }: Props) {
                                         </Link>
                                     ),
                                 },
-                                { key: 'scope', label: 'Scope', render: (b) => scopeLabel(b) },
+                                { key: 'scope', label: 'Scope', render: (b) => b.business ?? t(scopeLabel(b)) },
                                 {
                                     key: 'state',
                                     label: 'State',
@@ -59,13 +64,18 @@ export default function Briefings({ briefings, contract }: Props) {
                                             ? '-'
                                             : [...new Set(b.degraded_reasons.map((r) => humanKey(r.code)))].join(', '),
                                 },
-                                { key: 'narration', label: 'Narration', render: (b) => NARRATION_LABEL[b.narration_state] ?? b.narration_state },
+                                {
+                                    key: 'narration',
+                                    label: 'Narration',
+                                    render: (b) => (NARRATION_LABEL[b.narration_state] ? t(NARRATION_LABEL[b.narration_state]) : b.narration_state),
+                                },
                                 { key: 'items', label: 'Items', align: 'right', render: (b) => b.items },
                                 { key: 'generated', label: 'Composed', render: (b) => formatDateTime(b.generated_at) },
                             ]}
                         />
                     </Panel>
                 )}
+                <Pagination meta={pagination} />
 
                 <Panel title="The capability contract">
                     <Note>
@@ -73,6 +83,11 @@ export default function Briefings({ briefings, contract }: Props) {
                         bundle as the only thing a narrator may speak from. Narration sits behind the feature flag briefing.narration, which does not
                         exist as a row and is therefore off.
                     </Note>
+                    <InertNotice
+                        title="Narration"
+                        reason="The feature flag briefing.narration has no row, so it is off. A briefing holds evidence only."
+                        gate="A person creates the briefing.narration flag and switches it on, with the AI runtime on."
+                    />
                     <TechnicalDetail summary="Contract">
                         <JsonBlock value={contract} />
                     </TechnicalDetail>

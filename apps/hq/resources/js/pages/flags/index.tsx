@@ -1,27 +1,36 @@
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Field, FormRow, NativeSelect } from '@/components/form/field';
 import { PageHeader } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { humanKey } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { Flag, Plus } from 'lucide-react';
 import { useState } from 'react';
+
+/** docs/138 ruling 13: may this person throw a switch that acts on every business, and if not, why. */
+type GroupSwitch = { allowed: boolean; refusal: string | null; refusal_code?: string | null };
 
 type FeatureFlag = { id: number; key: string; description: string | null; environment: string; enabled: boolean; rollout: unknown };
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Feature flags', href: '/flags' }];
 
 function NewFlagDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-    const form = useForm<{ key: string; description: string; environment: string; enabled: boolean }>({
+    const t = useT();
+    const form = useForm<{ key: string; description: string; environment: string; enabled: boolean; reason: string }>({
         key: '',
         description: '',
         environment: '*',
         enabled: false,
+        reason: '',
     });
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,11 +77,25 @@ function NewFlagDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
                     <Field label="What it switches" htmlFor="desc" size="grow" error={form.errors.description}>
                         <Input id="desc" value={form.data.description} onChange={(e) => form.setData('description', e.target.value)} />
                     </Field>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={form.data.enabled} onChange={(e) => form.setData('enabled', e.target.checked)} /> Turn it on
-                        now
+                    <Field
+                        label="Why"
+                        htmlFor="flag-reason"
+                        size="grow"
+                        hint={t('A flag acts on every business. The reason is kept in the audit log.')}
+                        error={form.errors.reason}
+                    >
+                        <Input id="flag-reason" value={form.data.reason} onChange={(e) => form.setData('reason', e.target.value)} required />
+                    </Field>
+                    <label className="touch:min-h-11 flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            className="accent-hq-violet size-4"
+                            checked={form.data.enabled}
+                            onChange={(e) => form.setData('enabled', e.target.checked)}
+                        />{' '}
+                        Turn it on now
                     </label>
-                    <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                             Cancel
                         </Button>
@@ -86,15 +109,29 @@ function NewFlagDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
     );
 }
 
-export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[]; environment: string }) {
+export default function FlagsIndex({ flags, environment, switch: groupSwitch }: { flags: FeatureFlag[]; environment: string; switch: GroupSwitch }) {
+    const t = useT();
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
-    const canManage = auth.permissions.includes('hq.flags.manage');
+    const holdsPermission = auth.permissions.includes('hq.flags.manage');
+    // docs/138 ruling 13: the permission alone is not enough; the server also says the person is group-wide.
+    const canManage = holdsPermission && groupSwitch.allowed;
     const [creating, setCreating] = useState(false);
     const [pending, setPending] = useState<number | null>(null);
+    const [toggling, setToggling] = useState<FeatureFlag | null>(null);
 
-    const toggle = (f: FeatureFlag) => {
+    const toggle = (f: FeatureFlag, reason: string) => {
         setPending(f.id);
-        router.post(`/flags/${f.id}/toggle`, {}, { preserveScroll: true, onFinish: () => setPending(null) });
+        router.post(
+            `/flags/${f.id}/toggle`,
+            { reason },
+            {
+                preserveScroll: true,
+                onFinish: () => {
+                    setPending(null);
+                    setToggling(null);
+                },
+            },
+        );
     };
 
     return (
@@ -118,12 +155,27 @@ export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[
                     }
                 />
 
+                {holdsPermission && !groupSwitch.allowed && (
+                    <Notice tone="warn" title="Group-wide switch">
+                        <ReasonText
+                            reason={{
+                                code: groupSwitch.refusal_code ?? (groupSwitch.refusal ? null : 'group_switch_business_restricted'),
+                                text: groupSwitch.refusal,
+                            }}
+                        />
+                    </Notice>
+                )}
+
                 {flags.length === 0 ? (
-                    <EmptyState icon={Flag} title="No flags yet" description="Later phases ship dark and are switched on here." />
+                    <EmptyState
+                        icon={Flag}
+                        title="No flags yet"
+                        description="No flag rows exist, so every flagged feature is off. Later phases ship dark and are switched on here."
+                    />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Flag</th>
                                     <th className="px-3 py-2 font-medium">Environment</th>
@@ -153,7 +205,7 @@ export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[
                                                         size="sm"
                                                         variant={f.enabled ? 'outline' : 'default'}
                                                         disabled={pending === f.id}
-                                                        onClick={() => toggle(f)}
+                                                        onClick={() => setToggling(f)}
                                                     >
                                                         {f.enabled ? 'Turn off' : 'Turn on'}
                                                     </Button>
@@ -168,6 +220,19 @@ export default function FlagsIndex({ flags, environment }: { flags: FeatureFlag[
                 )}
             </div>
             {canManage && <NewFlagDialog open={creating} onOpenChange={setCreating} />}
+            {canManage && (
+                <ConfirmDialog
+                    open={toggling !== null}
+                    onOpenChange={(o) => !o && setToggling(null)}
+                    title={toggling ? `${toggling.enabled ? t('Turn off') : t('Turn on')} ${toggling.key}?` : ''}
+                    description="A flag acts on every business at once. The reason is kept in the audit log with who changed it, before and after."
+                    confirmLabel={toggling?.enabled ? t('Turn off') : t('Turn on')}
+                    destructive={toggling?.enabled ?? false}
+                    busy={pending !== null}
+                    reason={{ label: t('Why'), placeholder: t('What changed, and why now.'), required: true }}
+                    onConfirm={(reason) => toggling && toggle(toggling, reason)}
+                />
+            )}
         </AppLayout>
     );
 }

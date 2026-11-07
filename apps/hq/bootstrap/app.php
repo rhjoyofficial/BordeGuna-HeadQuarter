@@ -3,6 +3,7 @@
 use App\Conversation\Deliveries\ReconcileDeliveries;
 use App\Http\Middleware\AssignCorrelationIds;
 use App\Http\Middleware\EnsureAccountIsActive;
+use App\Http\Middleware\EnsureGroupWideAuthority;
 use App\Http\Middleware\EnsureTwoFactorEnabled;
 use App\Http\Middleware\EnsureTwoFactorVerified;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -53,6 +54,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'permission' => PermissionMiddleware::class,
             'role_or_permission' => RoleOrPermissionMiddleware::class,
+            // docs/138 ruling 13: a switch that acts on every business needs group-wide authority.
+            'group.wide' => EnsureGroupWideAuthority::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

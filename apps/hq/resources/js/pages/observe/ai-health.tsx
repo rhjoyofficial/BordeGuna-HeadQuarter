@@ -1,10 +1,12 @@
 import { Bar, DataTable, Note, Panel, Stat, StatGrid, WindowPicker, orDash, type DashboardWindow } from '@/components/observe/panels';
 import { PageHeader } from '@/components/page-header';
+import { InertNotice } from '@/components/ui/notice';
 import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis } from '@/lib/format';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
+import { reasonLabel } from '@/lib/reasons';
 
 type AgentRow = { key: string; name: string; status: string; autonomy: string | null; has_enabling_user: boolean };
 type RunsByAgent = { agent_key: string; total: number; by_status: Record<string, number>; ended_normally_percent: number | null };
@@ -50,13 +52,21 @@ export default function AiHealth(props: Props) {
                     <WindowPicker period={period} path="/observe/ai-health" />
                 </PageHeader>
 
+                {!props.ai_runtime && (
+                    <InertNotice
+                        title="AI runtime off"
+                        reason="No agent runs and no model is called, so every figure below is a past record."
+                        gate="A person switches the AI runtime on. Agents still start paused at A0, where HQ only proposes and a person acts."
+                    />
+                )}
+
                 <StatGrid>
                     <Stat label="Agent runs" value={totalRuns} detail={`since ${formatDateTime(period.since)}`} />
                     <Stat
                         label="Shadow runs to read"
                         value={props.shadow_runs_to_review}
                         detail={
-                            <Link href="/agents?filter=unreviewed" className="underline">
+                            <Link href="/agents?filter=unreviewed" className="inline-flex min-h-8 items-center underline touch:min-h-11">
                                 Open the agents screen
                             </Link>
                         }
@@ -137,7 +147,7 @@ export default function AiHealth(props: Props) {
                             empty="No tool call failed or was refused in this period."
                             columns={[
                                 { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
-                                { key: 'class', label: 'Whose fault', render: (r) => orDash(r.outcome_class && humanKey(r.outcome_class)) },
+                                { key: 'class', label: 'Whose fault', render: (r) => orDash(r.outcome_class && reasonLabel(r.outcome_class)) },
                                 { key: 'count', label: 'Calls', align: 'right', render: (r) => r.count },
                             ]}
                         />

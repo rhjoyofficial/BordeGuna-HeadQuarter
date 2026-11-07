@@ -27,10 +27,13 @@ use App\Models\Customer;
 use App\Models\DecisionRecord;
 use App\Models\FactsOrder;
 use App\Models\Memory;
+use App\Models\ReplyOptionSet;
 use App\Models\ShadowComparison;
 use App\Models\User;
+use App\OwnerConsole\Flag;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -79,9 +82,9 @@ final class InboxController extends Controller
             ->when($filter === 'needs_person', fn ($q) => $q->where('state', ConversationState::HumanRequired->value))
             ->when($filter === 'mine', fn ($q) => $q->where('assigned_user_id', $request->user()?->getKey()))
             ->when($filter === 'open', fn ($q) => $q->where('status', '!=', 'closed'))
-            ->orderByDesc('last_message_at')
-            ->limit(100)
-            ->get();
+            ->orderByDesc('last_message_at');
+        $page = ListPage::paginate($threads, $request);
+        $threads = $page->getCollection();
 
         $lastMessages = ConversationMessage::query()
             ->whereIn('conversation_id', $threads->pluck('id'))
@@ -92,6 +95,7 @@ final class InboxController extends Controller
 
         return Inertia::render('inbox/index', [
             'threads' => $threads->map(fn (Conversation $c) => $this->card($c, $lastMessages[$c->id] ?? null))->values(),
+            'pagination' => $page->meta(),
             'filter' => $filter,
             'counts' => [
                 'needs_person' => $this->readable($request)->where('state', ConversationState::HumanRequired->value)->count(),
@@ -128,6 +132,10 @@ final class InboxController extends Controller
             ]);
 
         return Inertia::render('inbox/show', [
+            // docs/143 E (flag support.reply_options, OFF): the open A/B/C sets of this thread, only when the flag is on.
+            'reply_options' => Flag::on(Flag::REPLY_OPTIONS)
+                ? ReplyOptionSet::query()->where('conversation_id', $conversation->id)->where('state', 'open')->latest('id')->get()->map(fn ($set) => ['uuid' => $set->uuid, 'options' => $set->options])->all()
+                : [],
             'thread' => $this->card($conversation, null) + [
                 'ai_disabled' => $conversation->ai_disabled,
                 'platform_account' => $conversation->platformAccount?->name,

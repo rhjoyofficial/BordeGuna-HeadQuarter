@@ -11,6 +11,7 @@ use App\Identity\Quarantine\CrossBusinessSuppression;
 use App\Models\Customer;
 use App\Models\CustomerMergeCandidate;
 use App\Support\Authorization\BusinessScope;
+use App\Support\Http\ListPage;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -66,20 +67,24 @@ final class CustomerController extends Controller
                     ->orWhere(fn ($e) => $e->where('email', 'ilike', "%{$term}%")->whereRaw('NOT '.CrossBusinessSuppression::emailWithheldSql('customers')))
                     ->when($phone, fn ($x) => $x->orWhere(fn ($p) => $p->where('primary_phone_canonical', $phone)->whereRaw('NOT '.CrossBusinessSuppression::phoneWithheldSql('customers')))));
             })
-            ->orderByDesc('last_seen_at')->paginate(25)->withQueryString();
+            ->orderByDesc('last_seen_at');
+        $customers = ListPage::paginate($customers, $request);
         // docs/117: the same cross-business suppression as the 360 page, applied server-side to every row.
         $touched = $this->suppression->touched($customers->getCollection()->pluck('id')->map(fn ($id) => (int) $id)->all());
         $customers->through(fn (Customer $c) => $this->suppression->listRow($c, $touched));
 
+        $candidates = ListPage::paginate(CustomerMergeCandidate::with(['customer:id,name,primary_phone_canonical,email', 'candidate:id,name,primary_phone_canonical,email'])
+            ->whereIn('customer_id', $this->readable($request)->select('id'))
+            ->whereIn('candidate_id', $this->readable($request)->select('id'))
+                // Only pairs of one business: a candidate across businesses is never offered (ruling docs/103 §11).
+            ->whereExists(fn ($e) => $e->selectRaw('1')->from('customers as cand_a')->join('customers as cand_b', 'cand_b.business_id', '=', 'cand_a.business_id')
+                ->whereColumn('cand_a.id', 'customer_merge_candidates.customer_id')->whereColumn('cand_b.id', 'customer_merge_candidates.candidate_id'))
+            ->where('status', 'pending')->latest(), $request, 'candidates_page');
+
         return Inertia::render('customers/index', [
             'customers' => $customers,
-            'candidates' => CustomerMergeCandidate::with(['customer:id,name,primary_phone_canonical,email', 'candidate:id,name,primary_phone_canonical,email'])
-                ->whereIn('customer_id', $this->readable($request)->select('id'))
-                ->whereIn('candidate_id', $this->readable($request)->select('id'))
-                // Only pairs of one business: a candidate across businesses is never offered (ruling docs/103 §11).
-                ->whereExists(fn ($e) => $e->selectRaw('1')->from('customers as cand_a')->join('customers as cand_b', 'cand_b.business_id', '=', 'cand_a.business_id')
-                    ->whereColumn('cand_a.id', 'customer_merge_candidates.customer_id')->whereColumn('cand_b.id', 'customer_merge_candidates.candidate_id'))
-                ->where('status', 'pending')->latest()->limit(50)->get(),
+            'candidates' => $candidates->items(),
+            'candidatesPagination' => $candidates->meta(),
             'filters' => ['q' => $request->string('q')->toString(), 'business' => $request->integer('business') ?: null],
         ]);
     }

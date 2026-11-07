@@ -4,6 +4,7 @@ namespace App\Ask;
 
 use App\Agents\AgentRunner;
 use App\Agents\AgentRunRequest;
+use App\Ai\Pause\AiPause;
 use App\Execution\ExecutionContextRefused;
 use App\Execution\ExecutionContextResolver;
 use App\Execution\Requester;
@@ -41,6 +42,7 @@ final class AskHq
         private readonly BusinessScope $scope,
         private readonly Auditor $auditor,
         private readonly ExecutionContextResolver $contexts,
+        private readonly AiPause $pause,
     ) {}
 
     public function enabled(): bool
@@ -73,15 +75,26 @@ final class AskHq
      */
     public function refusalFor(User $user, string $agentKey, ?int $businessId = null): ?string
     {
+        return $this->refusalDetailFor($user, $agentKey, $businessId)['message'] ?? null;
+    }
+
+    /**
+     * The same answer as `refusalFor()`, with its stable reason code (ruling 1 Nov 2026), so a screen can show
+     * the approved sentence in the reader's language and keep the code for operators.
+     *
+     * @return array{code: string, message: string}|null
+     */
+    public function refusalDetailFor(User $user, string $agentKey, ?int $businessId = null): ?array
+    {
         $agent = Agent::query()->where('key', $agentKey)->first();
         if ($agent === null) {
-            return "There is no agent with the key [{$agentKey}].";
+            return ['code' => 'agent_unknown', 'message' => "There is no agent with the key [{$agentKey}]."];
         }
 
         try {
             $this->contexts->preview($agent, Requester::human($user, 'ask: the signed-in person'), 'operator', $businessId);
         } catch (ExecutionContextRefused $e) {
-            return $e->getMessage();
+            return ['code' => $e->reasonCode, 'message' => $e->getMessage()];
         }
 
         return null;
@@ -115,9 +128,15 @@ final class AskHq
             throw new InvalidArgumentException($refusal);
         }
 
-        $runtimeOn = $this->runtimeOn();
+        // docs/141: Pause All AI refuses the question the way the runtime switch does, said as what it is.
+        $paused = $this->pause->isPaused();
+        $runtimeOn = ! $paused && $this->runtimeOn();
+        $refusalReason = $paused ? 'ai_paused' : 'ai_runtime_off';
+        $refusalText = $paused
+            ? 'Nothing was asked: Pause All AI is on, so no agent can answer until a person turns AI back on.'
+            : 'Nothing was asked: HQ\'s AI runtime is switched off, so no agent can answer yet.';
 
-        [$conversation, $message, $reply] = DB::transaction(function () use ($user, $conversation, $question, $agentKey, $businessId, $runtimeOn) {
+        [$conversation, $message, $reply] = DB::transaction(function () use ($user, $conversation, $question, $agentKey, $businessId, $runtimeOn, $refusalReason, $refusalText) {
             $now = CarbonImmutable::now();
             $conversation ??= AskConversation::create([
                 'uuid' => (string) Str::uuid(),
@@ -146,9 +165,9 @@ final class AskHq
                 ])
                 : $conversation->messages()->create([
                     'role' => AskMessage::ROLE_SYSTEM,
-                    'content' => 'Nothing was asked: HQ\'s AI runtime is switched off, so no agent can answer yet.',
+                    'content' => $refusalText,
                     'status' => AskMessage::REFUSED,
-                    'structured' => ['reason' => 'ai_runtime_off', 'question_id' => $message->id],
+                    'structured' => ['reason' => $refusalReason, 'question_id' => $message->id],
                 ]);
 
             return [$conversation, $message, $reply];
@@ -159,7 +178,7 @@ final class AskHq
             'agent_key' => $agentKey,
             'business_id' => $businessId,
             'question_length' => mb_strlen($question),
-            'reason' => $runtimeOn ? null : 'ai_runtime_off',
+            'reason' => $runtimeOn ? null : $refusalReason,
         ]);
 
         if ($runtimeOn) {
@@ -179,6 +198,19 @@ final class AskHq
         $conversation = $reply->conversation()->with('user')->firstOrFail();
         $question = AskMessage::query()->findOrFail((int) ($reply->structured['question_id'] ?? 0));
         $agentKey = (string) ($reply->structured['agent_key'] ?? $conversation->agent_key);
+
+        // docs/141: Pause All AI, read at the moment of asking: a question queued before the pause is
+        // refused here, and nothing reaches the agent or a model.
+        if ($this->pause->isPaused()) {
+            $reply->forceFill([
+                'role' => AskMessage::ROLE_SYSTEM,
+                'status' => AskMessage::REFUSED,
+                'content' => 'Nothing was asked: Pause All AI was turned on before the question reached the agent.',
+                'structured' => ($reply->structured ?? []) + ['reason' => 'ai_paused'],
+            ])->save();
+
+            return $reply;
+        }
 
         // The switch is read again at the moment of asking: it may have been turned off since.
         if (! $this->runtimeOn()) {

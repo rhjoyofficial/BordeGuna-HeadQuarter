@@ -67,6 +67,111 @@ final class ExecutionContextResolver
         return $this->intersect($agent, $requester, $entryPoint, $businessId, $brandId, requireActive: false);
     }
 
+    /**
+     * The authority a delegated piece of work would have (docs/89 Phase 9, docs/95 V11, docs/145-c).
+     *
+     * Delegation can only NARROW. The target agent is resolved by the same intersection as any run, for the
+     * SAME accountable person who asked the parent (never "as enabled", which would swap in the target's own
+     * enabling user), and then:
+     *
+     *   businesses = target AND parent                 (never a business the parent could not touch)
+     *   brands     = target AND parent
+     *   tools      = target's tools AND the skill's required tools, whose permission the PARENT's
+     *                enabling user also holds (so neither enabling user lends the other anything)
+     *
+     * Nothing is ever added: a term that is null on one side takes the other side's list, and an empty
+     * result refuses. The result is an ordinary context; nothing here starts a run (`Delegations` records it).
+     *
+     * @param  list<string>  $skillTools
+     */
+    public function resolveDelegated(EffectiveExecutionContext $parent, Agent $target, array $skillTools, ?int $businessId = null, ?int $brandId = null): EffectiveExecutionContext
+    {
+        if (! $parent->allowsBusiness($businessId)) {
+            throw new ExecutionContextRefused("Business {$businessId} is outside what the delegating run [{$parent->agent->key}] may touch, so nothing is delegated about it.");
+        }
+        if (! $parent->allowsBrand($brandId)) {
+            throw new ExecutionContextRefused("Brand {$brandId} is outside what the delegating run [{$parent->agent->key}] may touch.");
+        }
+
+        // The same accountable person as the parent, named explicitly.
+        $requester = Requester::onBehalfOf((int) $parent->requesterUser->getKey(), 'delegated by agent:'.$parent->agent->key.' ('.$parent->requester->basis.')');
+        $child = $this->resolve($target, $requester, 'delegation:'.$parent->agent->key, $businessId, $brandId);
+
+        $narrowed = $child->narrowed;
+
+        $businessIds = self::meet($child->businessIds, $parent->businessIds);
+        if ($parent->businessIds !== null) {
+            $narrowed[] = ['term' => 'business', 'by' => 'delegating_run', 'why' => 'the delegating run is limited to business ids ['.implode(', ', $parent->businessIds).']'];
+        }
+        if ($businessIds === []) {
+            throw new ExecutionContextRefused("The delegating run [{$parent->agent->key}] and [{$target->key}] share no business, so nothing can be delegated.");
+        }
+
+        $brandIds = self::meet($child->brandIds, $parent->brandIds);
+        if ($brandIds === []) {
+            throw new ExecutionContextRefused("The delegating run [{$parent->agent->key}] and [{$target->key}] share no brand, so nothing can be delegated.");
+        }
+
+        $skillTools = array_values(array_unique(array_map('strval', $skillTools)));
+        $tools = [];
+        $permissions = [];
+        foreach ($child->toolKeys as $key) {
+            if (! in_array($key, $skillTools, true)) {
+                $narrowed[] = ['term' => 'tool', 'by' => 'skill', 'why' => "[{$key}] is not one of the skill's required tools"];
+
+                continue;
+            }
+            $permission = (string) $this->registry->get($key)->descriptor()->permission;
+            if ($permission === '' || ! $parent->enabler->can($permission)) {
+                $narrowed[] = ['term' => 'tool_permission', 'by' => 'delegating_enabler', 'why' => "[{$key}] needs [{$permission}], which the delegating run's enabling user does not hold"];
+
+                continue;
+            }
+            $tools[] = $key;
+            $permissions[] = $permission;
+        }
+        if ($tools === []) {
+            throw new ExecutionContextRefused("Nothing is left for [{$target->key}] to do: none of its tools is both one of the skill's and held by everyone this delegation rests on.");
+        }
+        $permissions = array_values(array_unique($permissions));
+        sort($permissions);
+
+        return new EffectiveExecutionContext(
+            requester: $child->requester,
+            requesterUser: $child->requesterUser,
+            enabler: $child->enabler,
+            agent: $target,
+            entryPoint: $child->entryPoint,
+            environment: $child->environment,
+            businessId: $businessId,
+            brandId: $brandId,
+            businessIds: $businessIds,
+            brandIds: $brandIds,
+            toolKeys: $tools,
+            permissions: $permissions,
+            narrowed: $narrowed,
+        );
+    }
+
+    /**
+     * Two scope lists meet: null (nothing narrowed) takes the other side; two lists intersect.
+     *
+     * @param  list<int>|null  $a
+     * @param  list<int>|null  $b
+     * @return list<int>|null
+     */
+    private static function meet(?array $a, ?array $b): ?array
+    {
+        if ($a === null) {
+            return $b;
+        }
+        if ($b === null) {
+            return $a;
+        }
+
+        return array_values(array_intersect($a, $b));
+    }
+
     /** Store the context on the run and write its audit row. Called once, by the runner. */
     public function record(AgentRun $run, EffectiveExecutionContext $context): void
     {
@@ -135,40 +240,41 @@ final class ExecutionContextResolver
     {
         // 1. The two sentences the runner always said, unchanged, because surfaces show them.
         if ($requireActive && ! $agent->isActive()) {
-            throw new ExecutionContextRefused("Agent [{$agent->key}] is [{$agent->status}], so it will not run.");
+            throw new ExecutionContextRefused("Agent [{$agent->key}] is [{$agent->status}], so it will not run.", ExecutionContextRefused::AGENT_NOT_ACTIVE);
         }
 
         // 2. The enabling identity, read fresh. An agent has no authority of its own.
         if ($agent->enabling_user_id === null) {
             throw new ExecutionContextRefused(
                 "Agent [{$agent->key}] names no enabling user. An agent borrows a human's authority and has none of its own, "
-                .'so one must be set before it can run.'
+                .'so one must be set before it can run.',
+                ExecutionContextRefused::AGENT_NO_ENABLER,
             );
         }
         $enabler = User::query()->find($agent->enabling_user_id);
         if ($enabler === null) {
-            throw new ExecutionContextRefused("Agent [{$agent->key}] names an enabling user who no longer exists, so it has no authority to borrow.");
+            throw new ExecutionContextRefused("Agent [{$agent->key}] names an enabling user who no longer exists, so it has no authority to borrow.", ExecutionContextRefused::AGENT_ENABLER_MISSING);
         }
         if ($enabler->is_active === false) {
-            throw new ExecutionContextRefused("The enabling user of [{$agent->key}] (user #{$enabler->getKey()}) is disabled, so the agent has no authority to borrow.");
+            throw new ExecutionContextRefused("The enabling user of [{$agent->key}] (user #{$enabler->getKey()}) is disabled, so the agent has no authority to borrow.", ExecutionContextRefused::AGENT_ENABLER_DISABLED);
         }
 
         // 3. The requester. No default: an entry point that does not say who asks gets no run.
         if ($requester === null) {
-            throw new ExecutionContextRefused("The request for [{$agent->key}] names no requester. Every run states who is asking; there is no default.");
+            throw new ExecutionContextRefused("The request for [{$agent->key}] names no requester. Every run states who is asking; there is no default.", ExecutionContextRefused::REQUESTER_MISSING);
         }
         if ($requester->asEnabled) {
             $requesterUser = $enabler;
         } else {
             if ($requester->userId === null) {
-                throw new ExecutionContextRefused("Nobody accountable is recorded for this request ({$requester->basis}), so nothing runs in nobody's name.");
+                throw new ExecutionContextRefused("Nobody accountable is recorded for this request ({$requester->basis}), so nothing runs in nobody's name.", ExecutionContextRefused::REQUESTER_UNACCOUNTABLE);
             }
             $requesterUser = (int) $requester->userId === (int) $enabler->getKey() ? $enabler : User::query()->find($requester->userId);
             if ($requesterUser === null) {
-                throw new ExecutionContextRefused("The requester (user #{$requester->userId}, {$requester->basis}) no longer exists, and nobody takes their place.");
+                throw new ExecutionContextRefused("The requester (user #{$requester->userId}, {$requester->basis}) no longer exists, and nobody takes their place.", ExecutionContextRefused::REQUESTER_GONE);
             }
             if ($requesterUser->is_active === false) {
-                throw new ExecutionContextRefused("The requester (user #{$requesterUser->getKey()}) is disabled, so nothing runs in their name.");
+                throw new ExecutionContextRefused("The requester (user #{$requesterUser->getKey()}) is disabled, so nothing runs in their name.", ExecutionContextRefused::REQUESTER_DISABLED);
             }
         }
 
@@ -193,7 +299,8 @@ final class ExecutionContextResolver
 
             if ($businessIds === []) {
                 throw new ExecutionContextRefused(
-                    "The requester, the enabling user of [{$agent->key}] and the agent's own scope share no business, so there is nothing this run could be about."
+                    "The requester, the enabling user of [{$agent->key}] and the agent's own scope share no business, so there is nothing this run could be about.",
+                    ExecutionContextRefused::NO_SHARED_BUSINESS,
                 );
             }
         }
@@ -204,7 +311,7 @@ final class ExecutionContextResolver
                 throw new ExecutionContextRefused("The run names business {$businessId}, which does not exist.");
             }
             if ($businessIds !== null && ! in_array($businessId, $businessIds, true)) {
-                throw new ExecutionContextRefused("Business {$businessId} is outside what the requester and the enabling user of [{$agent->key}] may both read.");
+                throw new ExecutionContextRefused("Business {$businessId} is outside what the requester and the enabling user of [{$agent->key}] may both read.", ExecutionContextRefused::BUSINESS_OUTSIDE_SCOPE);
             }
         }
 
@@ -242,7 +349,8 @@ final class ExecutionContextResolver
         if ($grantable > 0 && $toolKeys === []) {
             throw new ExecutionContextRefused(
                 "The requester and the enabling user of [{$agent->key}] hold in common none of the permissions its tools need, "
-                .'so none of the tools could run and the question is not put to it.'
+                .'so none of the tools could run and the question is not put to it.',
+                ExecutionContextRefused::NO_COMMON_TOOL_PERMISSIONS,
             );
         }
 

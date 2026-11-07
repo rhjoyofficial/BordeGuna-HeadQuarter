@@ -21,12 +21,15 @@ use App\Observe\Alerts\Rules\SchedulerTickStale;
 use App\Observe\Alerts\Rules\ShadowPeriodStopped;
 use App\Observe\Alerts\Rules\SnapshotStale;
 use App\Observe\Alerts\Rules\WebhookSignatureFailures;
+use App\OwnerConsole\Do\DoPlanWorkflow;
 use App\Support\Events\Handlers\ConversationEventHandler;
 use App\Support\Events\Handlers\CustomerRegisteredHandler;
 use App\Support\Events\Handlers\MetaInboundHandler;
 use App\Support\Events\Handlers\ShopOrderEventHandler;
 use App\Support\Events\Handlers\SupportWakeUpHandler;
+use App\Tools\Avatar\GenerateAvatarTool;
 use App\Tools\Briefing\ComposeBriefingTool;
+use App\Tools\Briefing\SendOwnerTelegramBriefTool;
 use App\Tools\Commerce\CancelSalesOrderTool;
 use App\Tools\Commerce\CheckFactIntegrityTool;
 use App\Tools\Commerce\GetOrderStatusTool;
@@ -34,6 +37,16 @@ use App\Tools\Commerce\ListOrdersTool;
 use App\Tools\Commerce\QuoteOrderTool;
 use App\Tools\Commerce\ReconcileShopFactsTool;
 use App\Tools\Commerce\TakeOrderTool;
+use App\Tools\Connectors\CheckMetaTokenTool;
+use App\Tools\Connectors\CheckReelDraftTool;
+use App\Tools\Connectors\CreateAdsDraftTool;
+use App\Tools\Connectors\CreateDraftBillTool;
+use App\Tools\Connectors\DraftReelTool;
+use App\Tools\Connectors\PollMailboxTool;
+use App\Tools\Connectors\PollParcelsTool;
+use App\Tools\Connectors\TrackParcelTool;
+use App\Tools\Connectors\VoiceSynthesizeTool;
+use App\Tools\Connectors\VoiceTranscribeTool;
 use App\Tools\Consent\LiftRestrictionTool;
 use App\Tools\Conversation\ReadThreadTool;
 use App\Tools\Conversation\SendReplyTool;
@@ -56,6 +69,7 @@ use App\Tools\Hq\ListApprovalsTool;
 use App\Tools\Hq\ListJobsTool;
 use App\Tools\Hq\RecentEventsTool;
 use App\Tools\Identity\QuarantineRepairTool;
+use App\Tools\Identity\ResolveIdentityConflictTool;
 use App\Tools\Outcomes\AttributeOutcomeTool;
 
 /*
@@ -122,6 +136,8 @@ return [
         // evidence bundle. R3 because it writes the briefing row; not agent-executable; it calls no
         // model while narration is off, which is the shipped state. No scheduled job runs it.
         ComposeBriefingTool::class,
+        // docs/143 D: the owner-only Telegram brief moved to `flagged_tools` below (ruling 31 Oct item 7): always registered,
+        // available only while `console.telegram_brief` is ON.
 
         // Phase 4 read side (docs/81 C.5, docs/79): what HQ must know before it could ever take an
         // order, read live from the ERP. Every one is R2 and read-only. ⛔ NO agent holds any of them
@@ -169,6 +185,34 @@ return [
         // `hq.customers.quarantine.repair`, PERMANENTLY human-only; executes only a batch the dry run proposed whose
         // every row a person reviewed (`needs_repair`, none disputed). The ONLY caller of `RepairApplier::applyRepair()`.
         QuarantineRepairTool::class,
+        // docs/140 (ruling docs/131 item 3, docs/138 P3-W1): a person's evidence-backed resolution of ONE open identity
+        // conflict of one business: keep the owner, move to the claimant of the SAME business, or mark not resolvable.
+        // R3 write of HQ rows only (the identity, the conflict, the append-only resolution, audit), permission
+        // `hq.customers.identity_conflicts.resolve`, PERMANENTLY human-only, held by no agent. The ONLY caller of
+        // `ConflictResolver::resolveConflict()`. Never across a business, never a merge.
+        ResolveIdentityConflictTool::class,
+    ],
+
+    // Applied ruling 31 Oct item 7 (docs/144-connectors-overview "Applied ruling 31 Oct"): ALWAYS-REGISTERED descriptors with
+    // FLAG-GATED availability. Every class below is in the ToolRegistry whatever its flag says, so its descriptor is in the
+    // canonical catalogue. Its AVAILABILITY is the flag, read live on every call by ToolAvailability and again by the gateway for
+    // the resolved business: with the flag off the call is refused with the typed outcome `feature_disabled` (not "unknown
+    // tool"), and AgentToolset never lists it to an agent. A queue worker started while a flag was on reads the flag afresh on
+    // each call, so it never runs a tool whose flag has since gone off. A flag ON is ONE more AND: it grants no permission, no
+    // agent tool, no autonomy grant and no approval; R4 tools still wait for a person. None is agent-executable; no agent holds one.
+    'flagged_tools' => [
+        'connectors.courier' => [TrackParcelTool::class, PollParcelsTool::class],
+        'connectors.voice' => [VoiceTranscribeTool::class, VoiceSynthesizeTool::class],
+        'connectors.media_pipeline' => [DraftReelTool::class, CheckReelDraftTool::class],
+        'connectors.mail_ingestion' => [PollMailboxTool::class],
+        'connectors.erp_draft_bill' => [CreateDraftBillTool::class],
+        'connectors.ads_draft' => [CreateAdsDraftTool::class],
+        'connectors.meta_health' => [CheckMetaTokenTool::class],
+        // docs/143 D (M2): the owner-only Telegram brief. R4, approval, flag OFF.
+        'console.telegram_brief' => [SendOwnerTelegramBriefTool::class],
+        // docs/145-b (M4): avatar generation on a recorded consent. R4, permanently human-only, flag `avatar.generation` OFF
+        // (no row), no provider bound, and the media budget (default BDT 0) refuses it before any provider call.
+        'avatar.generation' => [GenerateAvatarTool::class],
     ],
 
     // docs/83 C.3: the HQ stores `commerce.take_order` may write an order for, and (docs/88 A point 3)
@@ -184,6 +228,17 @@ return [
     // so none of this is read on production until gate P5-G1. The API version is configuration, never a
     // literal in code (docs/84 C.4): v26.0 is the newest (29 July 2026, sunset not announced).
     'ads' => [
+        // docs/144-meta-ads-drafts: the checks every ad DRAFT passes in code before the platform is called.
+        'draft' => [
+            // Joy's rule: every campaign is USD 5 a day at most.
+            'max_daily_usd' => '5.00',
+            // BDT per USD, for the cap on a BDT account. Empty = a BDT draft is refused (no rate is guessed). The ad drafts' own
+            // figure only: AI cost display and media budgets read the owner's dated rate (`fx_rates`, ruling 1 Nov 2026), not this.
+            'usd_bdt_rate' => '130.00',
+            'age_min' => 22,
+            // Latin-script brand names an otherwise Bangla-only ad may contain.
+            'allowed_latin' => ['LaLaDia', 'Bionic', 'Bionic Garden', 'Bor de Guna'],
+        ],
         'meta' => [
             'base_url' => 'https://graph.facebook.com',
             'graph_version' => 'v26.0',
@@ -262,6 +317,12 @@ return [
     'erp' => [
         'base_url' => env('HQ_ERP_BASE_URL', 'https://erp.bordeguna.com'),
         'timeout_seconds' => (int) env('HQ_ERP_TIMEOUT', 15),
+
+        // docs/144-erp-write-contract: the endpoint HQ expects for a DRAFT supplier bill. The ERP builds it; the
+        // write token (`erp_write_token`) is a different credential from the read token.
+        'write' => [
+            'draft_bill_path' => '/api/hq/v1/businesses/{business}/purchase-bills/drafts',
+        ],
 
         // M5: the report keys `erp.run_report` may run. NOT free-form, and deliberately not "every
         // report the ERP offers": an open key space handed to a model is an interface whose reach
@@ -376,7 +437,7 @@ return [
         // docs/113 section 7 (S4 part 1): the first listed type. It sleeps until a follow-up is due and
         // then waits for a person; it has no tool step, so a run has no effect. Started only by a person
         // approving a follow-up. Listing it schedules nothing by itself.
-        'definitions' => [FollowUpWorkflow::class],
+        'definitions' => [FollowUpWorkflow::class, DoPlanWorkflow::class],
         // Longer than the scheduler queue's job timeout, so an expired lease means a dead worker.
         'lease_seconds' => 300,
         'default_max_attempts' => 3,
@@ -444,6 +505,65 @@ return [
         'quiet_hours' => ['start' => 23, 'end' => 8],
     ],
 
+    // docs/144-meta-readiness: the Meta app whose app token (app id and secret) inspects stored tokens. Not a secret.
+    'meta_health' => ['app_id' => env('HQ_META_APP_ID', ''), 'expiring_within_days' => 14],
+
+    // docs/144-courier-connectors: parcel tracking. Hosts and paths are configuration so a courier-side change is
+    // a config change. PROVEN only against a live or sandbox merchant account (the first step when keys arrive).
+    'courier' => [
+        'timeout_seconds' => 15,
+        'pathao' => ['base_url' => 'https://api-hermes.pathao.com', 'token_path' => '/aladdin/api/v1/issue-token', 'track_path' => '/aladdin/api/v1/orders/{ref}/info'],
+        'steadfast' => ['base_url' => 'https://portal.packzy.com/api/v1', 'track_path' => '/status_by_cid/{ref}'],
+        'redx' => ['base_url' => 'https://openapi.redx.com.bd/v1.0.0-beta', 'track_path' => '/parcel/track/{ref}'],
+        // CarryBee documents its merchant API to merchants only: set the base URL when the account is opened.
+        'carrybee' => ['base_url' => '', 'track_path' => '/api/v2/orders/{ref}/details'],
+    ],
+
+    // docs/144-media-in-chat and docs/144-media-pipeline.
+    'media' => [
+        'retention_days' => 90,
+        // `clamd` to scan every upload with ClamAV; empty = no scanner (recorded as not_scanned, never as clean).
+        'scanner' => '',
+        'clamd' => ['host' => '127.0.0.1', 'port' => 3310, 'timeout' => 5],
+        // When true, a file that could not be scanned is refused.
+        'scan_required' => false,
+        'limits' => ['image_mb' => 10, 'video_mb' => 60, 'document_mb' => 15, 'text_mb' => 2, 'audio_mb' => 10],
+        'veo' => ['base_url' => 'https://generativelanguage.googleapis.com/v1beta', 'model' => 'veo-3.1-fast-generate-preview', 'timeout' => 30, 'download_timeout' => 120],
+
+        // Ruling 31 Oct item 12 (docs/147-r2): the per-business monthly media budget (`App\Media\Budget\MediaBudgets`). The LIMIT
+        // is the owner's, per business, on the Connectors screen (no row = BDT 0 = no paid media). What is here is how a cost is
+        // estimated and converted. ⛔ A price left null is UNKNOWN, and an unknown price refuses the operation: Joy fills a real
+        // provider's price from its billing page when he connects it, in a reviewed release. No env() on purpose.
+        'budget' => [
+            // ⛔ No exchange rate here (ruling 1 Nov 2026): a USD cost converts at the owner's dated reserve rate (`fx_rates`, the
+            // Exchange rate screen). Missing or expired, paid media is refused. Any other currency has no rate and is refused.
+            // price per `per` units of `unit`, in `currency`. Keyed by the provider's own key (adapter key() / name()).
+            'prices' => [
+                'veo' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => null],
+                'azure_speech' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                'elevenlabs' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => null],
+                'openai_compatible_tts' => ['unit' => 'character', 'per' => '1000000', 'currency' => 'USD', 'price' => null],
+                // Sandbox fakes (reachable only under HQ_CONNECTORS_SANDBOX, which nothing sets): a nominal price so the budget
+                // path is exercised exactly as a paid one would be. Never a production provider.
+                'fake_video' => ['unit' => 'second', 'per' => '1', 'currency' => 'USD', 'price' => '0.10'],
+                'fake_tts' => ['unit' => 'character', 'per' => '1000', 'currency' => 'USD', 'price' => '0.01'],
+                'sandbox' => ['unit' => 'generation', 'per' => '1', 'currency' => 'USD', 'price' => '1.00'],
+            ],
+        ],
+    ],
+
+    // docs/144-email-ingestion.
+    'ingestion' => [
+        'timeout' => 30,
+        'retention_days' => 365,
+        'gmail' => ['base_url' => 'https://gmail.googleapis.com/gmail/v1'],
+        // The mailbox for an application token (`users/{upn}`); empty means `me` (a delegated token).
+        'graph' => ['base_url' => 'https://graph.microsoft.com/v1.0', 'user' => ''],
+        // Ruling 31 Oct item 10 (docs/147-r2): a future OCR or model-assisted bill extractor needs the flag `ingestion.model_extraction`
+        // (no row: off) AND this evaluation gate naming it (null: none passed). Until both, the rule-based extractor reads every bill.
+        'model_extraction' => ['eval_passed_extractor' => null],
+    ],
+
     // Phase 7 (docs/88 A point 6, stream U): speech. ⛔ Nothing here switches anything on: the providers
     // are registered nowhere (`SpeechProviders` ships empty) and hold no credential. These are the
     // settings an adapter reads once a person registers it at gate P7-G2. No env() on purpose: a value
@@ -471,6 +591,23 @@ return [
             'language_code' => null,
             'timeout' => 60,
         ],
+        // Applied ruling 31 Oct item 8: speech to text has NO production default. `benchmark_passed_provider` names the one provider
+        // key that passed the 50-note Bangla bake-off (docs/147-r2-voice-bakeoff-plan.md); null refuses every transcription. Setting
+        // it is a reviewed release with the bake-off evidence committed beside it. No env() on purpose.
+        'stt' => ['benchmark_passed_provider' => null],
+        // An OpenAI-compatible speech-to-text candidate for the bake-off (not a default; an OpenAI-compatible API is no evidence of Bangla quality).
+        'openai_compatible' => [
+            'base_url' => 'https://api.openai.com/v1',
+            'stt_model' => 'gpt-4o-transcribe',
+            'tts_model' => 'gpt-4o-mini-tts',
+            'max_bytes' => 10 * 1024 * 1024,
+            'timeout' => 60,
+        ],
+        // The stock voice used when a request names none, by speech provider key.
+        // Ruling 31 Oct item 8: Azure bn-BD is the preferred TTS (Nabanita default, Pradeep the other approved voice); ElevenLabs the alternative.
+        'default_voice' => ['azure_speech' => 'bn-BD-NabanitaNeural', 'fake_tts' => 'sandbox'],
+        // A transcript a person agreed to keep is deleted after this many days.
+        'transcript_retention_days' => 30,
         'azure' => [
             'region' => 'southeastasia',
             'voice' => 'bn-BD-NabanitaNeural',
@@ -624,5 +761,23 @@ return [
             // docs/116: one disagreement is audit only; this many for one agent in the window is a pattern.
             'guard_gateway_disagreement' => ['count' => 3, 'window_hours' => 24],
         ],
+    ],
+
+    // docs/143: the owner console. Every feature here is behind a feature flag seeded OFF.
+    'owner_console' => [
+        // `none` (shipped: nothing can be sent), `telegram`. The fake exists for tests only.
+        'driver' => env('HQ_OWNER_CHANNEL', 'none'),
+        'telegram' => [
+            'bot_token' => env('HQ_OWNER_TELEGRAM_BOT_TOKEN'),
+            'chat_id' => env('HQ_OWNER_TELEGRAM_CHAT_ID'),
+            'chat_verified' => (bool) env('HQ_OWNER_TELEGRAM_CHAT_VERIFIED', false),
+        ],
+    ],
+    /*
+    | Every HQ list screen pages through App\Support\Http\ListPage. A person picks 20 (default), 100, 200,
+    | 500 or All; "All" never returns more than this ceiling and the screen says so.
+    */
+    'lists' => [
+        'all_ceiling' => (int) env('HQ_LISTS_ALL_CEILING', 5000),
     ],
 ];

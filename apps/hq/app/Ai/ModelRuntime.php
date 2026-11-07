@@ -3,12 +3,14 @@
 namespace App\Ai;
 
 use App\Ai\Budget\AiBudget;
+use App\Ai\Exceptions\AiPaused;
 use App\Ai\Exceptions\BudgetExceeded;
 use App\Ai\Exceptions\NoModelAvailable;
 use App\Ai\Exceptions\OutputTruncated;
 use App\Ai\Exceptions\ProviderRefused;
 use App\Ai\Exceptions\ProviderUnavailable;
 use App\Ai\Exceptions\StructuredOutputFailed;
+use App\Ai\Pause\AiPause;
 use App\Ai\Providers\ModelProvider;
 use App\Ai\Providers\ModelRequest;
 use App\Ai\Providers\ModelResponse;
@@ -18,6 +20,7 @@ use App\Models\AiModel;
 use App\Models\AiRun;
 use App\Models\AiRunReply;
 use App\Support\Features\Features;
+use App\Support\Money\UsdBdtRate;
 use App\Support\Notifications\Notifier;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -75,6 +78,8 @@ final class ModelRuntime
         private readonly OutputBudget $output,
         // docs/90 A.1 step 1: the raw structured reply, kept beside the run before anything reads it.
         private readonly ModelReplyRecorder $replies,
+        // docs/138 ruling 7, docs/141: Pause All AI, read before routing and before every provider request.
+        private readonly AiPause $pause,
     ) {}
 
     /**
@@ -83,7 +88,7 @@ final class ModelRuntime
      * @param  int|null  $maxOutputTokens  the budget asked for; null means the policy's default.
      *                                     Clamped to the model and the ceiling before it is sent.
      *
-     * @throws NoModelAvailable|BudgetExceeded|ProviderUnavailable|ProviderRefused|StructuredOutputFailed|OutputTruncated
+     * @throws AiPaused|NoModelAvailable|BudgetExceeded|ProviderUnavailable|ProviderRefused|StructuredOutputFailed|OutputTruncated
      */
     public function run(
         TaskType $task,
@@ -96,6 +101,9 @@ final class ModelRuntime
     ): AiOutcome {
         $context ??= new RoutingContext;
 
+        // ⛔ docs/141: Pause All AI first, before the runtime flag, the budget or the router, so a paused
+        //    HQ writes no `ai_runs` row and asks nothing. Unreadable state is paused.
+        $this->pause->assertRunning('a model call');
         $this->assertRuntimeEnabled();
         $this->assertWithinHardCap($context);
 
@@ -289,6 +297,11 @@ final class ModelRuntime
      */
     private function call(ModelProvider $provider, ModelRequest $request): ModelResponse
     {
+        // ⛔ docs/141: read again before EVERY provider request, so a pause made while a call is under way
+        //    stops the fallback to the next provider, the truncation retry and the repair. The exception
+        //    is not a provider error: `run()` records it on the row and tries no other provider.
+        $this->pause->assertRunning('a model provider request');
+
         return $this->vault->openForAccounts(
             [$provider->credentialPair()],
             fn (): ModelResponse => $provider->complete($request),
@@ -381,8 +394,8 @@ final class ModelRuntime
             $this->notifier->budgetRefused($pressure);
 
             throw new BudgetExceeded(
-                "The AI spend cap for {$pressure['scope']} is USD {$pressure['cap']} and "
-                ."USD {$pressure['spent']} has been spent this period. This is a HARD cap, so the call was refused."
+                "The AI spend cap for {$pressure['scope']} is ".UsdBdtRate::display($pressure['cap'], 2).' and '
+                .UsdBdtRate::display($pressure['spent']).' has been spent this period. This is a HARD cap, so the call was refused.'
             );
         }
     }

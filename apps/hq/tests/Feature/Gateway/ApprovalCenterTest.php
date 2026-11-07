@@ -442,7 +442,10 @@ it('keeps every real Phase 1 tool below the approval tier', function () {
     // docs/83 C.3: the second is `commerce.take_order`, which writes a draft and then an order waiting
     // for approval in the ERP, and is inert by construction: no store is admitted, so the gateway
     // refuses every call. docs/88 A point 3: the third is its compensating tool, under the same list.
-    expect($r4OrAbove)->toBe([DEMO, 'commerce.take_order', 'commerce.cancel_sales_order'])
+    // R2 pin edit (ruling 31 Oct item 7): the flag-gated tools are ALWAYS registered now, so their R4 descriptors are in the
+    // catalogue: three connector tools (docs/144), the owner Telegram brief (docs/143 D) and avatar.generate (docs/145-b). Each
+    // ships with its flag OFF, is refused `feature_disabled` by the gateway while off, and is not agent-executable.
+    expect($r4OrAbove)->toBe([DEMO, ...['commerce.take_order', 'commerce.cancel_sales_order', 'media.draft_reel', 'erp.create_draft_bill', 'ads.create_draft', 'briefing.send_owner_telegram', 'avatar.generate']])
         ->and(app(ToolGateway::class)->descriptors()['commerce.take_order']->supportedStores)->toBe([])
         ->and(app(ToolGateway::class)->descriptors()['commerce.cancel_sales_order']->supportedStores)->toBe([]);
 });

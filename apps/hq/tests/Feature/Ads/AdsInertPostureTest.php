@@ -8,6 +8,7 @@ use App\Ads\Meta\MetaAdsReader;
 use App\Gateway\Descriptor\MonetaryImpact;
 use App\Gateway\Descriptor\ReadWrite;
 use App\Gateway\Descriptor\RiskTier;
+use App\Gateway\Registry\ToolAvailability;
 use App\Gateway\ToolGateway;
 use App\Gateway\ToolRequest;
 use App\Models\Agent;
@@ -59,7 +60,10 @@ it('registers no ads tool: none is in config/hq.php and the gateway refuses one 
     foreach (ADS_TOOL_CLASSES as $class) {
         expect($classes)->not->toContain($class);
     }
-    expect(array_filter(app(ToolRegistry::class)->keys(), fn ($k) => str_starts_with($k, 'ads.')))->toBe([]);
+    // R2 pin edit (ruling 31 Oct item 7): the one ads tool in the registry is docs/144's flag-gated DRAFT tool, always registered and
+    // refused `feature_disabled` while its flag is off. The four READ tools above stay registered nowhere (gate P5-G1).
+    expect(array_values(array_filter(app(ToolRegistry::class)->keys(), fn ($k) => str_starts_with($k, 'ads.'))))->toBe(['ads.create_draft'])
+        ->and(app(ToolAvailability::class)->isAvailable('ads.create_draft'))->toBeFalse();
 
     $outcome = app(ToolGateway::class)->execute(ToolRequest::forOperator($this->owner, 'ads.read_account', ['business_slug' => 'laladia']));
     expect($outcome->ok())->toBeFalse()->and((string) $outcome->error)->toContain('Unknown tool');

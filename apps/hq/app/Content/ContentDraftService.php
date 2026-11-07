@@ -6,11 +6,14 @@ use App\Context\Provenance;
 use App\Models\Brand;
 use App\Models\ContentBrief;
 use App\Models\ContentDraft;
+use App\Models\ContentTestimonial;
 use App\Models\MediaAsset;
 use App\Models\ResearchArtifact;
 use App\Models\ResearchTask;
 use App\Models\User;
 use App\Research\ResearchRefused;
+use App\Support\Authorization\ApproverRole;
+use App\Support\Authorization\EligibleReviewers;
 use App\Support\Features\Features;
 use Illuminate\Support\Facades\DB;
 
@@ -22,6 +25,13 @@ use Illuminate\Support\Facades\DB;
  * research claims it cites. It is checked (`ContentChecks`) and stored with the result: `checked` or
  * `failed_checks`. A failed draft keeps its words exactly as they were; nothing here rewrites them.
  *
+ * Review (ChatGPT ruling 15, 31 Oct 2026): approving a draft authorises its WORDS only, never publication
+ * (a separate governed action with its own approval of the exact post). The person who wrote a draft may
+ * approve it only while they are the sole eligible reviewer for that business, with a reason; the draft
+ * records `self_decided`, the reason and when. Once a second eligible reviewer exists, review is
+ * independent. A draft quoting an EDITED testimonial (ruling 13) is approved only with the reviewer
+ * confirming the exact final asset (its content digest).
+ *
  * ⛔ **Off.** Refuses while the flag `content.drafting` has no enabled row. No tool that calls this is
  * registered, and no agent holds one. The Executive never will: publication and content are outside
  * its role (config `hq.roles`), and no publishing capability exists for it.
@@ -30,15 +40,20 @@ final class ContentDraftService
 {
     public const FLAG = 'content.drafting';
 
+    /** The permission whose holders are the eligible reviewers of a content draft. */
+    public const REVIEW_PERMISSION = 'hq.content.review';
+
     public function __construct(
         private readonly Features $features,
         private readonly ContentChecks $checks,
+        private readonly EligibleReviewers $reviewers,
     ) {}
 
     /**
      * @param  array{brief_id: int, text: string, text_provenance: string, platform: string, variant?: string,
      *               product_lines: list<string>, product_facts?: list<array<string, mixed>>, research_artifact_id?: ?int,
-     *               claim_refs?: list<string>, assets?: list<array{media_asset_id: int, role: string}>, parent_draft_id?: ?int}  $input
+     *               claim_refs?: list<string>, assets?: list<array{media_asset_id: int, role: string}>, parent_draft_id?: ?int,
+     *               testimonial_id?: ?int, testimonial_edited?: bool}  $input
      */
     public function create(array $input, ?User $by = null): ContentDraft
     {
@@ -72,13 +87,26 @@ final class ContentDraftService
         [$artifact, $cited] = $this->citedClaims($input, (int) $brand->business_id, (int) $brand->getKey());
         $assets = $this->assets((array) ($input['assets'] ?? []), (int) $brand->business_id, $platform);
 
+        // Ruling 13: a named testimonial must be this business's; whether it qualifies is a check, not a refusal.
+        $testimonial = null;
+        if (! empty($input['testimonial_id'])) {
+            $testimonial = ContentTestimonial::query()->find((int) $input['testimonial_id']);
+            if ($testimonial === null || (int) $testimonial->business_id !== (int) $brand->business_id) {
+                throw new ResearchRefused('A draft quotes only a testimonial recorded for this business.');
+            }
+        }
+        $quote = $testimonial === null ? null : [
+            'testimonial' => $testimonial, 'text_provenance' => $textProvenance, 'platform' => $platform,
+            'assets' => (array) ($input['assets'] ?? []), 'edited' => (bool) ($input['testimonial_edited'] ?? false),
+        ];
+
         $productLines = array_values(array_filter(array_map('strval', (array) ($input['product_lines'] ?? []))));
-        $result = $this->checks->run($text, $brief, $productLines, $facts, $cited, $brand->business?->slug, $brand->slug);
+        $result = $this->checks->run($text, $brief, $productLines, $facts, $cited, $brand->business?->slug, $brand->slug, $quote);
 
         $variant = (string) ($input['variant'] ?? 'default');
         $parentId = isset($input['parent_draft_id']) ? (int) $input['parent_draft_id'] : null;
 
-        return DB::transaction(function () use ($brief, $brand, $artifact, $parentId, $platform, $variant, $text, $textProvenance, $assets, $facts, $cited, $result, $by): ContentDraft {
+        return DB::transaction(function () use ($brief, $brand, $artifact, $parentId, $platform, $variant, $text, $textProvenance, $assets, $facts, $cited, $result, $by, $testimonial): ContentDraft {
             if ($parentId !== null) {
                 $parent = ContentDraft::query()->whereKey($parentId)->lockForUpdate()->first();
                 if ($parent === null || $parent->brand_id !== $brand->getKey()) {
@@ -104,12 +132,19 @@ final class ContentDraftService
                 'status' => $result['passed'] ? 'checked' : 'failed_checks',
                 'content_digest' => ContentDigest::ofDraftParts($text, $assets, $platform, $variant, (int) $brief->getKey(), (int) $brand->business_id, (int) $brand->getKey()),
                 'created_by' => $by?->getKey(),
+                'testimonial_id' => $testimonial?->getKey(),
             ]);
         });
     }
 
-    /** A person's review. Only a checked draft can be approved; the words never change here. */
-    public function review(ContentDraft $draft, string $verdict, User $by): ContentDraft
+    /**
+     * A person's review. Only a checked draft can be approved; the words never change here. Approval is of the
+     * words only: it never publishes and never authorises a publication.
+     *
+     * @param  ?string  $selfReason  required when the writer approves their own draft as the sole eligible reviewer
+     * @param  ?string  $confirmedDigest  required when the draft quotes an edited testimonial: the exact final asset
+     */
+    public function review(ContentDraft $draft, string $verdict, User $by, ?string $selfReason = null, ?string $confirmedDigest = null): ContentDraft
     {
         if (! in_array($verdict, ['approved', 'rejected'], true)) {
             throw new ResearchRefused("[{$verdict}] is not a review verdict.");
@@ -118,7 +153,35 @@ final class ContentDraftService
             throw new ResearchRefused("A draft that is {$draft->status} cannot be approved. Edit it into a new draft, which is checked again.");
         }
 
-        $draft->forceFill(['status' => $verdict, 'reviewed_by' => $by->getKey(), 'reviewed_at' => now()])->save();
+        // docs/149: an `approver` reviews only in their businesses, only with hq.content.review assigned, and never their
+        // own draft (the sole-reviewer exception below is not theirs). Says nothing for a person without the role.
+        if (($barred = app(ApproverRole::class)->refusal($by, $draft->business_id !== null ? (int) $draft->business_id : null, [$draft->created_by], self::REVIEW_PERMISSION)) !== null) {
+            throw new ResearchRefused($barred);
+        }
+
+        $self = $draft->created_by !== null && (int) $draft->created_by === (int) $by->getKey();
+        $selfReason = trim((string) $selfReason);
+        if ($verdict === 'approved' && $self) {
+            // Ruling 15: a sole eligible reviewer may approve their own draft, with a reason, recorded.
+            if (! $this->reviewers->actorIsSole($by, self::REVIEW_PERMISSION, (int) $draft->business_id)) {
+                throw new ResearchRefused('Another eligible reviewer exists for this business, so this draft needs an independent review. You wrote it, so you cannot approve it.');
+            }
+            if ($selfReason === '') {
+                throw new ResearchRefused('You wrote this draft and are the only eligible reviewer. Say why you approve it yourself; it is recorded as self-decided.');
+            }
+        }
+        if ($verdict === 'approved' && ($draft->checks['claims_policy']['testimonial']['edited'] ?? false) === true
+            && ($confirmedDigest === null || ! hash_equals((string) $draft->content_digest, $confirmedDigest))) {
+            throw new ResearchRefused('This draft quotes an edited testimonial. Approve it by confirming the exact final post (its digest).');
+        }
+
+        $selfDecided = $verdict === 'approved' && $self;
+        $draft->forceFill([
+            'status' => $verdict, 'reviewed_by' => $by->getKey(), 'reviewed_at' => now(),
+            'self_decided' => $selfDecided,
+            'self_decided_reason' => $selfDecided ? mb_substr($selfReason, 0, 1000) : null,
+            'self_decided_at' => $selfDecided ? now() : null,
+        ])->save();
 
         return $draft;
     }

@@ -1,7 +1,9 @@
 import HeadingSmall from '@/components/heading-small';
+import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
+import { StatusBadge } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { formatDateTime, timeAgo } from '@/lib/format';
@@ -55,22 +57,22 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                         title="Devices and sessions"
                         description="Every browser that is signed in as you. This one is marked; the others can be signed out below."
                     />
-                    <div className="overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="text-muted-foreground text-left text-xs">
-                                <tr className="border-b">
-                                    <th className="px-4 py-2 font-medium">Device</th>
-                                    <th className="px-4 py-2 font-medium">Address</th>
-                                    <th className="px-4 py-2 font-medium">Last active</th>
+                            <thead className="text-left text-xs">
+                                <tr>
+                                    <th className="px-4 py-2.5">Device</th>
+                                    <th className="px-4 py-2.5">Address</th>
+                                    <th className="px-4 py-2.5">Last active</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {sessions.map((s) => (
-                                    <tr key={s.id} className="border-b last:border-0">
+                                    <tr key={s.id}>
                                         <td className="px-4 py-2" title={s.user_agent ?? undefined}>
                                             <div>{describeAgent(s.user_agent)}</div>
                                             {s.is_current ? (
-                                                <div className="text-xs text-emerald-600 dark:text-emerald-400">this device</div>
+                                                <StatusBadge tone="ok" className="mt-1">this device</StatusBadge>
                                             ) : (
                                                 <div className="text-muted-foreground text-xs">another device</div>
                                             )}
@@ -106,7 +108,7 @@ export default function Sessions({ sessions }: { sessions: Session[] }) {
                             value={form.data.password}
                             onChange={(e) => form.setData('password', e.target.value)}
                         />
-                        {form.errors.password && <div className="text-sm text-red-600">{form.errors.password}</div>}
+                        <InputError message={form.errors.password} />
                     </div>
                     <Button variant="outline" type="submit" disabled={form.processing}>
                         Sign out other devices

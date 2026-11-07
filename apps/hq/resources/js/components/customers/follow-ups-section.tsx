@@ -1,7 +1,9 @@
+import { EmptyState } from '@/components/empty-state';
 import { DataTable, Note } from '@/components/observe/panels';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { formatDateTime, humanKey } from '@/lib/format';
 import { useT } from '@/lib/i18n';
+import { reasonLabel } from '@/lib/reasons';
 
 /**
  * Customer 360's follow-ups section (docs/120 item 14, docs/123 section 2). READ-ONLY: no form, no
@@ -77,9 +79,7 @@ export function FollowUpsBody({ data }: { data: CustomerFollowUps | null }) {
 
     if (data === null) {
         return (
-            <div className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-                {t('Follow-ups need the follow-ups permission (hq.followups.view).')}
-            </div>
+            <EmptyState title={t('Follow-ups need the follow-ups permission (hq.followups.view).')} className="py-6" />
         );
     }
 
@@ -115,7 +115,7 @@ export function FollowUpsBody({ data }: { data: CustomerFollowUps | null }) {
                     {
                         key: 'consent',
                         label: 'Consent',
-                        render: (f) => (f.consent_refusal ? t('refused: {class}', { class: humanKey(f.consent_refusal) }) : '-'),
+                        render: (f) => (f.consent_refusal ? t('refused: {class}', { class: reasonLabel(f.consent_refusal) }) : '-'),
                     },
                     { key: 'note', label: 'Completion note', render: (f) => (f.close_note ? <span className="whitespace-pre-wrap">{f.close_note}</span> : '-') },
                     { key: 'ledger', label: 'Outcome ledger', render: (f) => <Credits credits={f.ledger_credits} /> },
@@ -126,7 +126,15 @@ export function FollowUpsBody({ data }: { data: CustomerFollowUps | null }) {
                 rows={data.opportunities}
                 empty="No opportunities recorded for this customer."
                 columns={[
-                    { key: 'state', label: 'State', render: (o) => humanKey(o.state) },
+                    {
+                        key: 'state',
+                        label: 'State',
+                        render: (o) => (
+                            <StatusBadge status={o.state} dot={false}>
+                                {humanKey(o.state)}
+                            </StatusBadge>
+                        ),
+                    },
                     { key: 'kind', label: 'Kind', render: (o) => humanKey(o.kind) },
                     { key: 'subject', label: 'Subject', render: (o) => o.subject },
                     { key: 'expected', label: 'Expected', render: (o) => o.expected_at ?? '-' },

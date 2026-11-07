@@ -31,6 +31,7 @@ use App\Models\Store;
 use App\Models\ToolCall;
 use App\Support\Audit\Auditor;
 use App\Support\Authorization\BusinessScope;
+use App\Tools\FlaggedTools;
 use App\Tools\PreviewableTool;
 use App\Tools\Tool;
 use App\Tools\ToolContext;
@@ -86,6 +87,7 @@ final class ToolGateway
         private readonly CredentialHealth $health,
         private readonly ExecutionContextResolver $contexts,
         private readonly PreExecutionSafetyChecks $preExecution,
+        private readonly FlaggedTools $flagged,
     ) {}
 
     public function execute(ToolRequest $request, ?Approval $approval = null): ToolOutcome
@@ -149,6 +151,12 @@ final class ToolGateway
         // 1. Registered in code AND enabled at runtime. Config always wins; a database row can only
         //    ever narrow what the deployed code already contains.
         $availability = $this->availability->check($request->toolKey, $request->businessId);
+        // Ruling 31 Oct item 7: a registered tool whose feature flag is off (read live, for THIS call) is refused with the typed
+        // outcome `feature_disabled`, never as an unknown tool. A flag that is on decides nothing further: the steps below still run.
+        if ($descriptor !== null && ($availability[ToolAvailability::FEATURE_DISABLED] ?? false) === true) {
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Unavailable, FailureClass::Unsupported, OutcomeClass::FeatureDisabled,
+                (string) $availability['reason']);
+        }
         if (! $availability['available'] || $descriptor === null) {
             return GatewayAuthorization::refused($descriptor, OutcomeStatus::Unavailable, FailureClass::Unsupported, OutcomeClass::CapabilityUnavailable,
                 $availability['reason'] ?? "Tool [{$request->toolKey}] has no descriptor.");
@@ -179,6 +187,12 @@ final class ToolGateway
         }
         if (($scopeProblem = $this->checkScope($descriptor, $request, $scope)) !== null) {
             return GatewayAuthorization::refused($descriptor, OutcomeStatus::Denied, FailureClass::Refused, OutcomeClass::ScopeDenied, $scopeProblem, $tool, $args, $scope);
+        }
+        // 3b. Ruling 31 Oct item 7: the feature flag again, now for the RESOLVED business (a flag rolled out to some businesses
+        //     only is per business; step 1 knew only the request's business). Read live; an unreadable flag is off.
+        if (! $this->flagged->flagOn($request->toolKey, $scope->businessId)) {
+            return GatewayAuthorization::refused($descriptor, OutcomeStatus::Unavailable, FailureClass::Unsupported, OutcomeClass::FeatureDisabled,
+                "Tool [{$request->toolKey}] is switched off for this business: its feature flag [{$this->flagged->flagFor($request->toolKey)}] is off.", $tool, $args, $scope);
         }
         // Now that the target is known, the row can say which business and store the call was for.
         // Before M2 an ERP poll recorded null for both, because its business lives in its payload.

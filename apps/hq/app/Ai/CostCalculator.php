@@ -3,6 +3,7 @@
 namespace App\Ai;
 
 use App\Models\AiModel;
+use App\Support\Money\UsdBdtRate;
 
 /**
  * Turns token counts into money, using the prices on the model row that actually ran.
@@ -67,9 +68,9 @@ final class CostCalculator
         return bcdiv(bcmul($tokens, $pricePerMillion, self::SCALE), self::PER_MILLION, self::SCALE);
     }
 
-    /** For an operator, not for accounting: accounting reads the stored decimal. */
+    /** For an operator, not for accounting: accounting reads the stored decimal. BDT first, USD beside it. */
     public function format(string $usd): string
     {
-        return '$'.number_format((float) $usd, 4);
+        return UsdBdtRate::display($usd);
     }
 }

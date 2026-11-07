@@ -2,6 +2,7 @@
 
 namespace App\Briefing;
 
+use App\Ai\Pause\AiPause;
 use App\Models\Briefing;
 use App\Support\Features\Features;
 use Illuminate\Contracts\Container\Container;
@@ -33,6 +34,7 @@ final class BriefingComposer
         private readonly NarrativeNumberCheck $numbers,
         private readonly Features $features,
         private readonly Container $container,
+        private readonly AiPause $pause,
     ) {}
 
     public function compose(BriefingRequest $request, string $idempotencyKey, ?string $correlationId = null, ?int $actorUserId = null): Briefing
@@ -98,6 +100,11 @@ final class BriefingComposer
         }
         if (! $this->features->enabled((string) config('hq.ai.enabled_flag', 'ai.runtime'), $request->businessId)) {
             return $none('runtime_off');
+        }
+        // docs/141: Pause All AI. The briefing is still composed from evidence (a human operation); only
+        // the narration, which would ask a model, is left out.
+        if ($this->pause->isPaused()) {
+            return $none('ai_paused');
         }
         if ($bundle === null || $report->blocksNarration()) {
             return $none('blocked');

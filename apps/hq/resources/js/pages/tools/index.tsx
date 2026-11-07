@@ -1,11 +1,14 @@
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
-import { JsonBlock, PageHeader, TechnicalDetail } from '@/components/page-header';
+import { JsonBlock, PageHeader, TechnicalDetail, Toolbar } from '@/components/page-header';
+import { ReasonText } from '@/components/reason-text';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Notice } from '@/components/ui/notice';
 import { StatusBadge, type Tone } from '@/components/ui/status-badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatDateTime, humanKey, humanMillis, timeAgo } from '@/lib/format';
+import { useT } from '@/lib/i18n';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
@@ -72,18 +75,25 @@ export default function ToolsIndex({
     orphans,
     environment,
     filters,
+    switch: groupSwitch,
 }: {
     tools: Tool[];
     orphans: string[];
     environment: string;
     filters: { q: string; state: string };
+    /** docs/138 ruling 13: may this person throw a switch that acts on every business, and if not, why. */
+    switch: { allowed: boolean; refusal: string | null; refusal_code?: string | null };
 }) {
+    const t = useT();
     const { auth } = usePage<{ auth: { permissions: string[] } }>().props;
-    const canManage = auth.permissions.includes('hq.tools.manage');
+    const holdsPermission = auth.permissions.includes('hq.tools.manage');
+    // docs/138 ruling 13: the permission alone is not enough; the server also says the person is group-wide.
+    const canManage = holdsPermission && groupSwitch.allowed;
     const [pending, setPending] = useState<string | null>(null);
     const [open, setOpen] = useState<string | null>(null);
     const [query, setQuery] = useState(filters.q ?? '');
     const [disabling, setDisabling] = useState<Tool | null>(null);
+    const [enabling, setEnabling] = useState<Tool | null>(null);
 
     const applyFilters = (q: string, state: string) => {
         router.get('/tools', { q: q || undefined, state: state === 'all' ? undefined : state }, { preserveState: true, replace: true });
@@ -91,13 +101,18 @@ export default function ToolsIndex({
 
     const setEnabled = (tool: Tool, enabled: boolean, reason?: string) => {
         setPending(tool.key);
-        router.post(`/tools/${tool.key}/toggle`, enabled ? { enabled: true } : { enabled: false, reason }, {
-            preserveScroll: true,
-            onFinish: () => {
-                setPending(null);
-                setDisabling(null);
+        router.post(
+            `/tools/${tool.key}/toggle`,
+            { enabled, reason },
+            {
+                preserveScroll: true,
+                onFinish: () => {
+                    setPending(null);
+                    setDisabling(null);
+                    setEnabling(null);
+                },
             },
-        });
+        );
     };
 
     const enabledCount = tools.filter((t) => t.runtime.enabled).length;
@@ -120,9 +135,10 @@ export default function ToolsIndex({
                         </StatusBadge>
                     }
                 >
-                    <div className="flex flex-wrap items-center gap-2">
+                    <Toolbar label="Filter tools">
                         <Input
-                            className="w-64"
+                            className="w-full sm:w-64"
+                            aria-label="Search by name or purpose"
                             placeholder="Search by name or purpose"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
@@ -142,22 +158,37 @@ export default function ToolsIndex({
                                 {s.label}
                             </Button>
                         ))}
-                    </div>
+                    </Toolbar>
                 </PageHeader>
 
+                {holdsPermission && !groupSwitch.allowed && (
+                    <Notice tone="warn" title="Group-wide switch">
+                        <ReasonText
+                            reason={{
+                                code: groupSwitch.refusal_code ?? (groupSwitch.refusal ? null : 'group_switch_business_restricted'),
+                                text: groupSwitch.refusal,
+                            }}
+                        />
+                    </Notice>
+                )}
+
                 {orphans.length > 0 && (
-                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <Notice tone="pending">
                         <strong>Switch rows without a tool.</strong> These were switched off once and the code has since gone. They are kept, not
                         deleted, so the decision survives the code coming back: <span className="font-mono text-xs">{orphans.join(', ')}</span>
-                    </div>
+                    </Notice>
                 )}
 
                 {tools.length === 0 ? (
-                    <EmptyState icon={Wrench} title="No tools match" description="Clear the search or pick another filter." />
+                    <EmptyState
+                        icon={Wrench}
+                        title="No tools match"
+                        description="The search or the filter hides every registered tool. Clear the search or pick another filter."
+                    />
                 ) : (
-                    <div className="bg-card overflow-x-auto rounded-xl border">
+                    <div className="hq-table-box">
                         <table className="w-full text-sm">
-                            <thead className="bg-muted/50 text-muted-foreground text-left text-xs">
+                            <thead className="text-left text-xs">
                                 <tr>
                                     <th className="px-3 py-2 font-medium">Tool</th>
                                     <th className="px-3 py-2 font-medium">Risk</th>
@@ -177,7 +208,7 @@ export default function ToolsIndex({
                                                 <td className="max-w-md px-3 py-3">
                                                     <button
                                                         type="button"
-                                                        className="flex items-start gap-1.5 text-left font-medium hover:underline"
+                                                        className="touch:min-h-11 flex items-start gap-1.5 rounded-md text-left font-medium hover:underline"
                                                         onClick={() => setOpen(expanded ? null : t.key)}
                                                         aria-expanded={expanded}
                                                     >
@@ -197,7 +228,7 @@ export default function ToolsIndex({
                                                             <span>needs {t.credentials.map((c) => c.provider).join(', ')}</span>
                                                         )}
                                                         {t.governing_policy && (
-                                                            <span className="text-amber-700 dark:text-amber-300">
+                                                            <span className="text-tone-pending">
                                                                 policy {t.governing_policy.key} v{t.governing_policy.version}
                                                             </span>
                                                         )}
@@ -263,20 +294,18 @@ export default function ToolsIndex({
                                                                 Turn off
                                                             </Button>
                                                         ) : (
-                                                            <Button size="sm" disabled={pending === t.key} onClick={() => setEnabled(t, true)}>
+                                                            <Button size="sm" disabled={pending === t.key} onClick={() => setEnabling(t)}>
                                                                 Turn on
                                                             </Button>
                                                         ))}
                                                 </td>
                                             </tr>
                                             {expanded && (
-                                                <tr className="bg-muted/30 border-t">
+                                                <tr className="bg-muted/40">
                                                     <td colSpan={7} className="px-4 py-4">
                                                         <div className="grid gap-4 md:grid-cols-3">
                                                             <div>
-                                                                <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                                                                    Contract
-                                                                </div>
+                                                                <div className="hq-eyebrow mb-1">Contract</div>
                                                                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
                                                                     <dt className="text-muted-foreground">Reads or writes</dt>
                                                                     <dd>{t.read_write}</dd>
@@ -302,10 +331,12 @@ export default function ToolsIndex({
                                                                 </dl>
                                                             </div>
                                                             <div>
-                                                                <div className="text-muted-foreground mb-1 text-xs font-medium uppercase">
-                                                                    Recent calls
-                                                                </div>
-                                                                {t.recent.length === 0 && <div className="text-muted-foreground text-xs">none</div>}
+                                                                <div className="hq-eyebrow mb-1">Recent calls</div>
+                                                                {t.recent.length === 0 && (
+                                                                    <div className="text-muted-foreground text-xs">
+                                                                        No calls recorded for this tool yet.
+                                                                    </div>
+                                                                )}
                                                                 <ul className="space-y-1 text-xs">
                                                                     {t.recent.map((c) => (
                                                                         <li key={c.id} className="flex flex-wrap items-center gap-2">
@@ -365,6 +396,17 @@ export default function ToolsIndex({
                 busy={pending !== null}
                 reason={{ label: 'Why', placeholder: 'What happened, and what has to be true before it comes back.', required: true }}
                 onConfirm={(reason) => disabling && setEnabled(disabling, false, reason)}
+            />
+
+            <ConfirmDialog
+                open={enabling !== null}
+                onOpenChange={(o) => !o && setEnabling(null)}
+                title={`${t('Turn on')} ${enabling?.title ?? ''}?`}
+                description="Every caller gets it back at once, for every business. The reason is kept in the audit log with who changed it, before and after."
+                confirmLabel={t('Turn on')}
+                busy={pending !== null}
+                reason={{ label: t('Why'), placeholder: t('What was fixed, and why it is safe to turn back on.'), required: true }}
+                onConfirm={(reason) => enabling && setEnabled(enabling, true, reason)}
             />
         </AppLayout>
     );
